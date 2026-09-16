@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
+# ===========================================================================
+# airymax-desktop.slice — 桌面低干扰 cgroup slice
+#
+# 目的：桌面会话与 agent 负载在调度面上隔离（对应 desktop/README.md 决策 3）。
+# 权重制（50/100）而非限额制：桌面繁忙时让路，agent 空闲时桌面可用满额，
+# 避免给桌面硬顶 MemoryMax 造成体验 cliff。
+#
+# 部署：随 airymaxos-release 包安装到 /etc/systemd/system/；
+# kickstart %post 或 RPM %post 触发 systemctl daemon-reload。
+# TODO: 会话级挂接方式（user@.service.d drop-in 或 lightdm 会话 PAM）在
+#       首个冻结点按实际 unit 布局确定后回填。
+# ===========================================================================
+[Unit]
+Description=AirymaxOS desktop session slice (low-interference)
+Documentation=https://atomgit.com/openairymax/distro
+Before=slices.target
+
+[Slice]
+# CPU/IO 权重：桌面整体让位于 agent 工作负载（默认 100）
+CPUWeight=50
+IOWeight=50
+# 任务数上限防失控（相对值，桌面场景足够）
+TasksMax=40%
+# 不设 MemoryMax/MemoryHigh：依赖 ukui 自身分级冻结（kylin-app-cgroupd）
+# 做桌面内部回收，避免与该机制双重限额互踩。
