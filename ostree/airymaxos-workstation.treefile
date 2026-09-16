@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
+# ===========================================================================
+# AirymaxOS 1.0 rpm-ostree treefile — 工作站（UKUI 桌面）
+#
+# 对应 docs/AirymaxOS/190-distribution/04-update-mechanism.md 更新矩阵：
+#   小版本升级  = rpm-ostree upgrade（5-10min，含重启）
+#   大版本换代  = rpm-ostree rebase（1.x→2.x，ADR-016 三阶段，秒级停机目标
+#                 由 handover 协议补全，见热更换讨论结论）
+#   回滚        = rpm-ostree rollback（≤30s，ostree 原生）
+#
+# 执行位置：发布工作区（严禁在源码区内 compose）。
+# ===========================================================================
+ref: airymaxos/1.0/x86_64/desktop
+repos:
+  - airymax-os
+  - openEuler-24.03-LTS-SP2
+  - openEuler-24.03-LTS-SP2-EPOL
+
+# 包集：与 comps @airymax-workstation 环境一致
+packages:
+  # 本项目系统层（TODO: airymaxos-release 包由 system 叶子仓产出后加入，
+  # 携带 repo 定义 / brand / desktop 策略文件）
+  - kernel
+  - ukui
+  - xorg-x11-server-Xorg
+  - lightdm
+  - pipewire
+  - peony
+  - ukui-terminal
+  - fcitx5
+  - fcitx5-chinese-addons
+
+# 排除桌面 AI 控制面（agent 入口唯一 = Gateway）
+exclude-packages:
+  # 通配符支持视 rpm-ostree 版本；不行则在 kickstart/lockfile 两处兜底
+  - kylin-ai*
+
+boot-location: new
+rpmdb: sqlite
+default-target: graphical.target
+
+# TODO（与 security 叶子仓协调后定）：
+#   - SELinux 策略形态：openEuler 默认 targeted；AirymaxOS 安全主线为
+#     纯 C LSM + Landlock，两者叠加规则需 security 侧给出裁定
+#   - 内核参数追加（sched_tac 控制组、iommu 等）经 kernel 叶子仓以
+#     uapi/引导配置下发，不在 treefile 硬编码

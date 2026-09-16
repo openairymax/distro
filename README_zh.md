@@ -27,14 +27,26 @@
 
 ```
 distro/
-├── kickstart/        # 安装器 kickstart（UKUI 为默认桌面组）
-├── comps/            # 包组定义（airymax-desktop → UKUI 组件集）
-├── lockfile/         # rpm lockfile：openEuler 24.03 SP 冻结点 + UKUI 钉版
-├── ostree/           # rpm-ostree 镜像配方（对应更新机制）
-├── desktop/          # UKUI 集成策略：禁用 KylinBot、cgroup slice 隔离、
-│                     # X11 优先会话、agent 入口仅经 Gateway
-├── ukui-patches/     # （预留）UKUI 的 spec + 补丁，如确有需要
-└── ci/               # 组合冒烟矩阵：桌面包组 × 内核 RPM
+├── kickstart/
+│   └── airymaxos-workstation.ks   # 安装器 kickstart（UKUI 为默认桌面组）
+├── comps/
+│   └── airymaxos-comps.xml        # 包组定义：airymax-desktop* → UKUI 组件集
+├── lockfile/
+│   ├── README.md                  # 冻结策略 + 冻结点记录表
+│   ├── gen-lockfile.sh            # lockfile 生成脚本（仅发布工作区执行）
+│   └── lockfile-openEuler-24.03-LTS-SP2.yaml
+├── ostree/
+│   ├── README.md                  # rpm-ostree compose 流程
+│   └── airymaxos-workstation.treefile
+├── desktop/
+│   ├── README.md                  # UKUI 集成策略（六条铁律）
+│   ├── airymax-desktop.slice      # 桌面低干扰 cgroup slice
+│   └── 70-airymax-ukui-policy.sh  # 安装后策略脚本
+├── ukui-patches/
+│   └── README.md                  # 零补丁策略（预留）
+└── ci/
+    ├── README.md                  # 组合冒烟矩阵（T1-T4 + X1）
+    └── run-smoke.sh               # 冒烟执行骨架（TAP 输出）
 ```
 
 ## 内核隔离边界（硬规则）

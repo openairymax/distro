@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
+  AirymaxOS 包组定义（comps）
+
+  桌面决策（2026-09-15）：OS 侧系统桌面 = UKUI 4.x（openKylin/openEuler 线），
+  以 RPM 形态随 Euler 包生态进入镜像，禁止 vendor 源码。
+  基础仓库：openEuler 24.03 LTS（SP 分支按 lockfile 冻结点选定）。
+
+  注意：包名以冻结点实际仓库为准（lockfile/gen-lockfile.sh 会校验存在性）；
+  标注 TODO 的条目需在首个冻结点落地时逐一核对。
+-->
+<comps>
+  <!-- 核心组：最小可启动 UKUI 桌面会话 -->
+  <group>
+    <id>airymax-desktop-core</id>
+    <name>AirymaxOS Desktop Core (UKUI)</name>
+    <name xml:lang="zh_CN">AirymaxOS 桌面核心（UKUI）</name>
+    <description>Minimal bootable UKUI desktop session</description>
+    <description xml:lang="zh_CN">最小可启动的 UKUI 桌面会话（会话 + 窗管 + 登录管理器）</description>
+    <default>false</default>
+    <uservisible>false</uservisible>
+    <packagelist>
+      <!-- openEuler 官方安装口径：dnf install ukui（元包，带入 ukui-session/
+           ukui-kwin/ukui-panel/ukui-menu/peony/ukui-settings-daemon 等） -->
+      <packagereq type="mandatory">ukui</packagereq>
+      <!-- X11 优先（desktop/README.md 图形路径决策，Wayland 为二期） -->
+      <packagereq type="mandatory">xorg-x11-server-Xorg</packagereq>
+      <!-- 登录管理器：UKUI 系默认走 lightdm；TODO 核对冻结点是否改由
+           ukui-greeter / sddm 提供会话管理 -->
+      <packagereq type="mandatory">lightdm</packagereq>
+      <!-- 音频栈：UKUI 4.x 依赖 PipeWire -->
+      <packagereq type="mandatory">pipewire</packagereq>
+      <!-- UKUI 分级冻结（cgroup v2）；TODO 核对 openEuler 冻结点的实际包名
+           （openKylin 侧为 kylin-app-cgroupd，openEuler 可能以其他包名提供） -->
+      <packagereq type="default">kylin-app-cgroupd</packagereq>
+    </packagelist>
+  </group>
+
+  <!-- 完整桌面组：核心 + 终端 + 文件管理器 + 输入法 + 基础应用 -->
+  <group>
+    <id>airymax-desktop</id>
+    <name>AirymaxOS Desktop (UKUI)</name>
+    <name xml:lang="zh_CN">AirymaxOS 桌面（UKUI）</name>
+    <description>Full AirymaxOS desktop with UKUI</description>
+    <description xml:lang="zh_CN">AirymaxOS 完整桌面环境（UKUI + 基础应用 + 输入法）</description>
+    <default>false</default>
+    <uservisible>true</uservisible>
+    <packagelist>
+      <packagereq type="mandatory">ukui</packagereq>
+      <packagereq type="mandatory">xorg-x11-server-Xorg</packagereq>
+      <packagereq type="mandatory">lightdm</packagereq>
+      <packagereq type="mandatory">pipewire</packagereq>
+      <!-- 文件管理器（ukui 元包应带入 peony，此处显式声明以防元包漂移） -->
+      <packagereq type="default">peony</packagereq>
+      <!-- 终端；TODO 核对冻结点包名（ukui-terminal / qterminal） -->
+      <packagereq type="default">ukui-terminal</packagereq>
+      <!-- 输入法：中文支持；TODO 核对冻结点提供 fcitx5 还是 fcitx4 系列 -->
+      <packagereq type="default">fcitx5</packagereq>
+      <packagereq type="default">fcitx5-chinese-addons</packagereq>
+      <!-- 分级冻结（同上 TODO） -->
+      <packagereq type="default">kylin-app-cgroupd</packagereq>
+      <!-- 浏览器：TODO 由产品决策定（firefox 系 vs 自选），先按 openEuler 默认提供 -->
+      <packagereq type="optional">firefox</packagereq>
+    </packagelist>
+  </group>
+
+  <!-- 可选扩展组：默认不装 -->
+  <group>
+    <id>airymax-desktop-extras</id>
+    <name>AirymaxOS Desktop Extras</name>
+    <name xml:lang="zh_CN">AirymaxOS 桌面扩展</name>
+    <description>Optional desktop extras</description>
+    <description xml:lang="zh_CN">桌面可选扩展（截图/压缩/多媒体等，按冻结点可用性补充）</description>
+    <default>false</default>
+    <uservisible>true</uservisible>
+    <packagelist>
+      <packagereq type="optional">ukui-biometric-manager</packagereq>
+      <packagereq type="optional">ukui-power-manager</packagereq>
+      <packagereq type="optional">peony-extensions</packagereq>
+    </packagelist>
+  </group>
+
+  <!-- 安装环境：Anaconda 软件选择里作为一个整体环境出现 -->
+  <environment>
+    <id>airymax-workstation</id>
+    <name>AirymaxOS Workstation</name>
+    <name xml:lang="zh_CN">AirymaxOS 工作站</name>
+    <description>Agent OS workstation with UKUI desktop</description>
+    <description xml:lang="zh_CN">智能体操作系统工作站（UKUI 桌面 + 系统层组件）</description>
+    <display_order>99</display_order>
+    <grouplist>
+      <groupid>airymax-desktop</groupid>
+    </grouplist>
+    <optionlist>
+      <groupid>airymax-desktop-extras</groupid>
+    </optionlist>
+  </environment>
+</comps>

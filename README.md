@@ -29,14 +29,26 @@
 
 ```
 distro/
-├── kickstart/        # Installer kickstart files (UKUI as default desktop group)
-├── comps/            # Package group definitions (airymax-desktop → UKUI set)
-├── lockfile/         # rpm lockfile: openEuler 24.03 SP freeze point + UKUI pins
-├── ostree/           # rpm-ostree image recipes (update mechanism)
-├── desktop/          # UKUI integration policy: KylinBot disabled, cgroup slice
-│                     # isolation, X11-first session, agent entry via Gateway only
-├── ukui-patches/     # (reserved) spec + patches for UKUI, if ever needed
-└── ci/               # Combined smoke matrix: desktop package set × kernel RPM
+├── kickstart/
+│   └── airymaxos-workstation.ks   # Installer kickstart (UKUI as default desktop group)
+├── comps/
+│   └── airymaxos-comps.xml        # Package groups: airymax-desktop* → UKUI set
+├── lockfile/
+│   ├── README.md                  # Freeze policy + freeze-point log
+│   ├── gen-lockfile.sh            # Lockfile generator (release workspace only)
+│   └── lockfile-openEuler-24.03-LTS-SP2.yaml
+├── ostree/
+│   ├── README.md                  # rpm-ostree compose workflow
+│   └── airymaxos-workstation.treefile
+├── desktop/
+│   ├── README.md                  # UKUI integration policy (6 rules)
+│   ├── airymax-desktop.slice      # Low-interference cgroup slice
+│   └── 70-airymax-ukui-policy.sh  # Post-install policy script
+├── ukui-patches/
+│   └── README.md                  # Zero-patch policy (reserved)
+└── ci/
+    ├── README.md                  # Smoke matrix (T1-T4 + X1)
+    └── run-smoke.sh               # Smoke runner skeleton (TAP)
 ```
 
 ## Kernel isolation boundary (hard rule)
