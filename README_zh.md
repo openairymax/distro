@@ -53,10 +53,12 @@ distro/
 │   └── README.md                  # 零补丁策略（预留）
 ├── tools/
 │   ├── spec_lint.py               # RPM 配方静态校验器（E001-E014）
-│   └── tests/test_spec_lint.py    # 校验规则回归测试
+│   └── tests/                     # 校验规则与构建驱动回归测试
+├── scripts/
+│   └── build-rpms.sh              # RPM 批量构建驱动（产物限于源码区之外）
 └── ci/
     ├── README.md                  # 组合冒烟矩阵（T1-T4 + X1）
-    ├── run-lint.sh                # 静态门禁：配方校验 + 工具测试
+    ├── run-lint.sh                # 静态门禁：shell 语法 + 配方校验 + 测试
     └── run-smoke.sh               # 冒烟执行脚本（TAP 输出）
 ```
 
@@ -65,12 +67,19 @@ distro/
 `ci/run-lint.sh` 是静态检查的唯一入口，只依赖 Python 3 标准库
 （无需 `rpmbuild`/`mock`）：
 
+- `bash -n` 解析 `ci/`、`lockfile/`、`scripts/` 下全部 shell 入口；
 - `tools/spec_lint.py` 校验 `specs/` 下全部配方（标签集合、
   `airymaxos-` 前缀、`%{?dist}` Release、SPDX 许可证、section 集合、
   源文件存在性、changelog 格式、版本与 `release/os-release` 一致）；
-- `tools/tests/` 保存上述规则的回归测试。
+- `tools/tests/` 保存上述规则与构建驱动契约的回归测试。
 
 配方在提交时校验；真实 RPM 构建只在发布工作区执行，本仓内不构建。
+
+`scripts/build-rpms.sh --out DIR` 驱动批量构建：将所有 `Source`/`Patch`
+归集到私有 `_topdir`，可选发布已签名 DNF 仓库
+（`--repo --stream NAME --gpg-key KEYID`）。`DIR` 解析后必须位于源码区
+之外，否则拒绝执行，从流程上杜绝构建污染检出区。退出码遵循
+`190-distribution/01-rpm-packaging.md` §8。
 
 ## 内核隔离边界（硬规则）
 
