@@ -61,6 +61,7 @@ class ImageCiTest(unittest.TestCase):
         directory = self.root / "desk-rpms"
         directory.mkdir()
         for name in ("airymaxos-release-0.0.3-1.noarch.rpm",
+                     "airymaxos-system-0.0.3-1.noarch.rpm",
                      "airymaxos-kernel-6.6.0-1.x86_64.rpm",
                      "airymaxos-kernel-core-6.6.0-1.x86_64.rpm",
                      "airymaxos-kernel-modules-6.6.0-1.x86_64.rpm"):
@@ -90,6 +91,16 @@ class ImageCiTest(unittest.TestCase):
         res = self.run_script("--help")
         self.assertEqual(res.returncode, 0)
         self.assertIn("用法", res.stdout)
+        self.assertIn("--src-dir", res.stdout)
+        self.assertIn("system/units", res.stdout)
+
+    def test_src_dir_missing_arg(self):
+        self.assertEqual(self.ci("--src-dir").returncode, 5)
+
+    def test_src_dir_accepted(self):
+        res = self.pre("--src-dir", str(DISTRO / "specs"),
+                       "--skip-install")
+        self.assertEqual(res.returncode, 0)
 
     def test_missing_out(self):
         self.assertEqual(self.run_script().returncode, 5)

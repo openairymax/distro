@@ -37,6 +37,7 @@ INSTALL_TIMEOUT=3600
 BOOT_TIMEOUT=300
 MAX_BOOT=30
 SPEC_DIRS=()
+SRC_DIRS=()
 RPMS_DIRS=()
 ADDS=()
 SKIP_RPMS=0
@@ -64,6 +65,8 @@ usage()
   --firmware FW      bios、uefi 或 both，缺省 bios
   --runs N           每种固件的安装轮次，缺省 3
   --spec-dir DIR     传给 build-rpms 的配方目录，可重复
+  --src-dir DIR      传给 build-rpms 的源码搜索目录，可重复；缺省补
+                     system/units 与 system/scripts（airymaxos-system）
   --rpms DIR         传给 build-desktop 的 RPM 目录，可重复；
                      desktop 缺省纳入构建段产物
   --add PATH         传给 build-iso 的附加文件或目录，可重复
@@ -119,6 +122,7 @@ parse_args()
         --firmware) optarg "$1" "$#"; FIRMWARE="$2"; shift 2 ;;
         --runs) optarg "$1" "$#"; need_num "$1" "$2"; RUNS="$2"; shift 2 ;;
         --spec-dir) optarg "$1" "$#"; SPEC_DIRS+=("$2"); shift 2 ;;
+        --src-dir) optarg "$1" "$#"; SRC_DIRS+=("$2"); shift 2 ;;
         --rpms) optarg "$1" "$#"; RPMS_DIRS+=("$2"); shift 2 ;;
         --add) optarg "$1" "$#"; ADDS+=("$2"); shift 2 ;;
         --kernel) optarg "$1" "$#"; KERNEL="$2"; shift 2 ;;
@@ -193,6 +197,23 @@ check_args()
             KS="${DISTRO_ROOT}/kickstart/airymaxos-minimal.ks"
         fi
     fi
+    default_srcs
+}
+
+# airymaxos-system 的 Source 位于 distro 之外的 system/ 子树，distro 根内
+# 索引不到；未显式给出 --src-dir 时按仓库布局补齐，避免装机时缺包。
+default_srcs()
+{
+    local dir
+    if [ "${#SRC_DIRS[@]}" -ne 0 ]; then
+        return 0
+    fi
+    for dir in "${DISTRO_ROOT}/../system/units" \
+        "${DISTRO_ROOT}/../system/scripts"; do
+        if [ -d "${dir}" ]; then
+            SRC_DIRS+=("${dir}")
+        fi
+    done
 }
 
 tap_ok()
@@ -219,6 +240,9 @@ rpm_args()
     RPM_ARGS=(--out "${OUT}/rpms" --arch "${ARCH}")
     for d in "${SPEC_DIRS[@]}"; do
         RPM_ARGS+=(--spec-dir "$d")
+    done
+    for d in "${SRC_DIRS[@]}"; do
+        RPM_ARGS+=(--src-dir "$d")
     done
     if [ -n "${JOBS}" ]; then
         RPM_ARGS+=(--jobs "${JOBS}")

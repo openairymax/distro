@@ -198,7 +198,7 @@ collect_rpms()
 check_closure()
 {
     local want base have
-    for want in airymaxos-release airymaxos-kernel \
+    for want in airymaxos-release airymaxos-system airymaxos-kernel \
         airymaxos-kernel-core airymaxos-kernel-modules; do
         have=""
         for base in "${NAMES[@]}"; do

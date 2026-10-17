@@ -29,6 +29,7 @@ COMPS = DISTRO / "comps" / "airymaxos-comps.xml"
 
 CLOSURE = (
     "airymaxos-release-0.0.3-1.noarch.rpm",
+    "airymaxos-system-0.0.3-1.noarch.rpm",
     "airymaxos-kernel-6.6.0-1.x86_64.rpm",
     "airymaxos-kernel-core-6.6.0-1.x86_64.rpm",
     "airymaxos-kernel-modules-6.6.0-1.x86_64.rpm",
@@ -181,7 +182,7 @@ class BuildDesktopTest(unittest.TestCase):
         manifest = (self.out / "payload" / "airymax" /
                     "payload-manifest.txt").read_text(encoding="utf-8")
         self.assertIn("arch=x86_64", manifest)
-        self.assertIn("count=5", manifest)
+        self.assertIn("count=6", manifest)
         self.assertRegex(manifest, r"comps [0-9a-f]{64} comps/airymaxos-comps\.xml")
         self.assertIn("kernel-core", manifest)
         iso = self.iso()
