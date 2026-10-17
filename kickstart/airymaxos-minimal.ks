@@ -18,12 +18,12 @@ keyboard us
 timezone Asia/Shanghai --utc
 
 # ---- 仓库 ----
-url --url=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/OS/x86_64/
-repo --name=update --baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/update/x86_64/ --cost=100
+url --url=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/OS/$basearch/
+repo --name=update --baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/update/$basearch/ --cost=100
 
 # ---- 引导与分区（UEFI + BIOS 双栈）----
 # 串口控制台保留给无头验收与故障恢复（install-test.sh 依赖 login: 哨兵）
-bootloader --timeout=3 --append="console=ttyS0,115200"
+bootloader --timeout=3 --append="console=ttyS0,115200 console=ttyAMA0,115200"
 clearpart --all --initlabel
 autopart --type=plain --fstype=ext4
 
