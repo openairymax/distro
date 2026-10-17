@@ -37,6 +37,7 @@ distro/
 │   ├── macros.airymax             # FHS layout macros (/etc/rpm/macros.airymax)
 │   └── airymaxos-release.spec     # Distribution identity package
 ├── kickstart/
+│   ├── airymaxos-minimal.ks       # Minimal unattended install (no desktop)
 │   └── airymaxos-workstation.ks   # Installer kickstart (UKUI as default desktop group)
 ├── comps/
 │   ├── comps.dtd                  # Comps 1.0 DTD (local xmllint validation)
@@ -55,11 +56,14 @@ distro/
 ├── ukui-patches/
 │   └── README.md                  # Zero-patch policy (reserved)
 ├── tools/
+│   ├── lint_common.py             # Shared issue type and report format
 │   ├── spec_lint.py               # RPM spec static checker (E001-E014)
 │   ├── comps_lint.py              # comps semantic checker (C001-C009)
+│   ├── ks_lint.py                 # kickstart checker (K001-K012)
 │   └── tests/                     # Lint + build-driver regression tests
 ├── scripts/
-│   └── build-rpms.sh              # Batch RPM build driver (output outside source tree)
+│   ├── build-rpms.sh              # Batch RPM build driver (output outside source tree)
+│   └── install-test.sh            # Unattended install x3 (TAP, QEMU)
 └── ci/
     ├── README.md                  # Smoke matrix (T1-T4 + X1)
     ├── run-lint.sh                # Static gate: shell syntax + spec lint + tests
@@ -81,8 +85,18 @@ the Python 3 standard library only (no `rpmbuild`/`mock` required):
   environment-to-group references) and cross-checks `kickstart/*.ks`
   selections, including the `@^environment` syntax; when `xmllint` is
   available the file is additionally validated against `comps/comps.dtd`;
+- `tools/ks_lint.py` validates `kickstart/*.ks` (section closure, single
+  install source, storage layout, locked/encrypted accounts, HTTPS install
+  sources, `set -eu` in script sections, `%post --log`, single trailing
+  stop command, singleton commands, text/graphical exclusivity);
 - `tools/tests/` holds the regression tests for those rules and for the
   build driver contract.
+
+`scripts/install-test.sh --iso PATH [--runs 3]` boots the ISO three times
+into fresh qcow2 disks, requires the kickstart `%post` completion marker,
+then cold-boots each installed disk and requires a serial `login:` prompt
+without a kernel panic. It emits TAP 14 and exits 77 when the QEMU
+toolchain is unavailable.
 
 Recipes are validated at commit time; actual RPM builds happen only in the
 release workspace, never inside this repository.

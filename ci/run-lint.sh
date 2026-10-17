@@ -8,7 +8,8 @@
 #   2. 校验 specs/ 下所有 RPM 配方（tools/spec_lint.py，E001~E014）；
 #   3. 校验 comps/ 下包组定义（tools/comps_lint.py，C001~C009），并在
 #      具备 xmllint 时按 comps/comps.dtd 做 DTD 校验；
-#   4. 运行 tools/tests 下的规则回归测试。
+#   4. 校验 kickstart/ 下安装配方（tools/ks_lint.py，K001~K012）；
+#   5. 运行 tools/tests 下的规则回归测试。
 #
 # 只依赖 python3 标准库，可在无 rpmbuild/mock 的机器上执行。CI 与本地提交
 # 前共用同一入口，避免两套口径。
@@ -37,6 +38,9 @@ if command -v xmllint >/dev/null 2>&1; then
 else
     echo "xmllint unavailable: DTD validation deferred to image CI" >&2
 fi
+
+echo "== ks lint =="
+python3 tools/ks_lint.py
 
 echo "== tool tests =="
 if python3 -c 'import pytest' >/dev/null 2>&1; then
