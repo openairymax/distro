@@ -7,6 +7,10 @@
 # docs-linux/190-distribution/01-rpm-packaging.md 与
 # docs-linux/50-engineering-standards。规则编号 E001~E014 与测试一一对应。
 #
+# 源码包由构建驱动现场生成的配方（如内核 tarball）可在文件头注释中声明
+#   # spec-lint: generated-source <文件名>
+# 该声明只豁免 E010 的存在性与唯一性检查，文件名形式与去重仍然校验。
+#
 # 退出码：0 通过；1 存在问题；2 用法或读取错误。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
@@ -45,6 +49,7 @@ LOG = re.compile(r"^\*\s+[A-Z][a-z]{2}\s+[A-Z][a-z]{2}\s+\d{1,2}\s+"
 MACRO = re.compile(r"^%(?:global|define)\s+(\w+)\s+(.+)$")
 BAD = re.compile(r"\b(TODO|FIXME|XXX)\b")
 SRC = re.compile(r"^Source\d+$")
+GEN = re.compile(r"^#\s*spec-lint:\s*generated-source\s+(\S+)$")
 
 
 def strip_cmt(line: str) -> str:
@@ -131,13 +136,24 @@ def check_name(tags: dict, path: Path, issues: list[Issue]) -> None:
         issues.append(Issue("E014", num, "file name differs from Name"))
 
 
-def check_srcs(tags: dict, root: Path, issues: list[Issue]) -> None:
+def parse_gen(lines: list[str]) -> set[str]:
+    out: set[str] = set()
+    for raw in lines:
+        hit = GEN.match(raw.strip())
+        if hit:
+            out.add(hit.group(1))
+    return out
+
+
+def check_srcs(tags: dict, root: Path, macros: dict[str, str],
+               gen: set[str], issues: list[Issue]) -> None:
     index = walk_files(root)
     seen: set[str] = set()
     for tag in sorted(tags):
         if not SRC.match(tag):
             continue
-        num, val = tags[tag]
+        num, raw = tags[tag]
+        val = expand(raw, macros)
         if "/" in val or "://" in val:
             issues.append(Issue("E010", num, "Source must be a file name"))
             continue
@@ -145,6 +161,8 @@ def check_srcs(tags: dict, root: Path, issues: list[Issue]) -> None:
             issues.append(Issue("E010", num, f"duplicate source: {val}"))
             continue
         seen.add(val)
+        if val in gen:
+            continue
         hits = index.get(val, [])
         if not hits:
             issues.append(Issue("E010", num, f"missing source: {val}"))
@@ -225,12 +243,13 @@ def lint_text(text: str, path: Path, root: Path) -> list[Issue]:
     macros = collect_macros(lines)
     tags = parse_tags(lines)
     secs = parse_secs(lines)
+    gen = parse_gen(lines)
     ver = expand(tags.get("Version", (0, ""))[1], macros)
     macros["version"] = ver
     issues: list[Issue] = []
     check_tags(tags, ver, issues)
     check_name(tags, path, issues)
-    check_srcs(tags, root, issues)
+    check_srcs(tags, root, macros, gen, issues)
     check_secs(secs, issues)
     check_files(lines, secs, issues)
     check_log(lines, secs, issues)
@@ -247,7 +266,7 @@ def main(argv: list[str]) -> int:
     root = Path(__file__).resolve().parent.parent
     targets = [Path(arg) for arg in argv[1:]]
     if not targets:
-        targets = sorted((root / "specs").glob("*.spec"))
+        targets = sorted((root / "specs").rglob("*.spec"))
     if not targets:
         print("spec_lint: no spec file found", file=sys.stderr)
         return 2

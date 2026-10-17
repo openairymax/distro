@@ -123,6 +123,26 @@ class SpecLintTest(unittest.TestCase):
         text = VALID.replace("demo.conf", "gone.conf")
         self.assertIn("E010", self.codes(text))
 
+    def test_macro_source(self):
+        text = VALID.replace("Source0:        demo.conf",
+                             "%global demo_src demo.conf\n"
+                             "Source0:        %{demo_src}")
+        self.assertEqual(self.codes(text), [])
+
+    def test_generated_source(self):
+        text = VALID.replace("Source0:        demo.conf",
+                             "# spec-lint: generated-source demo.tar.gz\n"
+                             "Source0:        demo.tar.gz")
+        self.assertEqual(self.codes(text), [])
+
+    def test_generated_dup(self):
+        text = VALID.replace("Source0:        demo.conf",
+                             "# spec-lint: generated-source demo.tar.gz\n"
+                             "Source0:        demo.tar.gz\n"
+                             "Source1:        demo.tar.gz")
+        codes = self.codes(text)
+        self.assertEqual(codes.count("E010"), 1)
+
     def test_changelog(self):
         text = VALID.replace("* Sat Oct 17 2026", "* 2026-10-17")
         self.assertIn("E011", self.codes(text))
@@ -143,7 +163,7 @@ class SpecLintTest(unittest.TestCase):
 
     def test_real_specs(self):
         root = Path(__file__).resolve().parents[2]
-        specs = sorted((root / "specs").glob("*.spec"))
+        specs = sorted((root / "specs").rglob("*.spec"))
         self.assertTrue(specs)
         for path in specs:
             self.assertEqual(spec_lint.lint_spec(path, root), [],
