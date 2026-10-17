@@ -29,5 +29,8 @@ lockfile 冻结点（滚动触发） × 内核 RPM（6.6-airymax.n）
   脚本，测试机接入方式 TODO：首台 DevStation 测试机就位后回填）；
 - `../scripts/install-test.sh ISO OUT` 承担装机验收：QEMU 三连测，
   每轮安装后冷启动并校验串口日志；输出 TAP 14，缺 QEMU 时退出 77；
+- `../scripts/build-iso.sh --iso SRC --ks FILE --out DIR` 在发布工作区
+  组装被测镜像（`mkksiso` 注入 kickstart，需 root）；产物落在源码区之外，
+  构建后自校验 `/ks.cfg` 与引导配置，校验失败即拒绝交付；
 - 本目录只保存矩阵定义与脚本；测试用例实现归属 tests-linux 叶子仓（TODO：
   tests-linux 侧立项后建立引用关系，避免两仓重复维护）。

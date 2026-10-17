@@ -8,8 +8,9 @@
 #   2. 启动：安装后的磁盘冷启动到登录提示，且无内核 panic。
 #
 # ISO 契约（190-distribution/03-installer-design.md §7.1）：
-#   ISO 引导配置已内置 inst.ks=cdrom:/isolinux/ks.cfg，且安装后内核
-#   命令行含 console=ttyS0,115200；本脚本因此只做黑盒观测，不注入参数。
+#   镜像由 build-iso.sh 经 mkksiso 注入：kickstart 位于 /ks.cfg，引导配置
+#   携带 inst.ks=hd:LABEL=<卷标>:/ks.cfg，且安装内核命令行含
+#   console=ttyS0,115200；本脚本因此只做黑盒观测，不注入参数。
 #
 # 退出码：0 全部通过；1 存在失败；77 缺少 QEMU 工具链（跳过）。
 # ===========================================================================

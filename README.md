@@ -62,6 +62,9 @@ distro/
 │   ├── ks_lint.py                 # kickstart checker (K001-K012)
 │   └── tests/                     # Lint + build-driver regression tests
 ├── scripts/
+│   ├── lib/
+│   │   └── outdir.sh              # Output-directory boundary guard (shared)
+│   ├── build-iso.sh               # Unattended install ISO assembly (mkksiso)
 │   ├── build-rpms.sh              # Batch RPM build driver (output outside source tree)
 │   └── install-test.sh            # Unattended install x3 (TAP, QEMU)
 └── ci/
@@ -106,6 +109,20 @@ release workspace, never inside this repository.
 DNF repository (`--repo --stream NAME --gpg-key KEYID`). `DIR` is rejected
 unless it resolves outside the source area, so a build cannot pollute the
 checkout. Exit codes follow `190-distribution/01-rpm-packaging.md` §8.
+
+`scripts/build-iso.sh --iso SRC --ks FILE --out DIR` assembles the
+unattended install medium: it takes the official installer image as the
+base, injects the kickstart and serial console arguments through `mkksiso`
+(`console=ttyS0,115200` by default), and relabels the volume
+(`AIRYMAXOS` by default). Outputs are the ISO, its `.sha256`, and
+`iso-manifest.txt`; `--gpg-key` adds a detached signature. The driver then
+reads `/ks.cfg` and the BIOS/UEFI boot configuration back out of the
+image: the kickstart must match byte for byte, `inst.ks=` must be present,
+and every `inst.stage2=` label must equal the final volume label. Any
+mismatch fails with `AIRY_EIO` instead of shipping an image that builds but
+cannot install. `mkksiso` mounts the source ISO, so physical hosts and CI
+run it as root; the output-directory rule is shared with `build-rpms.sh`
+through `scripts/lib/outdir.sh`.
 
 ## Kernel isolation boundary (hard rule)
 
