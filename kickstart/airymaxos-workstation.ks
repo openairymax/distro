@@ -24,17 +24,17 @@ keyboard us
 timezone Asia/Shanghai --utc
 
 # ---- 仓库 ----
-url --url=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/OS/x86_64/
-repo --name=update --baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/update/x86_64/ --cost=100
-repo --name=epol   --baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/EPOL/main/x86_64/ --cost=100
+url --url=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/OS/$basearch/
+repo --name=update --baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/update/$basearch/ --cost=100
+repo --name=epol   --baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/EPOL/main/$basearch/ --cost=100
 # 仓库 URL / 段名与 repo/airymax-os.repo 保持同一口径
 # （docs-linux/190-distribution/01-rpm-packaging.md §5.2）
 # TODO: 离线 compose 由镜像流水线以本地仓库覆盖该 URL
-repo --name=airymaxos-base --baseurl=https://repo.airymaxos.org/0.0.3/BaseOS/x86_64/ --cost=10
+repo --name=airymaxos-base --baseurl=https://repo.airymaxos.org/0.0.3/BaseOS/$basearch/ --cost=10
 
 # ---- 引导与分区（UEFI + BIOS 双栈）----
 # 串口控制台保留给无头验收与故障恢复（install-test.sh 依赖 login: 哨兵）
-bootloader --timeout=3 --append="console=ttyS0,115200"
+bootloader --timeout=3 --append="console=ttyS0,115200 console=ttyAMA0,115200"
 clearpart --all --initlabel
 autopart --type=plain --fstype=ext4
 
