@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
 # ===========================================================================
-# AirymaxOS 1.0（x86_64）工作站安装 kickstart — UKUI 桌面
+# AirymaxOS 0.0.3（x86_64）工作站安装 kickstart — UKUI 桌面
 #
 # 桌面决策（2026-09-15）：OS 侧系统桌面 = UKUI 4.x（openKylin/openEuler 线）
 # 隔离铁律：agent 控制面唯一入口 = Gateway（JSON-RPC 2.0），桌面自带
@@ -27,8 +27,10 @@ timezone Asia/Shanghai --utc
 url --url=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/OS/x86_64/
 repo --name=update --baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/update/x86_64/ --cost=100
 repo --name=epol   --baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/EPOL/main/x86_64/ --cost=100
-# TODO: 替换为正式 URL；cost=10 使 kernel 等同名包优先解析自本项目仓库
-repo --name=airymax-os --baseurl=https://repo.openairymax.org/airymaxos/1.0/x86_64/os/ --cost=10
+# 仓库 URL / 段名与 repo/airymax-os.repo 保持同一口径
+# （docs-linux/190-distribution/01-rpm-packaging.md §5.2）
+# TODO: 离线 compose 由镜像流水线以本地仓库覆盖该 URL
+repo --name=airymaxos-base --baseurl=https://repo.airymaxos.org/0.0.3/BaseOS/x86_64/ --cost=10
 
 # ---- 引导与分区（UEFI + BIOS 双栈）----
 bootloader --timeout=3
@@ -64,20 +66,13 @@ set -eu
 # 1) 图形目标为默认（UKUI 会话经 lightdm 拉起）
 systemctl set-default graphical.target
 
-# 2) 桌面 cgroup 降配：安装 airymax-desktop.slice（CPU/IO 权重 50，
-#    与 agent 负载在调度面上隔离；详见 desktop/README.md）
-# TODO: 该文件由 airymaxos-release 包部署到 /etc/systemd/system/ 后此步生效
-if [ -f /usr/share/airymax/distro/desktop/airymax-desktop.slice ]; then
-    install -m 0644 /usr/share/airymax/distro/desktop/airymax-desktop.slice \
-        /etc/systemd/system/airymax-desktop.slice
-    systemctl daemon-reload
-fi
-
-# 3) UKUI 策略脚本：屏蔽 kylin-ai* 服务、写入输入法环境变量
-# TODO: 同上，随 airymaxos-release 包部署
-if [ -x /usr/share/airymax/distro/desktop/70-airymax-ukui-policy.sh ]; then
-    /usr/share/airymax/distro/desktop/70-airymax-ukui-policy.sh
-fi
+# 2) 桌面隔离与 UKUI 策略由 airymaxos-release 包 %post 完成
+#    （airymax-desktop.slice + 70-airymax-ukui-policy.sh，幂等）
+rpm -q airymaxos-release >/dev/null 2>&1 || {
+    echo "ERROR: airymaxos-release is not installed" >&2
+    exit 1
+}
+systemctl daemon-reload
 
 echo "AirymaxOS workstation install complete (baseline $(date -u +%Y%m%d))"
 %end

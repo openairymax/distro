@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
+# ===========================================================================
+# macros.airymax — AirymaxOS RPM 宏
+#
+# 安装位置：/etc/rpm/macros.airymax（由 airymaxos-release 包提供）
+# 适用对象：distro/specs 下的全部配方，以及后续 kernel/daemon 叶子仓配方。
+#
+# 宏值即文件系统布局 SSoT（docs-linux/190-distribution/01-rpm-packaging.md
+# §2.2）。任何目录口径变更必须先改本文件，再改消费方，禁止在配方内
+# 重复书写字面路径。
+# ===========================================================================
+
+%airymax_vendor           SPHARX
+%airymax_url              https://atomgit.com/openairymax/agent-linux
+%airymax_bugurl           https://atomgit.com/openairymax/agent-linux/issues
+%airymax_repo             https://repo.airymaxos.org
+
+%airymax_libdir           /usr/lib/airymaxos
+%airymax_sharedir         /usr/share/airymaxos
+%airymax_sysconfdir       /etc/agentrt
+%airymax_varlibdir        /var/lib/agentrt
+%airymax_logdir           /var/log/agentrt
+%airymax_unitdir          /usr/lib/systemd/system

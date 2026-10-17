@@ -77,7 +77,7 @@ AirymaxOS 系统桌面默认壁纸 = `wallpaper/airymaxos-default.jpg`
 - `airymax-desktop.slice` — 桌面低干扰 slice 单元（随 airymaxos-release
   包部署到 `/etc/systemd/system/`）；
 - `wallpaper/airymaxos-default.jpg` — 系统默认壁纸资产（随 airymaxos-release
-  包部署到 `/usr/share/airymax/distro/desktop/wallpaper/`）；
+  包部署到 `/usr/share/airymaxos/distro/desktop/wallpaper/`）；
 - `70-airymax-ukui-policy.sh` — 安装后策略脚本（屏蔽 AI 控制面、写输入法
   环境变量、安装并设置默认壁纸；随 airymaxos-release 包部署到
-  `/usr/share/airymax/distro/desktop/`，kickstart %post 调用）。
+  `/usr/share/airymaxos/distro/desktop/`，由该包 %post 调用）。

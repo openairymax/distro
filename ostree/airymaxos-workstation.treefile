@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
 # ===========================================================================
-# AirymaxOS 1.0 rpm-ostree treefile — 工作站（UKUI 桌面）
+# AirymaxOS 0.0.3 rpm-ostree treefile — 工作站（UKUI 桌面）
 #
 # 对应 docs/AirymaxOS/190-distribution/04-update-mechanism.md 更新矩阵：
 #   小版本升级  = rpm-ostree upgrade（5-10min，含重启）
@@ -10,16 +10,17 @@
 #
 # 执行位置：发布工作区（严禁在源码区内 compose）。
 # ===========================================================================
-ref: airymaxos/1.0/x86_64/desktop
+ref: airymaxos/0.0.3/x86_64/desktop
 repos:
-  - airymax-os
+  - airymaxos-base
+  - airymaxos-updates
   - openEuler-24.03-LTS-SP2
   - openEuler-24.03-LTS-SP2-EPOL
 
 # 包集：与 comps @airymax-workstation 环境一致
 packages:
-  # 本项目系统层（TODO: airymaxos-release 包由 system 叶子仓产出后加入，
-  # 携带 repo 定义 / brand / desktop 策略文件）
+  # 发行版标识与仓库配置由 distro/specs/airymaxos-release.spec 产出
+  - airymaxos-release
   - kernel
   - ukui
   - xorg-x11-server-Xorg

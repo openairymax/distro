@@ -26,8 +26,8 @@ command -v rpm-lockfile-prototype >/dev/null 2>&1 || {
     exit 1
 }
 
-# 项目仓库定义（TODO: 首个冻结点补齐 airymax-os.repo 正式内容）
-REPOFILE="${HERE}/airymax-os.repo"
+# 项目仓库定义（与运行期 /etc/yum.repos.d/airymaxos.repo 同源）
+REPOFILE="${HERE}/../repo/airymax-os.repo"
 [ -f "$REPOFILE" ] || {
     echo "错误: 缺少 ${REPOFILE}，先补齐仓库定义再生成" >&2
     exit 1
