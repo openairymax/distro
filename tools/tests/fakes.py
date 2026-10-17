@@ -15,18 +15,18 @@ import shutil
 from pathlib import Path
 
 TOOLS = ("awk", "basename", "bash", "cat", "cmp", "cp", "date", "dirname",
-         "git", "grep", "mkdir", "mv", "python3", "rm", "sed", "seq",
-         "sha256sum", "sleep", "timeout", "uname")
+         "find", "git", "grep", "mkdir", "mv", "python3", "rm", "sed", "seq",
+         "sha256sum", "sleep", "sort", "timeout", "uname")
 
 MKKSISO = """\
 #!/bin/sh
 n=0
-vol=""; cmd=""
+vol=""; cmd=""; adds=""
 while [ $# -gt 0 ]; do
     case "$1" in
     -V) shift; vol=$1 ;;
     -c) shift; cmd=$1 ;;
-    -a) shift ;;
+    -a) shift; adds="${adds} $1" ;;
     -*) ;;
     *) n=$((n + 1)); eval "p$n=\\$1" ;;
     esac
@@ -56,8 +56,46 @@ esac
     printf 'linuxefi /vmlinuz %s inst.stage2=hd:LABEL=%s\\n' \\
         "$ksline" "$stage"
 } > "$out"
+for a in $adds; do
+    [ -e "$a" ] || continue
+    if [ -d "$a" ]; then
+        name=$(basename "$a")
+        find "$a" -type f | sort | while IFS= read -r f; do
+            rel=${f#"$a"/}
+            printf '=== /%s/%s\\n' "$name" "$rel"
+            cat "$f"
+        done >> "$out"
+    else
+        printf '=== /%s\\n' "$(basename "$a")" >> "$out"
+        cat "$a" >> "$out"
+    fi
+done
 if [ -n "${FAKE_MKKSISO_LOG:-}" ]; then
     printf 'volid=%s cmd=%s\\n' "$vol" "$cmd" > "$FAKE_MKKSISO_LOG"
+fi
+"""
+
+CREATEREPO = """\
+#!/bin/sh
+grp=""; repo=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+    --groupfile) shift; grp=$1 ;;
+    -*) ;;
+    *) repo=$1 ;;
+    esac
+    shift
+done
+[ "${FAKE_CREATEREPO_MODE:-ok}" = fail ] && exit 1
+[ -n "$repo" ] && [ -d "$repo" ] || exit 2
+if [ -n "$grp" ] && [ ! -f "$grp" ]; then
+    exit 3
+fi
+mkdir -p "$repo/repodata"
+printf 'repomd\\n' > "$repo/repodata/repomd.xml"
+if [ -n "$grp" ]; then
+    cp "$grp" "$repo/repodata/comps.xml"
+    printf '<data type="group"/>\\n' >> "$repo/repodata/repomd.xml"
 fi
 """
 
@@ -81,7 +119,9 @@ on { print }' "$indev" > "$dest"
 IMPLANT = """\
 #!/bin/sh
 [ "${FAKE_IMPLANT_MODE:-ok}" = fail ] && exit 1
-printf 'IMPLANTED\\n' >> "$1"
+printf 'IMPLANTED\\n' > "$1.imp"
+cat "$1" >> "$1.imp"
+mv "$1.imp" "$1"
 """
 
 GPG = """\
@@ -167,6 +207,11 @@ def iso_tools(bin_dir):
     write(bin_dir, "mkksiso", MKKSISO)
     write(bin_dir, "xorriso", XORRISO)
     write(bin_dir, "implantisomd5", IMPLANT)
+
+
+def desk_tools(bin_dir):
+    iso_tools(bin_dir)
+    write(bin_dir, "createrepo_c", CREATEREPO)
 
 
 def qemu_tools(bin_dir, arch="x86_64", qemu=True):

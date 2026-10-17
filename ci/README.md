@@ -26,8 +26,11 @@ lockfile 冻结点（滚动触发） × 内核 RPM（6.6-airymax.n）
 - `run-image-ci.sh` 是镜像主门禁：RPM 构建 → 内核构建 → ISO 组装 →
   ISO 完整性 → 装机验收五段串联，输出 TAP 14，一条命令给出可重复结论。
   用法 `ci/run-image-ci.sh --out DIR (--iso PATH | --iso-base PATH)`；
-  `--arch` 切换架构，`--firmware bios|uefi|both` 选择固件腿，
-  `--max-boot` 设定启动墙钟上限。任一段失败整体返回 1；参数不满足返回 5；
+  `--arch` 切换架构，`--profile minimal|desktop` 选择镜像剖面（desktop 走
+  `build-desktop.sh` 离线仓库组装，产物在 `DIR/desktop/`），`--rpms` 为
+  桌面剖面补充 RPM 目录（跳过构建段时必须显式给出），
+  `--firmware bios|uefi|both` 选择固件腿，`--max-boot` 设定启动墙钟上限。
+  任一段失败整体返回 1；参数不满足返回 5；
   缺 QEMU 工具链时装机段跳过并返回 77。各段清单留在其产物子目录，
   编排层只写 `image-ci-manifest.txt`，不复制子驱动清单（SSoT）。
 - `run-lint.sh` 是提交前静态门禁：shell 语法、配方/comps/kickstart 三类

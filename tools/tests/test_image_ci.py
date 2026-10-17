@@ -50,10 +50,23 @@ class ImageCiTest(unittest.TestCase):
         self.sums.write_text(f"{digest or self.digest}  {name}\n",
                              encoding="utf-8")
 
-    def tools(self, arch="x86_64", qemu=True, iso=False):
+    def tools(self, arch="x86_64", qemu=True, iso=False, desk=False):
         fakes.qemu_tools(self.bin, arch, qemu)
-        if iso:
+        if desk:
+            fakes.desk_tools(self.bin)
+        elif iso:
             fakes.iso_tools(self.bin)
+
+    def desk_rpms(self):
+        directory = self.root / "desk-rpms"
+        directory.mkdir()
+        for name in ("airymaxos-release-0.0.3-1.noarch.rpm",
+                     "airymaxos-kernel-6.6.0-1.x86_64.rpm",
+                     "airymaxos-kernel-core-6.6.0-1.x86_64.rpm",
+                     "airymaxos-kernel-modules-6.6.0-1.x86_64.rpm"):
+            (directory / name).write_text(f"rpm {name}\n",
+                                          encoding="utf-8")
+        return directory
 
     def run_script(self, *args, **extra):
         env = {"PATH": str(self.bin), "HOME": str(self.root),
@@ -88,6 +101,17 @@ class ImageCiTest(unittest.TestCase):
     def test_bad_firmware(self):
         self.assertEqual(
             self.ci("--iso", str(self.iso), "--firmware", "coreboot",
+                    "--skip-install").returncode, 5)
+
+    def test_bad_profile(self):
+        self.assertEqual(
+            self.ci("--iso", str(self.iso), "--profile", "live",
+                    "--skip-install").returncode, 5)
+
+    def test_desktop_needs_rpms(self):
+        self.assertEqual(
+            self.ci("--iso-base", str(self.base), "--profile", "desktop",
+                    "--skip-rpms", "--skip-kernel",
                     "--skip-install").returncode, 5)
 
     def test_runs_zero(self):
@@ -199,6 +223,25 @@ class ImageCiTest(unittest.TestCase):
         self.assertIn("stage iso=pass", manifest)
         self.assertRegex(manifest, r"iso [0-9a-f]{64} airymaxos-")
         self.assertIn("result=pass", manifest)
+
+    def test_desktop_chain(self):
+        self.tools(desk=True)
+        rpms = self.desk_rpms()
+        res = self.ci("--iso-base", str(self.base), "--profile", "desktop",
+                      "--arch", "x86_64", "--rpms", str(rpms), "--runs", "1",
+                      "--skip-rpms", "--skip-kernel")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("ok 3 - iso assembly", res.stdout)
+        self.assertIn("ok 4 - iso checksum", res.stdout)
+        self.assertIn("ok 5 - install test", res.stdout)
+        manifest = self.manifest()
+        self.assertIn("profile=desktop", manifest)
+        self.assertIn("stage iso=pass", manifest)
+        iso = self.out / "desktop" / "iso" / "airymaxos-0.0.3-x86_64.iso"
+        self.assertTrue(iso.is_file())
+        self.assertIn("airymaxos-offline", iso.read_text(encoding="utf-8"))
+        self.assertIn("=== /airymax/payload-manifest.txt",
+                      iso.read_text(encoding="utf-8"))
 
     def test_source_date_epoch(self):
         self.tools()
