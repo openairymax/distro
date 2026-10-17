@@ -23,12 +23,21 @@ lockfile 冻结点（滚动触发） × 内核 RPM（6.6-airymax.n）
 
 ## 执行方式
 
+- `run-image-ci.sh` 是镜像主门禁：RPM 构建 → 内核构建 → ISO 组装 →
+  ISO 完整性 → 装机验收五段串联，输出 TAP 14，一条命令给出可重复结论。
+  用法 `ci/run-image-ci.sh --out DIR (--iso PATH | --iso-base PATH)`；
+  `--arch` 切换架构，`--firmware bios|uefi|both` 选择固件腿，
+  `--max-boot` 设定启动墙钟上限。任一段失败整体返回 1；参数不满足返回 5；
+  缺 QEMU 工具链时装机段跳过并返回 77。各段清单留在其产物子目录，
+  编排层只写 `image-ci-manifest.txt`，不复制子驱动清单（SSoT）。
 - `run-lint.sh` 是提交前静态门禁：shell 语法、配方/comps/kickstart 三类
   语义校验与工具回归测试（Python 标准库，无 `rpmbuild`/`mock` 依赖）；
-- `run-smoke.sh` 在发布工作区对 compose/installer 产物执行（骨架见同目录
-  脚本，测试机接入方式 TODO：首台 DevStation 测试机就位后回填）；
-- `../scripts/install-test.sh ISO OUT` 承担装机验收：QEMU 三连测，
-  每轮安装后冷启动并校验串口日志；输出 TAP 14，缺 QEMU 时退出 77；
+- `run-smoke.sh` 必须在已登录的 UKUI 桌面会话内运行（TV-02 桌面验收），
+  不由宿主机驱动；镜像 CI 只覆盖安装与启动链，不替代桌面冒烟。
+  测试机接入方式 TODO：首台 DevStation 测试机就位后回填；
+- `../scripts/install-test.sh --iso ISO --out DIR` 承担装机验收：QEMU
+  跨架构、双固件、可配置轮次，每轮安装后冷启动并校验串口日志与启动墙钟；
+  输出 TAP 14，缺 QEMU 时退出 77；
 - `../scripts/build-iso.sh --iso SRC --ks FILE --out DIR` 在发布工作区
   组装被测镜像（`mkksiso` 注入 kickstart，需 root）；产物落在源码区之外，
   构建后自校验 `/ks.cfg` 与引导配置，校验失败即拒绝交付；
