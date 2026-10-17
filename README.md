@@ -55,10 +55,12 @@ distro/
 │   └── README.md                  # Zero-patch policy (reserved)
 ├── tools/
 │   ├── spec_lint.py               # RPM spec static checker (E001-E014)
-│   └── tests/test_spec_lint.py    # Lint rule regression tests
+│   └── tests/                     # Lint + build-driver regression tests
+├── scripts/
+│   └── build-rpms.sh              # Batch RPM build driver (output outside source tree)
 └── ci/
     ├── README.md                  # Smoke matrix (T1-T4 + X1)
-    ├── run-lint.sh                # Static gate: spec lint + tool tests
+    ├── run-lint.sh                # Static gate: shell syntax + spec lint + tests
     └── run-smoke.sh               # Smoke runner (TAP)
 ```
 
@@ -67,13 +69,22 @@ distro/
 `ci/run-lint.sh` is the single entry point for static checks and runs with
 the Python 3 standard library only (no `rpmbuild`/`mock` required):
 
+- `bash -n` parses every shell entry point under `ci/`, `lockfile/` and
+  `scripts/`;
 - `tools/spec_lint.py` validates every recipe under `specs/` (tag set,
   `airymaxos-` prefix, `%{?dist}` release, SPDX license, section set,
   source presence, changelog format, version parity with `release/os-release`);
-- `tools/tests/` holds the regression tests for those rules.
+- `tools/tests/` holds the regression tests for those rules and for the
+  build driver contract.
 
 Recipes are validated at commit time; actual RPM builds happen only in the
 release workspace, never inside this repository.
+
+`scripts/build-rpms.sh --out DIR` drives the batch build, stages every
+`Source`/`Patch` into a private `_topdir`, and optionally publishes a signed
+DNF repository (`--repo --stream NAME --gpg-key KEYID`). `DIR` is rejected
+unless it resolves outside the source area, so a build cannot pollute the
+checkout. Exit codes follow `190-distribution/01-rpm-packaging.md` §8.
 
 ## Kernel isolation boundary (hard rule)
 

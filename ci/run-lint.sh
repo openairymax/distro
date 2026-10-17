@@ -4,8 +4,9 @@
 # run-lint.sh — distro 仓库静态门禁
 #
 # 职责：
-#   1. 校验 specs/ 下所有 RPM 配方（tools/spec_lint.py，E001~E014）；
-#   2. 运行 tools/tests 下的规则回归测试。
+#   1. bash -n 解析 ci/、lockfile/、scripts/ 下的 shell 入口；
+#   2. 校验 specs/ 下所有 RPM 配方（tools/spec_lint.py，E001~E014）；
+#   3. 运行 tools/tests 下的规则回归测试。
 #
 # 只依赖 python3 标准库，可在无 rpmbuild/mock 的机器上执行。CI 与本地提交
 # 前共用同一入口，避免两套口径。
@@ -16,6 +17,11 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(dirname "${HERE}")"
 
 cd "${ROOT}"
+
+echo "== shell syntax =="
+while IFS= read -r script; do
+    bash -n "${script}"
+done < <(find ci lockfile scripts -type f -name '*.sh' | sort)
 
 echo "== spec lint =="
 python3 tools/spec_lint.py
