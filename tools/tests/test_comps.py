@@ -1,0 +1,157 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# ===========================================================================
+# test_comps.py — comps_lint 规则回归测试
+#
+# 每个用例以最小合法 comps 为基线，只做单点变异，断言目标规则号出现；
+# kickstart 交叉校验在临时 kickstart/ 目录内构造。标准库 unittest 编写，
+# 可被 pytest 直接收集。
+#
+# Author: Liren Wang <wangliren@spharx.cn>
+# Version: 0.0.3
+# ===========================================================================
+
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import comps_lint
+
+VALID = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE comps PUBLIC "-//Airymax//DTD Comps 1.0//EN" "comps.dtd">
+<comps>
+  <group>
+    <id>airymax-demo</id>
+    <name>AirymaxOS Demo</name>
+    <default>false</default>
+    <uservisible>true</uservisible>
+    <packagelist>
+      <packagereq type="mandatory">demo</packagereq>
+    </packagelist>
+  </group>
+  <environment>
+    <id>airymax-demo-env</id>
+    <name>AirymaxOS Demo Environment</name>
+    <display_order>99</display_order>
+    <grouplist>
+      <groupid>airymax-demo</groupid>
+    </grouplist>
+  </environment>
+</comps>
+"""
+
+
+class CompsLintTest(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        (self.root / "kickstart").mkdir()
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def codes(self, text=VALID):
+        return [item.code for item in comps_lint.lint_text(text, self.root)]
+
+    def ks(self, text, name="test.ks"):
+        (self.root / "kickstart" / name).write_text(text, encoding="utf-8")
+
+    def test_valid(self):
+        self.assertEqual(self.codes(), [])
+
+    def test_not_xml(self):
+        self.assertIn("C001", self.codes(VALID.replace("</comps>", "")))
+
+    def test_root(self):
+        text = VALID.replace("<comps>", "<groups>").replace("</comps>",
+                                                            "</groups>")
+        text = text.replace("<!DOCTYPE comps", "<!DOCTYPE groups")
+        self.assertIn("C001", self.codes(text))
+
+    def test_doctype_missing(self):
+        text = VALID.replace('<!DOCTYPE comps PUBLIC "-//Airymax//DTD Comps '
+                             '1.0//EN" "comps.dtd">\n', "")
+        self.assertIn("C002", self.codes(text))
+
+    def test_doctype_public(self):
+        text = VALID.replace("-//Airymax//DTD Comps 1.0//EN",
+                             "-//Red Hat, Inc.//DTD Comps info//EN")
+        self.assertIn("C002", self.codes(text))
+
+    def test_group_id(self):
+        text = VALID.replace("<id>airymax-demo</id>",
+                             "<id>airymax demo</id>", 1)
+        self.assertIn("C003", self.codes(text))
+
+    def test_group_dup(self):
+        grp = VALID[VALID.index("  <group>"):VALID.index("  </group>") + 10]
+        text = VALID.replace("  <environment>", grp + "\n  <environment>")
+        self.assertIn("C003", self.codes(text))
+
+    def test_env_dup(self):
+        text = VALID.replace("<id>airymax-demo-env</id>",
+                             "<id>airymax-demo</id>")
+        self.assertIn("C004", self.codes(text))
+
+    def test_group_name(self):
+        text = VALID.replace("<name>AirymaxOS Demo</name>\n", "")
+        self.assertIn("C005", self.codes(text))
+
+    def test_group_pkgs(self):
+        text = VALID.replace(
+            "      <packagereq type=\"mandatory\">demo</packagereq>\n", "")
+        self.assertIn("C005", self.codes(text))
+
+    def test_pkg_name(self):
+        text = VALID.replace(">demo</packagereq>", ">/bad</packagereq>")
+        self.assertIn("C006", self.codes(text))
+
+    def test_pkg_dup(self):
+        text = VALID.replace(
+            "</packagelist>",
+            "  <packagereq type=\"optional\">demo</packagereq>\n"
+            "    </packagelist>", 1)
+        self.assertIn("C006", self.codes(text))
+
+    def test_pkg_type(self):
+        text = VALID.replace('type="mandatory"', 'type="required"')
+        self.assertIn("C006", self.codes(text))
+
+    def test_env_ref(self):
+        text = VALID.replace("<groupid>airymax-demo</groupid>",
+                             "<groupid>airymax-gone</groupid>")
+        self.assertIn("C007", self.codes(text))
+
+    def test_bool(self):
+        text = VALID.replace("<uservisible>true</uservisible>",
+                             "<uservisible>yes</uservisible>")
+        self.assertIn("C008", self.codes(text))
+
+    def test_ks_env_syntax(self):
+        self.ks("%packages\n@airymax-demo-env\n%end\n")
+        self.assertIn("C009", self.codes())
+
+    def test_ks_undefined(self):
+        self.ks("%packages\n@airymax-missing\n%end\n")
+        self.assertIn("C009", self.codes())
+
+    def test_ks_ok(self):
+        self.ks("%packages\n@^airymax-demo-env\n@airymax-demo\n"
+                "kernel\n-xorg*\n%end\n")
+        self.assertEqual(self.codes(), [])
+
+    def test_real_comps(self):
+        base = Path(__file__).resolve().parents[2]
+        targets = sorted((base / "comps").glob("*.xml"))
+        self.assertTrue(targets)
+        for path in targets:
+            self.assertEqual(comps_lint.lint_comps(path, base), [],
+                             f"{path.name} violates comps rules")
+
+
+if __name__ == "__main__":
+    unittest.main()
