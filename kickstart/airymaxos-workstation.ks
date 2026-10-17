@@ -50,7 +50,8 @@ services --enabled=lightdm
 
 # ---- 包组 ----
 %packages
-@airymax-workstation
+# 环境选择用 @^（pykickstart 环境语法）；@ 表示组
+@^airymax-workstation
 kernel
 
 # 桌面自带 AI 控制面排除（KylinBot 及其 MCP 桌面控制栈）：
