@@ -17,8 +17,9 @@ from __future__ import annotations
 
 import re
 import sys
-from dataclasses import dataclass
 from pathlib import Path
+
+from lint_common import Issue, dump, report
 
 REQUIRED = ("Name", "Version", "Release", "Summary", "License",
             "URL", "Source0")
@@ -44,13 +45,6 @@ LOG = re.compile(r"^\*\s+[A-Z][a-z]{2}\s+[A-Z][a-z]{2}\s+\d{1,2}\s+"
 MACRO = re.compile(r"^%(?:global|define)\s+(\w+)\s+(.+)$")
 BAD = re.compile(r"\b(TODO|FIXME|XXX)\b")
 SRC = re.compile(r"^Source\d+$")
-
-
-@dataclass(frozen=True)
-class Issue:
-    code: str
-    line: int
-    msg: str
 
 
 def strip_cmt(line: str) -> str:
@@ -264,15 +258,8 @@ def main(argv: list[str]) -> int:
         except OSError as err:
             print(f"spec_lint: {err}", file=sys.stderr)
             return 2
-        for issue in issues:
-            print(f"{path}:{issue.line}: {issue.code} {issue.msg}")
-        total += len(issues)
-        if not issues:
-            print(f"{path}: OK")
-    if total:
-        print(f"spec_lint: {total} issue(s)", file=sys.stderr)
-        return 1
-    return 0
+        total += dump(path, issues)
+    return report("spec_lint", total)
 
 
 if __name__ == "__main__":
