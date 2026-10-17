@@ -64,11 +64,14 @@ distro/
 ├── scripts/
 │   ├── lib/
 │   │   └── outdir.sh              # Output-directory boundary guard (shared)
+│   ├── build-desktop.sh           # Desktop image: offline repo + mkksiso injection
 │   ├── build-iso.sh               # Unattended install ISO assembly (mkksiso)
+│   ├── build-kernel.sh            # Deterministic kernel archive + RPM entry point
 │   ├── build-rpms.sh              # Batch RPM build driver (output outside source tree)
 │   └── install-test.sh            # Unattended install x3 (TAP, QEMU)
 └── ci/
     ├── README.md                  # Smoke matrix (T1-T4 + X1)
+    ├── run-image-ci.sh            # Image gate: five-stage orchestration (minimal/desktop)
     ├── run-lint.sh                # Static gate: shell syntax + spec lint + tests
     └── run-smoke.sh               # Smoke runner (TAP)
 ```
@@ -123,6 +126,20 @@ mismatch fails with `AIRY_EIO` instead of shipping an image that builds but
 cannot install. `mkksiso` mounts the source ISO, so physical hosts and CI
 run it as root; the output-directory rule is shared with `build-rpms.sh`
 through `scripts/lib/outdir.sh`.
+
+`scripts/build-desktop.sh --iso SRC --ks FILE --out DIR --rpms DIR`
+assembles the desktop medium. It recursively collects the RPM directories
+into a self-contained offline repository (`createrepo_c --groupfile
+comps/airymaxos-comps.xml`) and refuses to build unless `airymaxos-release`,
+`airymaxos-kernel`, and its `core`/`modules` subpackages are present. It
+then writes `payload/airymax/payload-manifest.txt` and delegates to
+`build-iso.sh`, which injects the payload into the ISO root `/airymax` via
+`--add`. The installer fetches packages offline through the kickstart
+`repo --baseurl=file:///run/install/repo/airymax/Packages` line, so no
+network is needed on the target. After assembly the driver reads the
+payload manifest and `repomd.xml` back out of the ISO and compares them
+byte for byte. `ci/run-image-ci.sh --profile desktop` reuses the same
+driver and shares the five-stage TAP gate with the minimal profile.
 
 ## Kernel isolation boundary (hard rule)
 

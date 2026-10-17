@@ -62,11 +62,14 @@ distro/
 ├── scripts/
 │   ├── lib/
 │   │   └── outdir.sh              # 产物目录边界守卫（构建驱动共用）
+│   ├── build-desktop.sh           # 桌面镜像组装：离线仓库 + mkksiso 注入
 │   ├── build-iso.sh               # 无人值守安装 ISO 组装（mkksiso 注入）
+│   ├── build-kernel.sh            # 内核确定性归档与 RPM 构建入口
 │   ├── build-rpms.sh              # RPM 批量构建驱动（产物限于源码区之外）
 │   └── install-test.sh            # 三连测装机回归（安装 → 冷启动 → 判定）
 └── ci/
     ├── README.md                  # 组合冒烟矩阵（T1-T4 + X1）
+    ├── run-image-ci.sh            # 镜像主门禁：五段编排（minimal/desktop）
     ├── run-lint.sh                # 静态门禁：shell 语法 + 配方校验 + 测试
     └── run-smoke.sh               # 冒烟执行脚本（TAP 输出）
 ```
@@ -111,6 +114,17 @@ ISO、`.sha256` 与 `iso-manifest.txt`，`--gpg-key` 追加分离签名。构建
 任一项不符即以 `AIRY_EIO` 失败，避免产出"能生成但不能装"的镜像。
 `mkksiso` 需挂载源 ISO，实体机与 CI 均以 root 执行。产物目录边界与
 `build-rpms.sh` 共用 `scripts/lib/outdir.sh`。
+
+`scripts/build-desktop.sh --iso SRC --ks FILE --out DIR --rpms DIR` 组装
+桌面安装镜像：把 RPM 目录递归汇集为自包含离线仓库（`createrepo_c
+--groupfile comps/airymaxos-comps.xml`），要求 `airymaxos-release`、
+`airymaxos-kernel` 及其 `core`/`modules` 子包齐备，否则拒绝出镜像；随后
+写出 `payload/airymax/payload-manifest.txt` 并委派 `build-iso.sh` 以
+`--add` 注入 ISO 根 `/airymax`。安装器据 kickstart 的
+`repo --baseurl=file:///run/install/repo/airymax/Packages` 离线取包，不依赖
+安装现场网络。镜像产出后再从 ISO 回读载荷清单与 `repomd.xml`，与源文件
+逐字节比对。`ci/run-image-ci.sh --profile desktop` 复用同一驱动，并与
+minimal 剖面共享五段 TAP 门禁。
 
 ## 内核隔离边界（硬规则）
 

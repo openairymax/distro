@@ -28,6 +28,7 @@ ISO_BASE=""
 ISO_SUM=""
 KS=""
 ARCH=""
+PROFILE="minimal"
 FIRMWARE="bios"
 RUNS=3
 JOBS=""
@@ -36,6 +37,7 @@ INSTALL_TIMEOUT=3600
 BOOT_TIMEOUT=300
 MAX_BOOT=30
 SPEC_DIRS=()
+RPMS_DIRS=()
 ADDS=()
 SKIP_RPMS=0
 SKIP_KERNEL=0
@@ -56,11 +58,14 @@ usage()
   --out DIR          产物根目录（必须在源码区之外，必填）
   --iso PATH         预构建 ISO；给出时跳过组装段
   --iso-base PATH    基础 ISO，供组装段注入 kickstart
-  --ks FILE          kickstart，缺省 kickstart/airymaxos-minimal.ks
+  --ks FILE          kickstart，缺省随 --profile（minimal/desktop）
   --arch ARCH        x86_64 或 aarch64，缺省宿主架构
+  --profile NAME     minimal 或 desktop，缺省 minimal
   --firmware FW      bios、uefi 或 both，缺省 bios
   --runs N           每种固件的安装轮次，缺省 3
   --spec-dir DIR     传给 build-rpms 的配方目录，可重复
+  --rpms DIR         传给 build-desktop 的 RPM 目录，可重复；
+                     desktop 缺省纳入构建段产物
   --add PATH         传给 build-iso 的附加文件或目录，可重复
   --kernel DIR       内核源码树，缺省 build-kernel 的默认值
   --jobs N           并行度，缺省由子驱动决定
@@ -76,7 +81,8 @@ usage()
 产物:
   DIR/rpms/                   build-rpms 产物与清单
   DIR/kernel/                 build-kernel 产物与清单
-  DIR/iso/                    build-iso 产物与清单
+  DIR/iso/                    minimal 镜像产物与清单
+  DIR/desktop/                desktop 离线载荷与镜像产物
   DIR/logs/                   各段日志与 install-test TAP
   DIR/image-ci-manifest.txt   五段结果与 ISO 摘要
 EOF
@@ -109,9 +115,11 @@ parse_args()
         --iso-base) optarg "$1" "$#"; ISO_BASE="$2"; shift 2 ;;
         --ks) optarg "$1" "$#"; KS="$2"; shift 2 ;;
         --arch) optarg "$1" "$#"; ARCH="$2"; shift 2 ;;
+        --profile) optarg "$1" "$#"; PROFILE="$2"; shift 2 ;;
         --firmware) optarg "$1" "$#"; FIRMWARE="$2"; shift 2 ;;
         --runs) optarg "$1" "$#"; need_num "$1" "$2"; RUNS="$2"; shift 2 ;;
         --spec-dir) optarg "$1" "$#"; SPEC_DIRS+=("$2"); shift 2 ;;
+        --rpms) optarg "$1" "$#"; RPMS_DIRS+=("$2"); shift 2 ;;
         --add) optarg "$1" "$#"; ADDS+=("$2"); shift 2 ;;
         --kernel) optarg "$1" "$#"; KERNEL="$2"; shift 2 ;;
         --jobs) optarg "$1" "$#"; JOBS="$2"; shift 2 ;;
@@ -151,6 +159,10 @@ check_args()
     bios|uefi|both) ;;
     *) die "不支持的固件: ${FIRMWARE}" ;;
     esac
+    case "${PROFILE}" in
+    minimal|desktop) ;;
+    *) die "不支持的镜像剖面: ${PROFILE}" ;;
+    esac
     [ "${RUNS}" -ge 1 ] || die "--runs 必须大于 0"
     if [ -n "${ISO}" ]; then
         [ -f "${ISO}" ] || die "ISO 不存在: ${ISO}"
@@ -170,7 +182,17 @@ check_args()
     if [ "${ARCH}" = aarch64 ] && [ "${FIRMWARE}" != uefi ]; then
         die "aarch64 仅支持 uefi 固件"
     fi
-    [ -n "${KS}" ] || KS="${DISTRO_ROOT}/kickstart/airymaxos-minimal.ks"
+    if [ "${PROFILE}" = desktop ] && [ "${SKIP_RPMS}" -eq 1 ] &&
+        [ "${SKIP_KERNEL}" -eq 1 ] && [ "${#RPMS_DIRS[@]}" -eq 0 ]; then
+        die "desktop 剖面需 --rpms 目录，或启用 RPM/内核构建段"
+    fi
+    if [ -z "${KS}" ]; then
+        if [ "${PROFILE}" = desktop ]; then
+            KS="${DISTRO_ROOT}/kickstart/airymaxos-workstation.ks"
+        else
+            KS="${DISTRO_ROOT}/kickstart/airymaxos-minimal.ks"
+        fi
+    fi
 }
 
 tap_ok()
@@ -224,6 +246,36 @@ iso_args()
     done
 }
 
+desk_args()
+{
+    local a
+    DESK_ARGS=(--iso "${ISO_BASE}" --ks "${KS}" --arch "${ARCH}"
+               --out "${OUT}/desktop")
+    for a in "${RPMS_DIRS[@]}"; do
+        DESK_ARGS+=(--rpms "$a")
+    done
+    if [ "${SKIP_RPMS}" -eq 0 ]; then
+        DESK_ARGS+=(--rpms "${OUT}/rpms")
+    fi
+    if [ "${SKIP_KERNEL}" -eq 0 ]; then
+        DESK_ARGS+=(--rpms "${OUT}/kernel")
+    fi
+    for a in "${ADDS[@]}"; do
+        DESK_ARGS+=(--add "$a")
+    done
+}
+
+iso_build()
+{
+    if [ "${PROFILE}" = desktop ]; then
+        desk_args
+        "${DISTRO_ROOT}/scripts/build-desktop.sh" "${DESK_ARGS[@]}"
+        return
+    fi
+    iso_args
+    "${DISTRO_ROOT}/scripts/build-iso.sh" "${ISO_ARGS[@]}"
+}
+
 stage_rpm()
 {
     if [ "${SKIP_RPMS}" -eq 1 ]; then
@@ -262,32 +314,38 @@ stage_kern()
 
 iso_locate()
 {
-    local line value=""
-    [ -f "${OUT}/iso/iso-manifest.txt" ] || return 1
+    local dir="$1" line value=""
+    [ -f "${dir}/iso-manifest.txt" ] || return 1
     while IFS= read -r line; do
         case "${line}" in
         name=*) value="${line#name=}" ;;
         esac
-    done <"${OUT}/iso/iso-manifest.txt"
+    done <"${dir}/iso-manifest.txt"
     [ -n "${value}" ] || return 1
-    ISO="${OUT}/iso/${value}"
+    ISO="${dir}/${value}"
     [ -f "${ISO}" ] || return 1
 }
 
 stage_iso()
 {
+    local dir log
     if [ "${SKIP_ISO}" -eq 1 ] || [ -n "${ISO}" ]; then
         tap_skip 3 "iso assembly" "prebuilt"
         ROWS+=("iso=skip")
         return 0
     fi
-    iso_args
-    if "${DISTRO_ROOT}/scripts/build-iso.sh" "${ISO_ARGS[@]}" \
-        >"${LOGS}/build-iso.log" 2>&1 && iso_locate; then
+    if [ "${PROFILE}" = desktop ]; then
+        dir="${OUT}/desktop/iso"
+        log="${LOGS}/build-desktop.log"
+    else
+        dir="${OUT}/iso"
+        log="${LOGS}/build-iso.log"
+    fi
+    if iso_build >"${log}" 2>&1 && iso_locate "${dir}"; then
         tap_ok 3 "iso assembly"
         ROWS+=("iso=pass")
     else
-        tap_fail 3 "iso assembly" "see ${LOGS}/build-iso.log"
+        tap_fail 3 "iso assembly" "see ${log}"
         ROWS+=("iso=fail")
     fi
 }
@@ -365,8 +423,8 @@ manifest()
     sde="$(sde_get)"
     {
         printf '# AirymaxOS image CI manifest\n'
-        printf 'arch=%s\nfirmware=%s\nruns=%s\nmax_boot=%s\n' \
-            "${ARCH}" "${FIRMWARE}" "${RUNS}" "${MAX_BOOT}"
+        printf 'arch=%s\nprofile=%s\nfirmware=%s\nruns=%s\nmax_boot=%s\n' \
+            "${ARCH}" "${PROFILE}" "${FIRMWARE}" "${RUNS}" "${MAX_BOOT}"
         printf 'source_date_epoch=%s\n' "${sde:-unset}"
         for row in "${ROWS[@]}"; do
             printf 'stage %s\n' "${row}"
@@ -399,7 +457,8 @@ main()
         export SOURCE_DATE_EPOCH
     fi
     printf 'TAP version 14\n1..5\n'
-    printf '# AirymaxOS image CI: arch=%s firmware=%s\n' "${ARCH}" "${FIRMWARE}"
+    printf '# AirymaxOS image CI: arch=%s profile=%s firmware=%s\n' \
+        "${ARCH}" "${PROFILE}" "${FIRMWARE}"
     stage_rpm
     stage_kern
     stage_iso
