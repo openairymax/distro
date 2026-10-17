@@ -60,6 +60,9 @@ distro/
 │   ├── ks_lint.py                 # kickstart 语义校验器（K001-K012）
 │   └── tests/                     # 校验规则与构建驱动回归测试
 ├── scripts/
+│   ├── lib/
+│   │   └── outdir.sh              # 产物目录边界守卫（构建驱动共用）
+│   ├── build-iso.sh               # 无人值守安装 ISO 组装（mkksiso 注入）
 │   ├── build-rpms.sh              # RPM 批量构建驱动（产物限于源码区之外）
 │   └── install-test.sh            # 三连测装机回归（安装 → 冷启动 → 判定）
 └── ci/
@@ -98,6 +101,16 @@ distro/
 （`--repo --stream NAME --gpg-key KEYID`）。`DIR` 解析后必须位于源码区
 之外，否则拒绝执行，从流程上杜绝构建污染检出区。退出码遵循
 `190-distribution/01-rpm-packaging.md` §8。
+
+`scripts/build-iso.sh --iso SRC --ks FILE --out DIR` 组装无人值守安装镜像：
+以官方安装介质为底座，经 `mkksiso` 注入 kickstart 与串口控制台参数
+（缺省 `console=ttyS0,115200`），重建卷标（缺省 `AIRYMAXOS`），产出
+ISO、`.sha256` 与 `iso-manifest.txt`，`--gpg-key` 追加分离签名。构建后从
+镜像内回读 `/ks.cfg` 与 BIOS/UEFI 引导配置：kickstart 必须逐字节一致，
+引导配置必须含 `inst.ks=`，且所有 `inst.stage2=` 的卷标与最终卷标一致；
+任一项不符即以 `AIRY_EIO` 失败，避免产出"能生成但不能装"的镜像。
+`mkksiso` 需挂载源 ISO，实体机与 CI 均以 root 执行。产物目录边界与
+`build-rpms.sh` 共用 `scripts/lib/outdir.sh`。
 
 ## 内核隔离边界（硬规则）
 

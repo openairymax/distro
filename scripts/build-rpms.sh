@@ -21,6 +21,9 @@ readonly E_PERM=12
 DISTRO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 readonly DISTRO_ROOT
 
+# shellcheck source=lib/outdir.sh
+. "${DISTRO_ROOT}/scripts/lib/outdir.sh"
+
 OUT=""
 ARCH=""
 JOBS=""
@@ -131,51 +134,9 @@ check_jobs()
     fi
 }
 
-src_root()
-{
-    local top=""
-    if command -v git >/dev/null 2>&1; then
-        top="$(git -C "$DISTRO_ROOT" rev-parse \
-            --show-superproject-working-tree 2>/dev/null || true)"
-        if [ -z "$top" ]; then
-            top="$(git -C "$DISTRO_ROOT" rev-parse \
-                --show-toplevel 2>/dev/null || true)"
-        fi
-    fi
-    if [ -z "$top" ]; then
-        top="$(dirname "$(dirname "$DISTRO_ROOT")")"
-    fi
-    printf '%s\n' "$top"
-}
-
-out_abs()
-{
-    local parent name
-    parent="$(dirname "$OUT")"
-    name="$(basename "$OUT")"
-    case "$name" in
-    .|..) die "${E_INVAL}" "输出目录不得以 . 或 .. 结尾: $OUT" ;;
-    esac
-    if [ ! -d "$parent" ]; then
-        die "${E_INVAL}" "输出目录的父目录不存在: $parent"
-    fi
-    printf '%s/%s\n' "$(cd "$parent" && pwd -P)" "$name"
-}
-
 check_out()
 {
-    local src
-    if [ -z "$OUT" ]; then
-        die "${E_INVAL}" "--out 必填"
-    fi
-    OUT_ABS="$(out_abs)"
-    src="$(cd "$(src_root)" && pwd -P)"
-    case "${OUT_ABS}/" in
-    "${src}"/*)
-        die "${E_INVAL}" \
-            "输出目录位于源码区（${src}），禁止在源码区构建: ${OUT_ABS}"
-        ;;
-    esac
+    OUT_ABS="$(out_guard build-rpms "$OUT")"
 }
 
 collect_specs()
