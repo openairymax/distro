@@ -22,6 +22,9 @@
     <default>false</default>
     <uservisible>false</uservisible>
     <packagelist>
+      <!-- 发行版标识与桌面策略载体；kickstart %post 校验其存在，
+           提供 airymax-desktop.slice、UKUI 策略脚本与默认壁纸 -->
+      <packagereq type="mandatory">airymaxos-release</packagereq>
       <!-- openEuler 官方安装口径：dnf install ukui（元包，带入 ukui-session/
            ukui-kwin/ukui-panel/ukui-menu/peony/ukui-settings-daemon 等） -->
       <packagereq type="mandatory">ukui</packagereq>
@@ -48,10 +51,6 @@
     <default>false</default>
     <uservisible>true</uservisible>
     <packagelist>
-      <packagereq type="mandatory">ukui</packagereq>
-      <packagereq type="mandatory">xorg-x11-server-Xorg</packagereq>
-      <packagereq type="mandatory">lightdm</packagereq>
-      <packagereq type="mandatory">pipewire</packagereq>
       <!-- 文件管理器（ukui 元包应带入 peony，此处显式声明以防元包漂移） -->
       <packagereq type="default">peony</packagereq>
       <!-- 终端；TODO 核对冻结点包名（ukui-terminal / qterminal） -->
@@ -59,11 +58,14 @@
       <!-- 输入法：中文支持；TODO 核对冻结点提供 fcitx5 还是 fcitx4 系列 -->
       <packagereq type="default">fcitx5</packagereq>
       <packagereq type="default">fcitx5-chinese-addons</packagereq>
-      <!-- 分级冻结（同上 TODO） -->
-      <packagereq type="default">kylin-app-cgroupd</packagereq>
       <!-- 浏览器：TODO 由产品决策定（firefox 系 vs 自选），先按 openEuler 默认提供 -->
       <packagereq type="optional">firefox</packagereq>
     </packagelist>
+    <!-- 会话/窗管/登录管理器/音频栈/分级冻结的唯一定义在核心组，
+         此处以组引用复用，避免同一包清单两处维护产生漂移 -->
+    <grouplist>
+      <groupid>airymax-desktop-core</groupid>
+    </grouplist>
   </group>
 
   <!-- 可选扩展组：默认不装 -->
@@ -91,6 +93,7 @@
     <description xml:lang="zh_CN">智能体操作系统工作站（UKUI 桌面 + 系统层组件）</description>
     <display_order>99</display_order>
     <grouplist>
+      <groupid>airymax-desktop-core</groupid>
       <groupid>airymax-desktop</groupid>
     </grouplist>
     <optionlist>

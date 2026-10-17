@@ -58,7 +58,7 @@ distro/
 ├── tools/
 │   ├── lint_common.py             # Shared issue type and report format
 │   ├── spec_lint.py               # RPM spec static checker (E001-E014)
-│   ├── comps_lint.py              # comps semantic checker (C001-C009)
+│   ├── comps_lint.py              # comps semantic checker (C001-C010)
 │   ├── ks_lint.py                 # kickstart checker (K001-K012)
 │   └── tests/                     # Lint + build-driver regression tests
 ├── scripts/
