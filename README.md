@@ -39,6 +39,7 @@ distro/
 ├── kickstart/
 │   └── airymaxos-workstation.ks   # Installer kickstart (UKUI as default desktop group)
 ├── comps/
+│   ├── comps.dtd                  # Comps 1.0 DTD (local xmllint validation)
 │   └── airymaxos-comps.xml        # Package groups: airymax-desktop* → UKUI set
 ├── lockfile/
 │   ├── README.md                  # Freeze policy + freeze-point log
@@ -55,6 +56,7 @@ distro/
 │   └── README.md                  # Zero-patch policy (reserved)
 ├── tools/
 │   ├── spec_lint.py               # RPM spec static checker (E001-E014)
+│   ├── comps_lint.py              # comps semantic checker (C001-C009)
 │   └── tests/                     # Lint + build-driver regression tests
 ├── scripts/
 │   └── build-rpms.sh              # Batch RPM build driver (output outside source tree)
@@ -74,6 +76,11 @@ the Python 3 standard library only (no `rpmbuild`/`mock` required):
 - `tools/spec_lint.py` validates every recipe under `specs/` (tag set,
   `airymaxos-` prefix, `%{?dist}` release, SPDX license, section set,
   source presence, changelog format, version parity with `release/os-release`);
+- `tools/comps_lint.py` validates `comps/*.xml` (DOCTYPE, group and
+  environment identifiers, package syntax and duplicates, boolean fields,
+  environment-to-group references) and cross-checks `kickstart/*.ks`
+  selections, including the `@^environment` syntax; when `xmllint` is
+  available the file is additionally validated against `comps/comps.dtd`;
 - `tools/tests/` holds the regression tests for those rules and for the
   build driver contract.
 

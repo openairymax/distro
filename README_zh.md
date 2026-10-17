@@ -37,6 +37,7 @@ distro/
 ├── kickstart/
 │   └── airymaxos-workstation.ks   # 安装器 kickstart（UKUI 为默认桌面组）
 ├── comps/
+│   ├── comps.dtd                  # Comps 1.0 DTD（本地 xmllint 结构校验）
 │   └── airymaxos-comps.xml        # 包组定义：airymax-desktop* → UKUI 组件集
 ├── lockfile/
 │   ├── README.md                  # 冻结策略 + 冻结点记录表
@@ -53,6 +54,7 @@ distro/
 │   └── README.md                  # 零补丁策略（预留）
 ├── tools/
 │   ├── spec_lint.py               # RPM 配方静态校验器（E001-E014）
+│   ├── comps_lint.py              # comps 语义校验器（C001-C009）
 │   └── tests/                     # 校验规则与构建驱动回归测试
 ├── scripts/
 │   └── build-rpms.sh              # RPM 批量构建驱动（产物限于源码区之外）
@@ -71,6 +73,10 @@ distro/
 - `tools/spec_lint.py` 校验 `specs/` 下全部配方（标签集合、
   `airymaxos-` 前缀、`%{?dist}` Release、SPDX 许可证、section 集合、
   源文件存在性、changelog 格式、版本与 `release/os-release` 一致）；
+- `tools/comps_lint.py` 校验 `comps/*.xml`（DOCTYPE、组/环境标识、
+  包名与重复项、布尔字段、环境到组的引用），并交叉校验 `kickstart/*.ks`
+  的包组选择（含 `@^环境` 语法）；具备 `xmllint` 时追加按
+  `comps/comps.dtd` 的 DTD 结构校验；
 - `tools/tests/` 保存上述规则与构建驱动契约的回归测试。
 
 配方在提交时校验；真实 RPM 构建只在发布工作区执行，本仓内不构建。

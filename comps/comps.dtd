@@ -1,0 +1,45 @@
+<!--
+  SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
+
+  comps.dtd — AirymaxOS 包组定义 DTD（Comps 1.0）
+
+  设计口径见 docs-linux/190-distribution/01-rpm-packaging.md 与
+  03-installer-design.md；语义由 tools/comps_lint.py 复核，DTD 供
+  xmllint --valid 做结构校验。
+
+  元素顺序固定，避免 Anaconda 与 repodata 生成器对字段次序的隐式假设：
+    comps       = (group*, environment*)
+    group       = id, name+, description*, default?, uservisible?,
+                  display_order?, langonly?, packagelist, grouplist?,
+                  optionlist?
+    environment = id, name+, description*, display_order?,
+                  grouplist, optionlist?
+-->
+<!ELEMENT comps (group*, environment*)>
+
+<!ELEMENT group (id, name+, description*, default?, uservisible?,
+                 display_order?, langonly?, packagelist, grouplist?,
+                 optionlist?)>
+
+<!ELEMENT environment (id, name+, description*, display_order?,
+                       grouplist, optionlist?)>
+
+<!ELEMENT id (#PCDATA)>
+<!ELEMENT name (#PCDATA)>
+<!ATTLIST name xml:lang CDATA #IMPLIED>
+
+<!ELEMENT description (#PCDATA)>
+<!ATTLIST description xml:lang CDATA #IMPLIED>
+
+<!ELEMENT default (#PCDATA)>
+<!ELEMENT uservisible (#PCDATA)>
+<!ELEMENT display_order (#PCDATA)>
+<!ELEMENT langonly (#PCDATA)>
+
+<!ELEMENT packagelist (packagereq+)>
+<!ELEMENT packagereq (#PCDATA)>
+<!ATTLIST packagereq type (mandatory|default|optional|conditional) "default">
+
+<!ELEMENT grouplist (groupid+)>
+<!ELEMENT optionlist (groupid+)>
+<!ELEMENT groupid (#PCDATA)>
