@@ -35,6 +35,7 @@ distro/
 │   ├── macros.airymax             # FHS 布局宏（/etc/rpm/macros.airymax）
 │   └── airymaxos-release.spec     # 发行版标识包
 ├── kickstart/
+│   ├── airymaxos-minimal.ks       # 最小无人值守安装（多用户 + sshd + chrony）
 │   └── airymaxos-workstation.ks   # 安装器 kickstart（UKUI 为默认桌面组）
 ├── comps/
 │   ├── comps.dtd                  # Comps 1.0 DTD（本地 xmllint 结构校验）
@@ -53,11 +54,14 @@ distro/
 ├── ukui-patches/
 │   └── README.md                  # 零补丁策略（预留）
 ├── tools/
+│   ├── lint_common.py             # 校验器共用的 Issue 类型与输出格式
 │   ├── spec_lint.py               # RPM 配方静态校验器（E001-E014）
 │   ├── comps_lint.py              # comps 语义校验器（C001-C009）
+│   ├── ks_lint.py                 # kickstart 语义校验器（K001-K012）
 │   └── tests/                     # 校验规则与构建驱动回归测试
 ├── scripts/
-│   └── build-rpms.sh              # RPM 批量构建驱动（产物限于源码区之外）
+│   ├── build-rpms.sh              # RPM 批量构建驱动（产物限于源码区之外）
+│   └── install-test.sh            # 三连测装机回归（安装 → 冷启动 → 判定）
 └── ci/
     ├── README.md                  # 组合冒烟矩阵（T1-T4 + X1）
     ├── run-lint.sh                # 静态门禁：shell 语法 + 配方校验 + 测试
@@ -77,9 +81,17 @@ distro/
   包名与重复项、布尔字段、环境到组的引用），并交叉校验 `kickstart/*.ks`
   的包组选择（含 `@^环境` 语法）；具备 `xmllint` 时追加按
   `comps/comps.dtd` 的 DTD 结构校验；
+- `tools/ks_lint.py` 校验 `kickstart/*.ks`（K001-K012）：必需命令、
+  安装源唯一性、`https://`/`file://` 方案、存储命令冲突、账户锁定、
+  脚本节区 `set -eu` 与 `%post --log`、结束命令唯一且位于末尾；
 - `tools/tests/` 保存上述规则与构建驱动契约的回归测试。
 
 配方在提交时校验；真实 RPM 构建只在发布工作区执行，本仓内不构建。
+
+`scripts/install-test.sh ISO OUT` 对镜像执行三连测：安装（`-boot order=d`
++ 串口日志）→ 校验 `install complete` 标记 → 冷启动（`-boot order=c`）→
+校验无 `Kernel panic` 且出现 `login:`。输出为 TAP 14；缺 QEMU 工具时
+输出 `1..0 # SKIP` 并退出 77，不以假通过掩盖环境缺口。
 
 `scripts/build-rpms.sh --out DIR` 驱动批量构建：将所有 `Source`/`Patch`
 归集到私有 `_topdir`，可选发布已签名 DNF 仓库

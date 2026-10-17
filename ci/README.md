@@ -23,7 +23,11 @@ lockfile 冻结点（滚动触发） × 内核 RPM（6.6-airymax.n）
 
 ## 执行方式
 
+- `run-lint.sh` 是提交前静态门禁：shell 语法、配方/comps/kickstart 三类
+  语义校验与工具回归测试（Python 标准库，无 `rpmbuild`/`mock` 依赖）；
 - `run-smoke.sh` 在发布工作区对 compose/installer 产物执行（骨架见同目录
   脚本，测试机接入方式 TODO：首台 DevStation 测试机就位后回填）；
+- `../scripts/install-test.sh ISO OUT` 承担装机验收：QEMU 三连测，
+  每轮安装后冷启动并校验串口日志；输出 TAP 14，缺 QEMU 时退出 77；
 - 本目录只保存矩阵定义与脚本；测试用例实现归属 tests-linux 叶子仓（TODO：
   tests-linux 侧立项后建立引用关系，避免两仓重复维护）。

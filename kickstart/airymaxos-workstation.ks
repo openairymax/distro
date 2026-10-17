@@ -33,7 +33,8 @@ repo --name=epol   --baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/
 repo --name=airymaxos-base --baseurl=https://repo.airymaxos.org/0.0.3/BaseOS/x86_64/ --cost=10
 
 # ---- 引导与分区（UEFI + BIOS 双栈）----
-bootloader --timeout=3
+# 串口控制台保留给无头验收与故障恢复（install-test.sh 依赖 login: 哨兵）
+bootloader --timeout=3 --append="console=ttyS0,115200"
 clearpart --all --initlabel
 autopart --type=plain --fstype=ext4
 
@@ -41,9 +42,9 @@ autopart --type=plain --fstype=ext4
 network --bootproto=dhcp --activate --hostname=airymaxos
 
 # ---- 账户 ----
-# root 口令锁定；普通用户口令由安装界面/首启流程设置
+# 无人值守安装不留明文口令：root 锁定，user 同样锁定（口令由首启流程设置）
 rootpw --lock
-user --name=airymax --groups=wheel --comment="AirymaxOS user"
+user --name=airymax --groups=wheel --lock --comment="AirymaxOS user"
 
 # ---- 服务 ----
 services --enabled=lightdm
@@ -77,3 +78,7 @@ systemctl daemon-reload
 
 echo "AirymaxOS workstation install complete (baseline $(date -u +%Y%m%d))"
 %end
+
+# ---- 收尾 ----
+# 显式状态命令让无人值守安装可判定结束；-no-reboot 下 QEMU 直接退出
+reboot
