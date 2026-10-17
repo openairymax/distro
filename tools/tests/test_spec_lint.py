@@ -135,6 +135,18 @@ class SpecLintTest(unittest.TestCase):
                              "Source0:        demo.tar.gz")
         self.assertEqual(self.codes(text), [])
 
+    def test_source_root(self):
+        with tempfile.TemporaryDirectory() as extra:
+            (Path(extra) / "demo.conf").write_text("x\n", encoding="utf-8")
+            (self.root / "demo.conf").unlink()
+            text = f"# spec-lint: source-root {extra}\n" + VALID
+            self.assertEqual(self.codes(text), [])
+
+    def test_missing_root(self):
+        (self.root / "demo.conf").unlink()
+        text = "# spec-lint: source-root nowhere\n" + VALID
+        self.assertIn("E010", self.codes(text))
+
     def test_generated_dup(self):
         text = VALID.replace("Source0:        demo.conf",
                              "# spec-lint: generated-source demo.tar.gz\n"

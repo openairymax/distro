@@ -54,6 +54,9 @@ services --enabled=lightdm
 # 环境选择用 @^（pykickstart 环境语法）；@ 表示组
 @^airymax-workstation
 airymaxos-kernel
+# 系统编排单元与首启脚本（airymaxos-system）：随镜像落盘但不在此启用，
+# 启用边界见 %post 注释
+airymaxos-system
 
 # 桌面自带 AI 控制面排除（KylinBot 及其 MCP 桌面控制栈）：
 # agent 入口唯一 = Gateway（JSON-RPC 2.0），防止桌面成为第二控制面。
@@ -74,6 +77,18 @@ rpm -q airymaxos-release >/dev/null 2>&1 || {
     echo "ERROR: airymaxos-release is not installed" >&2
     exit 1
 }
+
+# 3) 系统编排单元必须随镜像落盘（OS-OPS-010 的包级前提）
+rpm -q airymaxos-system >/dev/null 2>&1 || {
+    echo "ERROR: airymaxos-system is not installed" >&2
+    exit 1
+}
+
+# 4) agentrt.target 的启用推迟到 daemon 二进制交付版本：
+#    该 target 强依赖 12 个 /usr/sbin/*_d，0.0.3 尚未打包，提前 enable
+#    会让每次冷启动进入 degraded，违背「OS 能正常运行」验收口径。
+#    启用项与 airymaxos-services 同版本落地，届时此处补
+#    `systemctl enable agentrt.target`（OS-OPS-010）。
 systemctl daemon-reload
 
 echo "AirymaxOS workstation install complete (baseline $(date -u +%Y%m%d))"

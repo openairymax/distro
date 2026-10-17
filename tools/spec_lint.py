@@ -11,6 +11,10 @@
 #   # spec-lint: generated-source <文件名>
 # 该声明只豁免 E010 的存在性与唯一性检查，文件名形式与去重仍然校验。
 #
+# Source 位于本仓库其它子树（如 system/units）的配方可声明额外的搜索根：
+#   # spec-lint: source-root <相对配方目录的路径>
+# 校验时与 distro 根一并建立索引；根不存在本身即按 E010 报告。
+#
 # 退出码：0 通过；1 存在问题；2 用法或读取错误。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
@@ -50,6 +54,7 @@ MACRO = re.compile(r"^%(?:global|define)\s+(\w+)\s+(.+)$")
 BAD = re.compile(r"\b(TODO|FIXME|XXX)\b")
 SRC = re.compile(r"^Source\d+$")
 GEN = re.compile(r"^#\s*spec-lint:\s*generated-source\s+(\S+)$")
+ROOT = re.compile(r"^#\s*spec-lint:\s*source-root\s+(\S+)$")
 
 
 def strip_cmt(line: str) -> str:
@@ -110,6 +115,14 @@ def walk_files(root: Path) -> dict[str, list[Path]]:
     return index
 
 
+def build_index(roots: list[Path]) -> dict[str, set[Path]]:
+    index: dict[str, set[Path]] = {}
+    for root in roots:
+        for name, hits in walk_files(root).items():
+            index.setdefault(name, set()).update(hits)
+    return index
+
+
 def check_tags(tags: dict, ver: str, issues: list[Issue]) -> None:
     for name in REQUIRED:
         if name not in tags:
@@ -145,9 +158,18 @@ def parse_gen(lines: list[str]) -> set[str]:
     return out
 
 
-def check_srcs(tags: dict, root: Path, macros: dict[str, str],
+def parse_roots(lines: list[str], path: Path) -> list[tuple[int, Path]]:
+    out = []
+    for num, raw in enumerate(lines, 1):
+        hit = ROOT.match(raw.strip())
+        if hit:
+            out.append((num, (path.parent / hit.group(1)).resolve()))
+    return out
+
+
+def check_srcs(tags: dict, roots: list[Path], macros: dict[str, str],
                gen: set[str], issues: list[Issue]) -> None:
-    index = walk_files(root)
+    index = build_index(roots)
     seen: set[str] = set()
     for tag in sorted(tags):
         if not SRC.match(tag):
@@ -163,7 +185,7 @@ def check_srcs(tags: dict, root: Path, macros: dict[str, str],
         seen.add(val)
         if val in gen:
             continue
-        hits = index.get(val, [])
+        hits = index.get(val, set())
         if not hits:
             issues.append(Issue("E010", num, f"missing source: {val}"))
         elif len(hits) > 1:
@@ -247,9 +269,15 @@ def lint_text(text: str, path: Path, root: Path) -> list[Issue]:
     ver = expand(tags.get("Version", (0, ""))[1], macros)
     macros["version"] = ver
     issues: list[Issue] = []
+    roots = [root]
+    for num, extra in parse_roots(lines, path):
+        if extra.is_dir():
+            roots.append(extra)
+        else:
+            issues.append(Issue("E010", num, f"missing source root: {extra}"))
     check_tags(tags, ver, issues)
     check_name(tags, path, issues)
-    check_srcs(tags, root, macros, gen, issues)
+    check_srcs(tags, roots, macros, gen, issues)
     check_secs(secs, issues)
     check_files(lines, secs, issues)
     check_log(lines, secs, issues)
