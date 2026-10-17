@@ -19,8 +19,9 @@ from __future__ import annotations
 import re
 import sys
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
 from pathlib import Path
+
+from lint_common import Issue, dump, report
 
 PUBLIC = "-//Airymax//DTD Comps 1.0//EN"
 SYSTEM = "comps.dtd"
@@ -29,13 +30,6 @@ DOCTYPE = re.compile(
 PKGNAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")
 TYPES = frozenset({"mandatory", "default", "optional", "conditional"})
 BOOL = frozenset({"true", "false"})
-
-
-@dataclass(frozen=True)
-class Issue:
-    code: str
-    line: int
-    msg: str
 
 
 def text_of(node: ET.Element, tag: str) -> str:
@@ -280,15 +274,8 @@ def main(argv: list[str]) -> int:
         except OSError as err:
             print(f"comps_lint: {err}", file=sys.stderr)
             return 2
-        for issue in issues:
-            print(f"{path}:{issue.line}: {issue.code} {issue.msg}")
-        total += len(issues)
-        if not issues:
-            print(f"{path}: OK")
-    if total:
-        print(f"comps_lint: {total} issue(s)", file=sys.stderr)
-        return 1
-    return 0
+        total += dump(path, issues)
+    return report("comps_lint", total)
 
 
 if __name__ == "__main__":
