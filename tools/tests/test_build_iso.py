@@ -20,92 +20,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import fakes
+
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "build-iso.sh"
 DISTRO = SCRIPT.parent.parent
 BASH = shutil.which("bash") or "/bin/bash"
 BASELINE = DISTRO / "kickstart" / "airymaxos-minimal.ks"
-
-TOOLS = ("awk", "basename", "cat", "cmp", "dirname", "grep", "mkdir",
-         "mv", "python3", "rm", "sed", "sha256sum", "uname")
-
-MKKSISO = """\
-#!/bin/sh
-n=0
-vol=""; cmd=""
-while [ $# -gt 0 ]; do
-    case "$1" in
-    -V) shift; vol=$1 ;;
-    -c) shift; cmd=$1 ;;
-    -a) shift ;;
-    -*) ;;
-    *) n=$((n + 1)); eval "p$n=\\$1" ;;
-    esac
-    shift
-done
-[ "${FAKE_MKKSISO_MODE:-ok}" = fail ] && exit 3
-ks=$p1; out=$p3
-[ -n "$ks" ] && [ -n "$out" ] || exit 4
-stage=$vol
-ksline="inst.ks=hd:LABEL=${vol}:/ks.cfg"
-case "${FAKE_MKKSISO_MODE:-ok}" in
-badlabel) stage=OLDVOLID ;;
-nostage) ksline="" ;;
-esac
-{
-    printf 'AIRYFAKE1\\n'
-    printf 'CMDLINE=%s\\n' "$cmd"
-    printf '=== /ks.cfg\\n'
-    if [ "${FAKE_MKKSISO_MODE:-ok}" = badks ]; then
-        printf 'lang zh_CN.UTF-8\\n'
-    else
-        cat "$ks"
-    fi
-    printf '=== /isolinux/isolinux.cfg\\n'
-    printf 'append %s inst.stage2=hd:LABEL=%s quiet\\n' "$ksline" "$stage"
-    printf '=== /EFI/BOOT/grub.cfg\\n'
-    printf 'linuxefi /vmlinuz %s inst.stage2=hd:LABEL=%s\\n' \\
-        "$ksline" "$stage"
-} > "$out"
-if [ -n "${FAKE_MKKSISO_LOG:-}" ]; then
-    printf 'volid=%s cmd=%s\\n' "$vol" "$cmd" > "$FAKE_MKKSISO_LOG"
-fi
-"""
-
-XORRISO = """\
-#!/bin/sh
-indev=""; path=""; dest=""
-while [ $# -gt 0 ]; do
-    case "$1" in
-    -indev) shift; indev=$1 ;;
-    -extract) shift; path=$1; shift; dest=$1 ;;
-    esac
-    shift
-done
-[ -n "$indev" ] && [ -n "$path" ] && [ -n "$dest" ] || exit 2
-grep -qxF "=== ${path}" "$indev" || exit 1
-awk -v p="$path" '$0 == "=== " p { on = 1; next }
-on && /^=== / { exit }
-on { print }' "$indev" > "$dest"
-"""
-
-IMPLANT = """\
-#!/bin/sh
-[ "${FAKE_IMPLANT_MODE:-ok}" = fail ] && exit 1
-printf 'IMPLANTED\\n' >> "$1"
-"""
-
-GPG = """\
-#!/bin/sh
-out=""
-while [ $# -gt 0 ]; do
-    case "$1" in
-    --output) shift; out=$1 ;;
-    esac
-    shift
-done
-[ -n "$out" ] || exit 1
-printf 'signature\\n' > "$out"
-"""
 
 
 class BuildIsoTest(unittest.TestCase):
@@ -126,19 +46,14 @@ class BuildIsoTest(unittest.TestCase):
     def tearDown(self):
         self._tmp.cleanup()
 
-    def tools(self, *fakes):
-        for name in TOOLS:
-            src = shutil.which(name)
-            if src:
-                (self.bin / name).symlink_to(src)
-        for name, body in fakes:
-            path = self.bin / name
-            path.write_text(body, encoding="utf-8")
-            path.chmod(0o755)
+    def tools(self, *extra):
+        fakes.link_tools(self.bin)
+        for name, body in extra:
+            fakes.write(self.bin, name, body)
 
-    def full(self, *fakes):
-        self.tools(("mkksiso", MKKSISO), ("xorriso", XORRISO),
-                   ("implantisomd5", IMPLANT), *fakes)
+    def full(self, *extra):
+        self.tools(*extra)
+        fakes.iso_tools(self.bin)
 
     def run_script(self, *args, **extra):
         env = {"PATH": str(self.bin), "HOME": str(self.root),
@@ -188,11 +103,11 @@ class BuildIsoTest(unittest.TestCase):
         self.assertEqual(res.returncode, 5)
 
     def test_missing_mkksiso(self):
-        self.tools(("xorriso", XORRISO), ("implantisomd5", IMPLANT))
+        self.tools(("xorriso", fakes.XORRISO), ("implantisomd5", fakes.IMPLANT))
         self.assertEqual(self.build().returncode, 11)
 
     def test_missing_implant(self):
-        self.tools(("mkksiso", MKKSISO), ("xorriso", XORRISO))
+        self.tools(("mkksiso", fakes.MKKSISO), ("xorriso", fakes.XORRISO))
         self.assertEqual(self.build().returncode, 11)
 
     def test_ks_lint_fail(self):
@@ -253,14 +168,14 @@ class BuildIsoTest(unittest.TestCase):
             (self.out / "airymaxos-9.9.9-x86_64.iso").is_file())
 
     def test_no_md5(self):
-        self.tools(("mkksiso", MKKSISO), ("xorriso", XORRISO))
+        self.tools(("mkksiso", fakes.MKKSISO), ("xorriso", fakes.XORRISO))
         res = self.build("--arch", "x86_64", "--no-md5")
         self.assertEqual(res.returncode, 0, res.stderr)
         iso = self.out / "airymaxos-0.0.3-x86_64.iso"
         self.assertNotIn("IMPLANTED", iso.read_text(encoding="utf-8"))
 
     def test_gpg_key(self):
-        self.full(("gpg", GPG))
+        self.full(("gpg", fakes.GPG))
         res = self.build("--arch", "x86_64", "--gpg-key", "test")
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertTrue(
