@@ -29,6 +29,13 @@
 
 ```
 distro/
+├── release/
+│   └── os-release                 # Release identity SSoT (VERSION_ID)
+├── repo/
+│   └── airymax-os.repo            # DNF repo definitions (runtime + lockfile input)
+├── specs/
+│   ├── macros.airymax             # FHS layout macros (/etc/rpm/macros.airymax)
+│   └── airymaxos-release.spec     # Distribution identity package
 ├── kickstart/
 │   └── airymaxos-workstation.ks   # Installer kickstart (UKUI as default desktop group)
 ├── comps/
@@ -46,10 +53,27 @@ distro/
 │   └── 70-airymax-ukui-policy.sh  # Post-install policy script
 ├── ukui-patches/
 │   └── README.md                  # Zero-patch policy (reserved)
+├── tools/
+│   ├── spec_lint.py               # RPM spec static checker (E001-E014)
+│   └── tests/test_spec_lint.py    # Lint rule regression tests
 └── ci/
     ├── README.md                  # Smoke matrix (T1-T4 + X1)
-    └── run-smoke.sh               # Smoke runner skeleton (TAP)
+    ├── run-lint.sh                # Static gate: spec lint + tool tests
+    └── run-smoke.sh               # Smoke runner (TAP)
 ```
+
+## Static gates
+
+`ci/run-lint.sh` is the single entry point for static checks and runs with
+the Python 3 standard library only (no `rpmbuild`/`mock` required):
+
+- `tools/spec_lint.py` validates every recipe under `specs/` (tag set,
+  `airymaxos-` prefix, `%{?dist}` release, SPDX license, section set,
+  source presence, changelog format, version parity with `release/os-release`);
+- `tools/tests/` holds the regression tests for those rules.
+
+Recipes are validated at commit time; actual RPM builds happen only in the
+release workspace, never inside this repository.
 
 ## Kernel isolation boundary (hard rule)
 
@@ -66,7 +90,7 @@ kernel repository. The dependency direction is one-way:
 
 ## Branch strategy
 
-This leaf repository develops on **`develop/hubs-01`**, consistent with all
+This leaf repository develops on **`dev/hubs-01`**, consistent with all
 other agent-linux leaf repositories. The aggregating management repo
 `agent-linux` stays on `main`.
 

@@ -1,0 +1,51 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
+# ===========================================================================
+# airymaxos.repo — 本项目 RPM 仓库客户端配置
+#
+# 安装位置：/etc/yum.repos.d/airymaxos.repo（由 airymaxos-release 包提供）
+# 设计口径：docs-linux/190-distribution/01-rpm-packaging.md §5.2
+# 目录布局：docs-linux/190-distribution/01-rpm-packaging.md §5.1
+#
+# 该文件同时是 lockfile 冻结的输入（lockfile/gen-lockfile.sh 通过
+# rpm-lockfile-prototype 读取本文件的仓库集合），因此仓库增删必须先改此处。
+# ===========================================================================
+
+[airymaxos-base]
+name=AirymaxOS BaseOS $releasever - $basearch
+baseurl=https://repo.airymaxos.org/$releasever/BaseOS/$basearch/
+enabled=1
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-airymaxos
+repo_gpgcheck=1
+metadata_expire=6h
+skip_if_unavailable=True
+
+[airymaxos-appstream]
+name=AirymaxOS AppStream $releasever - $basearch
+baseurl=https://repo.airymaxos.org/$releasever/AppStream/$basearch/
+enabled=1
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-airymaxos
+repo_gpgcheck=1
+metadata_expire=6h
+skip_if_unavailable=True
+
+[airymaxos-updates]
+name=AirymaxOS Updates $releasever - $basearch
+baseurl=https://repo.airymaxos.org/$releasever/updates/$basearch/
+enabled=1
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-airymaxos
+repo_gpgcheck=1
+metadata_expire=1h
+skip_if_unavailable=True
+
+[airymaxos-testing]
+name=AirymaxOS Testing - $basearch
+baseurl=https://repo.airymaxos.org/testing/$basearch/
+enabled=0
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-airymaxos-testing
+repo_gpgcheck=1
+metadata_expire=1h
+skip_if_unavailable=True

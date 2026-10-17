@@ -10,7 +10,7 @@
 #   4. 安装 AirymaxOS 默认壁纸并设为系统背景默认值
 #
 # 部署：随 airymaxos-release 包安装到
-#   /usr/share/airymax/distro/desktop/70-airymax-ukui-policy.sh
+#   /usr/share/airymaxos/distro/desktop/70-airymax-ukui-policy.sh
 # 调用：kickstart %post 或 RPM %post（幂等，可重复执行）
 # ===========================================================================
 set -euo pipefail
@@ -65,7 +65,7 @@ echo "[airymax-ukui-policy] default target = graphical.target"
 #    TODO 首个冻结点核对 UKUI 4.x 背景 schema 名与键名（与 desktop/README.md
 #    TODO 表联动）；下文先按 org.ukui.background 落地。
 # ---------------------------------------------------------------------------
-AIRY_WP_SRC="/usr/share/airymax/distro/desktop/wallpaper/airymaxos-default.jpg"
+AIRY_WP_SRC="/usr/share/airymaxos/distro/desktop/wallpaper/airymaxos-default.jpg"
 AIRY_WP_DIR="/usr/share/backgrounds/airymaxos"
 AIRY_WP_DST="${AIRY_WP_DIR}/airymaxos-default.jpg"
 

@@ -27,6 +27,13 @@
 
 ```
 distro/
+├── release/
+│   └── os-release                 # 发行版标识唯一事实源（VERSION_ID）
+├── repo/
+│   └── airymax-os.repo            # DNF 仓库定义（运行期 + lockfile 输入）
+├── specs/
+│   ├── macros.airymax             # FHS 布局宏（/etc/rpm/macros.airymax）
+│   └── airymaxos-release.spec     # 发行版标识包
 ├── kickstart/
 │   └── airymaxos-workstation.ks   # 安装器 kickstart（UKUI 为默认桌面组）
 ├── comps/
@@ -44,10 +51,26 @@ distro/
 │   └── 70-airymax-ukui-policy.sh  # 安装后策略脚本
 ├── ukui-patches/
 │   └── README.md                  # 零补丁策略（预留）
+├── tools/
+│   ├── spec_lint.py               # RPM 配方静态校验器（E001-E014）
+│   └── tests/test_spec_lint.py    # 校验规则回归测试
 └── ci/
     ├── README.md                  # 组合冒烟矩阵（T1-T4 + X1）
-    └── run-smoke.sh               # 冒烟执行骨架（TAP 输出）
+    ├── run-lint.sh                # 静态门禁：配方校验 + 工具测试
+    └── run-smoke.sh               # 冒烟执行脚本（TAP 输出）
 ```
+
+## 静态门禁
+
+`ci/run-lint.sh` 是静态检查的唯一入口，只依赖 Python 3 标准库
+（无需 `rpmbuild`/`mock`）：
+
+- `tools/spec_lint.py` 校验 `specs/` 下全部配方（标签集合、
+  `airymaxos-` 前缀、`%{?dist}` Release、SPDX 许可证、section 集合、
+  源文件存在性、changelog 格式、版本与 `release/os-release` 一致）；
+- `tools/tests/` 保存上述规则的回归测试。
+
+配方在提交时校验；真实 RPM 构建只在发布工作区执行，本仓内不构建。
 
 ## 内核隔离边界（硬规则）
 
@@ -62,7 +85,7 @@ distro/
 
 ## 分支策略
 
-本叶子仓与其他 agent-linux 叶子仓一致，在 **`develop/hubs-01`** 分支上
+本叶子仓与其他 agent-linux 叶子仓一致，在 **`dev/hubs-01`** 分支上
 开发。聚合管理仓 `agent-linux` 保持在 `main` 分支。
 
 ## 上下游依赖
