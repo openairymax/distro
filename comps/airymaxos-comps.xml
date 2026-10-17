@@ -6,10 +6,9 @@
 
   桌面决策（2026-09-15）：OS 侧系统桌面 = UKUI 4.x（openKylin/openEuler 线），
   以 RPM 形态随 Euler 包生态进入镜像，禁止 vendor 源码。
-  基础仓库：openEuler 24.03 LTS（SP 分支按 lockfile 冻结点选定）。
-
-  注意：包名以冻结点实际仓库为准（lockfile/gen-lockfile.sh 会校验存在性）；
-  标注 TODO 的条目需在首个冻结点落地时逐一核对。
+  基础仓库：openEuler 24.03 LTS-SP2 的 OS、update、EPOL/main 三个仓库
+  （与 kickstart 配置一致）。包名已按该冻结点实际仓库逐一核对；
+  新增条目必须先确认可从上述仓库解析，否则安装会直接失败。
 -->
 <comps>
   <!-- 核心组：最小可启动 UKUI 桌面会话 -->
@@ -25,19 +24,25 @@
       <!-- 发行版标识与桌面策略载体；kickstart %post 校验其存在，
            提供 airymax-desktop.slice、UKUI 策略脚本与默认壁纸 -->
       <packagereq type="mandatory">airymaxos-release</packagereq>
-      <!-- openEuler 官方安装口径：dnf install ukui（元包，带入 ukui-session/
-           ukui-kwin/ukui-panel/ukui-menu/peony/ukui-settings-daemon 等） -->
+      <!-- UKUI 元包（EPOL）：Requires 已覆盖会话、窗管、面板、控制中心、
+           截图/归档/图片查看、字体与 ukui-greeter，勿在桌面组重复声明 -->
       <packagereq type="mandatory">ukui</packagereq>
-      <!-- X11 优先（desktop/README.md 图形路径决策，Wayland 为二期） -->
-      <packagereq type="mandatory">xorg-x11-server-Xorg</packagereq>
-      <!-- 登录管理器：UKUI 系默认走 lightdm；TODO 核对冻结点是否改由
-           ukui-greeter / sddm 提供会话管理 -->
+      <!-- X11 服务端：真实包名 xorg-x11-server，它 Provides
+           xorg-x11-server-Xorg / Xorg（后者不是包名） -->
+      <packagereq type="mandatory">xorg-x11-server</packagereq>
+      <!-- 显示管理器：ukui-greeter 自带 95-ukui-greeter.conf 接入 lightdm，
+           显式声明使 kickstart 的 services 指令有实包可依 -->
       <packagereq type="mandatory">lightdm</packagereq>
-      <!-- 音频栈：UKUI 4.x 依赖 PipeWire -->
-      <packagereq type="mandatory">pipewire</packagereq>
-      <!-- UKUI 分级冻结（cgroup v2）；TODO 核对 openEuler 冻结点的实际包名
-           （openKylin 侧为 kylin-app-cgroupd，openEuler 可能以其他包名提供） -->
-      <packagereq type="default">kylin-app-cgroupd</packagereq>
+      <!-- 音频：UKUI 通过 libpulse 播放提示音与音量控制，不依赖 PipeWire
+           守护进程（pipewire 仅存在于 everything 仓库，镜像不启用） -->
+      <packagereq type="default">pulseaudio</packagereq>
+      <!-- 图形栈：DRI 驱动提供软件渲染与 libgbm，缺省时会话可启动但
+           窗口管理器无 GL 后端 -->
+      <packagereq type="default">mesa-dri-drivers</packagereq>
+      <!-- 会话总线：X11 客户端通过 dbus-launch 接入会话总线 -->
+      <packagereq type="default">dbus-x11</packagereq>
+      <!-- 授权服务：ukui-polkit 依赖 polkit 守护进程 -->
+      <packagereq type="default">polkit</packagereq>
     </packagelist>
   </group>
 
@@ -53,11 +58,14 @@
     <packagelist>
       <!-- 文件管理器（ukui 元包应带入 peony，此处显式声明以防元包漂移） -->
       <packagereq type="default">peony</packagereq>
-      <!-- 终端；TODO 核对冻结点包名（ukui-terminal / qterminal） -->
-      <packagereq type="default">ukui-terminal</packagereq>
-      <!-- 输入法：中文支持；TODO 核对冻结点提供 fcitx5 还是 fcitx4 系列 -->
-      <packagereq type="default">fcitx5</packagereq>
-      <packagereq type="default">fcitx5-chinese-addons</packagereq>
+      <!-- 终端：EPOL 提供 mate-terminal（无 ukui-terminal 包） -->
+      <packagereq type="default">mate-terminal</packagereq>
+      <!-- 输入法：冻结点只有 fcitx 4.x 系列（无 fcitx5），
+           libpinyin 提供中文拼音引擎，configtool/qt5 提供配置与 Qt 支持 -->
+      <packagereq type="default">fcitx</packagereq>
+      <packagereq type="default">fcitx-libpinyin</packagereq>
+      <packagereq type="default">fcitx-configtool</packagereq>
+      <packagereq type="default">fcitx-qt5</packagereq>
       <!-- 浏览器：TODO 由产品决策定（firefox 系 vs 自选），先按 openEuler 默认提供 -->
       <packagereq type="optional">firefox</packagereq>
     </packagelist>
