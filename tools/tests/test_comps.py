@@ -14,6 +14,7 @@
 import sys
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -126,6 +127,43 @@ class CompsLintTest(unittest.TestCase):
                              "<groupid>airymax-gone</groupid>")
         self.assertIn("C007", self.codes(text))
 
+    def test_group_ref(self):
+        text = VALID.replace(
+            "    </packagelist>\n  </group>",
+            "    </packagelist>\n    <grouplist>\n"
+            "      <groupid>airymax-gone</groupid>\n"
+            "    </grouplist>\n  </group>")
+        self.assertIn("C007", self.codes(text))
+
+    def test_group_self_ref(self):
+        text = VALID.replace(
+            "    </packagelist>\n  </group>",
+            "    </packagelist>\n    <grouplist>\n"
+            "      <groupid>airymax-demo</groupid>\n"
+            "    </grouplist>\n  </group>")
+        self.assertIn("C007", self.codes(text))
+
+    def test_group_cycle(self):
+        text = VALID.replace(
+            "    </packagelist>\n  </group>",
+            "    </packagelist>\n    <grouplist>\n"
+            "      <groupid>airymax-demo-two</groupid>\n"
+            "    </grouplist>\n  </group>")
+        peer = """\
+  <group>
+    <id>airymax-demo-two</id>
+    <name>AirymaxOS Demo Two</name>
+    <packagelist>
+      <packagereq type="mandatory">demo2</packagereq>
+    </packagelist>
+    <grouplist>
+      <groupid>airymax-demo</groupid>
+    </grouplist>
+  </group>
+"""
+        text = text.replace("  <environment>", peer + "  <environment>")
+        self.assertIn("C010", self.codes(text))
+
     def test_bool(self):
         text = VALID.replace("<uservisible>true</uservisible>",
                              "<uservisible>yes</uservisible>")
@@ -151,6 +189,26 @@ class CompsLintTest(unittest.TestCase):
         for path in targets:
             self.assertEqual(comps_lint.lint_comps(path, base), [],
                              f"{path.name} violates comps rules")
+
+    def test_real_ukui_nesting(self):
+        base = Path(__file__).resolve().parents[2]
+        root = ET.parse(base / "comps" / "airymaxos-comps.xml").getroot()
+        groups = {grp.findtext("id"): grp for grp in root.findall("group")}
+        core = groups["airymax-desktop-core"]
+        desktop = groups["airymax-desktop"]
+        self.assertIn("airymax-desktop-core",
+                      {ref.text for ref in desktop.findall(
+                          "grouplist/groupid")})
+        self.assertFalse(_packages(core) & _packages(desktop))
+        self.assertIn("airymaxos-release", _packages(core))
+        envs = {env.findtext("id"): env for env in root.findall("environment")}
+        chosen = {ref.text for ref in envs["airymax-workstation"].findall(
+            "grouplist/groupid")}
+        self.assertTrue({"airymax-desktop-core", "airymax-desktop"} <= chosen)
+
+
+def _packages(group):
+    return {req.text for req in group.findall("packagelist/packagereq")}
 
 
 if __name__ == "__main__":

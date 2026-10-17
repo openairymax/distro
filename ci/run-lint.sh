@@ -6,7 +6,7 @@
 # 职责：
 #   1. bash -n 解析 ci/、lockfile/、scripts/ 下的 shell 入口；
 #   2. 校验 specs/ 下所有 RPM 配方（tools/spec_lint.py，E001~E014）；
-#   3. 校验 comps/ 下包组定义（tools/comps_lint.py，C001~C009），并在
+#   3. 校验 comps/ 下包组定义（tools/comps_lint.py，C001~C010），并在
 #      具备 xmllint 时按 comps/comps.dtd 做 DTD 校验；
 #   4. 校验 kickstart/ 下安装配方（tools/ks_lint.py，K001~K012）；
 #   5. 运行 tools/tests 下的规则回归测试。

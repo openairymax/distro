@@ -4,9 +4,9 @@
 # comps_lint.py — AirymaxOS comps 包组定义静态校验
 #
 # 只依赖标准库。XML 结构由标准库解析，项目语义（组/环境标识、包名、
-# 布尔字段、环境到组的引用、kickstart 选择）逐项复核；comps/comps.dtd
-# 供 xmllint --valid 做 DTD 结构校验。规则编号 C001~C009 与
-# tools/tests/test_comps.py 一一对应。
+# 布尔字段、组引用与嵌套环、环境到组的引用、kickstart 选择）逐项复核；
+# comps/comps.dtd 供 xmllint --valid 做 DTD 结构校验。规则编号
+# C001~C010 与 tools/tests/test_comps.py 一一对应。
 #
 # 退出码：0 通过；1 存在问题；2 用法或读取错误。
 #
@@ -118,13 +118,57 @@ def grp_pkgs(grp: ET.Element, gid: str,
         req_kind(req, gid, line, issues)
 
 
+def grp_refs(grp: ET.Element, gid: str, gids: set[str],
+             lines: list[str], issues: list[Issue]) -> list[str]:
+    edges: list[str] = []
+    for tag in ("grouplist", "optionlist"):
+        for ref in grp.findall(f"{tag}/groupid"):
+            name = (ref.text or "").strip()
+            if name == gid or name not in gids:
+                issues.append(Issue("C007", tag_line(lines, "groupid", name),
+                                    f"group {gid}: bad group ref {name}"))
+                continue
+            edges.append(name)
+    return edges
+
+
+def walk_cycle(gid: str, edges: dict[str, list[str]], state: dict[str, int],
+               path: list[str], lines: list[str], issues: list[Issue]) -> None:
+    state[gid] = 1
+    path.append(gid)
+    for nxt in edges.get(gid, []):
+        if state.get(nxt, 0) == 1:
+            cycle = path[path.index(nxt):] + [nxt]
+            issues.append(Issue("C010", tag_line(lines, "groupid", nxt),
+                                f"group cycle: {' -> '.join(cycle)}"))
+        elif state.get(nxt, 0) == 0:
+            walk_cycle(nxt, edges, state, path, lines, issues)
+    path.pop()
+    state[gid] = 2
+
+
+def check_cycles(edges: dict[str, list[str]], lines: list[str],
+                 issues: list[Issue]) -> None:
+    state: dict[str, int] = {}
+    for gid in edges:
+        if state.get(gid, 0) == 0:
+            walk_cycle(gid, edges, state, [], lines, issues)
+
+
 def check_groups(root: ET.Element, lines: list[str],
                  issues: list[Issue]) -> set[str]:
     gids: set[str] = set()
     for grp in root.findall("group"):
-        gid = grp_id(grp, gids, lines, issues)
+        grp_id(grp, gids, lines, issues)
+    edges: dict[str, list[str]] = {}
+    for grp in root.findall("group"):
+        gid = text_of(grp, "id")
+        if not gid:
+            continue
         grp_body(grp, gid, lines, issues)
         grp_pkgs(grp, gid, lines, issues)
+        edges[gid] = grp_refs(grp, gid, gids, lines, issues)
+    check_cycles(edges, lines, issues)
     return gids
 
 
