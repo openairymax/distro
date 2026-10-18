@@ -193,6 +193,15 @@ class InstallTestTest(unittest.TestCase):
         self.assertEqual(res.returncode, 1)
         self.assertIn("not ok 2", res.stdout)
 
+    def test_desktop_probe_fail(self):
+        self.tools()
+        res = self.install("--runs", "1",
+                           "--boot-marker", "AIRYMAX-DESKTOP-READY",
+                           FAKE_QEMU_BOOT_MODE="desktop-fail")
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("not ok 2", res.stdout)
+        self.assertIn("boot failure pattern", res.stderr)
+
     def test_boot_timeout(self):
         self.tools()
         res = self.install("--runs", "1", "--boot-timeout", "2",
