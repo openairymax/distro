@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE wallpapers SYSTEM "gnome-wp-list.dtd">
+<!--
+  AirymaxOS 系统壁纸注册表。
+  部署：airymaxos-release 包安装到 /usr/share/ukui-background-properties/。
+  ukui-control-center 启动时扫描该目录下全部 *.xml，重建用户级
+  ~/.config/ukui/wallpaper.xml；DOCTYPE 必须保留，生成用户文件时原样继承。
+  字段集合与 ukui-wallpapers 包一致（pcolor/scolor/shade_type）。
+-->
+<wallpapers>
+  <wallpaper deleted="false">
+    <name>AirymaxOS</name>
+    <name xml:lang="zh_CN">AirymaxOS 默认壁纸</name>
+    <filename>/usr/share/backgrounds/airymaxos/airymaxos-default.jpg</filename>
+    <options>zoom</options>
+    <pcolor>#000000</pcolor>
+    <scolor>#000000</scolor>
+    <shade_type>solid</shade_type>
+  </wallpaper>
+</wallpapers>

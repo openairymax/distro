@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
+# 部署：airymaxos-release 包安装到 /usr/share/glib-2.0/schemas/。
+#
+# UKUI 桌面背景由 peony-qt-desktop 依据 org.mate.background 绘制；该 schema
+# 由 mate-desktop-libs 提供（ukui-settings-daemon 的硬依赖）。此处只覆盖
+# 默认图片路径，其余键沿用 schema 默认值（picture-options=zoom 等），避免
+# 与用户级设置产生双重事实来源。
+[org.mate.background]
+picture-filename='/usr/share/backgrounds/airymaxos/airymaxos-default.jpg'

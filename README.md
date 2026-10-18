@@ -52,7 +52,13 @@ distro/
 ├── desktop/
 │   ├── README.md                  # UKUI integration policy (6 rules)
 │   ├── airymax-desktop.slice      # Low-interference cgroup slice
-│   └── 70-airymax-ukui-policy.sh  # Post-install policy script
+│   ├── 70-airymax-ukui-policy.sh  # Post-install policy script
+│   ├── lightdm/                   # lightdm seat policy
+│   ├── xinitrc.d/                 # X11 session input method environment
+│   ├── autostart/                 # XDG input method autostart entry
+│   ├── user@.service.d/           # Bind the session to airymax-desktop.slice
+│   ├── wallpaper/                 # Default wallpaper and UKUI registry
+│   └── glib-2.0/schemas/          # org.mate.background default override
 ├── ukui-patches/
 │   └── README.md                  # Zero-patch policy (reserved)
 ├── tools/

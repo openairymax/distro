@@ -4,7 +4,9 @@
 # run-lint.sh — distro 仓库静态门禁
 #
 # 职责：
-#   1. bash -n 解析 ci/、lockfile/、scripts/ 下的 shell 入口；
+#   1. bash -n 解析 ci/、lockfile/、scripts/、desktop/ 下的 shell 入口；
+#      desktop/xinitrc.d 额外用 sh -n 校验 POSIX 兼容（该目录被 Xsession
+#      以 /bin/sh source）；
 #   2. 校验 specs/ 下所有 RPM 配方（tools/spec_lint.py，E001~E014）；
 #   3. 校验 comps/ 下包组定义（tools/comps_lint.py，C001~C010），并在
 #      具备 xmllint 时按 comps/comps.dtd 做 DTD 校验；
@@ -24,7 +26,12 @@ cd "${ROOT}"
 echo "== shell syntax =="
 while IFS= read -r script; do
     bash -n "${script}"
-done < <(find ci lockfile scripts -type f -name '*.sh' | sort)
+done < <(find ci lockfile scripts desktop -type f -name '*.sh' | sort)
+if [ -d desktop/xinitrc.d ]; then
+    while IFS= read -r script; do
+        sh -n "${script}"
+    done < <(find desktop/xinitrc.d -type f -name '*.sh' | sort)
+fi
 
 echo "== spec lint =="
 python3 tools/spec_lint.py

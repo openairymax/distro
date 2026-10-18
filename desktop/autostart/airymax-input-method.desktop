@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
+# 部署：airymaxos-release 包安装到 /etc/xdg/autostart/。
+# 由 ukui-session 的 XDG autostart 机制在 X11 会话内拉起 fcitx4。
+# 不写 OnlyShowIn：openEuler 冻结点只有 UKUI 一个会话，写死桌面标识反而
+# 会在标识不一致时静默失效。
+[Desktop Entry]
+Type=Application
+Name=AirymaxOS Input Method
+Comment=Start the fcitx input method for the desktop session
+Exec=/usr/bin/fcitx
+Icon=fcitx
+Terminal=false
+NoDisplay=true
