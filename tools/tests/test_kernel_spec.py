@@ -53,6 +53,10 @@ def body(text, sec, arg=""):
     return "\n".join(lines[start:]) if start is not None else ""
 
 
+def norm(text):
+    return "\n".join(" ".join(line.split()) for line in text.splitlines())
+
+
 class KernelSpecTest(unittest.TestCase):
     def setUp(self):
         self.text = SPEC.read_text(encoding="utf-8")
@@ -120,6 +124,19 @@ class KernelSpecTest(unittest.TestCase):
     def test_headers_layout(self):
         self.assertNotIn("/usr/include/uapi", self.text)
         self.assertIn("%{_includedir}/*", body(self.text, "files", "headers"))
+
+    def test_kernel_identity(self):
+        main = norm(self.text.split("%package core")[0])
+        core = norm(body(self.text, "package", "core"))
+        modules = norm(body(self.text, "package", "modules"))
+        self.assertIn("Provides: kernel = %{kernel_version}", main)
+        self.assertIn("Provides: installonlypkg(kernel)", main)
+        self.assertIn("Obsoletes: kernel", main)
+        self.assertIn("Provides: kernel-core = %{kernel_version}", core)
+        self.assertIn("Provides: kernel-uname-r = %{kernel_release}", core)
+        self.assertIn("Obsoletes: kernel-core", core)
+        self.assertIn("Provides: kernel-modules = %{kernel_version}", modules)
+        self.assertIn("Obsoletes: kernel-modules", modules)
 
     def test_no_debuginfo(self):
         self.assertIn("%global debug_package %{nil}", self.text)
