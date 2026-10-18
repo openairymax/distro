@@ -20,6 +20,13 @@
 #     产出 core/modules/headers/devel/tools，不拆 debuginfo；
 #   - initramfs 是安装期产物，任何子包都不拥有它，只由 %post 生成并校验。
 #
+# 内核身份声明（M-15）：
+#   AirymaxOS 是单内核发行版，二进制包名带 airymaxos- 前缀；而 Anaconda 在
+#   bootloader 阶段按 "kernel" 这一包身份挑选要写入引导项的内核，上层包也
+#   常以 kernel-headers/kernel-devel 表达构建依赖。故主包声明上游内核身份
+#   与 install-only 语义，core/modules 子包同构声明，使 dnf 在解析 "kernel"
+#   依赖时命中本包并替换上游内核，避免同机出现两套内核树。
+#
 # Author: Liren Wang <wangliren@spharx.cn>
 # Version: 0.0.3
 # ===========================================================================
@@ -71,6 +78,9 @@ BuildRequires:  openssl-devel
 BuildRequires:  zlib-devel
 Requires:       airymaxos-kernel-core = %{version}-%{release}
 Requires:       airymaxos-kernel-modules = %{version}-%{release}
+Provides:       kernel = %{kernel_version}
+Provides:       installonlypkg(kernel)
+Obsoletes:      kernel
 
 %description
 AirymaxOS kernel package. It carries the upstream 6.6 longterm tree plus the
@@ -80,6 +90,9 @@ install.
 %package core
 Summary:        AirymaxOS kernel image
 Requires(post): dracut
+Provides:       kernel-core = %{kernel_version}
+Provides:       kernel-uname-r = %{kernel_release}
+Obsoletes:      kernel-core
 
 %description core
 Bootable kernel image for AirymaxOS. Installation generates the matching
@@ -88,6 +101,8 @@ initramfs and registers the image with kernel-install when available.
 %package modules
 Summary:        AirymaxOS kernel modules
 Requires(post): kmod
+Provides:       kernel-modules = %{kernel_version}
+Obsoletes:      kernel-modules
 
 %description modules
 Loadable modules matching the AirymaxOS kernel image.
