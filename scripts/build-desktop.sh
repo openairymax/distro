@@ -33,6 +33,8 @@ readonly COMPS="${DISTRO_ROOT}/comps/airymaxos-comps.xml"
 . "${DISTRO_ROOT}/scripts/lib/outdir.sh"
 # shellcheck source=lib/arch.sh
 . "${DISTRO_ROOT}/scripts/lib/arch.sh"
+# shellcheck source=lib/iso.sh
+. "${DISTRO_ROOT}/scripts/lib/iso.sh"
 
 BASE=""
 KS=""
@@ -286,16 +288,10 @@ run_iso()
 
 iso_path()
 {
-    local line value=""
-    [ -f "${OUT_ABS}/iso/iso-manifest.txt" ] ||
-        die "${E_IO}" "缺少 ISO 清单: ${OUT_ABS}/iso/iso-manifest.txt"
-    while IFS= read -r line; do
-        case "$line" in
-        name=*) value="${line#name=}" ;;
-        esac
-    done <"${OUT_ABS}/iso/iso-manifest.txt"
-    [ -n "$value" ] || die "${E_IO}" "ISO 清单缺少 name 字段"
-    OUT_ISO="${OUT_ABS}/iso/${value}"
+    local name
+    name="$(iso_name "${OUT_ABS}/iso")" ||
+        die "${E_IO}" "ISO 清单缺失或没有 name 字段: ${OUT_ABS}/iso/iso-manifest.txt"
+    OUT_ISO="${OUT_ABS}/iso/${name}"
     [ -f "$OUT_ISO" ] || die "${E_IO}" "ISO 产物不存在: ${OUT_ISO}"
 }
 

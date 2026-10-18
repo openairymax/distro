@@ -23,6 +23,8 @@ readonly DISTRO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 . "${DISTRO_ROOT}/scripts/lib/outdir.sh"
 # shellcheck source=../scripts/lib/arch.sh
 . "${DISTRO_ROOT}/scripts/lib/arch.sh"
+# shellcheck source=../scripts/lib/iso.sh
+. "${DISTRO_ROOT}/scripts/lib/iso.sh"
 
 OUT=""
 ISO=""
@@ -324,15 +326,9 @@ stage_kern()
 
 iso_locate()
 {
-    local dir="$1" line value=""
-    [ -f "${dir}/iso-manifest.txt" ] || return 1
-    while IFS= read -r line; do
-        case "${line}" in
-        name=*) value="${line#name=}" ;;
-        esac
-    done <"${dir}/iso-manifest.txt"
-    [ -n "${value}" ] || return 1
-    ISO="${dir}/${value}"
+    local dir="$1" name
+    name="$(iso_name "${dir}")" || return 1
+    ISO="${dir}/${name}"
     [ -f "${ISO}" ] || return 1
 }
 

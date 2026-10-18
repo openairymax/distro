@@ -91,6 +91,7 @@ distro/
 ├── scripts/
 │   ├── lib/
 │   │   ├── arch.sh                # Host-arch normalisation (shared)
+│   │   ├── iso.sh                 # ISO manifest lookup (shared)
 │   │   └── outdir.sh              # Output-directory boundary guard (shared)
 │   ├── build-desktop.sh           # Installer medium: offline repo + mkksiso injection
 │   ├── build-iso.sh               # Unattended install ISO assembly (mkksiso)
