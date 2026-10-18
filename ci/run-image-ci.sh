@@ -68,7 +68,7 @@ usage()
   --src-dir DIR      传给 build-rpms 的源码搜索目录，可重复；缺省补
                      system/units 与 system/scripts（airymaxos-system）
   --rpms DIR         传给 build-desktop 的 RPM 目录，可重复；
-                     desktop 缺省纳入构建段产物
+                     跳过构建段时必须显式给出（两剖面共用）
   --add PATH         传给 build-iso 的附加文件或目录，可重复
   --kernel DIR       内核源码树，缺省 build-kernel 的默认值
   --jobs N           并行度，缺省由子驱动决定
@@ -85,6 +85,7 @@ usage()
   DIR/rpms/                   build-rpms 产物与清单
   DIR/kernel/                 build-kernel 产物与清单
   DIR/iso/                    minimal 镜像产物与清单
+  DIR/payload/                minimal 离线仓库与载荷清单
   DIR/desktop/                desktop 离线载荷与镜像产物
   DIR/logs/                   各段日志与 install-test TAP
   DIR/image-ci-manifest.txt   五段结果与 ISO 摘要
@@ -186,9 +187,10 @@ check_args()
     if [ "${ARCH}" = aarch64 ] && [ "${FIRMWARE}" != uefi ]; then
         die "aarch64 仅支持 uefi 固件"
     fi
-    if [ "${PROFILE}" = desktop ] && [ "${SKIP_RPMS}" -eq 1 ] &&
-        [ "${SKIP_KERNEL}" -eq 1 ] && [ "${#RPMS_DIRS[@]}" -eq 0 ]; then
-        die "desktop 剖面需 --rpms 目录，或启用 RPM/内核构建段"
+    if [ "${SKIP_ISO}" -eq 0 ] && [ -z "${ISO}" ] &&
+        [ "${SKIP_RPMS}" -eq 1 ] && [ "${SKIP_KERNEL}" -eq 1 ] &&
+        [ "${#RPMS_DIRS[@]}" -eq 0 ]; then
+        die "组装 ISO 需 --rpms 目录，或启用 RPM/内核构建段"
     fi
     if [ -z "${KS}" ]; then
         if [ "${PROFILE}" = desktop ]; then
@@ -260,44 +262,35 @@ kern_args()
     fi
 }
 
-iso_args()
+media_args()
 {
     local a
-    ISO_ARGS=(--iso "${ISO_BASE}" --ks "${KS}" --arch "${ARCH}"
-              --out "${OUT}/iso")
-    for a in "${ADDS[@]}"; do
-        ISO_ARGS+=(--add "$a")
-    done
-}
-
-desk_args()
-{
-    local a
-    DESK_ARGS=(--iso "${ISO_BASE}" --ks "${KS}" --arch "${ARCH}"
-               --out "${OUT}/desktop")
+    MEDIA_ARGS=(--iso "${ISO_BASE}" --ks "${KS}" --arch "${ARCH}")
+    if [ "${PROFILE}" = desktop ]; then
+        MEDIA_ARGS+=(--out "${OUT}/desktop")
+    else
+        MEDIA_ARGS+=(--out "${OUT}" --require airymaxos-kernel \
+            --require airymaxos-kernel-core \
+            --require airymaxos-kernel-modules)
+    fi
     for a in "${RPMS_DIRS[@]}"; do
-        DESK_ARGS+=(--rpms "$a")
+        MEDIA_ARGS+=(--rpms "$a")
     done
     if [ "${SKIP_RPMS}" -eq 0 ]; then
-        DESK_ARGS+=(--rpms "${OUT}/rpms")
+        MEDIA_ARGS+=(--rpms "${OUT}/rpms")
     fi
     if [ "${SKIP_KERNEL}" -eq 0 ]; then
-        DESK_ARGS+=(--rpms "${OUT}/kernel")
+        MEDIA_ARGS+=(--rpms "${OUT}/kernel")
     fi
     for a in "${ADDS[@]}"; do
-        DESK_ARGS+=(--add "$a")
+        MEDIA_ARGS+=(--add "$a")
     done
 }
 
 iso_build()
 {
-    if [ "${PROFILE}" = desktop ]; then
-        desk_args
-        "${DISTRO_ROOT}/scripts/build-desktop.sh" "${DESK_ARGS[@]}"
-        return
-    fi
-    iso_args
-    "${DISTRO_ROOT}/scripts/build-iso.sh" "${ISO_ARGS[@]}"
+    media_args
+    "${DISTRO_ROOT}/scripts/build-desktop.sh" "${MEDIA_ARGS[@]}"
 }
 
 stage_rpm()
@@ -352,7 +345,7 @@ iso_locate()
 
 stage_iso()
 {
-    local dir log
+    local dir log="${LOGS}/build-desktop.log"
     if [ "${SKIP_ISO}" -eq 1 ] || [ -n "${ISO}" ]; then
         tap_skip 3 "iso assembly" "prebuilt"
         ROWS+=("iso=skip")
@@ -360,10 +353,8 @@ stage_iso()
     fi
     if [ "${PROFILE}" = desktop ]; then
         dir="${OUT}/desktop/iso"
-        log="${LOGS}/build-desktop.log"
     else
         dir="${OUT}/iso"
-        log="${LOGS}/build-iso.log"
     fi
     if iso_build >"${log}" 2>&1 && iso_locate "${dir}"; then
         tap_ok 3 "iso assembly"

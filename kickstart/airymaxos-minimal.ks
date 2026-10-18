@@ -3,12 +3,15 @@
 # AirymaxOS 0.0.3（x86_64）最小安装 kickstart — 无桌面基线
 #
 # 用途：装机与镜像流水线的可判定基线。最小系统只承担三件事——
-#   1. 可引导（kernel + bootloader + 基础用户空间）；
+#   1. 可引导（AirymaxOS 内核 + bootloader + 基础用户空间）；
 #   2. 可远程接管（sshd + DHCP 网络）；
 #   3. 可时间同步（chronyd），为后续 rpm-ostree/agent 层提供可信时钟。
 #
 # 与工作站 kickstart 的差异：不含 UKUI、lightdm、输入法与桌面组；
 # 一切桌面能力由 airymaxos-workstation.ks 或首启 bootstrap 叠加。
+#
+# 内核口径（M-15）：安装期显式请求 airymaxos-kernel，绝不落到上游
+# kernel 包；该包由 scripts/build-desktop.sh 注入的离线仓库提供。
 # ===========================================================================
 
 text
@@ -18,7 +21,10 @@ keyboard us
 timezone Asia/Shanghai --utc
 
 # ---- 仓库 ----
+# 离线仓库由 scripts/build-desktop.sh 注入 ISO 根 /airymax，cost 最低，
+# 保证 airymaxos-kernel 及其 core/modules 子包优先于上游同名能力解析。
 url --url=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/OS/$basearch/
+repo --name=airymaxos-offline --baseurl=file:///run/install/repo/airymax/Packages --cost=1
 repo --name=update --baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/update/$basearch/ --cost=100
 
 # ---- 引导与分区（UEFI + BIOS 双栈）----
@@ -45,7 +51,7 @@ firstboot --disable
 # ---- 包组 ----
 %packages --nobase
 @core
-kernel
+airymaxos-kernel
 dnf
 openssh-server
 NetworkManager

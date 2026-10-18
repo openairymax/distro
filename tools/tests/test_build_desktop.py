@@ -142,6 +142,24 @@ class BuildDesktopTest(unittest.TestCase):
             self.write_rpm(self.rpms, name)
         self.assertEqual(self.build().returncode, 5)
 
+    def test_require_narrow(self):
+        self.tools()
+        for name in CLOSURE[2:]:
+            self.write_rpm(self.rpms, name)
+        res = self.build("--require", "airymaxos-kernel",
+                         "--require", "airymaxos-kernel-core",
+                         "--require", "airymaxos-kernel-modules")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("count=3", (self.out / "payload" / "airymax" /
+                                  "payload-manifest.txt").read_text(
+                                      encoding="utf-8"))
+
+    def test_require_missing(self):
+        self.tools()
+        self.stock()
+        self.assertEqual(
+            self.build("--require", "airymaxos-agent").returncode, 5)
+
     def test_duplicate_rpm(self):
         self.tools()
         self.stock()

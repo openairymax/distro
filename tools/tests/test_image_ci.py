@@ -25,6 +25,15 @@ DISTRO = SCRIPT.parent.parent
 BASH = shutil.which("bash") or "/bin/bash"
 BASE_ISO = DISTRO / "kickstart" / "airymaxos-minimal.ks"
 
+CLOSURE = (
+    "airymaxos-release-0.0.3-1.noarch.rpm",
+    "airymaxos-system-0.0.3-1.noarch.rpm",
+    "airymaxos-kernel-6.6.0-1.x86_64.rpm",
+    "airymaxos-kernel-core-6.6.0-1.x86_64.rpm",
+    "airymaxos-kernel-modules-6.6.0-1.x86_64.rpm",
+)
+KERNEL = CLOSURE[2:]
+
 
 class ImageCiTest(unittest.TestCase):
     def setUp(self):
@@ -57,17 +66,15 @@ class ImageCiTest(unittest.TestCase):
         elif iso:
             fakes.iso_tools(self.bin)
 
-    def desk_rpms(self):
-        directory = self.root / "desk-rpms"
-        directory.mkdir()
-        for name in ("airymaxos-release-0.0.3-1.noarch.rpm",
-                     "airymaxos-system-0.0.3-1.noarch.rpm",
-                     "airymaxos-kernel-6.6.0-1.x86_64.rpm",
-                     "airymaxos-kernel-core-6.6.0-1.x86_64.rpm",
-                     "airymaxos-kernel-modules-6.6.0-1.x86_64.rpm"):
-            (directory / name).write_text(f"rpm {name}\n",
-                                          encoding="utf-8")
+    def rpms(self, names):
+        directory = self.root / "rpms"
+        directory.mkdir(exist_ok=True)
+        for name in names:
+            (directory / name).write_text(f"rpm {name}\n", encoding="utf-8")
         return directory
+
+    def desk_rpms(self):
+        return self.rpms(CLOSURE)
 
     def run_script(self, *args, **extra):
         env = {"PATH": str(self.bin), "HOME": str(self.root),
@@ -124,6 +131,11 @@ class ImageCiTest(unittest.TestCase):
             self.ci("--iso-base", str(self.base), "--profile", "desktop",
                     "--skip-rpms", "--skip-kernel",
                     "--skip-install").returncode, 5)
+
+    def test_minimal_needs_rpms(self):
+        self.assertEqual(
+            self.ci("--iso-base", str(self.base), "--skip-rpms",
+                    "--skip-kernel", "--skip-install").returncode, 5)
 
     def test_runs_zero(self):
         self.assertEqual(
@@ -222,18 +234,25 @@ class ImageCiTest(unittest.TestCase):
         self.assertIn("result=pass", manifest)
 
     def test_full_chain(self):
-        self.tools(iso=True)
+        self.tools(desk=True)
         res = self.ci("--iso-base", str(self.base),
                       "--ks", str(BASE_ISO), "--arch", "x86_64",
+                      "--rpms", str(self.rpms(KERNEL)),
                       "--runs", "1", "--skip-rpms", "--skip-kernel")
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertIn("ok 3 - iso assembly", res.stdout)
         self.assertIn("ok 4 - iso checksum", res.stdout)
         self.assertIn("ok 5 - install test", res.stdout)
         manifest = self.manifest()
+        self.assertIn("profile=minimal", manifest)
         self.assertIn("stage iso=pass", manifest)
         self.assertRegex(manifest, r"iso [0-9a-f]{64} airymaxos-")
         self.assertIn("result=pass", manifest)
+        iso = self.out / "iso" / "airymaxos-0.0.3-x86_64.iso"
+        self.assertTrue(iso.is_file())
+        body = iso.read_text(encoding="utf-8")
+        self.assertIn("airymaxos-offline", body)
+        self.assertIn("=== /airymax/payload-manifest.txt", body)
 
     def test_desktop_chain(self):
         self.tools(desk=True)

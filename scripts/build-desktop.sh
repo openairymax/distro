@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
 # ===========================================================================
-# build-desktop.sh — AirymaxOS 桌面镜像组装驱动
+# build-desktop.sh — AirymaxOS 镜像介质组装驱动
 #
 # 把 build-rpms 与 build-kernel 的产物收敛成自包含离线仓库，随基础 ISO
-# 一起分发，再委派 build-iso.sh 完成 kickstart 注入与引导复核。桌面安装
-# 不依赖安装现场的网络，仓库根为 ISO 内 /airymax/Packages。
+# 一起分发，再委派 build-iso.sh 完成 kickstart 注入与引导复核。minimal
+# 与 desktop 两个剖面共用这一路径：安装期都不依赖现场网络，仓库根为
+# ISO 内 /airymax/Packages。
 #
 # 产物（0.0.3 任务方案 M-15；190-distribution/03-installer-design.md §7.1）：
 #   DIR/payload/airymax/Packages/*.rpm        离线包集合
@@ -41,6 +42,7 @@ GPG_KEY=""
 MD5=1
 RPMS=()
 ADDS=()
+REQUIRE=()
 OUT_ABS=""
 PAY=""
 AIRY=""
@@ -54,9 +56,12 @@ usage()
 用法: scripts/build-desktop.sh --iso SRC --ks FILE --out DIR --rpms DIR [选项]
 
   --iso PATH         基础安装 ISO（必填）
-  --ks FILE          桌面 kickstart（必填，须通过 ks_lint）
+  --ks FILE          安装 kickstart（必填，须通过 ks_lint）
   --out DIR          产物目录（必须在源码区之外，必填）
   --rpms DIR         待汇集的 RPM 目录，递归扫描，可重复（必填）
+  --require PKG      离线仓库必须提供的包名，可重复；缺省为
+                     airymaxos-release、airymaxos-system、airymaxos-kernel
+                     及其 core/modules 子包
   --arch ARCH        x86_64|aarch64，缺省为宿主
   --volid NAME       ISO 卷标，缺省 AIRYMAXOS
   --version VER      版本号，缺省取 release/os-release 的 VERSION_ID
@@ -67,11 +72,12 @@ usage()
 
 产出:
   DIR/payload/airymax/                离线仓库与载荷清单（注入 ISO 根）
-  DIR/iso/airymaxos-<ver>-<arch>.iso  可引导桌面安装镜像
+  DIR/iso/airymaxos-<ver>-<arch>.iso  可引导安装镜像
   DIR/iso/iso-manifest.txt            基础介质与 ISO 产物清单
 
-离线仓库必须提供 airymaxos-release、airymaxos-kernel 及其 core/modules
-子包，否则 kickstart 的包组与 %post 校验无法闭合。
+  --require 必须覆盖 kickstart %packages 的离线依赖：minimal 剖面只要求
+  内核三包，desktop 剖面另需发行版标识与系统包。任一所列包缺失即拒绝出
+  镜像，避免安装现场才暴露解析失败。
 EOF
 }
 
@@ -102,6 +108,7 @@ parse_args()
         --ks) optarg "$1" "$#"; KS="$2"; shift 2 ;;
         --out) optarg "$1" "$#"; OUT="$2"; shift 2 ;;
         --rpms) optarg "$1" "$#"; RPMS+=("$2"); shift 2 ;;
+        --require) optarg "$1" "$#"; REQUIRE+=("$2"); shift 2 ;;
         --arch) optarg "$1" "$#"; ARCH="$2"; shift 2 ;;
         --volid) optarg "$1" "$#"; VOLID="$2"; shift 2 ;;
         --version) optarg "$1" "$#"; VERSION="$2"; shift 2 ;;
@@ -136,7 +143,7 @@ check_arch()
 
 check_args()
 {
-    local dir add
+    local dir add pkg
     [ -n "$BASE" ] || die "${E_INVAL}" "--iso 必填"
     [ -f "$BASE" ] || die "${E_INVAL}" "基础 ISO 不存在: ${BASE}"
     [ -n "$KS" ] || die "${E_INVAL}" "--ks 必填"
@@ -144,6 +151,9 @@ check_args()
     [ "${#RPMS[@]}" -gt 0 ] || die "${E_INVAL}" "--rpms 至少给出一个目录"
     for dir in "${RPMS[@]}"; do
         [ -d "$dir" ] || die "${E_INVAL}" "--rpms 目录不存在: ${dir}"
+    done
+    for pkg in "${REQUIRE[@]}"; do
+        [ -n "$pkg" ] || die "${E_INVAL}" "--require 包名不得为空"
     done
     [ -f "$COMPS" ] || die "${E_INVAL}" "comps 定义缺失: ${COMPS}"
     for add in "${ADDS[@]}"; do
@@ -195,11 +205,19 @@ collect_rpms()
         die "${E_INVAL}" "--rpms 目录内没有可用的 RPM"
 }
 
+closure_default()
+{
+    if [ "${#REQUIRE[@]}" -ne 0 ]; then
+        return 0
+    fi
+    REQUIRE=(airymaxos-release airymaxos-system airymaxos-kernel \
+        airymaxos-kernel-core airymaxos-kernel-modules)
+}
+
 check_closure()
 {
     local want base have
-    for want in airymaxos-release airymaxos-system airymaxos-kernel \
-        airymaxos-kernel-core airymaxos-kernel-modules; do
+    for want in "${REQUIRE[@]}"; do
         have=""
         for base in "${NAMES[@]}"; do
             case "$base" in
@@ -223,7 +241,7 @@ write_payload()
     local base sum comps_sum
     comps_sum="$(sum_of "$COMPS")" || die "${E_IO}" "sha256sum 失败: ${COMPS}"
     {
-        printf '# AirymaxOS desktop payload manifest\n'
+        printf '# AirymaxOS payload manifest\n'
         printf 'arch=%s\n' "$ARCH"
         printf 'count=%s\n' "${#NAMES[@]}"
         printf 'comps %s comps/airymaxos-comps.xml\n' "$comps_sum"
@@ -320,6 +338,7 @@ main()
     need sort
     prep_payload
     collect_rpms
+    closure_default
     check_closure
     make_repo
     write_payload
