@@ -31,6 +31,8 @@ readonly COMPS="${DISTRO_ROOT}/comps/airymaxos-comps.xml"
 
 # shellcheck source=lib/outdir.sh
 . "${DISTRO_ROOT}/scripts/lib/outdir.sh"
+# shellcheck source=lib/arch.sh
+. "${DISTRO_ROOT}/scripts/lib/arch.sh"
 
 BASE=""
 KS=""
@@ -119,15 +121,6 @@ parse_args()
         *) die "${E_INVAL}" "未知参数: $1" ;;
         esac
     done
-}
-
-host_arch()
-{
-    case "$(uname -m)" in
-    amd64) printf 'x86_64\n' ;;
-    arm64) printf 'aarch64\n' ;;
-    *) uname -m ;;
-    esac
 }
 
 check_arch()
