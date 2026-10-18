@@ -254,6 +254,17 @@ class ImageCiTest(unittest.TestCase):
         self.assertIn("=== /airymax/payload-manifest.txt",
                       iso.read_text(encoding="utf-8"))
 
+    def test_desktop_marker_missing(self):
+        self.tools(desk=True)
+        rpms = self.desk_rpms()
+        res = self.ci("--iso-base", str(self.base), "--profile", "desktop",
+                      "--arch", "x86_64", "--rpms", str(rpms), "--runs", "1",
+                      "--skip-rpms", "--skip-kernel",
+                      FAKE_QEMU_BOOT_MODE="login-only")
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("not ok 5", res.stdout)
+        self.assertIn("stage install=fail", self.manifest())
+
     def test_source_date_epoch(self):
         self.tools()
         res = self.pre("--runs", "1", SOURCE_DATE_EPOCH="1700000000")

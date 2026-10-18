@@ -409,6 +409,9 @@ inst_args()
                --firmware "${FIRMWARE}" --runs "${RUNS}"
                --install-timeout "${INSTALL_TIMEOUT}"
                --boot-timeout "${BOOT_TIMEOUT}" --max-boot "${MAX_BOOT}")
+    if [ "${PROFILE}" = desktop ]; then
+        INST_ARGS+=(--boot-marker AIRYMAX-DESKTOP-READY)
+    fi
 }
 
 stage_inst()

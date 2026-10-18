@@ -71,6 +71,8 @@ distro/
 ├── desktop/
 │   ├── README.md                  # UKUI integration policy (6 rules)
 │   ├── airymax-desktop.slice      # Low-interference cgroup slice
+│   ├── airymax-desktop-ready.service  # Graphical login chain readiness probe
+│   ├── desktop_ready.sh           # lightdm unit + greeter session check
 │   ├── 70-airymax-ukui-policy.sh  # Post-install policy script
 │   ├── lightdm/                   # lightdm seat policy
 │   ├── xinitrc.d/                 # X11 session input method environment
@@ -126,9 +128,11 @@ the Python 3 standard library only (no `rpmbuild`/`mock` required):
 
 `scripts/install-test.sh --iso PATH [--runs 3]` boots the ISO three times
 into fresh qcow2 disks, requires the kickstart `%post` completion marker,
-then cold-boots each installed disk and requires a serial `login:` prompt
-without a kernel panic. It emits TAP 14 and exits 77 when the QEMU
-toolchain is unavailable.
+then cold-boots each installed disk and requires a serial boot marker
+without a kernel panic. The default marker is `login:`; `--boot-marker`
+replaces it, and the desktop image profile uses `AIRYMAX-DESKTOP-READY` to
+assert that lightdm and its greeter session are actually up. It emits TAP
+14 and exits 77 when the QEMU toolchain is unavailable.
 
 Recipes are validated at commit time; actual RPM builds happen only in the
 release workspace, never inside this repository.

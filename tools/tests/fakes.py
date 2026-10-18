@@ -164,7 +164,9 @@ if [ -n "$nv" ] && ! grep -q BOOTENTRY "$nv"; then
     exit 1
 fi
 case "${FAKE_QEMU_BOOT_MODE:-ok}" in
-ok) printf 'AirymaxOS login:\\n' > "$log" ;;
+ok) printf 'AirymaxOS login:\\nAIRYMAX-DESKTOP-READY unit=lightdm ' > "$log"
+    printf 'class=greeter type=x11\\n' >> "$log" ;;
+login-only) printf 'AirymaxOS login:\\n' > "$log" ;;
 panic) printf 'Kernel panic - not syncing\\n' > "$log" ;;
 failed) printf '[FAILED] Failed to start airy.service\\n' > "$log" ;;
 nomarker) printf 'booting\\n' > "$log" ;;
@@ -191,16 +193,25 @@ printf 'qcow2\\n' > "$disk"
 
 LOGINCTL = """\
 #!/bin/sh
-prop=""
+cmd=""; prop=""
 while [ $# -gt 0 ]; do
     case "$1" in
+    list-sessions|show-session) cmd=$1 ;;
     -p) shift; prop=$1 ;;
+    -*) ;;
     esac
     shift
 done
+if [ "$cmd" = list-sessions ]; then
+    [ "${FAKE_SESSIONS_ON:-1}" = 0 ] && exit 0
+    printf '%s\\n' "${FAKE_SESSIONS:-1 1000 airymax seat0}"
+    exit 0
+fi
 case "$prop" in
 Type) printf '%s\\n' "${FAKE_TYPE:-x11}" ;;
 Service) printf '%s\\n' "${FAKE_SERVICE:-lightdm}" ;;
+Class) printf '%s\\n' "${FAKE_CLASS:-greeter}" ;;
+State) printf '%s\\n' "${FAKE_STATE:-active}" ;;
 Active) printf '%s\\n' "${FAKE_ACTIVE:-yes}" ;;
 *) exit 1 ;;
 esac
@@ -259,18 +270,25 @@ printf 'Server Name: pulseaudio\\n'
 
 SYSTEMCTL = """\
 #!/bin/sh
-cmd=""; unit=""; prop=""
+cmd=""; unit=""; prop=""; quiet=0
 while [ $# -gt 0 ]; do
     case "$1" in
     show|is-active) cmd=$1 ;;
     -p) shift; prop=$1 ;;
+    -q|--quiet) quiet=1 ;;
     -*) ;;
     *) unit=$1 ;;
     esac
     shift
 done
 case "$cmd" in
-is-active) printf '%s\\n' "${FAKE_SLICE_ACTIVE:-active}" ;;
+is-active)
+    state=${FAKE_SLICE_ACTIVE:-active}
+    [ "$unit" = lightdm.service ] && state=${FAKE_LIGHTDM:-active}
+    [ "$quiet" -eq 1 ] || printf '%s\\n' "$state"
+    [ "$state" = active ] && exit 0
+    exit 3
+    ;;
 show)
     case "$prop" in
     Slice) printf '%s\\n' "${FAKE_SLICE:-airymax-desktop.slice}" ;;

@@ -89,6 +89,21 @@ AirymaxOS 系统桌面默认壁纸 = `wallpaper/airymaxos-default.jpg`
    由 ukui-session 的 XDG autostart 拉起 `fcitx`。fcitx 包只提供
    `NoDisplay=true` 的菜单项，不提供自启文件。
 
+## 登录链就绪探针（决策 2026-10-18）
+
+`airymax-desktop-ready.service`（`WantedBy=graphical.target`）在图形目标
+达成后执行 `desktop_ready.sh`，把「桌面能进」转换为宿主机可判定的串口
+标记：lightdm 单元 active，且 logind 中存在 Service=lightdm、
+Class=greeter、Type=x11、State=active|online 的会话，才打印
+`AIRYMAX-DESKTOP-READY`；否则打印 `AIRYMAX-DESKTOP-FAIL` 并以非零退出码
+结束，由镜像 CI 的启动段判定失败。
+
+探针只读系统状态，不写状态文件、不改配置，默认轮询 90s（2s 间隔），可用
+`AIRYMAX_READY_WAIT` / `AIRYMAX_READY_POLL` 调整。minimal 剖面停留在
+multi-user.target，不会触发该单元；workstation kickstart 显式 enable，
+遵循 OS-OPS-010。该标记证明 greeter 已就绪，桌面会话内的进程与音频探测
+仍由 `ci/run-smoke.sh` 承担。
+
 ## 冻结点核对结论（openEuler 24.03 LTS-SP2）
 
 | 项 | 模板假设 | 实际结论 | 状态 |
@@ -108,6 +123,10 @@ AirymaxOS 系统桌面默认壁纸 = `wallpaper/airymaxos-default.jpg`
 静态资产（源路径 → 安装路径，均由 `airymaxos-release` 打包）：
 
 - `airymax-desktop.slice` → `/usr/lib/systemd/system/`
+- `airymax-desktop-ready.service` → `/usr/lib/systemd/system/`
+  （`graphical.target` 下拉起登录链探针）
+- `desktop_ready.sh` → `/usr/lib/airymaxos/desktop/`
+  （探针实现：lightdm 单元与 greeter 会话校验）
 - `70-airymax-ukui-policy.sh` → `/usr/share/airymaxos/distro/desktop/`
   （`%post` 调用：屏蔽 AI 控制面单元、固定默认 target）
 - `lightdm/50-airymax.conf` → `/etc/lightdm/lightdm.conf.d/`
