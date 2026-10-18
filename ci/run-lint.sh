@@ -11,7 +11,8 @@
 #   3. 校验 comps/ 下包组定义（tools/comps_lint.py，C001~C010），并在
 #      具备 xmllint 时按 comps/comps.dtd 做 DTD 校验；
 #   4. 校验 kickstart/ 下安装配方（tools/ks_lint.py，K001~K013）；
-#   5. 运行 tools/tests 下的规则回归测试。
+#   5. 校验 presets/ 下 systemd 启用边界（tools/preset_lint.py，P001~P006）；
+#   6. 运行 tools/tests 下的规则回归测试。
 #
 # 只依赖 python3 标准库，可在无 rpmbuild/mock 的机器上执行。CI 与本地提交
 # 前共用同一入口，避免两套口径。
@@ -48,6 +49,9 @@ fi
 
 echo "== ks lint =="
 python3 tools/ks_lint.py
+
+echo "== preset lint =="
+python3 tools/preset_lint.py
 
 echo "== tool tests =="
 if python3 -c 'import pytest' >/dev/null 2>&1; then
