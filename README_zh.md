@@ -48,9 +48,15 @@ distro/
 │   ├── README.md                  # rpm-ostree compose 流程
 │   └── airymaxos-workstation.treefile
 ├── desktop/
-│   ├── README.md                  # UKUI 集成策略（六条铁律）
+│   ├── README.md                  # UKUI 集成策略（六条铁律 + 冻结点结论）
 │   ├── airymax-desktop.slice      # 桌面低干扰 cgroup slice
-│   └── 70-airymax-ukui-policy.sh  # 安装后策略脚本
+│   ├── 70-airymax-ukui-policy.sh  # 安装后策略脚本（mask + 默认 target）
+│   ├── lightdm/                   # lightdm 座位策略
+│   ├── xinitrc.d/                 # X11 会话输入法环境
+│   ├── autostart/                 # XDG 输入法自启项
+│   ├── user@.service.d/           # 会话挂接到 airymax-desktop.slice
+│   ├── wallpaper/                 # 默认壁纸与 UKUI 壁纸注册表
+│   └── glib-2.0/schemas/          # org.mate.background 默认值覆盖
 ├── ukui-patches/
 │   └── README.md                  # 零补丁策略（预留）
 ├── tools/

@@ -1,7 +1,9 @@
 # desktop — UKUI 桌面集成策略
 
 > 决策（2026-09-15）：OS 侧系统桌面 = **UKUI 4.x（openKylin/openEuler 线）**。
-> 本目录是该决策在发行版组装层的落地策略文件与部署物。
+> 本目录是该决策在发行版组装层的落地资产；全部静态文件由
+> `airymaxos-release` 的 `%install` 直接安装到最终路径，`%post` 只做运行期
+> 动作，不复制文件。
 
 ## 六条集成铁律
 
@@ -19,20 +21,27 @@ KylinBot 及其 MCP 桌面控制栈（`kylin-ai*` 包族）**排除 + 屏蔽**�
 桌面成为第二套 agent 控制面、破坏 capability 安全穹顶。落点：
 
 - kickstart `%packages`：`-kylin-ai*` 通配排除；
-- `70-airymax-ukui-policy.sh`：`systemctl disable --now` + mask 兜底；
-- 包名清单在首个冻结点核对后固化于此（TODO 表，见下）。
+- `70-airymax-ukui-policy.sh`：对已存在的同名单元 `systemctl disable` +
+  `mask`（离线 chroot 可用，不使用 `--now`）。
+
+openEuler 24.03 LTS-SP2 冻结点不含任何 `kylin-ai*` 包，脚本中的单元清单
+是防御式约束：上游以后引入同名单元时屏蔽仍然生效。
 
 ### 3. 调度隔离：桌面低干扰
 
-桌面会话整体放入 `airymax-desktop.slice`（CPUWeight=50 / IOWeight=50），
-与 agent 负载在 sched_tac 调度面上隔离；UKUI 自带的分级冻结
-（kylin-app-cgroupd，cgroup v2）保留，服务于桌面自身后台应用。
+桌面会话整体放入 `airymax-desktop.slice`（CPUWeight=50 / IOWeight=50 /
+TasksMax=40%），挂接点是 `user@.service` 的 drop-in
+`/etc/systemd/system/user@.service.d/50-airymax-desktop.conf`，覆盖整个用户
+会话（ukui-session、peony、桌面应用）。只做权重制隔离，不设
+MemoryMax/MemoryHigh：桌面自身已有应用级内存管理，双重限额会在内存紧张
+时放大回收冲突。
 
 ### 4. 图形路径：X11 起步，Wayland 二期
 
 ukui-kwin 以 X11 模式起步（与 Tauri/webkit2gtk 最稳组合），
 XWayland 兜底；ukui-kwin Wayland 会话作为二期验证项，冻结点
-逐项验收后才允许默认切换。
+逐项验收后才允许默认切换。lightdm 1.30 的 seat 只声明默认的
+`local`（X11），不写 `type=x`（非法值）。
 
 ### 5. 许可合规
 
@@ -51,33 +60,68 @@ AirymaxOS 系统桌面默认壁纸 = `wallpaper/airymaxos-default.jpg`
 （祁连实拍；来源 `.github/AirymaxOS/web/wallpaper/qilian_photo_from_zhenyi.jpg`，
 3197×2399，sha256 `fee7f439834ac7dacfc75deaf80a1db1c4bc7459583248eecc87125d52a5ef18`）。
 
-落地路径：资产随 airymaxos-release 包落在本目录 `wallpaper/` 下，由
-`70-airymax-ukui-policy.sh` 安装到发行版标准路径
-`/usr/share/backgrounds/airymaxos/`，注册到系统壁纸选择器
-（`/usr/share/gnome-background-properties/airymaxos-wallpapers.xml`），
-并经 glib schema override
-（`/usr/share/glib-2.0/schemas/99-airymaxos-default.gschema.override`）
-设为系统背景默认值，`glib-compile-schemas` 后对新会话生效。kickstart
-`%post` 已调用该脚本，装机后即默认生效。
+三处事实必须一致，由 `airymaxos-release` 一次安装完成：
 
-## 冻结点核对 TODO 表（首个冻结点落地时填写）
+1. 图像落到 `/usr/share/backgrounds/airymaxos/airymaxos-default.jpg`；
+2. 壁纸选择器注册表 `wallpaper/airymaxos-default.xml` 安装到
+   `/usr/share/ukui-background-properties/`：`ukui-control-center` 启动时
+   扫描该目录全部 `*.xml` 重建 `~/.config/ukui/wallpaper.xml`，XML 必须
+   保留 `<!DOCTYPE wallpapers SYSTEM "gnome-wp-list.dtd">`；
+3. 系统默认背景由 `glib-2.0/schemas/99-airymaxos-default.gschema.override`
+   覆盖 `org.mate.background` 的 `picture-filename`（schema 由
+   `mate-desktop-libs` 提供，UKUI 桌面背景实际由 `peony-qt-desktop` 按该
+   schema 绘制），`%post` 内 `glib-compile-schemas` 后对新会话生效。
 
-| 项 | 模板假设 | 实际包名/结论 | 状态 |
+不存在 `org.ukui.background` schema，也不使用
+`/usr/share/gnome-background-properties/`（冻结点无此目录）。
+
+## 输入法（决策 2026-10-18）
+
+冻结点提供 fcitx 4.2.9.7（`fcitx`、`fcitx-libs`、`fcitx-libpinyin`、
+`fcitx-configtool`、`fcitx-qt5`），不提供 fcitx5。落地两件事：
+
+1. `xinitrc.d/70-airymax-im.sh` 安装到 `/etc/X11/xinit/xinitrc.d/`。
+   lightdm 的 `session-wrapper` 是 `/etc/X11/xinit/Xsession`，它 source
+   `xinitrc-common` 后按文件名顺序执行该目录；编号必须大于 50，因为
+   imsettings 的 `50-xinput.sh` 会先清空输入法变量并在 UKUI 不受支持时把
+   `XIM` 置为 `none`。本脚本是该会话环境的唯一事实来源。
+2. `autostart/airymax-input-method.desktop` 安装到 `/etc/xdg/autostart/`，
+   由 ukui-session 的 XDG autostart 拉起 `fcitx`。fcitx 包只提供
+   `NoDisplay=true` 的菜单项，不提供自启文件。
+
+## 冻结点核对结论（openEuler 24.03 LTS-SP2）
+
+| 项 | 模板假设 | 实际结论 | 状态 |
 |---|---|---|---|
-| 分级冻结 | kylin-app-cgroupd | 待核对（openEuler 包名可能不同） | TODO |
-| 输入法 | fcitx5 + chinese-addons | 待核对 | TODO |
-| 终端 | ukui-terminal | 待核对（qterminal 备选） | TODO |
-| 登录管理器 | lightdm | 待核对（ukui-greeter/sddm 备选） | TODO |
-| kylin-ai* 排除清单 | 通配 `-kylin-ai*` | 待冻结点列出显式清单 | TODO |
-| 默认壁纸背景 schema | `org.ukui.background` / `picture-filename` | 待核对 UKUI 4.x 实际 schema 名与键名 | TODO |
+| 桌面套件 | UKUI 4.x | EPOL `ukui 2.0.2-20`、`ukui-kwin 1.0.5-8`、`peony 3.10.0-8` | 已核实 |
+| 登录管理器 | lightdm | `lightdm 1.30.0-14` + `ukui-greeter 3.1.2-12` | 已核实 |
+| 会话管理 | ukui-session | `ukui-session-manager 3.1.0-7`，提供 `ukui.desktop` | 已核实 |
+| 分级冻结 | kylin-app-cgroupd | 冻结点无此包；`airymax-desktop.slice` 只做权重制隔离 | 已收敛 |
+| 输入法 | fcitx5 + chinese-addons | 冻结点只有 fcitx 4.2.9.7；按 fcitx4 落地 | 已收敛 |
+| 终端 | ukui-terminal | 冻结点无此包；EPOL 提供 `mate-terminal 1.28.1-1` | 已核实 |
+| kylin-ai* 排除清单 | 通配 `-kylin-ai*` | 冻结点无该包族；kickstart 与策略脚本保留防御 | 已收敛 |
+| 默认壁纸背景 schema | `org.ukui.background` | 实为 `org.mate.background`（`mate-desktop-libs 1.28.2-1`） | 已收敛 |
 | SELinux 与纯 C LSM 叠加 | 暂保持 targeted | 待 security 叶子仓裁定 | TODO |
 
 ## 文件说明
 
-- `airymax-desktop.slice` — 桌面低干扰 slice 单元（随 airymaxos-release
-  包部署到 `/etc/systemd/system/`）；
-- `wallpaper/airymaxos-default.jpg` — 系统默认壁纸资产（随 airymaxos-release
-  包部署到 `/usr/share/airymaxos/distro/desktop/wallpaper/`）；
-- `70-airymax-ukui-policy.sh` — 安装后策略脚本（屏蔽 AI 控制面、写输入法
-  环境变量、安装并设置默认壁纸；随 airymaxos-release 包部署到
-  `/usr/share/airymaxos/distro/desktop/`，由该包 %post 调用）。
+静态资产（源路径 → 安装路径，均由 `airymaxos-release` 打包）：
+
+- `airymax-desktop.slice` → `/usr/lib/systemd/system/`
+- `70-airymax-ukui-policy.sh` → `/usr/share/airymaxos/distro/desktop/`
+  （`%post` 调用：屏蔽 AI 控制面单元、固定默认 target）
+- `lightdm/50-airymax.conf` → `/etc/lightdm/lightdm.conf.d/`
+- `xinitrc.d/70-airymax-im.sh` → `/etc/X11/xinit/xinitrc.d/`
+- `autostart/airymax-input-method.desktop` → `/etc/xdg/autostart/`
+- `user@.service.d/50-airymax-desktop.conf` →
+  `/etc/systemd/system/user@.service.d/`
+- `wallpaper/airymaxos-default.xml` →
+  `/usr/share/ukui-background-properties/`
+- `wallpaper/airymaxos-default.jpg` →
+  `/usr/share/backgrounds/airymaxos/`
+- `glib-2.0/schemas/99-airymaxos-default.gschema.override` →
+  `/usr/share/glib-2.0/schemas/`
+
+回归测试：`tools/tests/test_desktop.py` 校验源文件与配方、运行时路径三者
+一致，并防止已证伪的旧机制（profile.d、gnome-background-properties、
+`org.ukui.background`、`--now`）回流。
