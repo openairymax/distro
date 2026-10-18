@@ -10,7 +10,7 @@
 |---|---|
 | 基础仓库 | openEuler 24.03 LTS（SP 分支随内核基线期间选定，不追随滚动版） |
 | 冻结点标签 | `openEuler-24.03-LTS-SPx-YYYYMMDD`（例如 `openEuler-24.03-LTS-SP2-20260915`） |
-| 冻结范围 | `OS` + `update` + `EPOL/main` 三个仓库在冻结时刻的全量 EVR |
+| 冻结范围 | `OS` + `update` + `EPOL/main` + `EPOL/update/main` + `everything` 五个安装期仓库在冻结时刻的全量 EVR |
 | 桌面组 | UKUI 4.x 组件随冻结点进入，不做"latest 追踪" |
 | 升级节奏 | 例行每季度一次窗口；安全 CVE 可加急（单独 PR，走 CI 组合冒烟） |
 

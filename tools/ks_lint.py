@@ -5,9 +5,9 @@
 #
 # 只依赖标准库。校验对象是无人值守安装的语法与安全性约束：安装源、
 # 存储布局、账户口令（K005/K006：必须 --iscrypted $6$，禁止 --lock 与
-# 明文）、仓库传输、脚本段闭合与失败即停、收尾状态、单例命令与安装
-# 界面互斥。包组引用（@组 / @^环境）由 comps_lint 交叉校验，此处不重复
-# 实现。规则编号 K001~K012 与 tools/tests/test_ks_lint.py 一一对应。
+# 脚本段闭合与失败即停、收尾状态、单例命令、安装界面互斥与桌面仓库
+# 闭包完整性。包组引用（@组 / @^环境）由 comps_lint 交叉校验，此处不重复
+# 实现。规则编号 K001~K013 与 tools/tests/test_ks_lint.py 一一对应。
 #
 # 退出码：0 通过；1 存在问题；2 用法或读取错误。
 #
@@ -35,6 +35,14 @@ SECTIONS = SCRIPTS | {"packages", "anaconda", "addon"}
 REQUIRED = ("lang", "keyboard", "timezone", "bootloader")
 SCHEME = ("https://", "file://")
 SHA512 = "$6$"
+
+# 桌面环境的安装闭包分布在五个上游仓库：ukui/lightdm/ukui-greeter 在
+# EPOL，qt5-qtgraphicaleffects 等只在 everything；缺任一仓库时 Anaconda
+# 解析包组即失败（M-15 安装闭包口径）。
+DESKTOP_ENV = "@^airymax-workstation"
+DESKTOP_REPOS = ("update", "epol", "epol-update", "everything",
+                 "airymaxos-offline")
+LOCAL_REPO = "airymaxos-offline"
 
 
 @dataclass
@@ -204,6 +212,39 @@ def check_urls(cmds: list[Cmd], issues: list[Issue]) -> None:
                                 f"insecure {cmd.name}: {val}"))
 
 
+def pkg_set(sects: list[Sect]) -> set[str]:
+    return {line for sect in sects if sect.name == "packages"
+            for _, line in sect.body}
+
+
+def repo_map(cmds: list[Cmd]) -> dict[str, Cmd]:
+    return {opt_val(cmd.args, "--name"): cmd
+            for cmd in cmds if cmd.name == "repo"}
+
+
+def check_repo(name: str, cmd: Cmd | None, issues: list[Issue]) -> None:
+    if cmd is None:
+        issues.append(Issue("K013", 1, f"desktop repo missing: {name}"))
+        return
+    url = opt_val(cmd.args, "--baseurl")
+    if url and name != LOCAL_REPO and "$basearch" not in url:
+        issues.append(Issue("K013", cmd.num,
+                            f"repo {name} url needs $basearch"))
+
+
+def check_repos(cmds: list[Cmd], sects: list[Sect],
+                issues: list[Issue]) -> None:
+    if DESKTOP_ENV not in pkg_set(sects):
+        return
+    repos = repo_map(cmds)
+    for name in DESKTOP_REPOS:
+        check_repo(name, repos.get(name), issues)
+    for cmd in cmds:
+        if cmd.name == "url" and "$basearch" not in opt_val(cmd.args, "--url"):
+            issues.append(Issue("K013", cmd.num,
+                                "install url needs $basearch"))
+
+
 def strict(body: list[tuple[int, str]]) -> bool:
     return any(line.split(";", 1)[0].strip() == "set -eu"
                for _, line in body)
@@ -255,6 +296,7 @@ def lint_text(text: str) -> list[Issue]:
     check_storage(cmds, issues)
     check_roots(cmds, issues)
     check_urls(cmds, issues)
+    check_repos(cmds, sects, issues)
     check_scripts(sects, issues)
     check_stop(cmds, issues)
     check_dup(cmds, issues)

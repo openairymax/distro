@@ -6,8 +6,10 @@
 
   桌面决策（2026-09-15）：OS 侧系统桌面 = UKUI 4.x（openKylin/openEuler 线），
   以 RPM 形态随 Euler 包生态进入镜像，禁止 vendor 源码。
-  基础仓库：openEuler 24.03 LTS-SP2 的 OS、update、EPOL/main 三个仓库
-  （与 kickstart 配置一致）。包名已按该冻结点实际仓库逐一核对；
+  基础仓库：openEuler 24.03 LTS-SP2 的 OS、update、EPOL/main、
+  EPOL/update/main、everything 五个仓库（与 kickstart 配置一致；
+  其中 everything 只补齐主仓库缺失的桌面依赖，如 qt5-qtgraphicaleffects、
+  qt5-qtquickcontrols）。包名已按该冻结点实际仓库逐一核对；
   新增条目必须先确认可从上述仓库解析，否则安装会直接失败。
 -->
 <comps>
