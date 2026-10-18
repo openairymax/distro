@@ -85,6 +85,7 @@ distro/
 │   └── tests/                     # 校验规则与构建驱动回归测试
 ├── scripts/
 │   ├── lib/
+│   │   ├── arch.sh                # 宿主架构归一（构建驱动共用）
 │   │   └── outdir.sh              # 产物目录边界守卫（构建驱动共用）
 │   ├── build-desktop.sh           # 镜像介质组装：离线仓库 + mkksiso 注入
 │   ├── build-iso.sh               # 无人值守安装 ISO 组装（mkksiso 注入）

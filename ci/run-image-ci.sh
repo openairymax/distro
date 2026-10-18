@@ -21,6 +21,8 @@ readonly DISTRO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 
 # shellcheck source=../scripts/lib/outdir.sh
 . "${DISTRO_ROOT}/scripts/lib/outdir.sh"
+# shellcheck source=../scripts/lib/arch.sh
+. "${DISTRO_ROOT}/scripts/lib/arch.sh"
 
 OUT=""
 ISO=""
@@ -142,15 +144,6 @@ parse_args()
         *) die "未知参数: $1" ;;
         esac
     done
-}
-
-host_arch()
-{
-    case "$(uname -m)" in
-    amd64) printf 'x86_64\n' ;;
-    arm64) printf 'aarch64\n' ;;
-    *) uname -m ;;
-    esac
 }
 
 check_args()
