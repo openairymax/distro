@@ -7,10 +7,10 @@
 
 | # | 项 | 验收标准 | 对应决策 |
 |---|---|---|---|
-| T1 | Tauri 桌面应用窗口 | products/desktop（Tauri/webkit2gtk）在 UKUI X11 会话内正常开窗渲染 | RT 侧 UI 不绑桌面环境 |
-| T2 | 输入法 | fcitx5 在 ukui 终端/文本框内完成中文输入 | desktop 决策（冻结点核对项） |
-| T3 | 音频栈 | PipeWire 播放到 dummy sink 成功，ukui 音量控件可用 | UKUI 4.x 依赖基线 |
-| T4 | 分级冻结 | kylin-app-cgroupd 将后台 UKUI 应用置入冻结 cgroup（cgroup v2 freezer 状态可查） | 桌面低干扰 |
+| T1 | UKUI X11 会话 | `loginctl` 会话 Type=x11、Service=lightdm、Active=yes；`ukui-session` 存活；`xdpyinfo` 可连 X server | R1-01/R1-03 会话链（E2-01 冒烟切片） |
+| T2 | fcitx 4 中文输入 | fcitx 守护进程存活；`fcitx-remote` 可达（状态 0/1/2）；GTK/QT/XMODIFIERS 均指向 fcitx | 冻结点输入法基线（fcitx4） |
+| T3 | PulseAudio 音频栈 | `pactl info` 握手成功（套接字激活的端到端路径） | 冻结点音频基线（无 PipeWire） |
+| T4 | 桌面隔离 slice | `user@UID.service` 落入 `airymax-desktop.slice`；slice active；CPUWeight=50、IOWeight=50、TasksMax 有限 | R1-04 桌面低干扰 |
 | X1 | 内核仓反向门禁 | kernel CI 持续拒绝 Qt/X11/Wayland 头依赖与 KABI 白名单外变更（由 agent-linux CI 承担，此处仅交叉核对报告） | 双向不污染 |
 
 ## 矩阵维度
@@ -35,8 +35,11 @@ lockfile 冻结点（滚动触发） × 内核 RPM（6.6-airymax.n）
   编排层只写 `image-ci-manifest.txt`，不复制子驱动清单（SSoT）。
 - `run-lint.sh` 是提交前静态门禁：shell 语法、配方/comps/kickstart 三类
   语义校验与工具回归测试（Python 标准库，无 `rpmbuild`/`mock` 依赖）；
-- `run-smoke.sh` 必须在已登录的 UKUI 桌面会话内运行（TV-02 桌面验收），
-  不由宿主机驱动；镜像 CI 只覆盖安装与启动链，不替代桌面冒烟。
+- `run-smoke.sh` 必须在已登录的 UKUI 桌面会话内以该桌面用户运行
+  （TV-02 桌面验收），不由宿主机驱动；探测只读系统状态，不改配置。
+  `loginctl`/`pgrep`/`xdpyinfo` 属探测工具，缺失时该用例记 77 跳过；
+  `fcitx-remote`/`pactl` 属被测特性的一部分，缺失即失败而非跳过。
+  镜像 CI 只覆盖安装与启动链，不替代桌面冒烟。
   测试机接入方式 TODO：首台 DevStation 测试机就位后回填；
 - `../scripts/install-test.sh --iso ISO --out DIR` 承担装机验收：QEMU
   跨架构、双固件、可配置轮次，每轮安装后冷启动并校验串口日志与启动墙钟；

@@ -1,17 +1,23 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
 # ===========================================================================
-# run-smoke.sh — distro 组合冒烟（TAP）
+# run-smoke.sh — distro 组合冒烟（TAP 14）
 #
 # 用法:
 #   ./run-smoke.sh <被测镜像/系统标识>
-#   在已引导的 AirymaxOS 镜像或 DevStation 测试机上执行；CI 内以 TAP 输出。
+#   在已登录的 UKUI X11 桌面会话内执行；探测只读系统状态，不改配置。
+#
+# 覆盖:
+#   T1  UKUI X11 会话：loginctl 会话属性、ukui-session 进程、X server 可达
+#   T2  fcitx 4 输入法：守护进程、fcitx-remote 可达、会话输入法变量
+#   T3  PulseAudio 音频栈：pactl 与守护进程握手
+#   T4  桌面隔离 slice：user@UID.service 归属与 slice 资源参数
 #
 # 判定语义:
-#   0  — 通过
-#   1  — 失败（探测能力具备，但被测特性未满足）
-#   77 — 跳过（测试机缺少探测工具，不代表特性通过）
-# 退出码仅在存在失败用例时为 1；跳过不掩盖失败。
+#   0  — 全部通过（允许跳过）
+#   1  — 存在失败用例
+#   77 — 单个用例跳过（测试机缺少探测工具，不代表特性通过）
+# 跳过不掩盖失败：仅当 FAIL=0 时退出码为 0。
 # ===========================================================================
 set -uo pipefail
 
@@ -34,7 +40,9 @@ tap_skip() {
 
 tap_fail() {
     printf 'not ok %s - %s\n' "$1" "$2"
-    [ -n "${3:-}" ] && printf '#   %s\n' "$3"
+    if [ -n "${3:-}" ]; then
+        printf '#   %s\n' "$3"
+    fi
     FAIL=$((FAIL + 1))
 }
 
@@ -56,62 +64,93 @@ need() { # need <命令> — 探测工具缺失时跳过当前用例
     return "${SKIP}"
 }
 
-# T1: Tauri 桌面应用窗口（webkit2gtk on X11）
-t1_tauri() {
-    need xdpyinfo || return $?
+expect() { # expect <实际值> <期望值> <字段>
+    [ "$1" = "$2" ] && return 0
+    printf '%s: %s (want %s)\n' "$3" "${1:-unknown}" "$2"
+    return 1
+}
+
+session_prop() { # session_prop <loginctl 属性>
+    loginctl show-session "${XDG_SESSION_ID}" -p "$1" --value 2>/dev/null || :
+}
+
+slice_prop() { # slice_prop <systemd 属性>
+    systemctl show airymax-desktop.slice -p "$1" --value 2>/dev/null || :
+}
+
+# T1: UKUI X11 会话（lightdm 会话 + 会话进程 + X server）
+t1_x11() {
+    need loginctl || return $?
     need pgrep || return $?
-    [ -n "${DISPLAY:-}" ] || { echo "DISPLAY unset"; return "${SKIP}"; }
+    need xdpyinfo || return $?
+    [ -n "${DISPLAY:-}" ] || { echo "DISPLAY unset"; return 1; }
+    [ -n "${XDG_SESSION_ID:-}" ] || { echo "XDG_SESSION_ID unset"; return 1; }
+    expect "$(session_prop Type)" x11 "session type" || return 1
+    expect "$(session_prop Service)" lightdm "session service" || return 1
+    expect "$(session_prop Active)" yes "session active" || return 1
+    pgrep -f ukui-session >/dev/null || {
+        echo "ukui-session not running"
+        return 1
+    }
     xdpyinfo >/dev/null 2>&1 || {
         echo "X11 unreachable: ${DISPLAY}"
         return 1
     }
-    pgrep -f WebKitWebProcess >/dev/null || {
-        echo "no WebKitWebProcess (Tauri webview absent)"
-        return 1
-    }
 }
 
-# T2: 输入法（fcitx5 中文输入）
+# T2: 输入法（fcitx 4 守护进程与会话变量）
 t2_ime() {
     need pgrep || return $?
-    need fcitx5-remote || return $?
-    pgrep -x fcitx5 >/dev/null || {
-        echo "fcitx5 not running"
+    command -v fcitx-remote >/dev/null 2>&1 || {
+        echo "fcitx-remote not installed"
         return 1
     }
-    fcitx5-remote >/dev/null 2>&1
-    case $? in
+    pgrep -x fcitx >/dev/null || {
+        echo "fcitx not running"
+        return 1
+    }
+    local state
+    state="$(fcitx-remote 2>/dev/null)" || {
+        echo "fcitx-remote cannot reach daemon"
+        return 1
+    }
+    case "${state}" in
     0 | 1 | 2) : ;;
     *)
-        echo "fcitx5-remote cannot reach daemon"
+        echo "fcitx-remote state: ${state:-empty}"
         return 1
         ;;
     esac
+    expect "${GTK_IM_MODULE:-}" fcitx "GTK_IM_MODULE" || return 1
+    expect "${QT_IM_MODULE:-}" fcitx "QT_IM_MODULE" || return 1
+    expect "${XMODIFIERS:-}" "@im=fcitx" "XMODIFIERS" || return 1
 }
 
-# T3: 音频栈（PipeWire）
+# T3: 音频栈（PulseAudio 客户端握手）
 t3_audio() {
-    need pw-cli || return $?
-    need pgrep || return $?
-    pw-cli info 0 >/dev/null 2>&1 || {
-        echo "PipeWire core unreachable"
+    command -v pactl >/dev/null 2>&1 || {
+        echo "pactl not installed"
         return 1
     }
-    pgrep -x pipewire-pulse >/dev/null || {
-        echo "pipewire-pulse not running"
+    pactl info >/dev/null 2>&1 || {
+        echo "PulseAudio unreachable"
         return 1
     }
 }
 
-# T4: 分级冻结（kylin-app-cgroupd / cgroup v2 freezer）
-t4_freeze() {
-    need pgrep || return $?
-    [ -e /sys/fs/cgroup/cgroup.freeze ] || {
-        echo "cgroup v2 freezer unavailable"
-        return 1
-    }
-    pgrep -f kylin-app-cgroupd >/dev/null || {
-        echo "kylin-app-cgroupd not running"
+# T4: 桌面隔离 slice（会话归属与资源参数）
+t4_slice() {
+    need systemctl || return $?
+    local tasks
+    expect "$(systemctl show "user@${UID}.service" -p Slice --value 2>/dev/null)" \
+        airymax-desktop.slice "user@ service slice" || return 1
+    expect "$(systemctl is-active airymax-desktop.slice 2>/dev/null)" \
+        active "slice state" || return 1
+    expect "$(slice_prop CPUWeight)" 50 "slice CPUWeight" || return 1
+    expect "$(slice_prop IOWeight)" 50 "slice IOWeight" || return 1
+    tasks="$(slice_prop TasksMax)"
+    [ -n "${tasks}" ] && [ "${tasks}" != infinity ] || {
+        echo "slice TasksMax: ${tasks:-unknown}"
         return 1
     }
 }
@@ -121,10 +160,10 @@ printf '1..4\n'
 printf '# AirymaxOS distro smoke: target=%s date=%s\n' \
     "${TARGET}" "$(date -u '+%FT%TZ')"
 
-probe 1 "T1 tauri window" t1_tauri
-probe 2 "T2 input method" t2_ime
-probe 3 "T3 pipewire audio" t3_audio
-probe 4 "T4 cgroup freeze" t4_freeze
+probe 1 "T1 ukui x11 session" t1_x11
+probe 2 "T2 fcitx input method" t2_ime
+probe 3 "T3 pulseaudio stack" t3_audio
+probe 4 "T4 desktop slice" t4_slice
 
 printf '# summary: pass=%d fail=%d skip=%d\n' "${PASS}" "${FAIL}" "${SKIPPED}"
 [ "${FAIL}" -eq 0 ]

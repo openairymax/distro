@@ -23,13 +23,16 @@ packages:
   - airymaxos-release
   - kernel
   - ukui
-  - xorg-x11-server-Xorg
+  - xorg-x11-server
+  - xorg-x11-utils
   - lightdm
-  - pipewire
+  - pulseaudio
   - peony
-  - ukui-terminal
-  - fcitx5
-  - fcitx5-chinese-addons
+  - mate-terminal
+  - fcitx
+  - fcitx-libpinyin
+  - fcitx-configtool
+  - fcitx-qt5
 
 # 排除桌面 AI 控制面（agent 入口唯一 = Gateway）
 exclude-packages:
