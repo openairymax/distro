@@ -4,9 +4,10 @@
 # desktop_ready.sh — UKUI 桌面登录链就绪探针
 #
 # 安装后的启动验收需要区分「内核起来了」与「桌面能进」。本脚本在
-# graphical.target 达成后检查 lightdm 与 logind 的真实状态：lightdm 单元
-# 处于 active，且存在 Service=lightdm、Class=greeter、Type=x11 的活动会话。
-# 两者同时成立才向串口打印 AIRYMAX-DESKTOP-READY。
+# graphical.target 达成后做两级校验：先静态确认 UKUI 会话定义存在且其
+# Exec 可执行（lightdm 的 user-session 指向它），再检查 lightdm 单元处于
+# active 且存在 Service=lightdm、Class=greeter、Type=x11 的活动会话。
+# 全部成立才向串口打印 AIRYMAX-DESKTOP-READY。
 #
 # 失败以非零退出码上报，由 install-test.sh 的 BOOT_FAIL 规则捕获；不写
 # 任何状态文件，避免与 systemd 状态形成第二个事实源。
@@ -21,6 +22,27 @@ POLL="${AIRYMAX_READY_POLL:-2}"
 GREETER_SVC="lightdm"
 GREETER_CLASS="greeter"
 GREETER_TYPE="x11"
+SESSION_NAME="ukui"
+XSESSIONS_DIR="${AIRYMAX_XSESSIONS_DIR:-/usr/share/xsessions}"
+UKUI_SESSION="${XSESSIONS_DIR}/${SESSION_NAME}.desktop"
+
+session_exec()
+{
+    local line value=""
+
+    [ -r "${UKUI_SESSION}" ] || return 1
+    while IFS= read -r line; do
+        case "${line}" in
+        Exec=*) value="${line#Exec=}" ;;
+        esac
+    done <"${UKUI_SESSION}"
+    value="${value%% *}"
+    [ -n "${value}" ] || return 1
+    case "${value}" in
+    /*) [ -x "${value}" ] ;;
+    *) command -v "${value}" >/dev/null 2>&1 ;;
+    esac
+}
 
 session_field()
 {
@@ -78,6 +100,11 @@ wait_ready()
 
 main()
 {
+    if ! session_exec; then
+        printf 'AIRYMAX-DESKTOP-FAIL reason=session path=%s\n' \
+            "${UKUI_SESSION}"
+        return 1
+    fi
     if wait_ready; then
         printf 'AIRYMAX-DESKTOP-READY unit=%s class=%s type=%s\n' \
             "${GREETER_SVC}" "${GREETER_CLASS}" "${GREETER_TYPE}"

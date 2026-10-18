@@ -32,10 +32,11 @@ lockfile 冻结点（滚动触发） × 内核 RPM（6.6-airymax.n）
   RPM 目录（跳过构建段时必须显式给出，两剖面通用），
   `--firmware bios|uefi|both` 选择固件腿，`--max-boot` 设定启动墙钟上限。
   desktop 剖面把启动段标记切换为 `AIRYMAX-DESKTOP-READY`：该标记由
-  `airymax-desktop-ready.service` 在 lightdm 单元 active 且存在
-  Service=lightdm、Class=greeter、Type=x11 的活动会话后输出，失败则打印
-  `AIRYMAX-DESKTOP-FAIL` 并以非零退出码触发启动段判定失败。该标记只证明
-  登录管理器与 greeter 就绪，不替代桌面会话内的 `run-smoke.sh`。
+  `airymax-desktop-ready.service` 在 UKUI 会话定义可执行、lightdm 单元
+  active 且存在 Service=lightdm、Class=greeter、Type=x11 的活动会话后
+  输出；失败则打印 `AIRYMAX-DESKTOP-FAIL`，该串同时是 `install-test.sh`
+  的内建启动失败模式，无需等满超时即可判定。该标记只证明会话定义与
+  登录管理器/greeter 就绪，不替代桌面会话内的 `run-smoke.sh`。
   任一段失败整体返回 1；参数不满足返回 5；
   缺 QEMU 工具链时装机段跳过并返回 77。各段清单留在其产物子目录，
   编排层只写 `image-ci-manifest.txt`，不复制子驱动清单（SSoT）。

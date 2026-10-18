@@ -167,6 +167,8 @@ case "${FAKE_QEMU_BOOT_MODE:-ok}" in
 ok) printf 'AirymaxOS login:\\nAIRYMAX-DESKTOP-READY unit=lightdm ' > "$log"
     printf 'class=greeter type=x11\\n' >> "$log" ;;
 login-only) printf 'AirymaxOS login:\\n' > "$log" ;;
+desktop-fail) printf 'AirymaxOS login:\\nAIRYMAX-DESKTOP-FAIL reason=session ' > "$log"
+    printf 'path=/usr/share/xsessions/ukui.desktop\\n' >> "$log" ;;
 panic) printf 'Kernel panic - not syncing\\n' > "$log" ;;
 failed) printf '[FAILED] Failed to start airy.service\\n' > "$log" ;;
 nomarker) printf 'booting\\n' > "$log" ;;

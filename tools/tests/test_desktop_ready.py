@@ -27,6 +27,13 @@ UNIT = BASE / "desktop" / "airymax-desktop-ready.service"
 BASH = shutil.which("bash") or "/bin/bash"
 READY = "AIRYMAX-DESKTOP-READY"
 FAIL = "AIRYMAX-DESKTOP-FAIL"
+SESSION = """\
+[Desktop Entry]
+Name=UKUI
+Comment=UKUI session
+Exec=ukui-session
+Type=Application
+"""
 
 
 class DesktopReadyTest(unittest.TestCase):
@@ -34,17 +41,25 @@ class DesktopReadyTest(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.root = Path(self._tmp.name)
         self.bin = self.root / "bin"
+        self.xs = self.root / "xsessions"
         self.bin.mkdir()
+        self.xs.mkdir()
         fakes.link_tools(self.bin)
         fakes.write(self.bin, "loginctl", fakes.LOGINCTL)
         fakes.write(self.bin, "systemctl", fakes.SYSTEMCTL)
+        fakes.write(self.bin, "ukui-session", "#!/bin/sh\nexit 0\n")
+        self.write_session(SESSION)
 
     def tearDown(self):
         self._tmp.cleanup()
 
+    def write_session(self, body):
+        (self.xs / "ukui.desktop").write_text(body, encoding="utf-8")
+
     def run_probe(self, *args, **extra):
         env = {"PATH": str(self.bin), "HOME": str(self.root),
-               "AIRYMAX_READY_WAIT": "0", "AIRYMAX_READY_POLL": "1"}
+               "AIRYMAX_READY_WAIT": "0", "AIRYMAX_READY_POLL": "1",
+               "AIRYMAX_XSESSIONS_DIR": str(self.xs)}
         env.update(extra)
         return subprocess.run([BASH, str(SCRIPT), *args], env=env,
                               text=True, capture_output=True)
@@ -86,6 +101,39 @@ class DesktopReadyTest(unittest.TestCase):
         res = self.run_probe(FAKE_STATE="closing")
         self.assertEqual(res.returncode, 1)
         self.assertIn(FAIL, res.stdout)
+
+    def test_session_missing(self):
+        (self.xs / "ukui.desktop").unlink()
+        res = self.run_probe()
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("reason=session", res.stdout)
+        self.assertNotIn(READY, res.stdout)
+
+    def test_session_without_exec(self):
+        self.write_session("[Desktop Entry]\nName=UKUI\nType=Application\n")
+        res = self.run_probe()
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("reason=session", res.stdout)
+
+    def test_session_exec_unresolved(self):
+        self.write_session("[Desktop Entry]\nExec=ukui-session-missing\n")
+        res = self.run_probe()
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("reason=session", res.stdout)
+
+    def test_session_exec_missing_file(self):
+        self.write_session("[Desktop Entry]\nExec=/nonexistent/ukui-session\n")
+        res = self.run_probe()
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("reason=session", res.stdout)
+
+    def test_session_fails_before_wait(self):
+        (self.xs / "ukui.desktop").unlink()
+        started = time.monotonic()
+        res = self.run_probe(AIRYMAX_READY_WAIT="30")
+        elapsed = time.monotonic() - started
+        self.assertEqual(res.returncode, 1)
+        self.assertLess(elapsed, 10)
 
     def test_wait_is_bounded(self):
         started = time.monotonic()
