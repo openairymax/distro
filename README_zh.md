@@ -81,12 +81,12 @@ distro/
 │   ├── lint_common.py             # 校验器共用的 Issue 类型与输出格式
 │   ├── spec_lint.py               # RPM 配方静态校验器（E001-E014）
 │   ├── comps_lint.py              # comps 语义校验器（C001-C010）
-│   ├── ks_lint.py                 # kickstart 语义校验器（K001-K012）
+│   ├── ks_lint.py                 # kickstart 语义校验器（K001-K014）
 │   └── tests/                     # 校验规则与构建驱动回归测试
 ├── scripts/
 │   ├── lib/
 │   │   └── outdir.sh              # 产物目录边界守卫（构建驱动共用）
-│   ├── build-desktop.sh           # 桌面镜像组装：离线仓库 + mkksiso 注入
+│   ├── build-desktop.sh           # 镜像介质组装：离线仓库 + mkksiso 注入
 │   ├── build-iso.sh               # 无人值守安装 ISO 组装（mkksiso 注入）
 │   ├── build-kernel.sh            # 内核确定性归档与 RPM 构建入口
 │   ├── build-rpms.sh              # RPM 批量构建驱动（产物限于源码区之外）
@@ -111,10 +111,11 @@ distro/
   包名与重复项、布尔字段、环境到组的引用），并交叉校验 `kickstart/*.ks`
   的包组选择（含 `@^环境` 语法）；具备 `xmllint` 时追加按
   `comps/comps.dtd` 的 DTD 结构校验；
-- `tools/ks_lint.py` 校验 `kickstart/*.ks`（K001-K012）：必需命令、
+- `tools/ks_lint.py` 校验 `kickstart/*.ks`（K001-K014）：必需命令、
   安装源唯一性、`https://`/`file://` 方案、存储命令冲突、账户口令必须
   为 `--iscrypted` SHA-512（禁止 `--lock` 与明文）、脚本节区 `set -eu`
-  与 `%post --log`、结束命令唯一且位于末尾；
+  与 `%post --log`、结束命令唯一且位于末尾；内核包身份要求显式安装
+  `airymaxos-kernel` 且不得请求上游 `kernel`/`kernel-*`；
 - `tools/tests/` 保存上述规则与构建驱动契约的回归测试。
 
 配方在提交时校验；真实 RPM 构建只在发布工作区执行，本仓内不构建。
@@ -143,15 +144,17 @@ ISO、`.sha256` 与 `iso-manifest.txt`，`--gpg-key` 追加分离签名。构建
 `build-rpms.sh` 共用 `scripts/lib/outdir.sh`。
 
 `scripts/build-desktop.sh --iso SRC --ks FILE --out DIR --rpms DIR` 组装
-桌面安装镜像：把 RPM 目录递归汇集为自包含离线仓库（`createrepo_c
---groupfile comps/airymaxos-comps.xml`），要求 `airymaxos-release`、
-`airymaxos-kernel` 及其 `core`/`modules` 子包齐备，否则拒绝出镜像；随后
-写出 `payload/airymax/payload-manifest.txt` 并委派 `build-iso.sh` 以
-`--add` 注入 ISO 根 `/airymax`。安装器据 kickstart 的
-`repo --baseurl=file:///run/install/repo/airymax/Packages` 离线取包，不依赖
-安装现场网络。镜像产出后再从 ISO 回读载荷清单与 `repomd.xml`，与源文件
-逐字节比对。`ci/run-image-ci.sh --profile desktop` 复用同一驱动，并与
-minimal 剖面共享五段 TAP 门禁。
+安装介质：把 RPM 目录递归汇集为自包含离线仓库（`createrepo_c
+--groupfile comps/airymaxos-comps.xml`），缺省要求 `airymaxos-release`、
+`airymaxos-system`、`airymaxos-kernel` 及其 `core`/`modules` 子包齐备，
+否则拒绝出镜像；随后写出 `payload/airymax/payload-manifest.txt` 并委派
+`build-iso.sh` 以 `--add` 注入 ISO 根 `/airymax`。minimal 与 desktop
+两个剖面共用该驱动，安装期均不依赖现场网络：安装器据 kickstart 的
+`repo --baseurl=file:///run/install/repo/airymax/Packages` 离线取包。
+minimal 通过可重复的 `--require` 收窄必需包集合（仅内核三包），避免把
+桌面发行版闭包强加给最小剖面。镜像产出后再从 ISO 回读载荷清单与
+`repomd.xml`，与源文件逐字节比对。`ci/run-image-ci.sh` 两剖面均复用
+这一路径，并共享五段 TAP 门禁。
 
 ## 内核隔离边界（硬规则）
 

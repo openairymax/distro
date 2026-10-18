@@ -5,9 +5,10 @@
 #
 # 只依赖标准库。校验对象是无人值守安装的语法与安全性约束：安装源、
 # 存储布局、账户口令（K005/K006：必须 --iscrypted $6$，禁止 --lock 与
-# 脚本段闭合与失败即停、收尾状态、单例命令、安装界面互斥与桌面仓库
-# 闭包完整性。包组引用（@组 / @^环境）由 comps_lint 交叉校验，此处不重复
-# 实现。规则编号 K001~K013 与 tools/tests/test_ks_lint.py 一一对应。
+# 脚本段闭合与失败即停、收尾状态、单例命令、安装界面互斥、桌面仓库
+# 闭包完整性与内核包身份。包组引用（@组 / @^环境）由 comps_lint 交叉
+# 校验，此处不重复实现。规则编号 K001~K014 与
+# tools/tests/test_ks_lint.py 一一对应。
 #
 # 退出码：0 通过；1 存在问题；2 用法或读取错误。
 #
@@ -43,6 +44,12 @@ DESKTOP_ENV = "@^airymax-workstation"
 DESKTOP_REPOS = ("update", "epol", "epol-update", "everything",
                  "airymaxos-offline")
 LOCAL_REPO = "airymaxos-offline"
+
+# 内核包身份（M-15）：安装期必须显式落在 AirymaxOS 内核上。上游 kernel
+# 不含 Airymax 补丁，且与本包争用同一组文件路径；kickstart 一旦请求上游
+# 包，dnf 只能靠 Obsoletes/Provides 兜底，结果依赖解析顺序而不可判定。
+KERNEL_PKG = "airymaxos-kernel"
+KERNEL_STOCK = "kernel"
 
 
 @dataclass
@@ -212,6 +219,30 @@ def check_urls(cmds: list[Cmd], issues: list[Issue]) -> None:
                                 f"insecure {cmd.name}: {val}"))
 
 
+def pkg_names(body: list[tuple[int, str]]) -> set[str]:
+    return {line.split(".", 1)[0] for _, line in body
+            if not line.startswith(("-", "@"))}
+
+
+def stock_kernel(name: str) -> bool:
+    return name == KERNEL_STOCK or name.startswith(KERNEL_STOCK + "-")
+
+
+def check_kernel(sects: list[Sect], issues: list[Issue]) -> None:
+    for sect in sects:
+        if sect.name != "packages":
+            continue
+        for num, line in sect.body:
+            if line.startswith("-"):
+                continue
+            if stock_kernel(line.split(".", 1)[0]):
+                issues.append(Issue("K014", num,
+                                    f"upstream kernel package: {line}"))
+        if KERNEL_PKG not in pkg_names(sect.body):
+            issues.append(Issue("K014", sect.num,
+                                f"%packages must include {KERNEL_PKG}"))
+
+
 def pkg_set(sects: list[Sect]) -> set[str]:
     return {line for sect in sects if sect.name == "packages"
             for _, line in sect.body}
@@ -296,6 +327,7 @@ def lint_text(text: str) -> list[Issue]:
     check_storage(cmds, issues)
     check_roots(cmds, issues)
     check_urls(cmds, issues)
+    check_kernel(sects, issues)
     check_repos(cmds, sects, issues)
     check_scripts(sects, issues)
     check_stop(cmds, issues)

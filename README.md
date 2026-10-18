@@ -86,12 +86,12 @@ distro/
 │   ├── lint_common.py             # Shared issue type and report format
 │   ├── spec_lint.py               # RPM spec static checker (E001-E014)
 │   ├── comps_lint.py              # comps semantic checker (C001-C010)
-│   ├── ks_lint.py                 # kickstart checker (K001-K012)
+│   ├── ks_lint.py                 # kickstart checker (K001-K014)
 │   └── tests/                     # Lint + build-driver regression tests
 ├── scripts/
 │   ├── lib/
 │   │   └── outdir.sh              # Output-directory boundary guard (shared)
-│   ├── build-desktop.sh           # Desktop image: offline repo + mkksiso injection
+│   ├── build-desktop.sh           # Installer medium: offline repo + mkksiso injection
 │   ├── build-iso.sh               # Unattended install ISO assembly (mkksiso)
 │   ├── build-kernel.sh            # Deterministic kernel archive + RPM entry point
 │   ├── build-rpms.sh              # Batch RPM build driver (output outside source tree)
@@ -122,7 +122,9 @@ the Python 3 standard library only (no `rpmbuild`/`mock` required):
   install source, storage layout, accounts that must carry an `--iscrypted`
   SHA-512 password (`--lock` and plaintext are rejected), HTTPS install
   sources, `set -eu` in script sections, `%post --log`, single trailing
-  stop command, singleton commands, text/graphical exclusivity);
+  stop command, singleton commands, text/graphical exclusivity, and kernel
+  package identity: `airymaxos-kernel` must be installed explicitly while
+  upstream `kernel`/`kernel-*` must not be requested);
 - `tools/tests/` holds the regression tests for those rules and for the
   build driver contract.
 
@@ -158,18 +160,22 @@ run it as root; the output-directory rule is shared with `build-rpms.sh`
 through `scripts/lib/outdir.sh`.
 
 `scripts/build-desktop.sh --iso SRC --ks FILE --out DIR --rpms DIR`
-assembles the desktop medium. It recursively collects the RPM directories
+assembles the installer medium. It recursively collects the RPM directories
 into a self-contained offline repository (`createrepo_c --groupfile
-comps/airymaxos-comps.xml`) and refuses to build unless `airymaxos-release`,
-`airymaxos-kernel`, and its `core`/`modules` subpackages are present. It
-then writes `payload/airymax/payload-manifest.txt` and delegates to
-`build-iso.sh`, which injects the payload into the ISO root `/airymax` via
-`--add`. The installer fetches packages offline through the kickstart
-`repo --baseurl=file:///run/install/repo/airymax/Packages` line, so no
-network is needed on the target. After assembly the driver reads the
-payload manifest and `repomd.xml` back out of the ISO and compares them
-byte for byte. `ci/run-image-ci.sh --profile desktop` reuses the same
-driver and shares the five-stage TAP gate with the minimal profile.
+comps/airymaxos-comps.xml`) and refuses to build unless
+`airymaxos-release`, `airymaxos-system`, `airymaxos-kernel`, and its
+`core`/`modules` subpackages are present. It then writes
+`payload/airymax/payload-manifest.txt` and delegates to `build-iso.sh`,
+which injects the payload into the ISO root `/airymax` via `--add`. The
+minimal and desktop profiles share this driver, and neither needs network
+access on the target: the installer fetches packages offline through the
+kickstart `repo --baseurl=file:///run/install/repo/airymax/Packages` line.
+The minimal profile narrows the required set with repeatable `--require`
+flags (kernel trio only), so the desktop closure is not forced onto it.
+After assembly the driver reads the payload manifest and `repomd.xml` back
+out of the ISO and compares them byte for byte.
+`ci/run-image-ci.sh` reuses this path for both profiles and shares the
+five-stage TAP gate.
 
 ## Kernel isolation boundary (hard rule)
 

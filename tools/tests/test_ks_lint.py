@@ -33,6 +33,7 @@ rootpw --iscrypted $6$testsalt$hash
 user --name=demo --iscrypted --password=$6$testsalt2$hash
 %packages
 @core
+airymaxos-kernel
 %end
 %post --log=/root/post.log
 set -eu
@@ -91,7 +92,7 @@ class KsLintTest(unittest.TestCase):
         self.assertIn("K003", self.codes(text))
 
     def test_missing_packages(self):
-        text = VALID.replace("%packages\n@core\n%end\n", "")
+        text = VALID.replace("%packages\n@core\nairymaxos-kernel\n%end\n", "")
         self.assertIn("K003", self.codes(text))
 
     def test_storage_conflict(self):
@@ -162,6 +163,19 @@ class KsLintTest(unittest.TestCase):
 
     def test_mode_conflict(self):
         self.assertIn("K012", self.codes("graphical\n" + VALID))
+
+    def test_stock_kernel(self):
+        text = VALID.replace("airymaxos-kernel", "kernel")
+        self.assertIn("K014", self.codes(text))
+
+    def test_stock_kernel_subpkg(self):
+        text = VALID.replace("airymaxos-kernel", "airymaxos-kernel\n"
+                                                "kernel-core")
+        self.assertIn("K014", self.codes(text))
+
+    def test_kernel_missing(self):
+        text = VALID.replace("airymaxos-kernel\n", "")
+        self.assertIn("K014", self.codes(text))
 
     def test_desktop_repos(self):
         self.assertEqual(self.codes(DESKTOP), [])
