@@ -9,7 +9,8 @@
 #
 # 前置条件:
 #   - 在发布工作区执行（严禁在 airymaxhub 源码区内构建/联网生成）
-#   - 环境内可访问冻结源仓库（OS/update/EPOL/airymax-os）
+#   - 环境内可访问冻结源仓库（OS/update/EPOL/main/EPOL/update/main/
+#     everything/airymax-os）
 #   - 已安装: python3 + pip 包 rpm-lockfile-prototype（konflux 工具链）
 #
 # 产出:

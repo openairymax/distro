@@ -44,6 +44,24 @@ reboot
 ROOT = "rootpw --iscrypted $6$testsalt$hash"
 USER = "user --name=demo --iscrypted --password=$6$testsalt2$hash"
 
+# 桌面环境基线：五个安装期仓库齐全，URL 均带 $basearch
+DESKTOP = (VALID
+           .replace("https://example.invalid/os/",
+                    "https://example.invalid/os/$basearch/")
+           .replace("@core", "@^airymax-workstation")
+           .replace("bootloader",
+                    "repo --name=update --baseurl=https://example.invalid/u/"
+                    "$basearch/\n"
+                    "repo --name=epol --baseurl=https://example.invalid/e/"
+                    "$basearch/\n"
+                    "repo --name=epol-update --baseurl=https://example.invalid"
+                    "/eu/$basearch/\n"
+                    "repo --name=everything --baseurl=https://example.invalid"
+                    "/x/$basearch/\n"
+                    "repo --name=airymaxos-offline --baseurl=file:///run/"
+                    "install/repo/airymax/Packages\n"
+                    "bootloader"))
+
 
 class KsLintTest(unittest.TestCase):
     def codes(self, text=VALID):
@@ -144,6 +162,25 @@ class KsLintTest(unittest.TestCase):
 
     def test_mode_conflict(self):
         self.assertIn("K012", self.codes("graphical\n" + VALID))
+
+    def test_desktop_repos(self):
+        self.assertEqual(self.codes(DESKTOP), [])
+
+    def test_desktop_repo_missing(self):
+        text = DESKTOP.replace(
+            "repo --name=everything --baseurl=https://example.invalid"
+            "/x/$basearch/\n", "")
+        self.assertIn("K013", self.codes(text))
+
+    def test_desktop_repo_no_arch(self):
+        text = DESKTOP.replace("https://example.invalid/e/$basearch/",
+                               "https://example.invalid/e/")
+        self.assertIn("K013", self.codes(text))
+
+    def test_desktop_src_no_arch(self):
+        text = DESKTOP.replace("https://example.invalid/os/$basearch/",
+                               "https://example.invalid/os/")
+        self.assertIn("K013", self.codes(text))
 
     def test_real_kickstarts(self):
         base = Path(__file__).resolve().parents[2]

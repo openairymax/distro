@@ -6,10 +6,15 @@
 # 隔离铁律：agent 控制面唯一入口 = Gateway（JSON-RPC 2.0），桌面自带
 #           AI 控制面（KylinBot / kylin-ai*）一律排除，见 desktop/README.md
 #
-# 仓库结构：
-#   airymaxos-offline — ISO 内离线仓库（内核 + distro 包 + UKUI 闭包），cost 最低
-#   openEuler OS      — 基础仓库（驱动/图形栈/工具链）
-#   openEuler EPOL    — 扩展仓库
+# 仓库结构（安装期闭包，缺任一项 UKUI 依赖即无法解析）：
+#   airymaxos-offline          — ISO 内离线仓库（内核 + distro 包），cost 最低
+#   openEuler OS               — 基础仓库（驱动/图形栈/工具链）
+#   openEuler update           — 基础仓库勘误
+#   openEuler EPOL/main        — 扩展仓库（ukui、lightdm、ukui-greeter）
+#   openEuler EPOL/update/main — 扩展仓库勘误
+#   openEuler everything       — 桌面闭包补齐（qt5-qtgraphicaleffects、
+#                                qt5-qtquickcontrols 等仅发布于此），
+#                                cost 最高，只作兜底不覆盖主仓库版本
 #
 # 离线仓库由 scripts/build-desktop.sh 注入 ISO 根 /airymax，Anaconda 以
 # file:// 直接读取；其 repodata 携带 comps 分组，@^airymax-workstation
@@ -25,10 +30,13 @@ timezone Asia/Shanghai --utc
 
 # ---- 仓库 ----
 url --url=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/OS/$basearch/
-repo --name=update --baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/update/$basearch/ --cost=100
-repo --name=epol   --baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/EPOL/main/$basearch/ --cost=100
-# 仓库 URL / 段名与 repo/airymax-os.repo 保持同一口径
-# （docs-linux/190-distribution/01-rpm-packaging.md §5.2）；
+repo --name=update     --baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/update/$basearch/ --cost=100
+repo --name=epol       --baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/EPOL/main/$basearch/ --cost=100
+repo --name=epol-update --baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/EPOL/update/main/$basearch/ --cost=100
+repo --name=everything --baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/everything/$basearch/ --cost=2000
+# 安装期仓库集合与运行期客户端配置（repo/airymax-os.repo）分属两层：
+# 前者只求安装闭包可解析，后者是产品自有仓库（docs-linux/
+# 190-distribution/01-rpm-packaging.md §5.2）。
 # 安装介质挂载点为 /run/install/repo（scripts/build-desktop.sh 注入）
 repo --name=airymaxos-offline --baseurl=file:///run/install/repo/airymax/Packages --cost=1
 
