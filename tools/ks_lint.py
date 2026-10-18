@@ -6,8 +6,8 @@
 # 只依赖标准库。校验对象是无人值守安装的语法与安全性约束：安装源、
 # 存储布局、账户口令（K005/K006：必须 --iscrypted $6$，禁止 --lock 与
 # 脚本段闭合与失败即停、收尾状态、单例命令、安装界面互斥、桌面仓库
-# 闭包完整性与内核包身份。包组引用（@组 / @^环境）由 comps_lint 交叉
-# 校验，此处不重复实现。规则编号 K001~K014 与
+# 闭包完整性、离线仓库落点与内核包身份。包组引用（@组 / @^环境）由
+# comps_lint 交叉校验，此处不重复实现。规则编号 K001~K015 与
 # tools/tests/test_ks_lint.py 一一对应。
 #
 # 退出码：0 通过；1 存在问题；2 用法或读取错误。
@@ -37,13 +37,18 @@ REQUIRED = ("lang", "keyboard", "timezone", "bootloader")
 SCHEME = ("https://", "file://")
 SHA512 = "$6$"
 
-# 桌面环境的安装闭包分布在五个上游仓库：ukui/lightdm/ukui-greeter 在
+# 桌面环境的安装闭包分布在四个上游仓库：ukui/lightdm/ukui-greeter 在
 # EPOL，qt5-qtgraphicaleffects 等只在 everything；缺任一仓库时 Anaconda
-# 解析包组即失败（M-15 安装闭包口径）。
+# 解析包组即失败（M-15 安装闭包口径）。AirymaxOS 自建包由离线仓库供给，
+# 其落点由 K015 单独约束。
 DESKTOP_ENV = "@^airymax-workstation"
-DESKTOP_REPOS = ("update", "epol", "epol-update", "everything",
-                 "airymaxos-offline")
+DESKTOP_REPOS = ("update", "epol", "epol-update", "everything")
+
+# 离线仓库即安装闭包（M-15）：build-desktop.sh 以 createrepo_c 生成
+# Packages 目录并注入 ISO 根 /airymax，安装期经 file:// 消费。所有剖面
+# 都必须挂载它，否则 airymaxos-kernel 无法解析。
 LOCAL_REPO = "airymaxos-offline"
+VENDOR_URL = "file:///run/install/repo/airymax/Packages"
 
 # 内核包身份（M-15）：安装期必须显式落在 AirymaxOS 内核上。上游 kernel
 # 不含 Airymax 补丁，且与本包争用同一组文件路径；kickstart 一旦请求上游
@@ -258,7 +263,7 @@ def check_repo(name: str, cmd: Cmd | None, issues: list[Issue]) -> None:
         issues.append(Issue("K013", 1, f"desktop repo missing: {name}"))
         return
     url = opt_val(cmd.args, "--baseurl")
-    if url and name != LOCAL_REPO and "$basearch" not in url:
+    if url and "$basearch" not in url:
         issues.append(Issue("K013", cmd.num,
                             f"repo {name} url needs $basearch"))
 
@@ -274,6 +279,17 @@ def check_repos(cmds: list[Cmd], sects: list[Sect],
         if cmd.name == "url" and "$basearch" not in opt_val(cmd.args, "--url"):
             issues.append(Issue("K013", cmd.num,
                                 "install url needs $basearch"))
+
+
+def check_vendor(cmds: list[Cmd], issues: list[Issue]) -> None:
+    cmd = repo_map(cmds).get(LOCAL_REPO)
+    if cmd is None:
+        issues.append(Issue("K015", 1, f"missing offline repo: {LOCAL_REPO}"))
+        return
+    url = opt_val(cmd.args, "--baseurl")
+    if url != VENDOR_URL:
+        issues.append(Issue("K015", cmd.num,
+                            f"{LOCAL_REPO} must use {VENDOR_URL}"))
 
 
 def strict(body: list[tuple[int, str]]) -> bool:
@@ -329,6 +345,7 @@ def lint_text(text: str) -> list[Issue]:
     check_urls(cmds, issues)
     check_kernel(sects, issues)
     check_repos(cmds, sects, issues)
+    check_vendor(cmds, issues)
     check_scripts(sects, issues)
     check_stop(cmds, issues)
     check_dup(cmds, issues)

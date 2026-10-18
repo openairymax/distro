@@ -81,7 +81,7 @@ distro/
 │   ├── lint_common.py             # 校验器共用的 Issue 类型与输出格式
 │   ├── spec_lint.py               # RPM 配方静态校验器（E001-E014）
 │   ├── comps_lint.py              # comps 语义校验器（C001-C010）
-│   ├── ks_lint.py                 # kickstart 语义校验器（K001-K014）
+│   ├── ks_lint.py                 # kickstart 语义校验器（K001-K015）
 │   └── tests/                     # 校验规则与构建驱动回归测试
 ├── scripts/
 │   ├── lib/
@@ -111,10 +111,12 @@ distro/
   包名与重复项、布尔字段、环境到组的引用），并交叉校验 `kickstart/*.ks`
   的包组选择（含 `@^环境` 语法）；具备 `xmllint` 时追加按
   `comps/comps.dtd` 的 DTD 结构校验；
-- `tools/ks_lint.py` 校验 `kickstart/*.ks`（K001-K014）：必需命令、
+- `tools/ks_lint.py` 校验 `kickstart/*.ks`（K001-K015）：必需命令、
   安装源唯一性、`https://`/`file://` 方案、存储命令冲突、账户口令必须
   为 `--iscrypted` SHA-512（禁止 `--lock` 与明文）、脚本节区 `set -eu`
-  与 `%post --log`、结束命令唯一且位于末尾；内核包身份要求显式安装
+  与 `%post --log`、结束命令唯一且位于末尾；离线仓库
+  `airymaxos-offline` 必须挂载且 `--baseurl` 精确为
+  `file:///run/install/repo/airymax/Packages`；内核包身份要求显式安装
   `airymaxos-kernel` 且不得请求上游 `kernel`/`kernel-*`；
 - `tools/tests/` 保存上述规则与构建驱动契约的回归测试。
 
