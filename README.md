@@ -86,7 +86,7 @@ distro/
 │   ├── lint_common.py             # Shared issue type and report format
 │   ├── spec_lint.py               # RPM spec static checker (E001-E014)
 │   ├── comps_lint.py              # comps semantic checker (C001-C010)
-│   ├── ks_lint.py                 # kickstart checker (K001-K014)
+│   ├── ks_lint.py                 # kickstart checker (K001-K015)
 │   └── tests/                     # Lint + build-driver regression tests
 ├── scripts/
 │   ├── lib/
@@ -122,7 +122,9 @@ the Python 3 standard library only (no `rpmbuild`/`mock` required):
   install source, storage layout, accounts that must carry an `--iscrypted`
   SHA-512 password (`--lock` and plaintext are rejected), HTTPS install
   sources, `set -eu` in script sections, `%post --log`, single trailing
-  stop command, singleton commands, text/graphical exclusivity, and kernel
+  stop command, singleton commands, text/graphical exclusivity, the
+  offline `airymaxos-offline` repository (mandatory, with `--baseurl`
+  pinned to `file:///run/install/repo/airymax/Packages`), and kernel
   package identity: `airymaxos-kernel` must be installed explicitly while
   upstream `kernel`/`kernel-*` must not be requested);
 - `tools/tests/` holds the regression tests for those rules and for the

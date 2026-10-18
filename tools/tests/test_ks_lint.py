@@ -25,6 +25,7 @@ lang zh_CN.UTF-8
 keyboard us
 timezone Asia/Shanghai --utc
 url --url=https://example.invalid/os/
+repo --name=airymaxos-offline --baseurl=file:///run/install/repo/airymax/Packages
 bootloader --timeout=3
 clearpart --all --initlabel
 autopart --type=plain --fstype=ext4
@@ -45,7 +46,7 @@ reboot
 ROOT = "rootpw --iscrypted $6$testsalt$hash"
 USER = "user --name=demo --iscrypted --password=$6$testsalt2$hash"
 
-# 桌面环境基线：五个安装期仓库齐全，URL 均带 $basearch
+# 桌面环境基线：四个上游仓库齐全且 URL 带 $basearch，离线仓库沿用基线
 DESKTOP = (VALID
            .replace("https://example.invalid/os/",
                     "https://example.invalid/os/$basearch/")
@@ -59,8 +60,6 @@ DESKTOP = (VALID
                     "/eu/$basearch/\n"
                     "repo --name=everything --baseurl=https://example.invalid"
                     "/x/$basearch/\n"
-                    "repo --name=airymaxos-offline --baseurl=file:///run/"
-                    "install/repo/airymax/Packages\n"
                     "bootloader"))
 
 
@@ -176,6 +175,17 @@ class KsLintTest(unittest.TestCase):
     def test_kernel_missing(self):
         text = VALID.replace("airymaxos-kernel\n", "")
         self.assertIn("K014", self.codes(text))
+
+    def test_vendor_missing(self):
+        text = VALID.replace(
+            "repo --name=airymaxos-offline --baseurl=file:///run/install/"
+            "repo/airymax/Packages\n", "")
+        self.assertIn("K015", self.codes(text))
+
+    def test_vendor_bad_url(self):
+        text = VALID.replace("file:///run/install/repo/airymax/Packages",
+                             "file:///mnt/payload")
+        self.assertIn("K015", self.codes(text))
 
     def test_desktop_repos(self):
         self.assertEqual(self.codes(DESKTOP), [])
