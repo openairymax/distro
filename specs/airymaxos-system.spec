@@ -9,7 +9,9 @@
 #   3. 在 %post/%postun 内刷新 systemd 单元缓存。
 #
 # 单元启用（systemctl enable）由安装器在 kickstart 中显式完成，
-# 本包只负责文件到位与缓存刷新（OS-OPS-010）。
+# 本包只负责文件到位与缓存刷新（OS-OPS-010）。随包落盘的 preset 把整栈
+# 钉在 disabled，防止 systemctl preset-all 的默认 enable 语义提前拉起
+# 尚未交付二进制的单元。
 #
 # 构建约束：全部 Source 为仓库内裸露文件名，由构建流水线 staging 到
 # _sourcedir 后 rpmbuild；配方本身不生成任何内容。
@@ -21,6 +23,7 @@
 %global airy_version 0.0.3
 %global airy_release 1
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
+%{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
 Name:           airymaxos-system
 Version:        %{airy_version}
@@ -49,6 +52,7 @@ Source15:       agentrt-dsl.target
 Source16:       airy-incident@.service
 Source17:       firstboot.sh
 Source18:       health_check.sh
+Source19:       90-airymax.preset
 
 Requires:       bash
 Requires:       procps-ng
@@ -75,6 +79,8 @@ install -m 0644 %{_sourcedir}/*.service %{buildroot}%{_unitdir}/
 install -m 0644 %{_sourcedir}/*.target %{buildroot}%{_unitdir}/
 install -d -m 0755 %{buildroot}/usr/lib/airymaxos/scripts
 install -m 0755 %{_sourcedir}/*.sh %{buildroot}/usr/lib/airymaxos/scripts/
+install -d -m 0755 %{buildroot}%{_presetdir}
+install -m 0644 %{_sourcedir}/90-airymax.preset %{buildroot}%{_presetdir}/
 
 %check
 test -x %{buildroot}/usr/lib/airymaxos/scripts/firstboot.sh
@@ -85,6 +91,11 @@ test -f %{buildroot}%{_unitdir}/airy-incident@.service
 grep -qF 'Requires=sysinit.target ' %{buildroot}%{_unitdir}/agentrt.target
 grep -qxF 'Before=agentrt.target multi-user.target' \
     %{buildroot}%{_unitdir}/agentrt-firstboot.service
+test -f %{buildroot}%{_presetdir}/90-airymax.preset
+grep -qxF 'disable agentrt.target' \
+    %{buildroot}%{_presetdir}/90-airymax.preset
+grep -qxF 'disable agentrt-*.service' \
+    %{buildroot}%{_presetdir}/90-airymax.preset
 
 %post
 if command -v systemctl >/dev/null 2>&1; then
@@ -103,7 +114,9 @@ fi
 /usr/lib/airymaxos/scripts/*.sh
 %{_unitdir}/*.service
 %{_unitdir}/*.target
+%{_presetdir}/90-airymax.preset
 
 %changelog
 * Sat Oct 17 2026 Liren Wang <wangliren@spharx.cn> - 0.0.3-1
 - Initial system orchestration package for AirymaxOS 0.0.3
+- Pin agentrt units to disabled via systemd preset

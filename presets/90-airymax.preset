@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# ===========================================================================
+# 90-airymax.preset — agentrt 栈在 0.0.3 的启用边界
+#
+# 本版本只交付 systemd 单元与运行时脚本，12 个 /usr/sbin/*_d 随 0.1.x 的
+# airymaxos-services 交付，firstboot 依赖的 LSM 就绪探针同样尚未闭环。
+# 若在此时启用任一单元，首次启动会因 ExecStart 缺失或探针未就绪进入
+# degraded，违背 0.0.3「OS 能正常运行」的验收口径。
+#
+# 因此本 preset 把整栈钉在 disabled；安装器（OS-OPS-010）与管理员是唯一
+# 的显式启用入口。airymaxos-services 交付时，本文件随该版本改写为 enable。
+#
+# airy-incident@.service 没有 [Install] 段，disable 是空操作，故不列入。
+# ===========================================================================
+
+disable agentrt.target
+disable agentrt-dsl.target
+disable agentrt-*.service
