@@ -17,11 +17,12 @@ repos:
   - openEuler-24.03-LTS-SP2
   - openEuler-24.03-LTS-SP2-EPOL
 
-# 包集：与 comps @airymax-workstation 环境一致
+# 包集：与 kickstart/airymaxos-workstation.ks 的显式条目一致
 packages:
   # 发行版标识与仓库配置由 distro/specs/airymaxos-release.spec 产出
   - airymaxos-release
-  - kernel
+  # 内核必须是本仓 airymaxos-kernel：上游 kernel 不含 airy 子系统
+  - airymaxos-kernel
   - ukui
   - xorg-x11-server
   - xorg-x11-utils
