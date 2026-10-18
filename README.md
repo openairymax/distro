@@ -25,6 +25,25 @@
 - AirymaxOS system-layer components from the other agent-linux leaf
   repositories.
 
+## Initial credentials
+
+Both kickstarts record the initial passwords as SHA-512 crypt hashes per
+OS-OPS-009, so an unattended install is login-ready without depending on a
+first-boot account creation flow that does not exist yet:
+
+| Account | Initial password | Login boundary |
+|---------|------------------|----------------|
+| `root` | `Airymax@Root-0.0.3` | Console/SSH takeover; forced rotation at first login |
+| `airymax` | `Airymax@User-0.0.3` | `wheel`; lightdm/UKUI desktop account |
+
+`root` runs `chage -d 0` in `%post`, so PAM forces a password change at the
+first login. `airymax` is deliberately not expired: how lightdm/ukui-greeter
+handles `PAM_NEW_AUTHTOK_REQD` cannot be verified within the 0.0.3 scope, and
+expiring it would make the "UKUI desktop is reachable" acceptance criterion
+undecidable. The password must therefore be changed right after login. For a
+custom build, replace the hashes in the kickstart before injecting the ISO;
+never write plaintext.
+
 ## Repository layout
 
 ```
@@ -98,7 +117,8 @@ the Python 3 standard library only (no `rpmbuild`/`mock` required):
   selections, including the `@^environment` syntax; when `xmllint` is
   available the file is additionally validated against `comps/comps.dtd`;
 - `tools/ks_lint.py` validates `kickstart/*.ks` (section closure, single
-  install source, storage layout, locked/encrypted accounts, HTTPS install
+  install source, storage layout, accounts that must carry an `--iscrypted`
+  SHA-512 password (`--lock` and plaintext are rejected), HTTPS install
   sources, `set -eu` in script sections, `%post --log`, single trailing
   stop command, singleton commands, text/graphical exclusivity);
 - `tools/tests/` holds the regression tests for those rules and for the

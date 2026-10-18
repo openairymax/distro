@@ -4,10 +4,10 @@
 # ks_lint.py — AirymaxOS kickstart 静态校验
 #
 # 只依赖标准库。校验对象是无人值守安装的语法与安全性约束：安装源、
-# 存储布局、账户口令、仓库传输、脚本段闭合与失败即停、收尾状态、
-# 单例命令与安装界面互斥。包组引用（@组 / @^环境）由 comps_lint 交叉
-# 校验，此处不重复实现。规则编号 K001~K012 与 tools/tests/test_ks_lint.py
-# 一一对应。
+# 存储布局、账户口令（K005/K006：必须 --iscrypted $6$，禁止 --lock 与
+# 明文）、仓库传输、脚本段闭合与失败即停、收尾状态、单例命令与安装
+# 界面互斥。包组引用（@组 / @^环境）由 comps_lint 交叉校验，此处不重复
+# 实现。规则编号 K001~K012 与 tools/tests/test_ks_lint.py 一一对应。
 #
 # 退出码：0 通过；1 存在问题；2 用法或读取错误。
 #
@@ -34,6 +34,7 @@ SCRIPTS = frozenset({"pre", "post", "onerror", "traceback"})
 SECTIONS = SCRIPTS | {"packages", "anaconda", "addon"}
 REQUIRED = ("lang", "keyboard", "timezone", "bootloader")
 SCHEME = ("https://", "file://")
+SHA512 = "$6$"
 
 
 @dataclass
@@ -155,15 +156,37 @@ def check_storage(cmds: list[Cmd], issues: list[Issue]) -> None:
         issues.append(Issue("K004", 1, "no storage layout"))
 
 
+def last_arg(args: str) -> str:
+    return next((tok for tok in reversed(args.split())
+                 if not tok.startswith("--")), "")
+
+
+def check_rootpw(cmd: Cmd, issues: list[Issue]) -> None:
+    if has_opt(cmd.args, "--lock"):
+        issues.append(Issue("K005", cmd.num, "rootpw locked: no login"))
+        return
+    val = last_arg(cmd.args)
+    if not has_opt(cmd.args, "--iscrypted") or not val.startswith(SHA512):
+        issues.append(Issue("K005", cmd.num,
+                            "rootpw must use --iscrypted $6$ hash"))
+
+
+def check_user(cmd: Cmd, issues: list[Issue]) -> None:
+    if has_opt(cmd.args, "--lock"):
+        issues.append(Issue("K006", cmd.num, "user locked: no login"))
+        return
+    val = opt_val(cmd.args, "--password")
+    if not has_opt(cmd.args, "--iscrypted") or not val.startswith(SHA512):
+        issues.append(Issue("K006", cmd.num,
+                            "user must use --iscrypted --password=$6$"))
+
+
 def check_roots(cmds: list[Cmd], issues: list[Issue]) -> None:
     for cmd in cmds:
-        if cmd.name not in ("rootpw", "user"):
-            continue
-        if has_opt(cmd.args, "--lock") or has_opt(cmd.args, "--iscrypted"):
-            continue
-        code = "K005" if cmd.name == "rootpw" else "K006"
-        issues.append(Issue(code, cmd.num,
-                            f"{cmd.name} without --lock/--iscrypted"))
+        if cmd.name == "rootpw":
+            check_rootpw(cmd, issues)
+        elif cmd.name == "user":
+            check_user(cmd, issues)
 
 
 def check_urls(cmds: list[Cmd], issues: list[Issue]) -> None:

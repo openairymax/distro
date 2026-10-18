@@ -29,8 +29,8 @@ bootloader --timeout=3
 clearpart --all --initlabel
 autopart --type=plain --fstype=ext4
 network --bootproto=dhcp --activate
-rootpw --lock
-user --name=demo --lock
+rootpw --iscrypted $6$testsalt$hash
+user --name=demo --iscrypted --password=$6$testsalt2$hash
 %packages
 @core
 %end
@@ -40,6 +40,9 @@ echo done
 %end
 reboot
 """
+
+ROOT = "rootpw --iscrypted $6$testsalt$hash"
+USER = "user --name=demo --iscrypted --password=$6$testsalt2$hash"
 
 
 class KsLintTest(unittest.TestCase):
@@ -84,11 +87,28 @@ class KsLintTest(unittest.TestCase):
         self.assertIn("K004", self.codes(text))
 
     def test_rootpw_plain(self):
-        text = VALID.replace("rootpw --lock", "rootpw secret")
+        text = VALID.replace(ROOT, "rootpw secret")
+        self.assertIn("K005", self.codes(text))
+
+    def test_rootpw_locked(self):
+        text = VALID.replace(ROOT, "rootpw --lock")
+        self.assertIn("K005", self.codes(text))
+
+    def test_rootpw_not_sha512(self):
+        text = VALID.replace(ROOT, "rootpw --iscrypted $1$salt$hash")
         self.assertIn("K005", self.codes(text))
 
     def test_user_plain(self):
-        text = VALID.replace("user --name=demo --lock", "user --name=demo")
+        text = VALID.replace(USER, "user --name=demo")
+        self.assertIn("K006", self.codes(text))
+
+    def test_user_locked(self):
+        text = VALID.replace(USER, "user --name=demo --lock")
+        self.assertIn("K006", self.codes(text))
+
+    def test_user_not_sha512(self):
+        text = VALID.replace(USER, "user --name=demo --iscrypted "
+                                   "--password=$1$salt$hash")
         self.assertIn("K006", self.codes(text))
 
     def test_http_url(self):
