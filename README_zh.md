@@ -66,6 +66,8 @@ distro/
 ├── desktop/
 │   ├── README.md                  # UKUI 集成策略（六条铁律 + 冻结点结论）
 │   ├── airymax-desktop.slice      # 桌面低干扰 cgroup slice
+│   ├── airymax-desktop-ready.service  # 图形登录链就绪探针
+│   ├── desktop_ready.sh           # lightdm 单元与 greeter 会话校验
 │   ├── 70-airymax-ukui-policy.sh  # 安装后策略脚本（mask + 默认 target）
 │   ├── lightdm/                   # lightdm 座位策略
 │   ├── xinitrc.d/                 # X11 会话输入法环境
@@ -119,7 +121,9 @@ distro/
 
 `scripts/install-test.sh ISO OUT` 对镜像执行三连测：安装（`-boot order=d`
 + 串口日志）→ 校验 `install complete` 标记 → 冷启动（`-boot order=c`）→
-校验无 `Kernel panic` 且出现 `login:`。输出为 TAP 14；缺 QEMU 工具时
+校验无 `Kernel panic` 且出现冷启动标记。默认标记为 `login:`；
+`--boot-marker` 可替换，desktop 剖面用 `AIRYMAX-DESKTOP-READY` 断言
+lightdm 与 greeter 会话真实就绪。输出为 TAP 14；缺 QEMU 工具时
 输出 `1..0 # SKIP` 并退出 77，不以假通过掩盖环境缺口。
 
 `scripts/build-rpms.sh --out DIR` 驱动批量构建：将所有 `Source`/`Patch`

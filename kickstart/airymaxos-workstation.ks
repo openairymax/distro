@@ -50,7 +50,11 @@ rootpw --iscrypted $6$airy003root0x01$WF29rbJ84L5jwK05P.Rs/EfkAjDBZmOtti6K29tIzd
 user --name=airymax --groups=wheel --iscrypted --password=$6$airy003user0x01$s1JW7QjW0kiAW7B51kVB2hNsabAadz4G/h6yBDRvpWzwsV7NO7Kh3ChDjLtapHZ6HGl5WoqNKi.IAY7IT5yRc/ --comment="AirymaxOS user"
 
 # ---- 服务 ----
-services --enabled=lightdm
+# OS-OPS-010：安装器显式 enable 需要的单元，包自身 %post 不 enable。
+# airymax-desktop-ready 在 graphical.target 下校验 lightdm 与 greeter 会话，
+# 作为镜像 CI「桌面能进」的宿主机可判定证据（验收④）；minimal 剖面停留在
+# multi-user.target，不涉及该单元。
+services --enabled=lightdm airymax-desktop-ready
 
 # ---- 包组 ----
 %packages

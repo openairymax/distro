@@ -8,8 +8,8 @@
 #   2. 提供 /etc/yum.repos.d/airymaxos.repo（仓库列表 SSoT）；
 #   3. 提供 /etc/rpm/macros.airymax（文件系统布局宏 SSoT）；
 #   4. 部署桌面会话静态资产：lightdm 座位策略、X11 会话输入法环境、输入法
-#      自启项、UKUI 壁纸注册表与背景默认值、默认壁纸、桌面调度 slice 及
-#      user@.service 挂接；
+#      自启项、UKUI 壁纸注册表与背景默认值、默认壁纸、桌面调度 slice、
+#      user@.service 挂接及登录链就绪探针；
 #   5. %post 只执行装配后才能确定的运行期动作：屏蔽桌面自带 AI 控制面单元、
 #      固定默认 target、编译 glib schema、重载 systemd。
 #
@@ -48,6 +48,8 @@ Source9:        airymax-input-method.desktop
 Source10:       airymaxos-default.xml
 Source11:       99-airymaxos-default.gschema.override
 Source12:       50-airymax-desktop.conf
+Source13:       airymax-desktop-ready.service
+Source14:       desktop_ready.sh
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -79,6 +81,12 @@ install -m 0644 %{SOURCE2} %{buildroot}%{_sysconfdir}/rpm/macros.airymax
 
 install -d -m 0755 %{buildroot}%{_unitdir}
 install -m 0644 %{SOURCE3} %{buildroot}%{_unitdir}/airymax-desktop.slice
+install -m 0644 %{SOURCE13} \
+    %{buildroot}%{_unitdir}/airymax-desktop-ready.service
+
+install -d -m 0755 %{buildroot}/usr/lib/airymaxos/desktop
+install -m 0755 %{SOURCE14} \
+    %{buildroot}/usr/lib/airymaxos/desktop/desktop_ready.sh
 
 install -d -m 0755 %{buildroot}%{_sysconfdir}/lightdm/lightdm.conf.d
 install -m 0644 %{SOURCE7} \
@@ -125,6 +133,9 @@ grep -qxF '[airymaxos-base]' %{buildroot}%{_sysconfdir}/yum.repos.d/airymaxos.re
 grep -qF 'airymax_libdir' %{buildroot}%{_sysconfdir}/rpm/macros.airymax
 grep -qF '/usr/lib/airymaxos' %{buildroot}%{_sysconfdir}/rpm/macros.airymax
 grep -qxF 'CPUWeight=50' %{buildroot}%{_unitdir}/airymax-desktop.slice
+grep -qxF 'WantedBy=graphical.target' \
+    %{buildroot}%{_unitdir}/airymax-desktop-ready.service
+bash -n %{buildroot}/usr/lib/airymaxos/desktop/desktop_ready.sh
 bash -n %{buildroot}%{_datadir}/airymaxos/distro/desktop/70-airymax-ukui-policy.sh
 grep -qxF 'user-session=ukui' \
     %{buildroot}%{_sysconfdir}/lightdm/lightdm.conf.d/50-airymax.conf
@@ -162,6 +173,8 @@ fi
 %config(noreplace) %{_sysconfdir}/xdg/autostart/airymax-input-method.desktop
 %config(noreplace) %{_sysconfdir}/systemd/system/user@.service.d/50-airymax-desktop.conf
 %{_unitdir}/airymax-desktop.slice
+%{_unitdir}/airymax-desktop-ready.service
+/usr/lib/airymaxos/desktop/desktop_ready.sh
 %{_datadir}/ukui-background-properties/airymaxos-default.xml
 %{_datadir}/glib-2.0/schemas/99-airymaxos-default.gschema.override
 %{_datadir}/backgrounds/airymaxos/airymaxos-default.jpg
@@ -173,3 +186,5 @@ fi
 - Ship the UKUI session policy assets: lightdm seat, input method
   environment and autostart, wallpaper registry and background default,
   desktop slice and user@.service drop-in
+- Add airymax-desktop-ready.service and its probe script so image CI can
+  assert the lightdm greeter session is reachable after boot

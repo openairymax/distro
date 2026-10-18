@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
+# ===========================================================================
+# airymax-desktop-ready — 安装后桌面登录链就绪探针
+#
+# WantedBy=graphical.target：只在图形目标下运行；minimal 剖面停留在
+# multi-user.target，不会触发本单元。失败退出码由 install-test.sh 的
+# BOOT_FAIL 规则捕获，作为「UKUI 桌面进不去」的宿主机可判定证据。
+# ===========================================================================
+[Unit]
+Description=AirymaxOS desktop login readiness probe
+Documentation=https://atomgit.com/openairymax/agent-linux
+ConditionFileIsExecutable=/usr/sbin/lightdm
+After=lightdm.service
+Wants=lightdm.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/airymaxos/desktop/desktop_ready.sh
+StandardOutput=journal+console
+StandardError=journal+console
+TimeoutStartSec=180
+
+[Install]
+WantedBy=graphical.target

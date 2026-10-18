@@ -178,6 +178,21 @@ class InstallTestTest(unittest.TestCase):
         self.assertEqual(res.returncode, 1)
         self.assertIn("not ok 2", res.stdout)
 
+    def test_desktop_boot_marker(self):
+        self.tools()
+        res = self.install("--runs", "1",
+                           "--boot-marker", "AIRYMAX-DESKTOP-READY")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("ok 2", res.stdout)
+
+    def test_desktop_marker_missing(self):
+        self.tools()
+        res = self.install("--runs", "1",
+                           "--boot-marker", "AIRYMAX-DESKTOP-READY",
+                           FAKE_QEMU_BOOT_MODE="login-only")
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("not ok 2", res.stdout)
+
     def test_boot_timeout(self):
         self.tools()
         res = self.install("--runs", "1", "--boot-timeout", "2",

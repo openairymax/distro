@@ -30,6 +30,11 @@ lockfile 冻结点（滚动触发） × 内核 RPM（6.6-airymax.n）
   `build-desktop.sh` 离线仓库组装，产物在 `DIR/desktop/`），`--rpms` 为
   桌面剖面补充 RPM 目录（跳过构建段时必须显式给出），
   `--firmware bios|uefi|both` 选择固件腿，`--max-boot` 设定启动墙钟上限。
+  desktop 剖面把启动段标记切换为 `AIRYMAX-DESKTOP-READY`：该标记由
+  `airymax-desktop-ready.service` 在 lightdm 单元 active 且存在
+  Service=lightdm、Class=greeter、Type=x11 的活动会话后输出，失败则打印
+  `AIRYMAX-DESKTOP-FAIL` 并以非零退出码触发启动段判定失败。该标记只证明
+  登录管理器与 greeter 就绪，不替代桌面会话内的 `run-smoke.sh`。
   任一段失败整体返回 1；参数不满足返回 5；
   缺 QEMU 工具链时装机段跳过并返回 77。各段清单留在其产物子目录，
   编排层只写 `image-ci-manifest.txt`，不复制子驱动清单（SSoT）。
@@ -43,7 +48,8 @@ lockfile 冻结点（滚动触发） × 内核 RPM（6.6-airymax.n）
   测试机接入方式 TODO：首台 DevStation 测试机就位后回填；
 - `../scripts/install-test.sh --iso ISO --out DIR` 承担装机验收：QEMU
   跨架构、双固件、可配置轮次，每轮安装后冷启动并校验串口日志与启动墙钟；
-  输出 TAP 14，缺 QEMU 时退出 77；
+  `--boot-marker` 可替换冷启动的判定标记（desktop 剖面用它断言桌面登录链
+  就绪），输出 TAP 14，缺 QEMU 时退出 77；
 - `../scripts/build-iso.sh --iso SRC --ks FILE --out DIR` 在发布工作区
   组装被测镜像（`mkksiso` 注入 kickstart，需 root）；产物落在源码区之外，
   构建后自校验 `/ks.cfg` 与引导配置，校验失败即拒绝交付；
