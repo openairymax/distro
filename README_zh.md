@@ -23,6 +23,22 @@
   以 RPM 形式消费——禁止以源码 vendor 方式引入；
 - 其余 agent-linux 叶子仓的系统层组件。
 
+## 初始凭据
+
+两个 kickstart 都以 OS-OPS-009 要求的 SHA-512 crypt 哈希落盘初始口令，
+安装结束后即可登录，不再依赖尚不存在的首启建号流程：
+
+| 账户 | 初始口令 | 登录边界 |
+|------|----------|----------|
+| `root` | `Airymax@Root-0.0.3` | 控制台/SSH 接管；首登强制改密 |
+| `airymax` | `Airymax@User-0.0.3` | `wheel`；lightdm/UKUI 桌面账户 |
+
+`root` 在 `%post` 中执行 `chage -d 0`，首次登录由 PAM 强制修改。
+`airymax` 不设过期：lightdm/ukui-greeter 对 `PAM_NEW_AUTHTOK_REQD` 的
+处理不在 0.0.3 可验证范围内，强制过期会让「UKUI 桌面能正常进入」验收
+不可判定；因此首次登录后必须立即修改口令。定制发行时在注入 ISO 前
+替换 kickstart 中的哈希，禁止写入明文。
+
 ## 仓库结构
 
 ```
@@ -94,8 +110,9 @@ distro/
   的包组选择（含 `@^环境` 语法）；具备 `xmllint` 时追加按
   `comps/comps.dtd` 的 DTD 结构校验；
 - `tools/ks_lint.py` 校验 `kickstart/*.ks`（K001-K012）：必需命令、
-  安装源唯一性、`https://`/`file://` 方案、存储命令冲突、账户锁定、
-  脚本节区 `set -eu` 与 `%post --log`、结束命令唯一且位于末尾；
+  安装源唯一性、`https://`/`file://` 方案、存储命令冲突、账户口令必须
+  为 `--iscrypted` SHA-512（禁止 `--lock` 与明文）、脚本节区 `set -eu`
+  与 `%post --log`、结束命令唯一且位于末尾；
 - `tools/tests/` 保存上述规则与构建驱动契约的回归测试。
 
 配方在提交时校验；真实 RPM 构建只在发布工作区执行，本仓内不构建。

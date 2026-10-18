@@ -42,9 +42,12 @@ autopart --type=plain --fstype=ext4
 network --bootproto=dhcp --activate --hostname=airymaxos
 
 # ---- 账户 ----
-# 无人值守安装不留明文口令：root 锁定，user 同样锁定（口令由首启流程设置）
-rootpw --lock
-user --name=airymax --groups=wheel --lock --comment="AirymaxOS user"
+# OS-OPS-009：口令只以 SHA-512 crypt 哈希落盘，禁止明文。0.0.3 的无人值守
+# 安装没有交互建号环节，账户必须在安装结束后即可登录，否则 UKUI 与控制台
+# 都无入口。root 的初始口令在 %post 中置为过期，首次登录强制修改；airymax
+# 保持可用，保证 lightdm/UKUI 能直接进入桌面。
+rootpw --iscrypted $6$airy003root0x01$WF29rbJ84L5jwK05P.Rs/EfkAjDBZmOtti6K29tIzd30tv29YlnNvYiZHK0QzPl4RBKlSiUshySWmYzgN3ybT0
+user --name=airymax --groups=wheel --iscrypted --password=$6$airy003user0x01$s1JW7QjW0kiAW7B51kVB2hNsabAadz4G/h6yBDRvpWzwsV7NO7Kh3ChDjLtapHZ6HGl5WoqNKi.IAY7IT5yRc/ --comment="AirymaxOS user"
 
 # ---- 服务 ----
 services --enabled=lightdm
@@ -84,7 +87,19 @@ rpm -q airymaxos-system >/dev/null 2>&1 || {
     exit 1
 }
 
-# 4) agentrt.target 的启用推迟到 daemon 二进制交付版本：
+# 4) 账户自检：没有可登录账户的安装介质不具备「OS 能运行」的前提
+[ "$(passwd -S root | awk '{print $2}')" = "P" ] || {
+    echo "ERROR: root account is not usable" >&2
+    exit 1
+}
+[ "$(passwd -S airymax | awk '{print $2}')" = "P" ] || {
+    echo "ERROR: airymax account is not usable" >&2
+    exit 1
+}
+# root 只承担首次控制台接管：登录后强制修改初始口令
+chage -d 0 root
+
+# 5) agentrt.target 的启用推迟到 daemon 二进制交付版本：
 #    该 target 强依赖 12 个 /usr/sbin/*_d，0.0.3 尚未打包，提前 enable
 #    会让每次冷启动进入 degraded，违背「OS 能正常运行」验收口径。
 #    启用项与 airymaxos-services 同版本落地，届时此处补
