@@ -189,6 +189,101 @@ done
 printf 'qcow2\\n' > "$disk"
 """
 
+LOGINCTL = """\
+#!/bin/sh
+prop=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+    -p) shift; prop=$1 ;;
+    esac
+    shift
+done
+case "$prop" in
+Type) printf '%s\\n' "${FAKE_TYPE:-x11}" ;;
+Service) printf '%s\\n' "${FAKE_SERVICE:-lightdm}" ;;
+Active) printf '%s\\n' "${FAKE_ACTIVE:-yes}" ;;
+*) exit 1 ;;
+esac
+"""
+
+PGREP = """\
+#!/bin/sh
+mode=""; pat=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+    -x|-f) mode=$1 ;;
+    -*) ;;
+    *) pat=$1; break ;;
+    esac
+    shift
+done
+[ -n "$pat" ] || exit 1
+case " ${FAKE_PROCS:-} " in
+*" ${pat} "*) exit 0 ;;
+esac
+[ "$mode" = "-f" ] || exit 1
+case "${FAKE_PROCS:-}" in
+*"${pat}"*) exit 0 ;;
+esac
+exit 1
+"""
+
+XDPYINFO = """\
+#!/bin/sh
+case "${FAKE_XDPYINFO:-ok}" in
+ok) printf 'name of display: %s\\n' "${DISPLAY:-:0}" ;;
+*)
+    printf 'xdpyinfo: unable to open display "%s"\\n' "${DISPLAY:-}" >&2
+    exit 1
+    ;;
+esac
+"""
+
+FCITX_REMOTE = """\
+#!/bin/sh
+[ "${FAKE_FCITX_REMOTE:-ok}" = ok ] || {
+    printf 'fcitx-remote: cannot connect to fcitx\\n' >&2
+    exit 1
+}
+printf '%s\\n' "${FAKE_FCITX_STATE:-2}"
+"""
+
+PACTL = """\
+#!/bin/sh
+[ "${FAKE_PACTL:-ok}" = ok ] || {
+    printf 'Connection failure: Connection refused\\n' >&2
+    exit 1
+}
+printf 'Server Name: pulseaudio\\n'
+"""
+
+SYSTEMCTL = """\
+#!/bin/sh
+cmd=""; unit=""; prop=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+    show|is-active) cmd=$1 ;;
+    -p) shift; prop=$1 ;;
+    -*) ;;
+    *) unit=$1 ;;
+    esac
+    shift
+done
+case "$cmd" in
+is-active) printf '%s\\n' "${FAKE_SLICE_ACTIVE:-active}" ;;
+show)
+    case "$prop" in
+    Slice) printf '%s\\n' "${FAKE_SLICE:-airymax-desktop.slice}" ;;
+    CPUWeight) printf '%s\\n' "${FAKE_CPU:-50}" ;;
+    IOWeight) printf '%s\\n' "${FAKE_IO:-50}" ;;
+    TasksMax) printf '%s\\n' "${FAKE_TASKS:-40%}" ;;
+    *) exit 1 ;;
+    esac
+    ;;
+*) exit 1 ;;
+esac
+"""
+
 
 def link_tools(bin_dir):
     for name in TOOLS:
@@ -218,3 +313,12 @@ def qemu_tools(bin_dir, arch="x86_64", qemu=True):
     write(bin_dir, "qemu-img", QEMU_IMG)
     if qemu:
         write(bin_dir, f"qemu-system-{arch}", QEMU)
+
+
+def smoke_tools(bin_dir, omit=()):
+    table = (("loginctl", LOGINCTL), ("pgrep", PGREP),
+             ("xdpyinfo", XDPYINFO), ("fcitx-remote", FCITX_REMOTE),
+             ("pactl", PACTL), ("systemctl", SYSTEMCTL))
+    for name, body in table:
+        if name not in omit:
+            write(bin_dir, name, body)

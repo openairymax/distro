@@ -30,6 +30,9 @@
       <!-- X11 服务端：真实包名 xorg-x11-server，它 Provides
            xorg-x11-server-Xorg / Xorg（后者不是包名） -->
       <packagereq type="mandatory">xorg-x11-server</packagereq>
+      <!-- X11 诊断客户端（xdpyinfo）：桌面冒烟 T1 的 X server 可达性探针
+           依赖此包；仓库内位于 OS，包名与版本已核对 -->
+      <packagereq type="default">xorg-x11-utils</packagereq>
       <!-- 显示管理器：ukui-greeter 自带 95-ukui-greeter.conf 接入 lightdm，
            显式声明使 kickstart 的 services 指令有实包可依 -->
       <packagereq type="mandatory">lightdm</packagereq>
