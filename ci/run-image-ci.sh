@@ -27,6 +27,8 @@ readonly DISTRO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 . "${DISTRO_ROOT}/scripts/lib/arch.sh"
 # shellcheck source=../scripts/lib/iso.sh
 . "${DISTRO_ROOT}/scripts/lib/iso.sh"
+# shellcheck source=../scripts/lib/log.sh
+. "${DISTRO_ROOT}/scripts/lib/log.sh"
 
 OUT=""
 ISO=""
@@ -330,6 +332,7 @@ stage_rpm()
         tap_ok 1 "rpm build"
         ROWS+=("rpm=pass")
     else
+        log_tail "${LOGS}/build-rpms.log" 12 '#   '
         tap_fail 1 "rpm build" "see ${LOGS}/build-rpms.log"
         ROWS+=("rpm=fail")
     fi
@@ -348,6 +351,7 @@ stage_kern()
         tap_ok 2 "kernel build"
         ROWS+=("kernel=pass")
     else
+        log_tail "${LOGS}/build-kernel.log" 12 '#   '
         tap_fail 2 "kernel build" "see ${LOGS}/build-kernel.log"
         ROWS+=("kernel=fail")
     fi
@@ -378,6 +382,7 @@ stage_iso()
         tap_ok 3 "iso assembly"
         ROWS+=("iso=pass")
     else
+        log_tail "${log}" 12 '#   '
         tap_fail 3 "iso assembly" "see ${log}"
         ROWS+=("iso=fail")
     fi
@@ -441,7 +446,8 @@ stage_inst()
     0) tap_ok 5 "install test"; ROWS+=("install=pass") ;;
     77) tap_skip 5 "install test" "QEMU toolchain unavailable"
         ROWS+=("install=skip"); ENV_SKIP=1 ;;
-    *) tap_fail 5 "install test" "see ${LOGS}/install-test.log"
+    *) log_tail "${LOGS}/install-test.log" 12 '#   '
+       tap_fail 5 "install test" "see ${LOGS}/install-test.log"
        ROWS+=("install=fail") ;;
     esac
 }
