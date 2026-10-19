@@ -21,7 +21,7 @@ rpm-ostree compose tree --unified-core \
     --repo=/srv/airymax-repo \
     ostree/airymaxos-workstation.treefile \
     --write-commitid-to /tmp/commitid
-# 3) 组合冒烟：ci/run-smoke.sh 对 compose 产物跑四项验收
+# 3) 组合冒烟：ci/run-smoke.sh 对 compose 产物跑五项验收
 # 4) 发布： ostree pull 到分发端；升级端 rpm-ostree upgrade
 ```
 

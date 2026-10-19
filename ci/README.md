@@ -1,7 +1,7 @@
 # ci — 组合冒烟矩阵
 
 > 目标：每一次"桌面包组 × 内核 RPM"的冻结点滚动/内核指针推进，
-> 都经过同一套可重复的四项最低验收。
+> 都经过同一套可重复的五项最低验收。
 
 ## 冒烟矩阵
 
@@ -11,6 +11,7 @@
 | T2 | fcitx 4 中文输入 | fcitx 守护进程存活；`fcitx-remote` 可达（状态 0/1/2）；GTK/QT/XMODIFIERS 均指向 fcitx | 冻结点输入法基线（fcitx4） |
 | T3 | PulseAudio 音频栈 | `pactl info` 握手成功（套接字激活的端到端路径） | 冻结点音频基线（无 PipeWire） |
 | T4 | 桌面隔离 slice | `user@UID.service` 落入 `airymax-desktop.slice`；slice active；CPUWeight=50、IOWeight=50、TasksMax 有限 | R1-04 桌面低干扰 |
+| T5 | 内置壁纸 | `org.mate.background picture-filename` 指向内置路径；图像 sha256 与发行资产一致（图像缺失或 schema 缺失均判失败） | 0.0.3 品牌桌面基线 |
 | X1 | 内核仓反向门禁 | kernel CI 持续拒绝 Qt/X11/Wayland 头依赖与 KABI 白名单外变更（由 agent-linux CI 承担，此处仅交叉核对报告） | 双向不污染 |
 
 ## 矩阵维度
@@ -45,7 +46,8 @@ lockfile 冻结点（滚动触发） × 内核 RPM（6.6-airymax.n）
 - `run-smoke.sh` 必须在已登录的 UKUI 桌面会话内以该桌面用户运行
   （TV-02 桌面验收），不由宿主机驱动；探测只读系统状态，不改配置。
   `loginctl`/`pgrep`/`xdpyinfo` 属探测工具，缺失时该用例记 77 跳过；
-  `fcitx-remote`/`pactl` 属被测特性的一部分，缺失即失败而非跳过。
+  `fcitx-remote`/`pactl`/`gsettings`/`sha256sum` 属被测特性的一部分，
+  缺失即失败而非跳过（T5 不得以 SKIP 掩盖壁纸缺失）。
   镜像 CI 只覆盖安装与启动链，不替代桌面冒烟。
   测试机接入方式 TODO：首台 DevStation 测试机就位后回填；
 - `../scripts/install-test.sh --iso ISO --out DIR` 承担装机验收：QEMU
