@@ -38,6 +38,8 @@ lockfile 冻结点（滚动触发） × 内核 RPM（6.6-airymax.n）
   输出；失败则打印 `AIRYMAX-DESKTOP-FAIL`，该串同时是 `install-test.sh`
   的内建启动失败模式，无需等满超时即可判定。该标记只证明会话定义与
   登录管理器/greeter 就绪，不替代桌面会话内的 `run-smoke.sh`。
+  desktop 剖面加 `--acceptance` 时改为组装验收 ISO 并由会话内冒烟判定
+  （B 轮，见下节）。
   任一段失败整体返回 1；参数不满足返回 5；
   缺 QEMU 工具链时装机段跳过并返回 77。各段清单留在其产物子目录，
   编排层只写 `image-ci-manifest.txt`，不复制子驱动清单（SSoT）。
@@ -59,3 +61,32 @@ lockfile 冻结点（滚动触发） × 内核 RPM（6.6-airymax.n）
   构建后自校验 `/ks.cfg` 与引导配置，校验失败即拒绝交付；
 - 本目录只保存矩阵定义与脚本；测试用例实现归属 tests-linux 叶子仓（TODO：
   tests-linux 侧立项后建立引用关系，避免两仓重复维护）。
+
+## 验收 ISO（B 轮）
+
+产品 ISO 只证明 greeter 就绪，不能证明 UKUI 已登录。B 轮以同一 netinst
+基线重新组装验收 ISO，并在真实会话内跑完整 TAP：
+
+```bash
+ci/run-image-ci.sh --out /out --iso-base /path/netinst.iso \
+    --profile desktop --firmware bios --runs 1 --acceptance
+```
+
+`--acceptance` 仅支持 desktop，与 `--ks` 互斥，且必须提供 `--iso-base`：
+
+1. `tools/gen_accept_ks.py` 把 `ci/ks/acceptance.part` 插入产品配方最后
+   一个顶层 stop 命令之前，结果写 `OUT/acceptance/airymaxos-acceptance.ks`；
+   源码区配方不被修改，重复叠加会被拒绝；
+2. `--add` 注入 `run-smoke.sh` 与 `fixture/`，`%post --nochroot` 从安装
+   介质复制到 `/usr/lib/airymaxos/ci/`；
+3. autologin 进入 UKUI 后由 XDG autostart 运行
+   `airymax-smoke-run.sh`，TAP 原子写入 `/var/log/airymax/smoke.tap`；
+4. `airymax-smoke-report.service` 轮询 TAP，经串口输出
+   `AIRYMAX-SMOKE-PASS` 或 `AIRYMAX-SMOKE-FAIL`。
+
+判定要求计划为 `1..5`、五条 `ok`、无 `not ok`/`Bail out!`、T5 不以
+`# SKIP` 掩盖、`# summary` 的 `fail=0`。会话内 runner 上限 180s，
+report 轮询上限 240s；`AIRYMAX-SMOKE-FAIL` 已进入 `install-test.sh` 的
+`BOOT_FAIL`，失败时无需等满超时。夹具只存在于验收 ISO，产品配方与产品
+ISO 不受影响；验收配方另在 `OUT/acceptance/` 留存，manifest 记
+`acceptance=1`。
