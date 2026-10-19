@@ -202,6 +202,31 @@ class InstallTestTest(unittest.TestCase):
         self.assertIn("not ok 2", res.stdout)
         self.assertIn("boot failure pattern", res.stderr)
 
+    def test_smoke_boot_marker(self):
+        self.tools()
+        res = self.install("--runs", "1",
+                           "--boot-marker", "AIRYMAX-SMOKE-PASS",
+                           FAKE_QEMU_BOOT_MODE="smoke-pass")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("ok 2", res.stdout)
+
+    def test_smoke_marker_missing(self):
+        self.tools()
+        res = self.install("--runs", "1",
+                           "--boot-marker", "AIRYMAX-SMOKE-PASS",
+                           FAKE_QEMU_BOOT_MODE="login-only")
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("not ok 2", res.stdout)
+
+    def test_smoke_fail_pattern(self):
+        self.tools()
+        res = self.install("--runs", "1",
+                           "--boot-marker", "AIRYMAX-SMOKE-PASS",
+                           FAKE_QEMU_BOOT_MODE="smoke-fail")
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("not ok 2", res.stdout)
+        self.assertIn("boot failure pattern", res.stderr)
+
     def test_boot_timeout(self):
         self.tools()
         res = self.install("--runs", "1", "--boot-timeout", "2",

@@ -192,6 +192,7 @@ class ImageCiTest(unittest.TestCase):
         self.assertIn("stage install=pass", manifest)
         self.assertIn("firmware=bios", manifest)
         self.assertIn("runs=1", manifest)
+        self.assertIn("acceptance=0", manifest)
         self.assertIn("result=pass", manifest)
 
     def test_checksum_missing(self):
@@ -280,6 +281,47 @@ class ImageCiTest(unittest.TestCase):
                       "--arch", "x86_64", "--rpms", str(rpms), "--runs", "1",
                       "--skip-rpms", "--skip-kernel",
                       FAKE_QEMU_BOOT_MODE="login-only")
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("not ok 5", res.stdout)
+        self.assertIn("stage install=fail", self.manifest())
+
+    def test_acceptance_needs_desktop(self):
+        self.assertEqual(self.pre("--acceptance").returncode, 5)
+
+    def test_acceptance_ks_conflict(self):
+        res = self.ci("--iso-base", str(self.base), "--profile", "desktop",
+                      "--ks", str(BASE_ISO), "--acceptance",
+                      "--skip-rpms", "--skip-kernel", "--skip-install")
+        self.assertEqual(res.returncode, 5)
+
+    def test_acceptance_prebuilt_iso(self):
+        res = self.pre("--acceptance", "--profile", "desktop")
+        self.assertEqual(res.returncode, 5)
+
+    def test_acceptance_chain(self):
+        self.tools(desk=True)
+        rpms = self.desk_rpms()
+        res = self.ci("--iso-base", str(self.base), "--profile", "desktop",
+                      "--arch", "x86_64", "--rpms", str(rpms), "--runs", "1",
+                      "--acceptance", "--skip-rpms", "--skip-kernel",
+                      FAKE_QEMU_BOOT_MODE="smoke-pass")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("acceptance=1", self.manifest())
+        ks = self.out / "acceptance" / "airymaxos-acceptance.ks"
+        self.assertIn("# AIRYMAX-ACCEPTANCE-FIXTURE",
+                      ks.read_text(encoding="utf-8"))
+        iso = self.out / "desktop" / "iso" / "airymaxos-0.0.3-x86_64.iso"
+        body = iso.read_text(encoding="utf-8")
+        self.assertIn("=== /run-smoke.sh", body)
+        self.assertIn("=== /fixture/airymax-smoke-run.sh", body)
+
+    def test_acceptance_smoke_fail(self):
+        self.tools(desk=True)
+        rpms = self.desk_rpms()
+        res = self.ci("--iso-base", str(self.base), "--profile", "desktop",
+                      "--arch", "x86_64", "--rpms", str(rpms), "--runs", "1",
+                      "--acceptance", "--skip-rpms", "--skip-kernel",
+                      FAKE_QEMU_BOOT_MODE="smoke-fail")
         self.assertEqual(res.returncode, 1)
         self.assertIn("not ok 5", res.stdout)
         self.assertIn("stage install=fail", self.manifest())

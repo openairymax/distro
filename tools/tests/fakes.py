@@ -169,6 +169,10 @@ ok) printf 'AirymaxOS login:\\nAIRYMAX-DESKTOP-READY unit=lightdm ' > "$log"
 login-only) printf 'AirymaxOS login:\\n' > "$log" ;;
 desktop-fail) printf 'AirymaxOS login:\\nAIRYMAX-DESKTOP-FAIL reason=session ' > "$log"
     printf 'path=/usr/share/xsessions/ukui.desktop\\n' >> "$log" ;;
+smoke-pass) printf 'AirymaxOS login:\\nAIRYMAX-SMOKE-PASS ' > "$log"
+    printf 'tap=/var/log/airymax/smoke.tap\\n' >> "$log" ;;
+smoke-fail) printf 'AirymaxOS login:\\nAIRYMAX-SMOKE-FAIL reason=tap ' > "$log"
+    printf 'tap=/var/log/airymax/smoke.tap\\n' >> "$log" ;;
 panic) printf 'Kernel panic - not syncing\\n' > "$log" ;;
 failed) printf '[FAILED] Failed to start airy.service\\n' > "$log" ;;
 nomarker) printf 'booting\\n' > "$log" ;;

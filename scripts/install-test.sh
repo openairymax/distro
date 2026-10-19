@@ -5,8 +5,9 @@
 #
 # 每条固件腿、每一轮验证两件事：
 #   1. 安装：空 qcow2 从 ISO 引导，kickstart 执行完成并触发重启；
-#   2. 启动：安装后的磁盘冷启动到登录提示，无内核 panic / 单元失败，
-#      且宿主机观测到的启动墙钟不超过 --max-boot 秒。
+#   2. 启动：安装后的磁盘冷启动到登录提示（或验收标记
+#      AIRYMAX-SMOKE-PASS），无内核 panic / 单元失败，且宿主机观测到的
+#      启动墙钟不超过 --max-boot 秒。
 #
 # ISO 契约（190-distribution/03-installer-design.md §7.1）：
 #   镜像由 build-iso.sh 经 mkksiso 注入：kickstart 位于 /ks.cfg，引导配置
@@ -21,7 +22,7 @@ set -uo pipefail
 readonly SKIP=77
 readonly EINVAL=5
 readonly DISTRO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-readonly BOOT_FAIL='Kernel panic|Failed to start|Welcome to emergency mode|dracut-initqueue.*timeout|AIRYMAX-DESKTOP-FAIL'
+readonly BOOT_FAIL='Kernel panic|Failed to start|Welcome to emergency mode|dracut-initqueue.*timeout|AIRYMAX-DESKTOP-FAIL|AIRYMAX-SMOKE-FAIL'
 
 . "${DISTRO_ROOT}/scripts/lib/outdir.sh"
 

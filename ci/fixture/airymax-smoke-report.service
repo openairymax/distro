@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
+# ===========================================================================
+# airymax-smoke-report — 验收 ISO 的串口结果上报
+#
+# 仅存在于 B 轮验收 ISO；产品 ISO 不安装本单元。失败退出码由
+# install-test.sh 的 BOOT_FAIL 规则捕获（AIRYMAX-SMOKE-FAIL）。
+# ===========================================================================
+[Unit]
+Description=AirymaxOS acceptance smoke report
+Documentation=https://atomgit.com/openairymax/agent-linux
+ConditionPathExists=/usr/lib/airymaxos/ci/airymax-smoke-report.sh
+After=lightdm.service
+Wants=lightdm.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/airymaxos/ci/airymax-smoke-report.sh
+StandardOutput=journal+console
+StandardError=journal+console
+TimeoutStartSec=300
+
+[Install]
+WantedBy=graphical.target

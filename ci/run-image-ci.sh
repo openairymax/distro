@@ -9,6 +9,8 @@
 #
 # 边界：run-smoke.sh 必须在已登录的桌面会话内运行，属于桌面验收
 # （TV-02），不由本脚本从宿主机驱动；本脚本只负责安装/启动链。
+# --acceptance 把冒烟夹具注入 B 轮验收 ISO，由镜像内会话自动执行，
+# 宿主机仍只观测串口标记 AIRYMAX-SMOKE-PASS/FAIL。
 #
 # 退出码：0 全部通过；1 存在失败；5 参数不满足；6 产物目录不可用；
 #         77 缺少 QEMU 工具链（装机段跳过）。
@@ -48,6 +50,7 @@ SKIP_RPMS=0
 SKIP_KERNEL=0
 SKIP_ISO=0
 SKIP_INSTALL=0
+ACCEPTANCE=0
 
 PASS=0
 FAIL=0
@@ -74,6 +77,9 @@ usage()
   --rpms DIR         传给 build-desktop 的 RPM 目录，可重复；
                      跳过构建段时必须显式给出（两剖面共用）
   --add PATH         传给 build-iso 的附加文件或目录，可重复
+  --acceptance       生成 desktop 验收 ISO：自动登录、会话内冒烟并输出
+                     AIRYMAX-SMOKE-PASS；仅 desktop，与 --ks 互斥，
+                     需 --iso-base 重新组装
   --kernel DIR       内核源码树，缺省 build-kernel 的默认值
   --jobs N           并行度，缺省由子驱动决定
   --install-timeout S  装机超时秒数，缺省 3600
@@ -91,6 +97,7 @@ usage()
   DIR/iso/                    minimal 镜像产物与清单
   DIR/payload/                minimal 离线仓库与载荷清单
   DIR/desktop/                desktop 离线载荷与镜像产物
+  DIR/acceptance/             验收 kickstart（仅 --acceptance）
   DIR/logs/                   各段日志与 install-test TAP
   DIR/image-ci-manifest.txt   五段结果与 ISO 摘要
 EOF
@@ -130,6 +137,7 @@ parse_args()
         --src-dir) optarg "$1" "$#"; SRC_DIRS+=("$2"); shift 2 ;;
         --rpms) optarg "$1" "$#"; RPMS_DIRS+=("$2"); shift 2 ;;
         --add) optarg "$1" "$#"; ADDS+=("$2"); shift 2 ;;
+        --acceptance) ACCEPTANCE=1; shift ;;
         --kernel) optarg "$1" "$#"; KERNEL="$2"; shift 2 ;;
         --jobs) optarg "$1" "$#"; JOBS="$2"; shift 2 ;;
         --install-timeout)
@@ -163,6 +171,12 @@ check_args()
     minimal|desktop) ;;
     *) die "不支持的镜像剖面: ${PROFILE}" ;;
     esac
+    if [ "${ACCEPTANCE}" -eq 1 ]; then
+        [ "${PROFILE}" = desktop ] || die "--acceptance 仅支持 desktop 剖面"
+        [ -z "${KS}" ] || die "--acceptance 与 --ks 互斥"
+        [ -z "${ISO}" ] ||
+            die "--acceptance 需要 --iso-base 重新组装镜像"
+    fi
     [ "${RUNS}" -ge 1 ] || die "--runs 必须大于 0"
     if [ -n "${ISO}" ]; then
         [ -f "${ISO}" ] || die "ISO 不存在: ${ISO}"
@@ -211,6 +225,21 @@ default_srcs()
             SRC_DIRS+=("${dir}")
         fi
     done
+}
+
+# 验收夹具不得进入产品配方：生成组合 kickstart 到构建目录，并随 ISO
+# 注入会话内冒烟脚本。产品 ISO 与验收 ISO 的差异仅限本函数。
+accept_ks()
+{
+    local out="${OUT}/acceptance/airymaxos-acceptance.ks"
+    mkdir -p "${OUT}/acceptance" || die "无法创建验收产物目录"
+    python3 "${DISTRO_ROOT}/tools/gen_accept_ks.py" \
+        --base "${KS}" \
+        --overlay "${DISTRO_ROOT}/ci/ks/acceptance.part" \
+        --out "${out}" || die "无法生成验收 kickstart"
+    KS="${out}"
+    ADDS+=("${DISTRO_ROOT}/ci/run-smoke.sh")
+    ADDS+=("${DISTRO_ROOT}/ci/fixture")
 }
 
 tap_ok()
@@ -389,7 +418,9 @@ inst_args()
                --firmware "${FIRMWARE}" --runs "${RUNS}"
                --install-timeout "${INSTALL_TIMEOUT}"
                --boot-timeout "${BOOT_TIMEOUT}" --max-boot "${MAX_BOOT}")
-    if [ "${PROFILE}" = desktop ]; then
+    if [ "${ACCEPTANCE}" -eq 1 ]; then
+        INST_ARGS+=(--boot-marker AIRYMAX-SMOKE-PASS)
+    elif [ "${PROFILE}" = desktop ]; then
         INST_ARGS+=(--boot-marker AIRYMAX-DESKTOP-READY)
     fi
 }
@@ -432,6 +463,7 @@ manifest()
         printf '# AirymaxOS image CI manifest\n'
         printf 'arch=%s\nprofile=%s\nfirmware=%s\nruns=%s\nmax_boot=%s\n' \
             "${ARCH}" "${PROFILE}" "${FIRMWARE}" "${RUNS}" "${MAX_BOOT}"
+        printf 'acceptance=%s\n' "${ACCEPTANCE}"
         printf 'source_date_epoch=%s\n' "${sde:-unset}"
         for row in "${ROWS[@]}"; do
             printf 'stage %s\n' "${row}"
@@ -458,6 +490,9 @@ main()
     OUT="$(out_guard run-image-ci "${OUT}")" || exit $?
     LOGS="${OUT}/logs"
     mkdir -p "${LOGS}" || die "无法创建日志目录: ${LOGS}"
+    if [ "${ACCEPTANCE}" -eq 1 ]; then
+        accept_ks
+    fi
     sde="$(sde_get)"
     if [ -n "${sde}" ]; then
         SOURCE_DATE_EPOCH="${sde}"
