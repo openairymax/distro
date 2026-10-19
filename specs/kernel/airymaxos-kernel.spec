@@ -77,6 +77,7 @@ BuildRequires:  libtraceevent-devel
 BuildRequires:  make
 BuildRequires:  openssl-devel
 BuildRequires:  python3-devel
+BuildRequires:  rsync
 BuildRequires:  zlib-devel
 Requires:       airymaxos-kernel-core = %{version}-%{release}
 Requires:       airymaxos-kernel-modules = %{version}-%{release}
