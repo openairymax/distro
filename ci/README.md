@@ -51,7 +51,10 @@ lockfile 冻结点（滚动触发） × 内核 RPM（6.6-airymax.n）
   `fcitx-remote`/`pactl`/`gsettings`/`sha256sum` 属被测特性的一部分，
   缺失即失败而非跳过（T5 不得以 SKIP 掩盖壁纸缺失）。
   镜像 CI 只覆盖安装与启动链，不替代桌面冒烟。
-  测试机接入方式 TODO：首台 DevStation 测试机就位后回填；
+  测试机接入：0.0.3 由 GitHub Actions runner 承载安装与冷启动验收
+  （`image-ci.yml` 的 `accept` job），不依赖独立测试机；`/dev/kvm` 可用时
+  放开权限使用 KVM，缺失时回退 TCG。物理机双固件复验列为 P2，首台
+  DevStation 就位后在 tests-linux 立项并回填接入方式；
 - `../scripts/install-test.sh --iso ISO --out DIR` 承担装机验收：QEMU
   跨架构、双固件、可配置轮次，每轮安装后冷启动并校验串口日志与启动墙钟；
   `--boot-marker` 可替换冷启动的判定标记（desktop 剖面用它断言桌面登录链
