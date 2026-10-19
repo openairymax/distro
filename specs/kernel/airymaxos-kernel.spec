@@ -75,6 +75,7 @@ BuildRequires:  flex
 BuildRequires:  gcc
 BuildRequires:  make
 BuildRequires:  openssl-devel
+BuildRequires:  python3-devel
 BuildRequires:  zlib-devel
 Requires:       airymaxos-kernel-core = %{version}-%{release}
 Requires:       airymaxos-kernel-modules = %{version}-%{release}
