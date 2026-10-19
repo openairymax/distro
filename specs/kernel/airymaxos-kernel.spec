@@ -18,7 +18,7 @@
 #   - 文档使用 6.6.0，实际内核 Makefile 为 6.6.157，以工作树为准；
 #   - 文档 §1.4 的 debuginfo 包与 §3.1/§3.5 的包矩阵冲突，本配方按后者
 #     产出 core/modules/headers/devel/tools，不拆 debuginfo；
-#   - initramfs 是安装期产物，任何子包都不拥有它，只由 %post 生成并校验。
+#   - initramfs 是安装期产物，任何子包都不拥有它，只由 %%post 生成并校验。
 #
 # 内核身份声明（M-15）：
 #   AirymaxOS 是单内核发行版，二进制包名带 airymaxos- 前缀；而 Anaconda 在

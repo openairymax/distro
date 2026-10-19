@@ -173,6 +173,12 @@ class SpecLintTest(unittest.TestCase):
         flat = [item.code for item in spec_lint.lint_spec(other, self.root)]
         self.assertIn("E014", flat)
 
+    def test_comment_macro(self):
+        self.assertIn("E015", self.codes(VALID + "\n# 由 %post 完成\n"))
+
+    def test_comment_escaped(self):
+        self.assertEqual(self.codes(VALID + "\n# 由 %%post 完成\n"), [])
+
     def test_real_specs(self):
         root = Path(__file__).resolve().parents[2]
         specs = sorted((root / "specs").rglob("*.spec"))
