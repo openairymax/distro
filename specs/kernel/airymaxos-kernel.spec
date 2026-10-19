@@ -140,7 +140,7 @@ export KBUILD_BUILD_USER=airymax
 export KBUILD_BUILD_HOST=build
 export KBUILD_BUILD_TIMESTAMP
 KBUILD_BUILD_TIMESTAMP="$(date -u -d "@${SOURCE_DATE_EPOCH}" \
-    '+%Y-%m-%d %H:%M:%S')"
+    '+%%Y-%%m-%%d %%H:%%M:%%S')"
 export KCFLAGS="-ffile-prefix-map=%{ksrc}=."
 
 make ARCH=%{karch} defconfig
