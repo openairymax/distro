@@ -33,6 +33,65 @@ CLOSURE = (
     "airymaxos-kernel-modules-6.6.0-1.x86_64.rpm",
 )
 KERNEL = CLOSURE[2:]
+LIB_SH = ("arch.sh", "iso.sh", "log.sh", "outdir.sh")
+
+# build-rpms/build-kernel 把成品放在 <root>/RPMS，同时把 rpmbuild 的
+# 中间产物留在 <root>/work/rpmbuild/RPMS。两者同名，编排层若把 <root>
+# 整体交给 build-desktop，汇集时必然冲突而拒绝出镜像。
+FAKE_BUILD = """\
+#!/bin/sh
+set -eu
+out=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+    --out) shift; out=$1 ;;
+    esac
+    shift
+done
+[ -n "$out" ] || exit 5
+case "$(basename "$out")" in
+rpms) pkg=airymaxos-release-0.0.3-1.noarch.rpm ;;
+*) pkg=airymaxos-kernel-6.6.0-1.x86_64.rpm ;;
+esac
+for d in "$out/RPMS/x86_64" "$out/work/rpmbuild/RPMS/x86_64"; do
+    mkdir -p "$d"
+    printf 'rpm\\n' > "$d/$pkg"
+done
+"""
+
+FAKE_DESKTOP = """\
+#!/bin/sh
+set -eu
+out=""
+: > "$ARGS_LOG"
+while [ $# -gt 0 ]; do
+    case "$1" in
+    --out) shift; out=$1 ;;
+    --rpms) shift; printf '%s\\n' "$1" >> "$ARGS_LOG" ;;
+    esac
+    shift
+done
+[ -n "$out" ] || exit 5
+names="$ARGS_LOG.names"
+: > "$names"
+list="$ARGS_LOG.list"
+: > "$list"
+while IFS= read -r d; do
+    find "$d" -type f -name '*.rpm' >> "$list"
+done < "$ARGS_LOG"
+while IFS= read -r f; do
+    b=$(basename "$f")
+    if grep -qxF "$b" "$names"; then
+        printf 'duplicate %s\\n' "$b" >&2
+        exit 2
+    fi
+    printf '%s\\n' "$b" >> "$names"
+done < "$list"
+[ -s "$names" ] || exit 5
+mkdir -p "$out/iso"
+printf 'fake iso\\n' > "$out/iso/airymaxos-0.0.3-x86_64.iso"
+printf 'name=airymaxos-0.0.3-x86_64.iso\\n' > "$out/iso/iso-manifest.txt"
+"""
 
 
 class ImageCiTest(unittest.TestCase):
@@ -337,6 +396,56 @@ class ImageCiTest(unittest.TestCase):
         res = self.pre("--skip-install")
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertIn("stage checksum=skip", self.manifest())
+
+
+class MediaArgsTest(unittest.TestCase):
+    """构建段的产物根同时含 RPMS/ 与 work/，只有前者可进离线仓库。"""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.distro = self.root / "src" / "agent-linux" / "distro"
+        (self.distro / "ci").mkdir(parents=True)
+        libs = self.distro / "scripts" / "lib"
+        libs.mkdir(parents=True)
+        shutil.copy2(SCRIPT, self.distro / "ci" / "run-image-ci.sh")
+        for name in LIB_SH:
+            shutil.copy2(DISTRO / "scripts" / "lib" / name, libs / name)
+        self.write("build-rpms.sh", FAKE_BUILD)
+        self.write("build-kernel.sh", FAKE_BUILD)
+        self.write("build-desktop.sh", FAKE_DESKTOP)
+        self.out = self.root / "out"
+        self.base = self.root / "base.iso"
+        self.base.write_text("fake base\n", encoding="utf-8")
+        self.bin = self.root / "bin"
+        self.bin.mkdir()
+        fakes.link_tools(self.bin)
+        self.args = self.root / "desktop.args"
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def write(self, name, body):
+        path = self.distro / "scripts" / name
+        path.write_text(body, encoding="utf-8")
+        path.chmod(0o755)
+
+    def test_build_dirs_exclude_work_tree(self):
+        script = self.distro / "ci" / "run-image-ci.sh"
+        env = {"PATH": str(self.bin), "HOME": str(self.root),
+               "ARGS_LOG": str(self.args)}
+        res = subprocess.run(
+            [BASH, str(script), "--out", str(self.out), "--profile", "desktop",
+             "--iso-base", str(self.base), "--skip-install"],
+            env=env, text=True, capture_output=True)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertEqual(self.args.read_text(encoding="utf-8").split(),
+                         [f"{self.out}/rpms/RPMS",
+                          f"{self.out}/kernel/RPMS"])
+        manifest = (self.out / "image-ci-manifest.txt").read_text(
+            encoding="utf-8")
+        for stage in ("rpm=pass", "kernel=pass", "iso=pass"):
+            self.assertIn(f"stage {stage}", manifest)
 
 
 if __name__ == "__main__":
