@@ -269,16 +269,30 @@ install_run()
         { printf 'marker missing in run-%s-%s/install.log\n' "${fw}" "${n}" >&2; return 1; }
 }
 
+probe_log()
+{
+    grep -q "${BOOT_MARKER}" "$1" 2>/dev/null && return 0
+    grep -qE "${BOOT_FAIL}" "$1" 2>/dev/null && return 2
+    return 1
+}
+
 wait_marker()
 {
-    local log="$1" pid="$2" deadline="$3"
-    while [ "$(date +%s)" -lt "${deadline}" ]; do
-        grep -q "${BOOT_MARKER}" "${log}" 2>/dev/null && return 0
-        grep -qE "${BOOT_FAIL}" "${log}" 2>/dev/null && return 2
-        kill -0 "${pid}" 2>/dev/null || return 3
+    local log="$1" pid="$2" deadline="$3" rc
+    while :; do
+        probe_log "${log}"
+        rc=$?
+        [ "${rc}" -eq 0 ] && return 0
+        [ "${rc}" -eq 2 ] && return 2
+        if ! kill -0 "${pid}" 2>/dev/null; then
+            # 进程可能刚写完标记就被回收，退出后必须再判一次，
+            # 否则短生命周期生产者会被误报为启动未完成。
+            probe_log "${log}"
+            return $?
+        fi
+        [ "$(date +%s)" -lt "${deadline}" ] || return 1
         sleep 1
     done
-    return 1
 }
 
 stop_qemu()
