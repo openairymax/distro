@@ -186,6 +186,10 @@ prep()
     umask 022
     export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-1468923400}"
     export TZ=UTC LANG=C.UTF-8 LC_ALL=C.UTF-8
+    # mkksiso 以 basename 把 kickstart 映射进 ISO 根，产物契约要求固定为
+    # /ks.cfg，故先按契约名暂存，再由 inst.ks=hd:LABEL=…:/ks.cfg 引用。
+    cp -f "$KS" "${WORK}/ks.cfg" ||
+        die "${E_IO}" "无法暂存 kickstart: ${WORK}/ks.cfg"
 }
 
 lint_ks()
@@ -207,7 +211,7 @@ build_iso()
     for add in "${ADDS[@]}"; do
         args+=(-a "$add")
     done
-    if ! mkksiso "${args[@]}" "$KS" "$ISO" "$PART" \
+    if ! mkksiso "${args[@]}" "${WORK}/ks.cfg" "$ISO" "$PART" \
         >"${WORK}/logs/mkksiso.log" 2>&1; then
         die "${E_IO}" "mkksiso 失败（日志 ${WORK}/logs/mkksiso.log）"
     fi
