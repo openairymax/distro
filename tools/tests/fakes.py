@@ -270,6 +270,24 @@ PACTL = """\
 printf 'Server Name: pulseaudio\\n'
 """
 
+GSETTINGS = """\
+#!/bin/sh
+[ "${FAKE_GSETTINGS:-ok}" = ok ] || {
+    printf "No such schema 'org.mate.background'\\n" >&2
+    exit 1
+}
+printf "'%s'\\n" \\
+    "${FAKE_PAPER:-/usr/share/backgrounds/airymaxos/airymaxos-default.jpg}"
+"""
+
+SHA256SUM = """\
+#!/bin/sh
+[ "${FAKE_SHA256SUM:-ok}" = ok ] || exit 1
+printf '%s  %s\\n' \\
+    "${FAKE_PAPER_SHA:-fee7f439834ac7dacfc75deaf80a1db1c4bc7459583248eecc87125d52a5ef18}" \\
+    "$1"
+"""
+
 SYSTEMCTL = """\
 #!/bin/sh
 cmd=""; unit=""; prop=""; quiet=0
@@ -314,6 +332,8 @@ def link_tools(bin_dir):
 
 def write(bin_dir, name, body):
     path = Path(bin_dir) / name
+    if path.is_symlink() or path.exists():
+        path.unlink()
     path.write_text(body, encoding="utf-8")
     path.chmod(0o755)
 
@@ -338,7 +358,8 @@ def qemu_tools(bin_dir, arch="x86_64", qemu=True):
 def smoke_tools(bin_dir, omit=()):
     table = (("loginctl", LOGINCTL), ("pgrep", PGREP),
              ("xdpyinfo", XDPYINFO), ("fcitx-remote", FCITX_REMOTE),
-             ("pactl", PACTL), ("systemctl", SYSTEMCTL))
+             ("pactl", PACTL), ("systemctl", SYSTEMCTL),
+             ("gsettings", GSETTINGS), ("sha256sum", SHA256SUM))
     for name, body in table:
         if name not in omit:
             write(bin_dir, name, body)

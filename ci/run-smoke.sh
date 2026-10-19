@@ -12,6 +12,7 @@
 #   T2  fcitx 4 输入法：守护进程、fcitx-remote 可达、会话输入法变量
 #   T3  PulseAudio 音频栈：pactl 与守护进程握手
 #   T4  桌面隔离 slice：user@UID.service 归属与 slice 资源参数
+#   T5  内置壁纸：背景键指向内置路径，图像 sha256 与发行资产一致
 #
 # 判定语义:
 #   0  — 全部通过（允许跳过）
@@ -23,6 +24,8 @@ set -uo pipefail
 
 TARGET="${1:?usage: run-smoke.sh <target-id>}"
 SKIP=77
+WALLPAPER=/usr/share/backgrounds/airymaxos/airymaxos-default.jpg
+PAPER_SHA=fee7f439834ac7dacfc75deaf80a1db1c4bc7459583248eecc87125d52a5ef18
 
 PASS=0
 FAIL=0
@@ -155,8 +158,27 @@ t4_slice() {
     }
 }
 
+# T5: 内置壁纸（背景键与图像内容）
+t5_wallpaper() {
+    command -v gsettings >/dev/null 2>&1 || {
+        echo "gsettings not installed"
+        return 1
+    }
+    local path sum
+    path="$(gsettings get org.mate.background picture-filename 2>&1)" || {
+        echo "org.mate.background picture-filename: ${path:-unavailable}"
+        return 1
+    }
+    expect "${path//\'/}" "${WALLPAPER}" "picture-filename" || return 1
+    sum="$(sha256sum "${WALLPAPER}" 2>&1)" || {
+        echo "wallpaper unreadable: ${WALLPAPER}"
+        return 1
+    }
+    expect "${sum%% *}" "${PAPER_SHA}" "wallpaper sha256" || return 1
+}
+
 printf 'TAP version 14\n'
-printf '1..4\n'
+printf '1..5\n'
 printf '# AirymaxOS distro smoke: target=%s date=%s\n' \
     "${TARGET}" "$(date -u '+%FT%TZ')"
 
@@ -164,6 +186,7 @@ probe 1 "T1 ukui x11 session" t1_x11
 probe 2 "T2 fcitx input method" t2_ime
 probe 3 "T3 pulseaudio stack" t3_audio
 probe 4 "T4 desktop slice" t4_slice
+probe 5 "T5 built-in wallpaper" t5_wallpaper
 
 printf '# summary: pass=%d fail=%d skip=%d\n' "${PASS}" "${FAIL}" "${SKIPPED}"
 [ "${FAIL}" -eq 0 ]

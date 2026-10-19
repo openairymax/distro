@@ -4,10 +4,10 @@
 # test_run_smoke.py — ci/run-smoke.sh 契约回归测试
 #
 # 冒烟脚本必须在已登录的 UKUI 桌面会话内运行，CI 宿主机不具备该环境。
-# 脚本对外契约是：TAP 14 计划、四项探测的判定、77 跳过语义，以及
+# 脚本对外契约是：TAP 14 计划、五项探测的判定、77 跳过语义，以及
 # “跳过不掩盖失败”的退出码规则。这里用 PATH 沙箱提供伪 loginctl /
-# pgrep / xdpyinfo / fcitx-remote / pactl / systemctl，每个用例只破坏
-# 一个前提，从而在无桌面环境下判定真实控制流。
+# pgrep / xdpyinfo / fcitx-remote / pactl / systemctl / gsettings /
+# sha256sum，每个用例只破坏一个前提，从而在无桌面环境下判定真实控制流。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
 # Version: 0.0.3
@@ -90,8 +90,8 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke()
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
         self.assertEqual(self.summary(res),
-                         {"pass": 4, "fail": 0, "skip": 0})
-        self.assertEqual(len(self.taps(res)), 4)
+                         {"pass": 5, "fail": 0, "skip": 0})
+        self.assertEqual(len(self.taps(res)), 5)
         for line in self.taps(res):
             self.assertTrue(line.startswith("ok"), line)
 
@@ -99,7 +99,7 @@ class RunSmokeTest(unittest.TestCase):
         self.tools()
         res = self.run_smoke()
         self.assertIn("TAP version 14", res.stdout)
-        self.assertIn("1..4", res.stdout.splitlines())
+        self.assertIn("1..5", res.stdout.splitlines())
         self.assertIn(
             "# AirymaxOS distro smoke: target=airymaxos-0.0.3", res.stdout)
 
@@ -219,12 +219,43 @@ class RunSmokeTest(unittest.TestCase):
         self.assert_fail(res, 4)
         self.assertIn("slice TasksMax: infinity", res.stdout)
 
+    def test_wallpaper_tool_absent(self):
+        self.tools(omit=("gsettings",))
+        res = self.run_smoke()
+        self.assert_fail(res, 5)
+        self.assertIn("gsettings not installed", res.stdout)
+        self.assertEqual(self.summary(res)["skip"], 0)
+
+    def test_wallpaper_schema_missing(self):
+        self.tools()
+        res = self.run_smoke(FAKE_GSETTINGS="fail")
+        self.assert_fail(res, 5)
+        self.assertIn("No such schema 'org.mate.background'", res.stdout)
+
+    def test_wallpaper_path_wrong(self):
+        self.tools()
+        res = self.run_smoke(FAKE_PAPER="/usr/share/backgrounds/gnome/adwaita.jpg")
+        self.assert_fail(res, 5)
+        self.assertIn("picture-filename", res.stdout)
+
+    def test_wallpaper_unreadable(self):
+        self.tools()
+        res = self.run_smoke(FAKE_SHA256SUM="fail")
+        self.assert_fail(res, 5)
+        self.assertIn("wallpaper unreadable", res.stdout)
+
+    def test_wallpaper_checksum(self):
+        self.tools()
+        res = self.run_smoke(FAKE_PAPER_SHA="0" * 64)
+        self.assert_fail(res, 5)
+        self.assertIn("wallpaper sha256", res.stdout)
+
     def test_loginctl_absent_skips(self):
         self.tools(omit=("loginctl",))
         res = self.run_smoke()
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
         self.assertEqual(self.summary(res),
-                         {"pass": 3, "fail": 0, "skip": 1})
+                         {"pass": 4, "fail": 0, "skip": 1})
         self.assertIn("# SKIP loginctl not installed", self.tap(res, 1))
 
     def test_skip_does_not_mask_failure(self):
@@ -232,7 +263,7 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke(FAKE_PACTL="fail")
         self.assertEqual(res.returncode, 1)
         self.assertEqual(self.summary(res),
-                         {"pass": 2, "fail": 1, "skip": 1})
+                         {"pass": 3, "fail": 1, "skip": 1})
 
 
 if __name__ == "__main__":
