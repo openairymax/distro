@@ -303,10 +303,10 @@ media_args()
         MEDIA_ARGS+=(--rpms "$a")
     done
     if [ "${SKIP_RPMS}" -eq 0 ]; then
-        MEDIA_ARGS+=(--rpms "${OUT}/rpms")
+        MEDIA_ARGS+=(--rpms "${OUT}/rpms/RPMS")
     fi
     if [ "${SKIP_KERNEL}" -eq 0 ]; then
-        MEDIA_ARGS+=(--rpms "${OUT}/kernel")
+        MEDIA_ARGS+=(--rpms "${OUT}/kernel/RPMS")
     fi
     for a in "${ADDS[@]}"; do
         MEDIA_ARGS+=(--add "$a")
