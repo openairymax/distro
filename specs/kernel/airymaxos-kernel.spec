@@ -73,6 +73,7 @@ BuildRequires:  bison
 BuildRequires:  elfutils-libelf-devel
 BuildRequires:  flex
 BuildRequires:  gcc
+BuildRequires:  libtraceevent-devel
 BuildRequires:  make
 BuildRequires:  openssl-devel
 BuildRequires:  python3-devel
