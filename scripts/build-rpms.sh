@@ -25,6 +25,8 @@ readonly DISTRO_ROOT
 . "${DISTRO_ROOT}/scripts/lib/outdir.sh"
 # shellcheck source=lib/arch.sh
 . "${DISTRO_ROOT}/scripts/lib/arch.sh"
+# shellcheck source=lib/log.sh
+. "${DISTRO_ROOT}/scripts/lib/log.sh"
 
 OUT=""
 ARCH=""
@@ -227,6 +229,7 @@ stage_spec()
     stem="$(basename "${spec%.spec}")"
     log="$WORK/logs/${stem}.rpmspec.log"
     if ! rpmspec -P "$spec" > "$WORK/expanded/${stem}.spec" 2> "$log"; then
+        log_tail "$log"
         die "${E_INVAL}" "rpmspec 展开失败: $spec（日志 ${log}）"
     fi
     while IFS= read -r name; do
@@ -249,6 +252,7 @@ lint_spec()
     stem="$(basename "${spec%.spec}")"
     log="$WORK/logs/${stem}.rpmlint.log"
     if ! rpmlint -i "$spec" > "$log" 2>&1; then
+        log_tail "$log"
         die "${E_IO}" "rpmlint 未通过: $spec（日志 ${log}）"
     fi
 }
@@ -271,15 +275,17 @@ build_one()
     if [ -n "$DIST" ]; then
         defs+=(--define "dist ${DIST}")
     fi
-    rpmbuild -bb "$spec" \
+    if ! rpmbuild -bb "$spec" \
         --define "_topdir ${TOPDIR}" \
         --define "_sourcedir ${TOPDIR}/SOURCES" \
         --define "_builddir ${TOPDIR}/BUILD" \
         --define "_buildrootdir ${TOPDIR}/BUILDROOT" \
         --define "_rpmdir ${TOPDIR}/RPMS" \
         --target "${ARCH}" \
-        "${defs[@]}" > "$log" 2>&1 ||
+        "${defs[@]}" > "$log" 2>&1; then
+        log_tail "$log"
         die "${E_IO}" "构建失败: ${stem}（日志 ${log}）"
+    fi
 }
 
 collect_rpms()
