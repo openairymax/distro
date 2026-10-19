@@ -5,7 +5,11 @@
 #
 # 只依赖标准库，供 distro/ci 在无 rpmbuild 的构建机上做前置门禁。规则来源：
 # docs-linux/190-distribution/01-rpm-packaging.md 与
-# docs-linux/50-engineering-standards。规则编号 E001~E014 与测试一一对应。
+# docs-linux/50-engineering-standards。规则编号 E001~E015 与测试一一对应。
+#
+# E015 检查注释中的裸 % 宏：rpm 在剥离注释前展开宏，若宏体带续行反斜杠
+# （如 openEuler 的 %install），续行会吞掉后续 preamble，报 Name 等字段缺失。
+# 注释中的宏必须写成 %%。
 #
 # 源码包由构建驱动现场生成的配方（如内核 tarball）可在文件头注释中声明
 #   # spec-lint: generated-source <文件名>
@@ -55,6 +59,8 @@ BAD = re.compile(r"\b(TODO|FIXME|XXX)\b")
 SRC = re.compile(r"^Source\d+$")
 GEN = re.compile(r"^#\s*spec-lint:\s*generated-source\s+(\S+)$")
 ROOT = re.compile(r"^#\s*spec-lint:\s*source-root\s+(\S+)$")
+CMT = re.compile(r"^\s*#")
+CMT_MACRO = re.compile(r"(?<!%)%(?:\{|\w)")
 
 
 def strip_cmt(line: str) -> str:
@@ -235,6 +241,16 @@ def check_log(lines: list[str], secs: list[tuple[str, str, int]],
         issues.append(Issue("E011", num + 1, "missing changelog entry"))
 
 
+def check_cmt(lines: list[str], issues: list[Issue]) -> None:
+    for num, raw in enumerate(lines, 1):
+        if not CMT.match(raw):
+            continue
+        hit = CMT_MACRO.search(raw)
+        if hit:
+            issues.append(Issue("E015", num,
+                                f"escape macro in comment: {hit.group(0)}"))
+
+
 def check_scan(lines: list[str], issues: list[Issue]) -> None:
     for num, raw in enumerate(lines, 1):
         if re.match(r"^%(?:define|undefine)\b", raw):
@@ -281,6 +297,7 @@ def lint_text(text: str, path: Path, root: Path) -> list[Issue]:
     check_secs(secs, issues)
     check_files(lines, secs, issues)
     check_log(lines, secs, issues)
+    check_cmt(lines, issues)
     check_scan(lines, issues)
     check_ver(ver, root, issues)
     return sorted(issues, key=lambda item: (item.line, item.code))

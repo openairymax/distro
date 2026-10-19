@@ -6,7 +6,7 @@
 #   1. 部署 agentrt.target 及其 12 个 daemon 单元、事件模板与
 #      首启初始化/启动自检单元；
 #   2. 部署 /usr/lib/airymaxos/scripts 下的运行时脚本；
-#   3. 在 %post/%postun 内刷新 systemd 单元缓存。
+#   3. 在 %%post/%%postun 内刷新 systemd 单元缓存。
 #
 # 单元启用（systemctl enable）由安装器在 kickstart 中显式完成，
 # 本包只负责文件到位与缓存刷新（OS-OPS-010）。随包落盘的 preset 把整栈
