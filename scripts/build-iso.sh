@@ -287,7 +287,7 @@ md5_tag()
         die "${E_IO}" "implantisomd5 失败" \
             "（日志 ${WORK}/logs/implantisomd5.log）"
     fi
-    if ! checkisomd5 --md5only "$DEST" \
+    if ! checkisomd5 --md5sumonly "$DEST" \
         >"${WORK}/logs/checkisomd5.log" 2>&1; then
         die "${E_IO}" "checkisomd5 复核失败" \
             "（日志 ${WORK}/logs/checkisomd5.log）"
