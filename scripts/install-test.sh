@@ -27,6 +27,7 @@ readonly SKIP=77
 readonly EINVAL=5
 readonly DISTRO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 readonly BOOT_FAIL='Kernel panic|Failed to start|Welcome to emergency mode|dracut-initqueue.*timeout|AIRYMAX-DESKTOP-FAIL|AIRYMAX-SMOKE-FAIL'
+readonly INST_FAIL='Kernel panic|Fatal glibc error|dracut-initqueue.*timeout'
 
 . "${DISTRO_ROOT}/scripts/lib/outdir.sh"
 
@@ -207,7 +208,7 @@ need()
 
 tools_ready()
 {
-    need "${QEMU}" && need qemu-img && need timeout
+    need "${QEMU}" && need qemu-img
 }
 
 qemu_base()
@@ -261,9 +262,23 @@ fw_args()
             -drive "if=pflash,format=raw,file=${vars}")
 }
 
+wait_inst()
+{
+    local log="$1" pid="$2" deadline="$3"
+    while :; do
+        grep -qE "${INST_FAIL}" "${log}" 2>/dev/null && return 2
+        if ! kill -0 "${pid}" 2>/dev/null; then
+            wait "${pid}" 2>/dev/null
+            return $?
+        fi
+        [ "$(date +%s)" -lt "${deadline}" ] || return 1
+        sleep 1
+    done
+}
+
 install_run()
 {
-    local fw="$1" n="$2" dir="${OUT}/run-$1-$2" disk log rc
+    local fw="$1" n="$2" dir="${OUT}/run-$1-$2" disk log rc start pid
     mkdir -p "${dir}" || return 1
     disk="${dir}/disk.qcow2"
     log="${dir}/install.log"
@@ -275,8 +290,16 @@ install_run()
     dev_cdrom "${ISO}"
     QARGS+=(-boot order=d -netdev user,id=n0 -device virtio-net-pci,netdev=n0
             -serial "file:${log}")
-    timeout "${INSTALL_TIMEOUT}" "${QEMU}" "${QARGS[@]}" >/dev/null 2>&1
+    start=$(date +%s)
+    "${QEMU}" "${QARGS[@]}" >/dev/null 2>&1 &
+    pid=$!
+    wait_inst "${log}" "${pid}" "$((start + INSTALL_TIMEOUT))"
     rc=$?
+    stop_qemu "${pid}"
+    if [ "${rc}" -eq 2 ]; then
+        printf 'install failure pattern in run-%s-%s/install.log\n' "${fw}" "${n}" >&2
+        return 1
+    fi
     if [ "${rc}" -ne 0 ]; then
         printf 'install run %s-%s exited rc=%s\n' "${fw}" "${n}" "${rc}" >&2
         return 1
