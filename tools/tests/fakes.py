@@ -192,7 +192,15 @@ PY
 
 CHECKISOMD5 = """\
 #!/bin/sh
-for img; do :; done
+img=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+    --md5sumonly|-o|--verbose|-v|--gauge|-g) ;;
+    -*) printf 'bad option %s: unknown option\\n' "$1" >&2; exit 1 ;;
+    *) img=$1 ;;
+    esac
+    shift
+done
 [ -n "$img" ] || exit 2
 [ "${FAKE_CHECK_MODE:-ok}" = fail ] && exit 1
 python3 - "$img" <<'PY'
