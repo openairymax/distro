@@ -41,7 +41,7 @@ network --bootproto=dhcp --activate --hostname=airymaxos-min
 # 必须留下可远程接管的 wheel 账户，否则安装完成后无任何入口。root 的初始
 # 口令在 %post 中置为过期，首次登录强制修改。
 rootpw --iscrypted $6$airy003root0x01$WF29rbJ84L5jwK05P.Rs/EfkAjDBZmOtti6K29tIzd30tv29YlnNvYiZHK0QzPl4RBKlSiUshySWmYzgN3ybT0
-user --name=airymax --groups=wheel --iscrypted --password=$6$airy003user0x01$s1JW7QjW0kiAW7B51kVB2hNsabAadz4G/h6yBDRvpWzwsV7NO7Kh3ChDjLtapHZ6HGl5WoqNKi.IAY7IT5yRc/ --comment="AirymaxOS user"
+user --name=airymax --groups=wheel --iscrypted --password=$6$airy003user0x01$s1JW7QjW0kiAW7B51kVB2hNsabAadz4G/h6yBDRvpWzwsV7NO7Kh3ChDjLtapHZ6HGl5WoqNKi.IAY7IT5yRc/
 
 # ---- 服务与防火墙 ----
 services --enabled=sshd,chronyd

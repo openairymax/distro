@@ -5,10 +5,10 @@
 #
 # 只依赖标准库。校验对象是无人值守安装的语法与安全性约束：安装源、
 # 存储布局、账户口令（K005/K006：必须 --iscrypted $6$，禁止 --lock 与
-# 脚本段闭合与失败即停、收尾状态、单例命令、安装界面互斥、桌面仓库
-# 闭包完整性、离线仓库落点与内核包身份。包组引用（@组 / @^环境）由
-# comps_lint 交叉校验，此处不重复实现。规则编号 K001~K015 与
-# tools/tests/test_ks_lint.py 一一对应。
+# 明文）、脚本段闭合与失败即停、收尾状态、单例命令、安装界面互斥、
+# 桌面仓库闭包完整性、离线仓库落点、内核包身份与命令行参数语法。包组
+# 引用（@组 / @^环境）由 comps_lint 交叉校验，此处不重复实现。规则
+# 编号 K001~K016 与 tools/tests/test_ks_lint.py 一一对应。
 #
 # 退出码：0 通过；1 存在问题；2 用法或读取错误。
 #
@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import shlex
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -55,6 +56,19 @@ VENDOR_URL = "file:///run/install/repo/airymax/Packages"
 # 包，dnf 只能靠 Obsoletes/Provides 兜底，结果依赖解析顺序而不可判定。
 KERNEL_PKG = "airymaxos-kernel"
 KERNEL_STOCK = "kernel"
+
+# 允许裸参数（位置参数）的命令。pykickstart 只在少数命令上接受位置参数，
+# 其余命令的每个词都必须是 --opt / --opt=value；把列表值写成空格分隔时
+# 第二个词即落到这里，anaconda 在解析阶段终止安装。
+BARE = frozenset({"lang", "keyboard", "timezone", "rootpw", "part",
+                  "partition", "raid", "logvol", "volgroup", "btrfs",
+                  "device", "driverdisk", "sshkey"})
+
+# openEuler 24.03 的 anaconda 36 中 user 命令的选项集合（备注字段是
+# --gecos，不存在 --comment）；未知选项同样令解析终止。
+USER_OPTS = frozenset({"--name", "--gecos", "--groups", "--homedir",
+                       "--lock", "--iscrypted", "--password", "--plaintext",
+                       "--shell", "--uid", "--gid"})
 
 
 @dataclass
@@ -336,6 +350,28 @@ def check_mode(cmds: list[Cmd], issues: list[Issue]) -> None:
         issues.append(Issue("K012", 1, "text and graphical both set"))
 
 
+def arg_issue(cmd: Cmd, tok: str, issues: list[Issue]) -> None:
+    if not tok.startswith("-"):
+        if cmd.name not in BARE:
+            issues.append(Issue("K016", cmd.num, f"stray argument: {tok}"))
+        return
+    opt = tok.split("=", 1)[0]
+    if cmd.name == "user" and opt not in USER_OPTS:
+        issues.append(Issue("K016", cmd.num, f"unknown user option: {opt}"))
+
+
+def check_args(cmds: list[Cmd], issues: list[Issue]) -> None:
+    for cmd in cmds:
+        try:
+            toks = shlex.split(cmd.args)
+        except ValueError:
+            issues.append(Issue("K016", cmd.num,
+                                f"unbalanced quote: {cmd.name}"))
+            continue
+        for tok in toks:
+            arg_issue(cmd, tok, issues)
+
+
 def lint_text(text: str) -> list[Issue]:
     cmds, sects, issues = parse(text.splitlines())
     check_src(cmds, issues)
@@ -350,6 +386,7 @@ def lint_text(text: str) -> list[Issue]:
     check_stop(cmds, issues)
     check_dup(cmds, issues)
     check_mode(cmds, issues)
+    check_args(cmds, issues)
     return sorted(issues, key=lambda item: (item.line, item.code))
 
 
