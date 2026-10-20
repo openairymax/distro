@@ -49,14 +49,24 @@ firewall --enabled --service=ssh
 firstboot --disable
 
 # ---- 包组 ----
-%packages --nobase
+%packages
+# @core 是基础用户空间的唯一来源（本产品不复述上游清单）；airymaxos-release
+# 接管 system-release 与 /etc/os-release，补上被排除的上游标识包。
 @core
 airymaxos-kernel
+airymaxos-release
 dnf
 openssh-server
 NetworkManager
 chronyd
 sudo
+
+# 内核与发行版标识唯一（与工作站剖面同口径）：@core 携带上游 kernel /
+# kernel-tools 与两个 openEuler-release 包，必须显式排除（K017 强制）。
+-kernel
+-kernel-tools
+-openEuler-release
+-openEuler-latest-release
 %end
 
 # ---- 安装后脚本 ----
@@ -82,6 +92,12 @@ trap 'rc=$?; [ "${rc}" -eq 0 ] || mark "AIRYMAX-INSTALL-FAIL rc=${rc}"' EXIT
 
 systemctl set-default multi-user.target
 systemctl enable sshd chronyd
+
+# 发行版标识：上游 release 包被排除后，system-release 由本包唯一提供
+rpm -q airymaxos-release >/dev/null 2>&1 || {
+    echo "ERROR: airymaxos-release is not installed" >&2
+    exit 1
+}
 
 # 账户自检：没有可登录账户的安装介质不具备「OS 能运行」的前提
 [ "$(passwd -S root | awk '{print $2}')" = "P" ] || {

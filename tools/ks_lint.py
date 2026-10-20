@@ -6,9 +6,9 @@
 # 只依赖标准库。校验对象是无人值守安装的语法与安全性约束：安装源、
 # 存储布局、账户口令（K005/K006：必须 --iscrypted $6$，禁止 --lock 与
 # 明文）、脚本段闭合与失败即停、收尾状态、单例命令、安装界面互斥、
-# 桌面仓库闭包完整性、离线仓库落点、内核包身份与命令行参数语法。包组
-# 引用（@组 / @^环境）由 comps_lint 交叉校验，此处不重复实现。规则
-# 编号 K001~K016 与 tools/tests/test_ks_lint.py 一一对应。
+# 桌面仓库闭包完整性、离线仓库落点、内核包身份、上游身份包排除与命令行
+# 参数语法。包组引用（@组 / @^环境）由 comps_lint 交叉校验，此处不重复
+# 实现。规则编号 K001~K017 与 tools/tests/test_ks_lint.py 一一对应。
 #
 # 退出码：0 通过；1 存在问题；2 用法或读取错误。
 #
@@ -56,6 +56,14 @@ VENDOR_URL = "file:///run/install/repo/airymax/Packages"
 # 包，dnf 只能靠 Obsoletes/Provides 兜底，结果依赖解析顺序而不可判定。
 KERNEL_PKG = "airymaxos-kernel"
 KERNEL_STOCK = "kernel"
+
+# 上游身份包（K017）：anaconda 的 get_installation_specs() 无条件把 @core
+# 加入安装清单，openEuler 的 @core mandatory 含 kernel、default 含
+# kernel-tools，并携带 openEuler-release 与 openEuler-latest-release。
+# 它们与本产品 airymaxos-kernel / airymaxos-release 争用同一组文件路径和
+# system-release 能力，不排除时 dnf 只能按求解顺序二选一。
+UPSTREAM_EXCLUDES = ("-kernel", "-kernel-tools", "-openEuler-release",
+                     "-openEuler-latest-release")
 
 # 允许裸参数（位置参数）的命令。pykickstart 只在少数命令上接受位置参数，
 # 其余命令的每个词都必须是 --opt / --opt=value；把列表值写成空格分隔时
@@ -262,6 +270,17 @@ def check_kernel(sects: list[Sect], issues: list[Issue]) -> None:
                                 f"%packages must include {KERNEL_PKG}"))
 
 
+def check_excludes(sects: list[Sect], issues: list[Issue]) -> None:
+    for sect in sects:
+        if sect.name != "packages":
+            continue
+        body = {line for _, line in sect.body}
+        for want in UPSTREAM_EXCLUDES:
+            if want not in body:
+                issues.append(Issue("K017", sect.num,
+                                    f"%packages must list {want}"))
+
+
 def pkg_set(sects: list[Sect]) -> set[str]:
     return {line for sect in sects if sect.name == "packages"
             for _, line in sect.body}
@@ -380,6 +399,7 @@ def lint_text(text: str) -> list[Issue]:
     check_roots(cmds, issues)
     check_urls(cmds, issues)
     check_kernel(sects, issues)
+    check_excludes(sects, issues)
     check_repos(cmds, sects, issues)
     check_vendor(cmds, issues)
     check_scripts(sects, issues)
