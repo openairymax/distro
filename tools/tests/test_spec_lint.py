@@ -179,6 +179,11 @@ class SpecLintTest(unittest.TestCase):
     def test_comment_escaped(self):
         self.assertEqual(self.codes(VALID + "\n# 由 %%post 完成\n"), [])
 
+    def test_variant_id(self):
+        self.osrel.write_text('ID=airymaxos\nVERSION_ID="0.0.3"\n'
+                              "VARIANT_ID=workstation\n", encoding="utf-8")
+        self.assertIn("E016", self.codes())
+
     def test_real_specs(self):
         root = Path(__file__).resolve().parents[2]
         specs = sorted((root / "specs").rglob("*.spec"))

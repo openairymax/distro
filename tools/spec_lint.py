@@ -5,7 +5,7 @@
 #
 # 只依赖标准库，供 distro/ci 在无 rpmbuild 的构建机上做前置门禁。规则来源：
 # docs-linux/190-distribution/01-rpm-packaging.md 与
-# docs-linux/50-engineering-standards。规则编号 E001~E015 与测试一一对应。
+# docs-linux/50-engineering-standards。规则编号 E001~E016 与测试一一对应。
 #
 # E015 检查注释中的裸 % 宏：rpm 在剥离注释前展开宏，若宏体带续行反斜杠
 # （如 openEuler 的 %install），续行会吞掉后续 preamble，报 Name 等字段缺失。
@@ -274,6 +274,12 @@ def check_ver(ver: str, root: Path, issues: list[Issue]) -> None:
     elif hit.group(1) != ver:
         issues.append(Issue("E012", 1, f"version {ver} != "
                                        f"VERSION_ID {hit.group(1)}"))
+    var = re.search(r"^VARIANT_ID=", text, re.M)
+    if var:
+        num = text.count("\n", 0, var.start()) + 1
+        issues.append(Issue("E016", num, "VARIANT_ID breaks openEuler "
+                                         "scriptlets that lack variant "
+                                         "assets"))
 
 
 def lint_text(text: str, path: Path, root: Path) -> list[Issue]:
