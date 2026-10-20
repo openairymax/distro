@@ -15,6 +15,7 @@
 
 import hashlib
 import shutil
+import struct
 import subprocess
 import tempfile
 import unittest
@@ -26,6 +27,11 @@ SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "build-iso.sh"
 DISTRO = SCRIPT.parent.parent
 BASH = shutil.which("bash") or "/bin/bash"
 BASELINE = DISTRO / "kickstart" / "airymaxos-minimal.ks"
+APP_OFF = 16 * 2048 + 883
+
+
+def appdata(raw):
+    return raw[APP_OFF:APP_OFF + 512].decode("latin-1")
 
 
 class BuildIsoTest(unittest.TestCase):
@@ -65,6 +71,17 @@ class BuildIsoTest(unittest.TestCase):
     def build(self, *args, **extra):
         return self.run_script("--iso", str(self.base), "--ks", str(self.ks),
                                "--out", str(self.out), *args, **extra)
+
+    def make_base(self, app):
+        img = bytearray(64 * 2048)
+        off = 16 * 2048
+        img[off] = 1
+        img[off + 1:off + 6] = b"CD001"
+        img[off + 6] = 1
+        img[off + 80:off + 84] = struct.pack("<I", 64)
+        img[off + 84:off + 88] = struct.pack(">I", 64)
+        img[off + 883:off + 1395] = app
+        self.base.write_bytes(img)
 
     def test_help(self):
         self.tools()
@@ -168,8 +185,19 @@ class BuildIsoTest(unittest.TestCase):
                       self.log.read_text(encoding="utf-8"))
         raw = iso.read_bytes()
         vol = int.from_bytes(raw[16 * 2048 + 80:16 * 2048 + 84], "little")
-        self.assertEqual(len(raw), vol * 2048 + 32 * 1024)
-        self.assertIn("IMPLANTED", iso.read_text(encoding="utf-8"))
+        self.assertEqual(len(raw), vol * 2048)
+        self.assertRegex(appdata(raw), r"ISO MD5SUM = [0-9a-f]{32}")
+
+    def test_stale_appdata_replaced(self):
+        stale = b"ISO MD5SUM = " + b"0" * 32 + b";SKIPSECTORS = 15;"
+        self.make_base(stale + b" " * (512 - len(stale)))
+        self.full()
+        res = self.build("--arch", "x86_64")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        iso = self.out / "airymaxos-0.0.3-x86_64.iso"
+        record = appdata(iso.read_bytes())
+        self.assertNotIn("0" * 32, record)
+        self.assertRegex(record, r"ISO MD5SUM = [0-9a-f]{32}")
 
     def test_version_override(self):
         self.full()
@@ -184,7 +212,7 @@ class BuildIsoTest(unittest.TestCase):
         res = self.build("--arch", "x86_64", "--no-md5")
         self.assertEqual(res.returncode, 0, res.stderr)
         iso = self.out / "airymaxos-0.0.3-x86_64.iso"
-        self.assertNotIn("IMPLANTED", iso.read_text(encoding="utf-8"))
+        self.assertNotIn("ISO MD5SUM", iso.read_text(encoding="utf-8"))
 
     def test_gpg_key(self):
         self.full(("gpg", fakes.GPG))

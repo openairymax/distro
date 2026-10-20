@@ -70,7 +70,7 @@ for a in $adds; do
         cat "$a" >> "$body"
     fi
 done
-python3 - "$out" "$body" <<'PY'
+python3 - "$out" "$body" "$p2" <<'PY' || exit 5
 import struct, sys
 from pathlib import Path
 body = Path(sys.argv[2]).read_bytes()
@@ -81,6 +81,12 @@ pvd[1:6] = b"CD001"
 pvd[6] = 1
 pvd[80:84] = struct.pack("<I", total)
 pvd[84:88] = struct.pack(">I", total)
+src = Path(sys.argv[3])
+if src.is_file():
+    raw = src.read_bytes()
+    off = 16 * 2048
+    if len(raw) >= off + 2048 and raw[off:off + 6] == b"\\x01CD001":
+        pvd[883:1395] = raw[off + 883:off + 1395]
 img = b"\\0" * (16 * 2048) + bytes(pvd) + body
 img += b"\\0" * (-len(img) % 2048)
 Path(sys.argv[1]).write_bytes(img)
@@ -144,38 +150,65 @@ rm -f "$body"
 
 IMPLANT = """\
 #!/bin/sh
-[ "${FAKE_IMPLANT_MODE:-ok}" = fail ] && exit 1
-for img; do :; done
+force=0; img=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+    --force|-f) force=1 ;;
+    --supported-iso|-S) ;;
+    -*) ;;
+    *) img=$1 ;;
+    esac
+    shift
+done
 [ -n "$img" ] || exit 2
-python3 - "$img" <<'PY'
-import struct, sys
+[ "${FAKE_IMPLANT_MODE:-ok}" = fail ] && exit 1
+python3 - "$img" "$force" <<'PY'
+import hashlib, struct, sys
 from pathlib import Path
 path = Path(sys.argv[1])
-data = path.read_bytes()
-vol = struct.unpack("<I", data[16 * 2048 + 80:16 * 2048 + 84])[0]
-vol *= 2048
-if len(data) - vol < 32768:
-    sys.stderr.write("implantisomd5: no room after volume space\\n")
+force = sys.argv[2] == "1"
+data = bytearray(path.read_bytes())
+off = 16 * 2048
+if len(data) < off + 2048 or data[off:off + 6] != b"\\x01CD001":
+    sys.stderr.write("ERROR: Could not find primary volume!\\n")
     sys.exit(1)
-with path.open("r+b") as fh:
-    fh.seek(vol)
-    fh.write(b"IMPLANTED\\n")
+vol = struct.unpack("<I", data[off + 80:off + 84])[0] * 2048
+app = data[off + 883:off + 1395]
+if not force and any(b != 0x20 for b in app):
+    sys.stderr.write(
+        "ERROR: Application data has been used - not implanting md5sum!\\n")
+    sys.exit(1)
+end = vol - 15 * 2048
+if end > len(data):
+    sys.stderr.write("ERROR: ISO is truncated\\n")
+    sys.exit(1)
+digest = hashlib.md5(bytes(data[:end])).hexdigest().encode()
+rec = b"ISO MD5SUM = " + digest + b";SKIPSECTORS = 15;RHLISOSTATUS=0;"
+rec += b" " * (512 - len(rec))
+data[off + 883:off + 1395] = rec
+path.write_bytes(data)
 PY
 """
 
 CHECKISOMD5 = """\
 #!/bin/sh
-[ "${FAKE_CHECK_MODE:-ok}" = fail ] && exit 1
 for img; do :; done
 [ -n "$img" ] || exit 2
+[ "${FAKE_CHECK_MODE:-ok}" = fail ] && exit 1
 python3 - "$img" <<'PY'
-import struct, sys
+import hashlib, re, struct, sys
 from pathlib import Path
 data = Path(sys.argv[1]).read_bytes()
-vol = struct.unpack("<I", data[16 * 2048 + 80:16 * 2048 + 84])[0]
-vol *= 2048
-if data[vol:vol + 10] != b"IMPLANTED\\n":
-    sys.stderr.write("checkisomd5: checksum not found\\n")
+off = 16 * 2048
+vol = struct.unpack("<I", data[off + 80:off + 84])[0] * 2048
+app = data[off + 883:off + 1395].decode("latin-1")
+found = re.search(r"ISO MD5SUM = ([0-9a-f]{32})", app)
+if not found:
+    sys.stderr.write("ERROR: No checksum found\\n")
+    sys.exit(1)
+digest = hashlib.md5(data[:vol - 15 * 2048]).hexdigest()
+if found.group(1) != digest:
+    sys.stderr.write("ERROR: Checksum mismatch\\n")
     sys.exit(1)
 PY
 """
