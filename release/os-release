@@ -9,7 +9,10 @@ VERSION_ID="0.0.3"
 PRETTY_NAME="AirymaxOS 0.0.3 (Jijing)"
 VERSION_CODENAME=jijing
 VARIANT="Workstation"
-VARIANT_ID=workstation
+# 不声明 VARIANT_ID：openEuler 24.03 的 firewalld %posttrans 按 VARIANT_ID 选择
+# 变体配置并对其执行 sed -i，而该包只发布 firewalld-standard.conf。声明
+# workstation 会生成悬空符号链接，sed 以非零退出，anaconda 判定 scriptlet
+# 失败并中止安装。VARIANT 仅作人类可读信息，不参与打包分支。
 HOME_URL="https://atomgit.com/openairymax/agent-linux"
 BUG_REPORT_URL="https://atomgit.com/openairymax/agent-linux/issues"
 ANSI_COLOR="0;34"
