@@ -5,8 +5,10 @@
 #
 # 把 build-rpms 与 build-kernel 的产物收敛成自包含离线仓库，随基础 ISO
 # 一起分发，再委派 build-iso.sh 完成 kickstart 注入与引导复核。minimal
-# 与 desktop 两个剖面共用这一路径：安装期都不依赖现场网络，仓库根为
-# ISO 内 /airymax/Packages。
+# 与 desktop 两个剖面共用这一路径。本产品自有包只从 ISO 内
+# /airymax/Packages 解析（cost 最低，保证 airymaxos-* 优先于上游同名
+# 能力）；基础用户空间与 UKUI 闭包仍由 kickstart 声明的 openEuler 网络
+# 仓库提供，即安装期需要网络。
 #
 # 产物（0.0.3 任务方案 M-15；190-distribution/03-installer-design.md §7.1）：
 #   DIR/payload/airymax/Packages/*.rpm        离线包集合
