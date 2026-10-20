@@ -125,6 +125,13 @@ rpm -q airymaxos-release >/dev/null 2>&1 || {
     echo "ERROR: airymaxos-release is not installed" >&2
     exit 1
 }
+#    system-release 是引导配置生成的输入（anaconda 由它派生
+#    GRUB_DISTRIBUTOR，grub-mkconfig 在 set -e 下 source 该文件），缺失即
+#    不可引导，必须在装机段结束前暴露。
+[ -r /etc/system-release ] || {
+    echo "ERROR: /etc/system-release is missing" >&2
+    exit 1
+}
 
 # 3) 系统编排单元必须随镜像落盘（OS-OPS-010 的包级前提）
 rpm -q airymaxos-system >/dev/null 2>&1 || {

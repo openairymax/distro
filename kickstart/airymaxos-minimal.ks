@@ -98,6 +98,12 @@ rpm -q airymaxos-release >/dev/null 2>&1 || {
     echo "ERROR: airymaxos-release is not installed" >&2
     exit 1
 }
+# system-release 缺失会让 anaconda 的 GRUB_DISTRIBUTOR 派生失败，grub-mkconfig
+# 在 set -e 下中止，装机结果不可引导；在装机段结束前显式判负。
+[ -r /etc/system-release ] || {
+    echo "ERROR: /etc/system-release is missing" >&2
+    exit 1
+}
 
 # 账户自检：没有可登录账户的安装介质不具备「OS 能运行」的前提
 [ "$(passwd -S root | awk '{print $2}')" = "P" ] || {

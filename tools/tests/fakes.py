@@ -257,6 +257,10 @@ if [ "$boot" = "order=d" ]; then
         printf 'Error in POSTTRANS scriptlet in rpm package firewalld\\n' \\
             >> "$log"
         printf '按 ENTER 退出:\\n' >> "$log"; exec sleep 60 ;;
+    bootloader) printf '安装引导装载程序时发生以下错误。系统将无法引导。\\n' \\
+            > "$log"
+        printf 'failed to write boot loader configuration\\n' >> "$log"
+        printf "请回答 'yes' 或 'no': " >> "$log"; exec sleep 60 ;;
     hang) printf '正在配置 firewalld.noarch\\n' > "$log"; exec sleep 60 ;;
     esac
     printf 'install complete\\n' > "$log"

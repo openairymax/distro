@@ -4,7 +4,8 @@
 #
 # 职责：
 #   1. 提供 /usr/lib/os-release 与 /etc/os-release 符号链接（VERSION_ID 唯一
-#      事实源为仓库内 release/os-release）；
+#      事实源为仓库内 release/os-release）；并提供 /etc/airymaxos-release 与
+#      /etc/system-release 符号链接（内容由同一事实源派生，见下）；
 #   2. 提供 /etc/yum.repos.d/airymaxos.repo（仓库列表 SSoT）；
 #   3. 提供 /etc/rpm/macros.airymax（文件系统布局宏 SSoT）；
 #   4. 部署桌面会话静态资产：lightdm 座位策略、X11 会话输入法环境、输入法
@@ -19,8 +20,18 @@
 # 与基础发行版的关系：openEuler 24.03 LTS 的 release 包同占 /etc/os-release，
 # 因此本包以 system-release 虚拟能力接管该位置，并显式 Obsoletes 旧包。
 #
+# /etc/system-release 是引导配置生成的硬依赖，不是可选装饰：anaconda 安装
+# 引导装载程序时以
+#   GRUB_DISTRIBUTOR="$(sed 's, release .*$,,g' /etc/system-release)"
+# 写入 /etc/default/grub，而 grub-mkconfig 以 set -e 运行并在开头 source
+# 该文件。文件缺失时 sed 以非零退出，命令替换的失败在 set -e 下中止整个
+# grub-mkconfig，anaconda 随即抛出 BootLoaderError 并停在交互问句上，无头
+# 安装只能等到超时。上游 release 包被 Obsoletes 排除后，本包必须自己提供
+# 该路径，内容从 os-release 的 NAME/VERSION 派生，版本号不二次书写。
+#
 # 构建约束：全部 Source 为仓库内裸文件名，由构建流水线 staging 到
-# _sourcedir 后 rpmbuild；配方本身不生成任何内容。
+# _sourcedir 后 rpmbuild；配方只在安装期从这些文件派生目标路径与派生素
+# 材，不下载、也不新增任何 Source。
 # ===========================================================================
 
 %global airy_version 0.0.3
@@ -72,6 +83,14 @@ install -d -m 0755 %{buildroot}/usr/lib
 install -m 0644 %{SOURCE0} %{buildroot}/usr/lib/os-release
 install -d -m 0755 %{buildroot}%{_sysconfdir}
 ln -s ../usr/lib/os-release %{buildroot}%{_sysconfdir}/os-release
+
+# 单行发行版标识：NAME 与 VERSION 从 os-release 派生，格式遵循上游惯例
+# （<发行版> release <版本>），/etc/system-release 以符号链接指向它。
+airy_name=$(sed -n 's/^NAME="\(.*\)"$/\1/p' %{SOURCE0})
+airy_ver=$(sed -n 's/^VERSION="\(.*\)"$/\1/p' %{SOURCE0})
+printf '%s release %s\n' "${airy_name}" "${airy_ver}" \
+    > %{buildroot}%{_sysconfdir}/airymaxos-release
+ln -s airymaxos-release %{buildroot}%{_sysconfdir}/system-release
 
 install -d -m 0755 %{buildroot}%{_sysconfdir}/yum.repos.d
 install -m 0644 %{SOURCE1} %{buildroot}%{_sysconfdir}/yum.repos.d/airymaxos.repo
@@ -129,6 +148,14 @@ grep -qxF 'ID=airymaxos' %{buildroot}/usr/lib/os-release
 grep -qxF 'VERSION_ID="%{version}"' %{buildroot}/usr/lib/os-release
 grep -qxF 'ID_LIKE="openeuler"' %{buildroot}/usr/lib/os-release
 test -L %{buildroot}%{_sysconfdir}/os-release
+# system-release 的存在性与 anaconda 的解析结果一并断言：文件缺失或格式
+# 不符都会让引导配置生成失败，必须在构建期而不是装机期暴露。
+want=$(sed -n 's/^NAME="\(.*\)"$/\1/p' %{SOURCE0})
+test -L %{buildroot}%{_sysconfdir}/system-release
+test "$(readlink %{buildroot}%{_sysconfdir}/system-release)" = airymaxos-release
+test "$(wc -l < %{buildroot}%{_sysconfdir}/airymaxos-release)" -eq 1
+test "$(sed 's, release .*$,,g' \
+    %{buildroot}%{_sysconfdir}/system-release)" = "${want}"
 grep -qxF '[airymaxos-base]' %{buildroot}%{_sysconfdir}/yum.repos.d/airymaxos.repo
 grep -qF 'airymax_libdir' %{buildroot}%{_sysconfdir}/rpm/macros.airymax
 grep -qF '/usr/lib/airymaxos' %{buildroot}%{_sysconfdir}/rpm/macros.airymax
@@ -166,6 +193,8 @@ fi
 %defattr(-, root, root, -)
 %{_sysconfdir}/os-release
 /usr/lib/os-release
+%{_sysconfdir}/airymaxos-release
+%{_sysconfdir}/system-release
 %config(noreplace) %{_sysconfdir}/yum.repos.d/airymaxos.repo
 %config(noreplace) %{_sysconfdir}/rpm/macros.airymax
 %config(noreplace) %{_sysconfdir}/lightdm/lightdm.conf.d/50-airymax.conf
@@ -183,6 +212,9 @@ fi
 
 %changelog
 * Sun Oct 18 2026 SPHARX <dev@spharx.com> - 0.0.3-1
+- Ship /etc/airymaxos-release and /etc/system-release derived from
+  os-release, so anaconda can build GRUB_DISTRIBUTOR and grub-mkconfig
+  does not abort under set -e when the file is missing
 - Ship the UKUI session policy assets: lightdm seat, input method
   environment and autostart, wallpaper registry and background default,
   desktop slice and user@.service drop-in
