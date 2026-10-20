@@ -75,6 +75,17 @@ airymaxos-kernel
 # 启用边界见 %post 注释
 airymaxos-system
 
+# 内核与发行版标识唯一：anaconda 无条件把 @core 追加进安装清单
+# （pyanaconda get_installation_specs），openEuler 的 @core mandatory 含
+# kernel、default 含 kernel-tools，并携带 openEuler-release 与
+# openEuler-latest-release。这些包与本产品 airymaxos-kernel /
+# airymaxos-release 争用同一组文件路径与虚拟能力，不排除时 dnf 只能按
+# 求解顺序二选一，装机结果不可判定（K017 强制）。
+-kernel
+-kernel-tools
+-openEuler-release
+-openEuler-latest-release
+
 # 桌面自带 AI 控制面排除（KylinBot 及其 MCP 桌面控制栈）：
 # agent 入口唯一 = Gateway（JSON-RPC 2.0），防止桌面成为第二控制面。
 # 通配排除；实际包名清单在首个冻结点核对后固化到 desktop/README.md

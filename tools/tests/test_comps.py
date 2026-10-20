@@ -122,6 +122,20 @@ class CompsLintTest(unittest.TestCase):
         text = VALID.replace('type="mandatory"', 'type="required"')
         self.assertIn("C006", self.codes(text))
 
+    def test_upstream_kernel(self):
+        text = VALID.replace(
+            "</packagelist>",
+            "  <packagereq type=\"mandatory\">kernel-core</packagereq>\n"
+            "    </packagelist>", 1)
+        self.assertIn("C011", self.codes(text))
+
+    def test_upstream_release(self):
+        text = VALID.replace(
+            "</packagelist>",
+            "  <packagereq type=\"mandatory\">openEuler-release</packagereq>\n"
+            "    </packagelist>", 1)
+        self.assertIn("C011", self.codes(text))
+
     def test_env_ref(self):
         text = VALID.replace("<groupid>airymax-demo</groupid>",
                              "<groupid>airymax-gone</groupid>")

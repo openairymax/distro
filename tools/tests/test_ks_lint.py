@@ -35,6 +35,10 @@ user --name=demo --iscrypted --password=$6$testsalt2$hash
 %packages
 @core
 airymaxos-kernel
+-kernel
+-kernel-tools
+-openEuler-release
+-openEuler-latest-release
 %end
 %post --log=/root/post.log
 set -eu
@@ -91,8 +95,9 @@ class KsLintTest(unittest.TestCase):
         self.assertIn("K003", self.codes(text))
 
     def test_missing_packages(self):
-        text = VALID.replace("%packages\n@core\nairymaxos-kernel\n%end\n", "")
-        self.assertIn("K003", self.codes(text))
+        pos = VALID.index("%packages")
+        end = VALID.index("%end\n", pos) + len("%end\n")
+        self.assertIn("K003", self.codes(VALID[:pos] + VALID[end:]))
 
     def test_storage_conflict(self):
         text = VALID.replace("autopart --type=plain --fstype=ext4",
@@ -175,6 +180,14 @@ class KsLintTest(unittest.TestCase):
     def test_kernel_missing(self):
         text = VALID.replace("airymaxos-kernel\n", "")
         self.assertIn("K014", self.codes(text))
+
+    def test_exclude_kernel_missing(self):
+        text = VALID.replace("-kernel\n", "")
+        self.assertIn("K017", self.codes(text))
+
+    def test_exclude_release_missing(self):
+        text = VALID.replace("-openEuler-release\n", "")
+        self.assertIn("K017", self.codes(text))
 
     def test_vendor_missing(self):
         text = VALID.replace(

@@ -6,7 +6,7 @@
 # 只依赖标准库。XML 结构由标准库解析，项目语义（组/环境标识、包名、
 # 布尔字段、组引用与嵌套环、环境到组的引用、kickstart 选择）逐项复核；
 # comps/comps.dtd 供 xmllint --valid 做 DTD 结构校验。规则编号
-# C001~C010 与 tools/tests/test_comps.py 一一对应。
+# C001~C011 与 tools/tests/test_comps.py 一一对应。
 #
 # 退出码：0 通过；1 存在问题；2 用法或读取错误。
 #
@@ -30,6 +30,12 @@ DOCTYPE = re.compile(
 PKGNAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")
 TYPES = frozenset({"mandatory", "default", "optional", "conditional"})
 BOOL = frozenset({"true", "false"})
+
+# 上游身份包不得进入产品包组（C011）：anaconda 安装期无条件追加 @core，
+# kernel 与 openEuler-release 系列与本产品 airymaxos-kernel /
+# airymaxos-release 争用同一组文件路径和 system-release 能力，写进包组
+# 会让 dnf 按求解顺序二选一（kickstart 侧的对应约束见 K014/K017）。
+UPSTREAM = ("kernel", "openEuler-release", "openEuler-latest-release")
 
 
 def text_of(node: ET.Element, tag: str) -> str:
@@ -108,6 +114,11 @@ def req_kind(req: ET.Element, gid: str,
         issues.append(Issue("C006", line, f"group {gid}: bad type {kind}"))
 
 
+def upstream_pkg(name: str) -> bool:
+    return any(name == item or name.startswith(item + "-")
+               for item in UPSTREAM)
+
+
 def grp_pkgs(grp: ET.Element, gid: str,
              lines: list[str], issues: list[Issue]) -> None:
     seen: set[str] = set()
@@ -116,6 +127,9 @@ def grp_pkgs(grp: ET.Element, gid: str,
         line = pkg_line(lines, name)
         req_name(name, seen, gid, line, issues)
         req_kind(req, gid, line, issues)
+        if upstream_pkg(name):
+            issues.append(Issue("C011", line,
+                                f"group {gid}: upstream package {name}"))
 
 
 def grp_refs(grp: ET.Element, gid: str, gids: set[str],
