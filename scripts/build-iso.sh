@@ -10,7 +10,8 @@
 # 产物契约（190-distribution/03-installer-design.md §7.1）：
 #   - /ks.cfg 与输入 kickstart 逐字节一致；
 #   - BIOS/UEFI 引导配置含 inst.ks= 且引用最终卷标；
-#   - 写入 ISO 校验和（implantisomd5），支持 rd.live.check。
+#   - 卷空间之后保留 32KiB 余量，写入 ISO 校验和（implantisomd5）并以
+#     checkisomd5 复核，支持 rd.live.check。
 #
 # 退出码（190-distribution/01-rpm-packaging.md §8）：
 #   0 成功；2 AIRY_EEXIST；5 AIRY_EINVAL；6 AIRY_EIO；
@@ -64,7 +65,7 @@ usage()
                      "console=ttyS0,115200"；传空串则不追加
   --add PATH         额外加入 ISO 的文件或目录，可重复
   --gpg-key KEYID    生成分离签名 .asc
-  --no-md5           跳过 implantisomd5（仅限调试）
+  --no-md5           跳过尾部补齐与校验块注入（仅限调试）
   -h, --help         显示本帮助
 
 产出:
@@ -274,6 +275,18 @@ verify()
     verify_cfg
 }
 
+pad_iso()
+{
+    if [ "$MD5" -ne 1 ]; then
+        return 0
+    fi
+    if ! python3 "${DISTRO_ROOT}/tools/iso_pad.py" "$DEST" \
+        >"${WORK}/logs/iso-pad.log" 2>&1; then
+        die "${E_IO}" "ISO 尾部补齐失败" \
+            "（日志 ${WORK}/logs/iso-pad.log）"
+    fi
+}
+
 md5_tag()
 {
     if [ "$MD5" -ne 1 ]; then
@@ -283,6 +296,11 @@ md5_tag()
         >"${WORK}/logs/implantisomd5.log" 2>&1; then
         die "${E_IO}" "implantisomd5 失败" \
             "（日志 ${WORK}/logs/implantisomd5.log）"
+    fi
+    if ! checkisomd5 --md5only "$DEST" \
+        >"${WORK}/logs/checkisomd5.log" 2>&1; then
+        die "${E_IO}" "checkisomd5 复核失败" \
+            "（日志 ${WORK}/logs/checkisomd5.log）"
     fi
 }
 
@@ -338,6 +356,7 @@ main()
     need python3
     if [ "$MD5" -eq 1 ]; then
         need implantisomd5
+        need checkisomd5
     fi
     if [ -n "$GPG_KEY" ]; then
         need gpg
@@ -347,6 +366,7 @@ main()
     printf '构建 ISO: %s（卷标 %s，架构 %s）\n' "$NAME" "$VOLID" "$ARCH"
     build_iso
     verify
+    pad_iso
     md5_tag
     ISO_SUM="$(sum_of "$DEST")" || die "${E_IO}" "sha256sum 失败: ${DEST}"
     write_sum "$ISO_SUM"

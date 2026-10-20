@@ -110,6 +110,11 @@ class BuildIsoTest(unittest.TestCase):
         self.tools(("mkksiso", fakes.MKKSISO), ("xorriso", fakes.XORRISO))
         self.assertEqual(self.build().returncode, 11)
 
+    def test_missing_check(self):
+        self.tools(("mkksiso", fakes.MKKSISO), ("xorriso", fakes.XORRISO),
+                   ("implantisomd5", fakes.IMPLANT))
+        self.assertEqual(self.build().returncode, 11)
+
     def test_ks_lint_fail(self):
         self.full()
         self.ks.write_text("lang zh_CN.UTF-8\n", encoding="utf-8")
@@ -124,6 +129,10 @@ class BuildIsoTest(unittest.TestCase):
         self.full()
         self.assertEqual(
             self.build(FAKE_MKKSISO_MODE="badks").returncode, 6)
+
+    def test_check_fail(self):
+        self.full()
+        self.assertEqual(self.build(FAKE_CHECK_MODE="fail").returncode, 6)
 
     def test_missing_inst_ks(self):
         self.full()
@@ -157,6 +166,9 @@ class BuildIsoTest(unittest.TestCase):
         self.assertRegex(manifest, r"base [0-9a-f]{64} base\.iso")
         self.assertIn("cmd=console=ttyS0,115200",
                       self.log.read_text(encoding="utf-8"))
+        raw = iso.read_bytes()
+        vol = int.from_bytes(raw[16 * 2048 + 80:16 * 2048 + 84], "little")
+        self.assertEqual(len(raw), vol * 2048 + 32 * 1024)
         self.assertIn("IMPLANTED", iso.read_text(encoding="utf-8"))
 
     def test_version_override(self):

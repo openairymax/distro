@@ -16,7 +16,7 @@ from pathlib import Path
 
 TOOLS = ("awk", "basename", "bash", "cat", "cmp", "cp", "date", "dirname",
          "find", "git", "grep", "mkdir", "mv", "python3", "rm", "sed", "seq",
-         "sha256sum", "sleep", "sort", "timeout", "uname")
+         "sha256sum", "sleep", "sort", "tail", "timeout", "tr", "uname")
 
 MKKSISO = """\
 #!/bin/sh
@@ -41,8 +41,8 @@ case "${FAKE_MKKSISO_MODE:-ok}" in
 badlabel) stage=OLDVOLID ;;
 nostage) ksline="" ;;
 esac
+body=$out.body
 {
-    printf 'AIRYFAKE1\\n'
     printf 'CMDLINE=%s\\n' "$cmd"
     printf '=== /ks.cfg\\n'
     if [ "${FAKE_MKKSISO_MODE:-ok}" = badks ]; then
@@ -55,7 +55,7 @@ esac
     printf '=== /EFI/BOOT/grub.cfg\\n'
     printf 'linuxefi /vmlinuz %s inst.stage2=hd:LABEL=%s\\n' \\
         "$ksline" "$stage"
-} > "$out"
+} > "$body"
 for a in $adds; do
     [ -e "$a" ] || continue
     if [ -d "$a" ]; then
@@ -64,12 +64,28 @@ for a in $adds; do
             rel=${f#"$a"/}
             printf '=== /%s/%s\\n' "$name" "$rel"
             cat "$f"
-        done >> "$out"
+        done >> "$body"
     else
-        printf '=== /%s\\n' "$(basename "$a")" >> "$out"
-        cat "$a" >> "$out"
+        printf '=== /%s\\n' "$(basename "$a")" >> "$body"
+        cat "$a" >> "$body"
     fi
 done
+python3 - "$out" "$body" <<'PY'
+import struct, sys
+from pathlib import Path
+body = Path(sys.argv[2]).read_bytes()
+total = 17 + (len(body) + 2047) // 2048
+pvd = bytearray(2048)
+pvd[0] = 1
+pvd[1:6] = b"CD001"
+pvd[6] = 1
+pvd[80:84] = struct.pack("<I", total)
+pvd[84:88] = struct.pack(">I", total)
+img = b"\\0" * (16 * 2048) + bytes(pvd) + body
+img += b"\\0" * (-len(img) % 2048)
+Path(sys.argv[1]).write_bytes(img)
+PY
+rm -f "$body"
 if [ -n "${FAKE_MKKSISO_LOG:-}" ]; then
     printf 'volid=%s cmd=%s\\n' "$vol" "$cmd" > "$FAKE_MKKSISO_LOG"
 fi
@@ -110,18 +126,58 @@ while [ $# -gt 0 ]; do
     shift
 done
 [ -n "$indev" ] && [ -n "$path" ] && [ -n "$dest" ] || exit 2
-grep -qxF "=== ${path}" "$indev" || exit 1
-awk -v p="$path" '$0 == "=== " p { on = 1; next }
+body=${TMPDIR:-/tmp}/xorriso.$$
+python3 - "$indev" "$body" <<'PY'
+import struct, sys
+data = open(sys.argv[1], "rb").read()
+vol = struct.unpack("<I", data[16 * 2048 + 80:16 * 2048 + 84])[0]
+with open(sys.argv[2], "wb") as fh:
+    fh.write(data[17 * 2048:vol * 2048])
+PY
+grep -qxF "=== ${path}" "$body" || { rm -f "$body"; exit 1; }
+tr -d '\\000' < "$body" |
+    awk -v p="$path" '$0 == "=== " p { on = 1; next }
 on && /^=== / { exit }
-on { print }' "$indev" > "$dest"
+on { print }' > "$dest"
+rm -f "$body"
 """
 
 IMPLANT = """\
 #!/bin/sh
 [ "${FAKE_IMPLANT_MODE:-ok}" = fail ] && exit 1
-printf 'IMPLANTED\\n' > "$1.imp"
-cat "$1" >> "$1.imp"
-mv "$1.imp" "$1"
+for img; do :; done
+[ -n "$img" ] || exit 2
+python3 - "$img" <<'PY'
+import struct, sys
+from pathlib import Path
+path = Path(sys.argv[1])
+data = path.read_bytes()
+vol = struct.unpack("<I", data[16 * 2048 + 80:16 * 2048 + 84])[0]
+vol *= 2048
+if len(data) - vol < 32768:
+    sys.stderr.write("implantisomd5: no room after volume space\\n")
+    sys.exit(1)
+with path.open("r+b") as fh:
+    fh.seek(vol)
+    fh.write(b"IMPLANTED\\n")
+PY
+"""
+
+CHECKISOMD5 = """\
+#!/bin/sh
+[ "${FAKE_CHECK_MODE:-ok}" = fail ] && exit 1
+for img; do :; done
+[ -n "$img" ] || exit 2
+python3 - "$img" <<'PY'
+import struct, sys
+from pathlib import Path
+data = Path(sys.argv[1]).read_bytes()
+vol = struct.unpack("<I", data[16 * 2048 + 80:16 * 2048 + 84])[0]
+vol *= 2048
+if data[vol:vol + 10] != b"IMPLANTED\\n":
+    sys.stderr.write("checkisomd5: checksum not found\\n")
+    sys.exit(1)
+PY
 """
 
 GPG = """\
@@ -348,6 +404,7 @@ def iso_tools(bin_dir):
     write(bin_dir, "mkksiso", MKKSISO)
     write(bin_dir, "xorriso", XORRISO)
     write(bin_dir, "implantisomd5", IMPLANT)
+    write(bin_dir, "checkisomd5", CHECKISOMD5)
 
 
 def desk_tools(bin_dir):
