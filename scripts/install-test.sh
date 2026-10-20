@@ -27,7 +27,7 @@ readonly SKIP=77
 readonly EINVAL=5
 readonly DISTRO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 readonly BOOT_FAIL='Kernel panic|Failed to start|Welcome to emergency mode|dracut-initqueue.*timeout|AIRYMAX-DESKTOP-FAIL|AIRYMAX-SMOKE-FAIL'
-readonly INST_FAIL='Kernel panic|Fatal glibc error|dracut-initqueue.*timeout'
+readonly INST_FAIL='Kernel panic|Fatal glibc error|dracut-initqueue.*timeout|AIRYMAX-INSTALL-FAIL'
 
 . "${DISTRO_ROOT}/scripts/lib/outdir.sh"
 
@@ -224,8 +224,15 @@ accel_set()
 qemu_base()
 {
     QARGS=(-m 4096 -smp 2 -display none -monitor none -no-reboot)
+    # UKUI 会话经 lightdm 拉起后需要可用的 DRM/KMS 设备做 X 后端。
+    # 内核基线只启用 DRM_VIRTIO_GPU（x86_64_defconfig），缺省 std VGA
+    # 对应的 bochs 驱动未编译，故两种架构都接 virtio-gpu：x86_64 用
+    # -vga virtio 替换缺省 VGA，aarch64 的 virt 机型没有缺省 VGA，直接
+    # 追加 PCI 设备。
     if [ "${ARCH}" = aarch64 ]; then
-        QARGS+=(-machine virt)
+        QARGS+=(-machine virt -device virtio-gpu-pci)
+    else
+        QARGS+=(-vga virtio)
     fi
     # openEuler 24.03 用户态以 x86-64-v2 为基线，glibc 在 PID1 缺少
     # SSE4.2 时直接 exit_group(127)，内核随即 panic。QEMU 缺省机型的

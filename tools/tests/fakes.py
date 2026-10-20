@@ -251,6 +251,7 @@ if [ "$boot" = "order=d" ]; then
     case "${FAKE_QEMU_INSTALL_MODE:-ok}" in
     fail) exit 1 ;;
     nomarker) printf 'installing\\n' > "$log"; exit 0 ;;
+    postfail) printf 'AIRYMAX-INSTALL-FAIL rc=1\\n' > "$log"; exec sleep 60 ;;
     panic) printf 'Kernel panic - not syncing\\n' > "$log"; exec sleep 60 ;;
     esac
     printf 'install complete\\n' > "$log"

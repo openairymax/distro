@@ -128,9 +128,14 @@ distro/
 + 串口日志）→ 校验 `install complete` 标记 → 冷启动（`-boot order=c`）→
 校验无 `Kernel panic` 且出现冷启动标记。默认标记为 `login:`；
 `--boot-marker` 可替换，desktop 剖面用 `AIRYMAX-DESKTOP-READY` 断言
-UKUI 会话定义可执行、lightdm 与 greeter 会话真实就绪，并以内建规则把
-`AIRYMAX-DESKTOP-FAIL` 判为启动失败。输出为 TAP 14；缺 QEMU 工具时
-输出 `1..0 # SKIP` 并退出 77，不以假通过掩盖环境缺口。
+UKUI 会话定义可执行、lightdm 与 greeter 会话真实就绪，验收剖面用
+`AIRYMAX-SMOKE-PASS`。`AIRYMAX-DESKTOP-FAIL`、`AIRYMAX-SMOKE-FAIL` 与
+装机期 `AIRYMAX-INSTALL-FAIL` 一律立即判失败，不等超时。kickstart 的
+`%post --log=` 把脚本输出写向目标系统文件，故标记由脚本显式写
+`/dev/console`（x86_64 路由到 ttyS0，aarch64 到 ttyAMA0），这是串口
+可观测的前提；虚拟显卡用 `virtio-gpu` 提供 DRM/KMS，因为内核基线只
+启用 `DRM_VIRTIO_GPU`，缺省 std VGA 没有对应驱动。输出为 TAP 14；缺
+QEMU 工具时输出 `1..0 # SKIP` 并退出 77，不以假通过掩盖环境缺口。
 
 `scripts/build-rpms.sh --out DIR` 驱动批量构建：将所有 `Source`/`Patch`
 归集到私有 `_topdir`，可选发布已签名 DNF 仓库
