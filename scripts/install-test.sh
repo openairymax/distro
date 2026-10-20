@@ -214,10 +214,16 @@ qemu_base()
 {
     QARGS=(-m 4096 -smp 2 -display none -monitor none -no-reboot)
     if [ "${ARCH}" = aarch64 ]; then
-        QARGS+=(-machine virt -cpu max)
+        QARGS+=(-machine virt)
     fi
+    # openEuler 24.03 用户态以 x86-64-v2 为基线，glibc 在 PID1 缺少
+    # SSE4.2 时直接 exit_group(127)，内核随即 panic。QEMU 缺省机型的
+    # qemu64 不含该基线，故必须显式指定 CPU：KVM 下透传宿主特性，
+    # 纯软件模拟下取 TCG 支持的最大特性集。
     if [ -r /dev/kvm ] && [ "$(uname -m)" = "${ARCH}" ]; then
-        QARGS+=(-accel kvm)
+        QARGS+=(-accel kvm -cpu host)
+    else
+        QARGS+=(-cpu max)
     fi
 }
 

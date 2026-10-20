@@ -145,6 +145,17 @@ class InstallTestTest(unittest.TestCase):
         self.assertTrue((self.out / "run-bios-1" / "install.log").is_file())
         self.assertTrue((self.out / "run-bios-1" / "boot.log").is_file())
 
+    def test_cpu_model(self):
+        self.tools()
+        res = self.install("--runs", "1")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        args = self.qlog.read_text(encoding="utf-8").splitlines()
+        cpu = args[args.index("-cpu") + 1]
+        if "-accel" in args:
+            self.assertEqual(cpu, "host")
+        else:
+            self.assertEqual(cpu, "max")
+
     def test_install_fail(self):
         self.tools()
         res = self.install("--runs", "1", FAKE_QEMU_INSTALL_MODE="fail")
