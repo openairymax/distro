@@ -16,6 +16,7 @@
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -163,6 +164,17 @@ class InstallTestTest(unittest.TestCase):
         self.assertIn("not ok 1", res.stdout)
         self.assertIn("run bios run=1 install=fail", self.manifest())
         self.assertIn("result=fail", self.manifest())
+
+    def test_install_panic_fast(self):
+        self.tools()
+        start = time.monotonic()
+        res = self.install("--runs", "1", "--install-timeout", "60",
+                           FAKE_QEMU_INSTALL_MODE="panic")
+        elapsed = time.monotonic() - start
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("not ok 1", res.stdout)
+        self.assertIn("install failure pattern", res.stderr)
+        self.assertLess(elapsed, 30)
 
     def test_install_marker_missing(self):
         self.tools()
