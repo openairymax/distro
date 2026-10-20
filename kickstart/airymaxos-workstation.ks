@@ -55,14 +55,16 @@ network --bootproto=dhcp --activate --hostname=airymaxos
 # 都无入口。root 的初始口令在 %post 中置为过期，首次登录强制修改；airymax
 # 保持可用，保证 lightdm/UKUI 能直接进入桌面。
 rootpw --iscrypted $6$airy003root0x01$WF29rbJ84L5jwK05P.Rs/EfkAjDBZmOtti6K29tIzd30tv29YlnNvYiZHK0QzPl4RBKlSiUshySWmYzgN3ybT0
-user --name=airymax --groups=wheel --iscrypted --password=$6$airy003user0x01$s1JW7QjW0kiAW7B51kVB2hNsabAadz4G/h6yBDRvpWzwsV7NO7Kh3ChDjLtapHZ6HGl5WoqNKi.IAY7IT5yRc/ --comment="AirymaxOS user"
+user --name=airymax --groups=wheel --iscrypted --password=$6$airy003user0x01$s1JW7QjW0kiAW7B51kVB2hNsabAadz4G/h6yBDRvpWzwsV7NO7Kh3ChDjLtapHZ6HGl5WoqNKi.IAY7IT5yRc/
 
 # ---- 服务 ----
 # OS-OPS-010：安装器显式 enable 需要的单元，包自身 %post 不 enable。
 # airymax-desktop-ready 在 graphical.target 下校验 lightdm 与 greeter 会话，
 # 作为镜像 CI「桌面能进」的宿主机可判定证据（验收④）；minimal 剖面停留在
 # multi-user.target，不涉及该单元。
-services --enabled=lightdm airymax-desktop-ready
+# --enabled 的值是逗号分隔列表；用空格分隔会让第二个单元成为位置参数，
+# anaconda 在解析 kickstart 阶段即终止安装。
+services --enabled=lightdm,airymax-desktop-ready
 
 # ---- 包组 ----
 %packages

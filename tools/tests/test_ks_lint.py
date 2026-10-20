@@ -206,6 +206,18 @@ class KsLintTest(unittest.TestCase):
                                "https://example.invalid/os/")
         self.assertIn("K013", self.codes(text))
 
+    def test_services_list(self):
+        text = VALID.replace("reboot\n", "services --enabled=a b\nreboot\n")
+        self.assertIn("K016", self.codes(text))
+
+    def test_user_option(self):
+        text = VALID.replace(USER, USER + ' --comment="demo"')
+        self.assertIn("K016", self.codes(text))
+
+    def test_valid_services_list(self):
+        text = VALID.replace("reboot\n", "services --enabled=a,b\nreboot\n")
+        self.assertEqual(self.codes(text), [])
+
     def test_real_kickstarts(self):
         base = Path(__file__).resolve().parents[2]
         targets = sorted((base / "kickstart").glob("*.ks"))
