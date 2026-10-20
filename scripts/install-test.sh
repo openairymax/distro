@@ -37,7 +37,14 @@ RPM_FAIL='Error in (PREIN|POSTIN|PREUN|POSTUN|PRETRANS|POSTTRANS|'
 RPM_FAIL="${RPM_FAIL}TRIGGERIN|TRIGGERUN|TRIGGERPOSTUN) scriptlet|"
 RPM_FAIL="${RPM_FAIL}An error occurred during the transaction"
 readonly RPM_FAIL
-readonly INST_ERR="${INST_FAIL}|${RPM_FAIL}"
+# anaconda 在配置阶段遇到无法自处理的错误时转为交互问句（引导装载程序写
+# 配置失败即属此类），无头安装没有 stdin，进程不会退出也不会打印失败标记，
+# 只能等到 --install-timeout。问句本身即失败证据，命中就判负。
+ASK_FAIL='failed to write boot loader configuration|'
+ASK_FAIL="${ASK_FAIL}Please answer .yes. or .no.|"
+ASK_FAIL="${ASK_FAIL}请回答 .yes. 或 .no."
+readonly ASK_FAIL
+readonly INST_ERR="${INST_FAIL}|${RPM_FAIL}|${ASK_FAIL}"
 
 . "${DISTRO_ROOT}/scripts/lib/outdir.sh"
 
