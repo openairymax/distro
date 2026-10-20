@@ -43,6 +43,7 @@ MAX_BOOT_SET=0
 MARKER="install complete"
 BOOT_MARKER="login:"
 FW_DIR=""
+ACCEL="tcg"
 
 QEMU=""
 QARGS=()
@@ -211,6 +212,15 @@ tools_ready()
     need "${QEMU}" && need qemu-img
 }
 
+accel_set()
+{
+    if [ -r /dev/kvm ] && [ "$(uname -m)" = "${ARCH}" ]; then
+        ACCEL="kvm"
+    else
+        ACCEL="tcg"
+    fi
+}
+
 qemu_base()
 {
     QARGS=(-m 4096 -smp 2 -display none -monitor none -no-reboot)
@@ -221,7 +231,7 @@ qemu_base()
     # SSE4.2 时直接 exit_group(127)，内核随即 panic。QEMU 缺省机型的
     # qemu64 不含该基线，故必须显式指定 CPU：KVM 下透传宿主特性，
     # 纯软件模拟下取 TCG 支持的最大特性集。
-    if [ -r /dev/kvm ] && [ "$(uname -m)" = "${ARCH}" ]; then
+    if [ "${ACCEL}" = kvm ]; then
         QARGS+=(-accel kvm -cpu host)
     else
         QARGS+=(-cpu max)
@@ -393,6 +403,8 @@ manifest()
         printf 'iso %s %s\n' "$(iso_sum)" "$(basename "${ISO}")"
         printf 'arch=%s\nfirmware=%s\nruns=%s\nmax_boot=%s\n' \
             "${ARCH}" "${FIRMWARE}" "${RUNS}" "${MAX_BOOT:-auto}"
+        printf 'accel=%s\ninstall_timeout=%s\nboot_timeout=%s\n' \
+            "${ACCEL}" "${INSTALL_TIMEOUT}" "${BOOT_TIMEOUT}"
         for row in "${ROWS[@]}"; do
             printf 'run %s\n' "${row}"
         done
@@ -442,10 +454,11 @@ main()
         printf 'TAP version 14\n1..0 # SKIP QEMU toolchain unavailable\n'
         exit "${SKIP}"
     fi
+    accel_set
     legs_build
     printf 'TAP version 14\n1..%d\n' "$((RUNS * 2 * ${#LEGS[@]}))"
-    printf '# AirymaxOS install test: iso=%s arch=%s firmware=%s runs=%s\n' \
-        "$(basename "${ISO}")" "${ARCH}" "${FIRMWARE}" "${RUNS}"
+    printf '# AirymaxOS install test: iso=%s arch=%s firmware=%s runs=%s accel=%s\n' \
+        "$(basename "${ISO}")" "${ARCH}" "${FIRMWARE}" "${RUNS}" "${ACCEL}"
     for fw in "${LEGS[@]}"; do
         run_leg "${fw}"
     done
