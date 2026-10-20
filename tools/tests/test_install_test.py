@@ -176,6 +176,24 @@ class InstallTestTest(unittest.TestCase):
         self.assertIn("install failure pattern", res.stderr)
         self.assertLess(elapsed, 30)
 
+    def test_install_post_fail_fast(self):
+        self.tools()
+        start = time.monotonic()
+        res = self.install("--runs", "1", "--install-timeout", "60",
+                           FAKE_QEMU_INSTALL_MODE="postfail")
+        elapsed = time.monotonic() - start
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("not ok 1", res.stdout)
+        self.assertIn("install failure pattern", res.stderr)
+        self.assertLess(elapsed, 30)
+
+    def test_gpu_device(self):
+        self.tools()
+        res = self.install("--runs", "1")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        args = self.qlog.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(args[args.index("-vga") + 1], "virtio")
+
     def test_install_marker_missing(self):
         self.tools()
         res = self.install("--runs", "1", FAKE_QEMU_INSTALL_MODE="nomarker")
@@ -334,6 +352,7 @@ class InstallTestTest(unittest.TestCase):
         self.assertIn("virt", args)
         self.assertIn("virtio-scsi-pci", args)
         self.assertIn("scsi-cd", args)
+        self.assertIn("virtio-gpu-pci", args)
         self.assertIn("AAVMF_CODE_4M.fd", args)
 
 

@@ -63,6 +63,23 @@ sudo
 %post --log=/root/airymax-post.log
 set -eu
 
+# --log 把本段输出重定向到目标系统文件，串口看不到任何内容；无头验收
+# （scripts/install-test.sh）读串口日志，故标记必须显式写 /dev/console。
+mark()
+{
+    local dev
+    printf '%s\n' "$*"
+    for dev in /dev/console /dev/ttyS0 /dev/ttyAMA0; do
+        [ -w "${dev}" ] || continue
+        if printf '%s\n' "$*" >"${dev}" 2>/dev/null; then
+            break
+        fi
+    done
+    return 0
+}
+
+trap 'rc=$?; [ "${rc}" -eq 0 ] || mark "AIRYMAX-INSTALL-FAIL rc=${rc}"' EXIT
+
 systemctl set-default multi-user.target
 systemctl enable sshd chronyd
 
@@ -78,7 +95,7 @@ systemctl enable sshd chronyd
 # root 只承担首次控制台接管：登录后强制修改初始口令
 chage -d 0 root
 
-echo "AirymaxOS minimal install complete (baseline $(date -u +%Y%m%d))"
+mark "AirymaxOS minimal install complete (baseline $(date -u +%Y%m%d))"
 %end
 
 reboot

@@ -83,6 +83,26 @@ airymaxos-system
 %post --log=/root/airymax-post.log
 set -eu
 
+# anaconda 把 --log 指定的文件作为本段的标准输出，脚本输出不会经过串口；
+# 无头验收（scripts/install-test.sh）只读串口日志，因此完成与失败标记必须
+# 显式写 /dev/console。内核按 console= 的注册顺序把 /dev/console 路由到
+# 最后一个可用控制台：x86_64 为 ttyS0，aarch64 为 ttyAMA0。
+mark()
+{
+    local dev
+    printf '%s\n' "$*"
+    for dev in /dev/console /dev/ttyS0 /dev/ttyAMA0; do
+        [ -w "${dev}" ] || continue
+        if printf '%s\n' "$*" >"${dev}" 2>/dev/null; then
+            break
+        fi
+    done
+    return 0
+}
+
+# 本段任一断言失败时补发失败标记，装机的失败判定不必等到超时。
+trap 'rc=$?; [ "${rc}" -eq 0 ] || mark "AIRYMAX-INSTALL-FAIL rc=${rc}"' EXIT
+
 # 1) 图形目标为默认（UKUI 会话经 lightdm 拉起）
 systemctl set-default graphical.target
 
@@ -118,7 +138,7 @@ chage -d 0 root
 #    `systemctl enable agentrt.target`（OS-OPS-010）。
 systemctl daemon-reload
 
-echo "AirymaxOS workstation install complete (baseline $(date -u +%Y%m%d))"
+mark "AirymaxOS workstation install complete (baseline $(date -u +%Y%m%d))"
 %end
 
 # ---- 收尾 ----

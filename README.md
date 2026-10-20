@@ -138,9 +138,15 @@ then cold-boots each installed disk and requires a serial boot marker
 without a kernel panic. The default marker is `login:`; `--boot-marker`
 replaces it, and the desktop image profile uses `AIRYMAX-DESKTOP-READY` to
 assert the UKUI session definition is executable and that lightdm and its
-greeter session are actually up; `AIRYMAX-DESKTOP-FAIL` is a built-in boot
-failure pattern. It emits TAP 14 and exits 77 when the QEMU toolchain is
-unavailable.
+greeter session are actually up; the acceptance profile uses
+`AIRYMAX-SMOKE-PASS`. `AIRYMAX-DESKTOP-FAIL`, `AIRYMAX-SMOKE-FAIL` and the
+install-time `AIRYMAX-INSTALL-FAIL` all fail the leg without waiting for
+the timeout. Because `%post --log=` sends script output to a file on the
+target system, kickstarts write these markers to `/dev/console` explicitly
+(ttyS0 on x86_64, ttyAMA0 on aarch64); that is what makes them observable
+on the serial line. Guests get `virtio-gpu` for DRM/KMS, as the kernel
+baseline only enables `DRM_VIRTIO_GPU`. It emits TAP 14 and exits 77 when
+the QEMU toolchain is unavailable.
 
 Recipes are validated at commit time; actual RPM builds happen only in the
 release workspace, never inside this repository.
