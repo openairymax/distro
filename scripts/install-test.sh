@@ -6,8 +6,12 @@
 # 每条固件腿、每一轮验证两件事：
 #   1. 安装：空 qcow2 从 ISO 引导，kickstart 执行完成并触发重启；
 #   2. 启动：安装后的磁盘冷启动到登录提示（或验收标记
-#      AIRYMAX-SMOKE-PASS），无内核 panic / 单元失败，且宿主机观测到的
-#      启动墙钟不超过 --max-boot 秒。
+#      AIRYMAX-SMOKE-PASS），无内核 panic / 单元失败。
+#
+# --max-boot 只约束 login: 腿：NFR-P-005 的 30s 口径是 systemd 到登录
+# 提示的冷启动。桌面腿与验收腿的标记由会话内冒烟上报产生，墙钟包含
+# 图形栈与会话初始化，不能用 30s 判定；未显式指定该选项时这两条腿
+# 取消墙钟上限，启动完成与否由 --boot-timeout 兜底。
 #
 # ISO 契约（190-distribution/03-installer-design.md §7.1）：
 #   镜像由 build-iso.sh 经 mkksiso 注入：kickstart 位于 /ks.cfg，引导配置
@@ -34,6 +38,7 @@ FIRMWARE="bios"
 INSTALL_TIMEOUT=3600
 BOOT_TIMEOUT=300
 MAX_BOOT=30
+MAX_BOOT_SET=0
 MARKER="install complete"
 BOOT_MARKER="login:"
 FW_DIR=""
@@ -61,7 +66,8 @@ usage()
   --firmware FW        bios、uefi 或 both，缺省 bios
   --install-timeout S  单轮安装超时秒数，缺省 3600
   --boot-timeout S     单轮启动硬超时秒数，缺省 300
-  --max-boot S         启动墙钟上限秒数，缺省 30
+  --max-boot S         启动墙钟上限秒数，缺省 30；仅 login: 腿生效，
+                       桌面/验收标记腿缺省不设上限
   --marker TEXT        %post 完成标记，缺省 "install complete"
   --boot-marker TEXT   启动完成标记，缺省 "login:"
   --fw-dir DIR         优先在该目录探测 OVMF/AAVMF 固件
@@ -124,7 +130,8 @@ parse_args()
         --boot-timeout)
             optarg "$1" "$#"; need_num "$1" "$2"; BOOT_TIMEOUT="$2"; shift 2 ;;
         --max-boot)
-            optarg "$1" "$#"; need_num "$1" "$2"; MAX_BOOT="$2"; shift 2 ;;
+            optarg "$1" "$#"; need_num "$1" "$2"
+            MAX_BOOT="$2"; MAX_BOOT_SET=1; shift 2 ;;
         --marker) optarg "$1" "$#"; MARKER="$2"; shift 2 ;;
         --boot-marker) optarg "$1" "$#"; BOOT_MARKER="$2"; shift 2 ;;
         --fw-dir) optarg "$1" "$#"; FW_DIR="$2"; shift 2 ;;
@@ -135,6 +142,9 @@ parse_args()
     [ -n "${ISO}" ] || die "--iso 必填"
     [ -f "${ISO}" ] || die "ISO 不存在: ${ISO}"
     [ "${RUNS}" -ge 1 ] || die "--runs 必须大于 0"
+    if [ "${MAX_BOOT_SET}" -eq 0 ] && [ "${BOOT_MARKER}" != "login:" ]; then
+        MAX_BOOT=""
+    fi
 }
 
 fw_probe()
@@ -324,7 +334,7 @@ boot_run()
     2) printf 'boot failure pattern in run-%s-%s/boot.log\n' "${fw}" "${n}" >&2; return 1 ;;
     *) printf 'boot incomplete in run-%s-%s/boot.log\n' "${fw}" "${n}" >&2; return 1 ;;
     esac
-    if [ "${BOOT_S}" -gt "${MAX_BOOT}" ]; then
+    if [ -n "${MAX_BOOT}" ] && [ "${BOOT_S}" -gt "${MAX_BOOT}" ]; then
         printf 'boot run %s-%s took %ss > %ss\n' "${fw}" "${n}" \
             "${BOOT_S}" "${MAX_BOOT}" >&2
         return 1
@@ -353,7 +363,7 @@ manifest()
         printf '# AirymaxOS install test manifest\n'
         printf 'iso %s %s\n' "$(iso_sum)" "$(basename "${ISO}")"
         printf 'arch=%s\nfirmware=%s\nruns=%s\nmax_boot=%s\n' \
-            "${ARCH}" "${FIRMWARE}" "${RUNS}" "${MAX_BOOT}"
+            "${ARCH}" "${FIRMWARE}" "${RUNS}" "${MAX_BOOT:-auto}"
         for row in "${ROWS[@]}"; do
             printf 'run %s\n' "${row}"
         done

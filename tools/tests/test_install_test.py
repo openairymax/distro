@@ -184,6 +184,16 @@ class InstallTestTest(unittest.TestCase):
                            "--boot-marker", "AIRYMAX-DESKTOP-READY")
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertIn("ok 2", res.stdout)
+        self.assertIn("max_boot=auto", self.manifest())
+
+    def test_desktop_boot_cap(self):
+        self.tools()
+        res = self.install("--runs", "1", "--max-boot", "0",
+                           "--boot-marker", "AIRYMAX-DESKTOP-READY",
+                           FAKE_QEMU_BOOT_MODE="desktop-slow")
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("not ok 2", res.stdout)
+        self.assertIn("took", res.stderr)
 
     def test_desktop_marker_missing(self):
         self.tools()
@@ -209,6 +219,7 @@ class InstallTestTest(unittest.TestCase):
                            FAKE_QEMU_BOOT_MODE="smoke-pass")
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertIn("ok 2", res.stdout)
+        self.assertIn("max_boot=auto", self.manifest())
 
     def test_smoke_marker_missing(self):
         self.tools()

@@ -177,6 +177,8 @@ panic) printf 'Kernel panic - not syncing\\n' > "$log" ;;
 failed) printf '[FAILED] Failed to start airy.service\\n' > "$log" ;;
 nomarker) printf 'booting\\n' > "$log" ;;
 slow) sleep 2; printf 'login:\\n' > "$log" ;;
+desktop-slow) sleep 2
+    printf 'AirymaxOS login:\\nAIRYMAX-DESKTOP-READY unit=lightdm\\n' > "$log" ;;
 hang) printf 'booting\\n' > "$log"; exec sleep 60 ;;
 esac
 exit 0
