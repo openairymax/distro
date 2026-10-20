@@ -253,6 +253,11 @@ if [ "$boot" = "order=d" ]; then
     nomarker) printf 'installing\\n' > "$log"; exit 0 ;;
     postfail) printf 'AIRYMAX-INSTALL-FAIL rc=1\\n' > "$log"; exec sleep 60 ;;
     panic) printf 'Kernel panic - not syncing\\n' > "$log"; exec sleep 60 ;;
+    scriptlet) printf '正在配置 firewalld.noarch\\n' > "$log"
+        printf 'Error in POSTTRANS scriptlet in rpm package firewalld\\n' \\
+            >> "$log"
+        printf '按 ENTER 退出:\\n' >> "$log"; exec sleep 60 ;;
+    hang) printf '正在配置 firewalld.noarch\\n' > "$log"; exec sleep 60 ;;
     esac
     printf 'install complete\\n' > "$log"
     [ -n "$nv" ] && printf 'BOOTENTRY\\n' >> "$nv"

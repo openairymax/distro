@@ -8,6 +8,9 @@
 #   2. 启动：安装后的磁盘冷启动到登录提示（或验收标记
 #      AIRYMAX-SMOKE-PASS），无内核 panic / 单元失败。
 #
+# 安装腿失败时该轮启动腿直接判负并跳过，不在无引导盘上空转；两条腿
+# 每 30 秒回显一次串口尾行，便于失败现场在 CI 日志中直接可读。
+#
 # --max-boot 只约束 login: 腿：NFR-P-005 的 30s 口径是 systemd 到登录
 # 提示的冷启动。桌面腿与验收腿的标记由会话内冒烟上报产生，墙钟包含
 # 图形栈与会话初始化，不能用 30s 判定；未显式指定该选项时这两条腿
@@ -28,6 +31,13 @@ readonly EINVAL=5
 readonly DISTRO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 readonly BOOT_FAIL='Kernel panic|Failed to start|Welcome to emergency mode|dracut-initqueue.*timeout|AIRYMAX-DESKTOP-FAIL|AIRYMAX-SMOKE-FAIL'
 readonly INST_FAIL='Kernel panic|Fatal glibc error|dracut-initqueue.*timeout|AIRYMAX-INSTALL-FAIL'
+# rpm 事务级错误（scriptlet 非零退出、依赖解析失败）会让 anaconda 停在
+# “按 ENTER 退出:” 等待输入而不退出进程，必须与安装失败标记同等判负。
+RPM_FAIL='Error in (PREIN|POSTIN|PREUN|POSTUN|PRETRANS|POSTTRANS|'
+RPM_FAIL="${RPM_FAIL}TRIGGERIN|TRIGGERUN|TRIGGERPOSTUN) scriptlet|"
+RPM_FAIL="${RPM_FAIL}An error occurred during the transaction"
+readonly RPM_FAIL
+readonly INST_ERR="${INST_FAIL}|${RPM_FAIL}"
 
 . "${DISTRO_ROOT}/scripts/lib/outdir.sh"
 
@@ -40,6 +50,8 @@ INSTALL_TIMEOUT=3600
 BOOT_TIMEOUT=300
 MAX_BOOT=30
 MAX_BOOT_SET=0
+PROGRESS_EVERY=30
+PROG_AT=0
 MARKER="install complete"
 BOOT_MARKER="login:"
 FW_DIR=""
@@ -279,16 +291,34 @@ fw_args()
             -drive "if=pflash,format=raw,file=${vars}")
 }
 
+log_tail()
+{
+    tail -c 600 "$1" 2>/dev/null | tr '\r' '\n' |
+        sed 's/\x1b\[[0-9;]*[A-Za-z]//g' |
+        grep -av '^[[:space:]]*$' | tail -n 1
+}
+
+progress()
+{
+    local log="$1" elapsed="$2"
+    [ "${elapsed}" -ge "${PROG_AT}" ] || return 0
+    printf '# %s +%ss: %.110s\n' "$(basename "$(dirname "${log}")")" \
+        "${elapsed}" "$(log_tail "${log}")"
+    PROG_AT=$((elapsed + PROGRESS_EVERY))
+}
+
 wait_inst()
 {
-    local log="$1" pid="$2" deadline="$3"
+    local log="$1" pid="$2" deadline="$3" start="$4" now
     while :; do
-        grep -qE "${INST_FAIL}" "${log}" 2>/dev/null && return 2
+        grep -qE "${INST_ERR}" "${log}" 2>/dev/null && return 2
         if ! kill -0 "${pid}" 2>/dev/null; then
             wait "${pid}" 2>/dev/null
             return $?
         fi
-        [ "$(date +%s)" -lt "${deadline}" ] || return 1
+        now=$(date +%s)
+        [ "${now}" -lt "${deadline}" ] || return 3
+        progress "${log}" "$((now - start))"
         sleep 1
     done
 }
@@ -308,21 +338,27 @@ install_run()
     QARGS+=(-boot order=d -netdev user,id=n0 -device virtio-net-pci,netdev=n0
             -serial "file:${log}")
     start=$(date +%s)
+    PROG_AT=${PROGRESS_EVERY}
     "${QEMU}" "${QARGS[@]}" >/dev/null 2>&1 &
     pid=$!
-    wait_inst "${log}" "${pid}" "$((start + INSTALL_TIMEOUT))"
+    wait_inst "${log}" "${pid}" "$((start + INSTALL_TIMEOUT))" "${start}"
     rc=$?
     stop_qemu "${pid}"
-    if [ "${rc}" -eq 2 ]; then
-        printf 'install failure pattern in run-%s-%s/install.log\n' "${fw}" "${n}" >&2
-        return 1
-    fi
     if [ "${rc}" -ne 0 ]; then
-        printf 'install run %s-%s exited rc=%s\n' "${fw}" "${n}" "${rc}" >&2
+        case "${rc}" in
+        2) printf 'install failure pattern in run-%s-%s/install.log\n' \
+               "${fw}" "${n}" >&2 ;;
+        3) printf 'install timeout in run-%s-%s after %ss\n' \
+               "${fw}" "${n}" "$(($(date +%s) - start))" >&2 ;;
+        *) printf 'install run %s-%s exited rc=%s\n' "${fw}" "${n}" "${rc}" >&2 ;;
+        esac
+        printf '#   serial tail: %.200s\n' "$(log_tail "${log}")" >&2
         return 1
     fi
     grep -q "${MARKER}" "${log}" 2>/dev/null ||
-        { printf 'marker missing in run-%s-%s/install.log\n' "${fw}" "${n}" >&2; return 1; }
+        { printf 'marker missing in run-%s-%s/install.log\n' "${fw}" "${n}" >&2
+          printf '#   serial tail: %.200s\n' "$(log_tail "${log}")" >&2
+          return 1; }
 }
 
 probe_log()
@@ -334,7 +370,7 @@ probe_log()
 
 wait_marker()
 {
-    local log="$1" pid="$2" deadline="$3" rc
+    local log="$1" pid="$2" deadline="$3" start="$4" rc now
     while :; do
         probe_log "${log}"
         rc=$?
@@ -346,7 +382,9 @@ wait_marker()
             probe_log "${log}"
             return $?
         fi
-        [ "$(date +%s)" -lt "${deadline}" ] || return 1
+        now=$(date +%s)
+        [ "${now}" -lt "${deadline}" ] || return 1
+        progress "${log}" "$((now - start))"
         sleep 1
     done
 }
@@ -368,17 +406,23 @@ boot_run()
     dev_disk "${disk}"
     QARGS+=(-boot order=c -serial "file:${log}")
     start=$(date +%s)
+    PROG_AT=${PROGRESS_EVERY}
     "${QEMU}" "${QARGS[@]}" >/dev/null 2>&1 &
     pid=$!
-    wait_marker "${log}" "${pid}" "$((start + BOOT_TIMEOUT))"
+    wait_marker "${log}" "${pid}" "$((start + BOOT_TIMEOUT))" "${start}"
     code=$?
     stop_qemu "${pid}"
     now=$(date +%s)
     BOOT_S=$((now - start))
     case "${code}" in
     0) ;;
-    2) printf 'boot failure pattern in run-%s-%s/boot.log\n' "${fw}" "${n}" >&2; return 1 ;;
-    *) printf 'boot incomplete in run-%s-%s/boot.log\n' "${fw}" "${n}" >&2; return 1 ;;
+    2) printf 'boot failure pattern in run-%s-%s/boot.log\n' "${fw}" "${n}" >&2
+       printf '#   serial tail: %.200s\n' "$(log_tail "${log}")" >&2
+       return 1 ;;
+    *) printf 'boot incomplete in run-%s-%s/boot.log after %ss\n' \
+           "${fw}" "${n}" "${BOOT_S}" >&2
+       printf '#   serial tail: %.200s\n' "$(log_tail "${log}")" >&2
+       return 1 ;;
     esac
     if [ -n "${MAX_BOOT}" ] && [ "${BOOT_S}" -gt "${MAX_BOOT}" ]; then
         printf 'boot run %s-%s took %ss > %ss\n' "${fw}" "${n}" \
@@ -423,28 +467,43 @@ manifest()
     } >"${OUT}/install-manifest.txt"
 }
 
+leg_boot()
+{
+    local fw="$1" n="$2" id="$3" skip="$4"
+    if [ "${skip}" -ne 0 ]; then
+        tap_fail "${id}" "boot ${fw} run ${n}" "skipped: install failed"
+        ROWS+=("${fw} run=${n} boot=skip")
+    elif boot_run "${fw}" "${n}"; then
+        tap_ok "${id}" "boot ${fw} run ${n} ${BOOT_S}s"
+        ROWS+=("${fw} run=${n} boot=pass boot_s=${BOOT_S}")
+    else
+        tap_fail "${id}" "boot ${fw} run ${n}" "see ${OUT}/run-${fw}-${n}"
+        ROWS+=("${fw} run=${n} boot=fail")
+    fi
+}
+
+leg_run()
+{
+    local fw="$1" n="$2" id skip=0
+    id=$((TOTAL + 1))
+    if install_run "${fw}" "${n}"; then
+        tap_ok "${id}" "install ${fw} run ${n}"
+        ROWS+=("${fw} run=${n} install=pass")
+    else
+        skip=1
+        tap_fail "${id}" "install ${fw} run ${n}" "see ${OUT}/run-${fw}-${n}"
+        ROWS+=("${fw} run=${n} install=fail")
+    fi
+    TOTAL=$((TOTAL + 1))
+    leg_boot "${fw}" "${n}" "$((TOTAL + 1))" "${skip}"
+    TOTAL=$((TOTAL + 1))
+}
+
 run_leg()
 {
-    local fw="$1" n id
+    local fw="$1" n
     for n in $(seq 1 "${RUNS}"); do
-        id=$((TOTAL + 1))
-        if install_run "${fw}" "${n}"; then
-            tap_ok "${id}" "install ${fw} run ${n}"
-            ROWS+=("${fw} run=${n} install=pass")
-        else
-            tap_fail "${id}" "install ${fw} run ${n}" "see ${OUT}/run-${fw}-${n}"
-            ROWS+=("${fw} run=${n} install=fail")
-        fi
-        TOTAL=$((TOTAL + 1))
-        id=$((TOTAL + 1))
-        if boot_run "${fw}" "${n}"; then
-            tap_ok "${id}" "boot ${fw} run ${n} ${BOOT_S}s"
-            ROWS+=("${fw} run=${n} boot=pass boot_s=${BOOT_S}")
-        else
-            tap_fail "${id}" "boot ${fw} run ${n}" "see ${OUT}/run-${fw}-${n}"
-            ROWS+=("${fw} run=${n} boot=fail")
-        fi
-        TOTAL=$((TOTAL + 1))
+        leg_run "${fw}" "${n}"
     done
 }
 

@@ -187,6 +187,40 @@ class InstallTestTest(unittest.TestCase):
         self.assertIn("install failure pattern", res.stderr)
         self.assertLess(elapsed, 30)
 
+    def test_install_scriptlet_fast(self):
+        self.tools()
+        start = time.monotonic()
+        res = self.install("--runs", "1", "--install-timeout", "60",
+                           FAKE_QEMU_INSTALL_MODE="scriptlet")
+        elapsed = time.monotonic() - start
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("not ok 1", res.stdout)
+        self.assertIn("install failure pattern", res.stderr)
+        self.assertIn("按 ENTER 退出", res.stderr)
+        self.assertLess(elapsed, 30)
+
+    def test_install_timeout(self):
+        self.tools()
+        start = time.monotonic()
+        res = self.install("--runs", "1", "--install-timeout", "2",
+                           FAKE_QEMU_INSTALL_MODE="hang")
+        elapsed = time.monotonic() - start
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("not ok 1", res.stdout)
+        self.assertIn("install timeout", res.stderr)
+        self.assertLess(elapsed, 15)
+
+    def test_install_fail_skips_boot(self):
+        self.tools()
+        res = self.install("--runs", "1", FAKE_QEMU_INSTALL_MODE="fail")
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("not ok 2", res.stdout)
+        self.assertIn("skipped: install failed", res.stdout)
+        self.assertIn("run bios run=1 boot=skip", self.manifest())
+        self.assertFalse((self.out / "run-bios-1" / "boot.log").exists())
+        self.assertEqual(self.qlog.read_text(encoding="utf-8").count("-serial"),
+                         1)
+
     def test_gpu_device(self):
         self.tools()
         res = self.install("--runs", "1")
