@@ -31,7 +31,9 @@ lockfile 冻结点（滚动触发） × 内核 RPM（6.6-airymax.n）
   `build-desktop.sh` 组装离线仓库；minimal 产物在 `DIR/iso/` 与
   `DIR/payload/`，desktop 在 `DIR/desktop/`），`--rpms` 为离线仓库补充
   RPM 目录（跳过构建段时必须显式给出，两剖面通用），
-  `--firmware bios|uefi|both` 选择固件腿，`--max-boot` 设定启动墙钟上限。
+  `--firmware bios|uefi|both` 选择固件腿，`--max-boot` 设定启动墙钟上限
+  （缺省不传：login 腿按 30s 判定，桌面/验收标记腿不设上限，由
+  `--boot-timeout` 兜底）。
   desktop 剖面把启动段标记切换为 `AIRYMAX-DESKTOP-READY`：该标记由
   `airymax-desktop-ready.service` 在 UKUI 会话定义可执行、lightdm 单元
   active 且存在 Service=lightdm、Class=greeter、Type=x11 的活动会话后

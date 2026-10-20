@@ -43,7 +43,7 @@ JOBS=""
 KERNEL=""
 INSTALL_TIMEOUT=3600
 BOOT_TIMEOUT=300
-MAX_BOOT=30
+MAX_BOOT=""
 SPEC_DIRS=()
 SRC_DIRS=()
 RPMS_DIRS=()
@@ -86,7 +86,8 @@ usage()
   --jobs N           并行度，缺省由子驱动决定
   --install-timeout S  装机超时秒数，缺省 3600
   --boot-timeout S     启动硬超时秒数，缺省 300
-  --max-boot S         启动墙钟上限秒数，缺省 30
+  --max-boot S         启动墙钟上限秒数；缺省不传，交给 install-test.sh
+                       按 boot marker 决定（login: 腿 30s，GUI 腿不设上限）
   --skip-rpms        跳过 RPM 构建段
   --skip-kernel      跳过内核构建段
   --skip-iso         跳过 ISO 组装段（需配合 --iso）
@@ -422,7 +423,8 @@ inst_args()
     INST_ARGS=(--iso "${ISO}" --out "${OUT}/install" --arch "${ARCH}"
                --firmware "${FIRMWARE}" --runs "${RUNS}"
                --install-timeout "${INSTALL_TIMEOUT}"
-               --boot-timeout "${BOOT_TIMEOUT}" --max-boot "${MAX_BOOT}")
+               --boot-timeout "${BOOT_TIMEOUT}")
+    [ -n "${MAX_BOOT}" ] && INST_ARGS+=(--max-boot "${MAX_BOOT}")
     if [ "${ACCEPTANCE}" -eq 1 ]; then
         INST_ARGS+=(--boot-marker AIRYMAX-SMOKE-PASS)
     elif [ "${PROFILE}" = desktop ]; then
@@ -468,7 +470,7 @@ manifest()
     {
         printf '# AirymaxOS image CI manifest\n'
         printf 'arch=%s\nprofile=%s\nfirmware=%s\nruns=%s\nmax_boot=%s\n' \
-            "${ARCH}" "${PROFILE}" "${FIRMWARE}" "${RUNS}" "${MAX_BOOT}"
+            "${ARCH}" "${PROFILE}" "${FIRMWARE}" "${RUNS}" "${MAX_BOOT:-auto}"
         printf 'acceptance=%s\n' "${ACCEPTANCE}"
         printf 'source_date_epoch=%s\n' "${sde:-unset}"
         for row in "${ROWS[@]}"; do
