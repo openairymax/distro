@@ -26,6 +26,7 @@ DISTRO = SCRIPT.parent.parent
 BASH = shutil.which("bash") or "/bin/bash"
 KS = DISTRO / "kickstart" / "airymaxos-workstation.ks"
 COMPS = DISTRO / "comps" / "airymaxos-comps.xml"
+APP_OFF = 16 * 2048 + 883
 
 CLOSURE = (
     "airymaxos-release-0.0.3-1.noarch.rpm",
@@ -211,7 +212,8 @@ class BuildDesktopTest(unittest.TestCase):
         body = iso.read_text(encoding="utf-8")
         self.assertIn("=== /airymax/payload-manifest.txt", body)
         self.assertIn("=== /airymax/Packages/repodata/repomd.xml", body)
-        self.assertIn("IMPLANTED", body)
+        app = iso.read_bytes()[APP_OFF:APP_OFF + 512].decode("latin-1")
+        self.assertRegex(app, r"ISO MD5SUM = [0-9a-f]{32}")
 
     def test_extra_add(self):
         self.tools()
