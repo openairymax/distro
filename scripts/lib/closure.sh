@@ -12,6 +12,10 @@
 # @core 组：配方不写它，安装器却必然安装它。排除项同样照搬配方，
 # 让两端的求解条件一致。
 #
+# 配方里的 @^环境 只对 anaconda 成立，dnf 命令行会把 ^ 当组名的一部分。
+# 因此收割前按 comps 的 environment/grouplist 展开为 @组（ks_spec.py
+# pkgs --comps），与环境安装读同一份定义。
+#
 # 调用约定：
 #   closure_fetch KS ARCH PKGDIR WORK LOG
 #                    新增包数写入 CL_NEW；收割到的文件名追加到调用方的
@@ -25,6 +29,7 @@
 CL_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 readonly CL_ROOT
 readonly CL_SPEC="${CL_ROOT}/tools/ks_spec.py"
+readonly CL_COMPS="${CL_ROOT}/comps/airymaxos-comps.xml"
 readonly CL_VER="${CLOSURE_VER:-24.03}"
 readonly CL_CORE="@core"
 
@@ -61,7 +66,7 @@ closure_specs()
         install) CL_SPECS+=("$spec") ;;
         exclude) CL_EXCL+=("$spec") ;;
         esac
-    done < <(python3 "$CL_SPEC" pkgs "$1")
+    done < <(python3 "$CL_SPEC" pkgs --comps "$CL_COMPS" "$1")
     [ "${#CL_SPECS[@]}" -gt 0 ]
 }
 
