@@ -71,7 +71,8 @@
       <packagereq type="default">fcitx-libpinyin</packagereq>
       <packagereq type="default">fcitx-configtool</packagereq>
       <packagereq type="default">fcitx-qt5</packagereq>
-      <!-- 浏览器：TODO 由产品决策定（firefox 系 vs 自选），先按 openEuler 默认提供 -->
+      <!-- 浏览器：firefox 由 openEuler EPOL 提供，列为 optional，
+           默认安装集（mandatory + default）不含浏览器 -->
       <packagereq type="optional">firefox</packagereq>
     </packagelist>
     <!-- 会话/窗管/登录管理器/音频栈/分级冻结的唯一定义在核心组，

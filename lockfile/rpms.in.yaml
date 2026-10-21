@@ -1,0 +1,79 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
+# ===========================================================================
+# rpms.in.yaml — 上游 RPM 闭包的锁文件输入（rpm-lockfile-prototype）
+#
+# 职责边界（SSoT，三者互不重复）：
+#   本文件           上游仓库地址 + 需要冻结的包名（输入，人工评审）
+#   rpms.lock.yaml   解析后的全量 EVR 与校验和（输出，仅由生成器写入）
+#   ../repo/airymax-os.repo  运行期产品自有仓库，不参与冻结
+#
+# 仓库集合与 kickstart/airymaxos-workstation.ks 的 url/repo 行一一对应，
+# 连同 --cost 优先级一并保持同值；任一侧增删仓库都必须同步另一侧，否则
+# 装机闭包与冻结集漂移。包清单是 comps 中 airymax-workstation 环境闭包
+# （mandatory + default）在上游侧的子集：airymaxos-* 由本仓库 specs/ 构建、
+# 随 ISO 离线仓库分发，上游仓库中不存在，故只在 assumeProvides 声明其名，
+# 让求解器把这三项视为已满足，同时不把它们写进冻结集。
+# ===========================================================================
+contentOrigin:
+  repos:
+    # 基础仓库（kickstart 的 url 行）
+    - repoid: os
+      baseurl: https://repo.openeuler.org/openEuler-24.03-LTS-SP2/OS/$basearch/
+      gpgcheck: false
+    # 基础仓库勘误
+    - repoid: update
+      baseurl: https://repo.openeuler.org/openEuler-24.03-LTS-SP2/update/$basearch/
+      cost: 100
+      gpgcheck: false
+    # 扩展仓库：ukui、lightdm、ukui-greeter
+    - repoid: epol
+      baseurl: https://repo.openeuler.org/openEuler-24.03-LTS-SP2/EPOL/main/$basearch/
+      cost: 100
+      gpgcheck: false
+    # 扩展仓库勘误
+    - repoid: epol-update
+      baseurl: https://repo.openeuler.org/openEuler-24.03-LTS-SP2/EPOL/update/main/$basearch/
+      cost: 100
+      gpgcheck: false
+    # 桌面闭包补齐（qt5-qtgraphicaleffects 等仅发布于此）；cost 最高，
+    # 只作兜底，不得覆盖主仓库版本
+    - repoid: everything
+      baseurl: https://repo.openeuler.org/openEuler-24.03-LTS-SP2/everything/$basearch/
+      cost: 2000
+      gpgcheck: false
+
+packages:
+  # airymax-desktop-core：会话、窗管、登录管理器
+  - ukui
+  - xorg-x11-server
+  - lightdm
+  # airymax-desktop-core：图形工具、音频栈、驱动、授权
+  - xorg-x11-utils
+  - pulseaudio
+  - mesa-dri-drivers
+  - dbus-x11
+  - polkit
+  # airymax-desktop：基础应用与输入法
+  - peony
+  - mate-terminal
+  - fcitx
+  - fcitx-libpinyin
+  - fcitx-configtool
+  - fcitx-qt5
+
+assumeProvides:
+  # 本项目自建包，随 ISO 离线仓库提供，不存在于上游仓库
+  - airymaxos-release
+  - airymaxos-system
+  - airymaxos-kernel
+
+arches:
+  - x86_64
+
+context:
+  # 装机目标为空系统：按全新安装求解，不继承宿主已装包
+  bare: true
+
+# anaconda 默认安装 weak deps（Recommends），冻结集必须同口径，
+# 否则镜像里会出现锁文件之外的包
+installWeakDeps: true

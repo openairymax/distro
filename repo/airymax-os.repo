@@ -6,8 +6,8 @@
 # 设计口径：docs-linux/190-distribution/01-rpm-packaging.md §5.2
 # 目录布局：docs-linux/190-distribution/01-rpm-packaging.md §5.1
 #
-# 该文件同时是 lockfile 冻结的输入（lockfile/gen-lockfile.sh 通过
-# rpm-lockfile-prototype 读取本文件的仓库集合），因此仓库增删必须先改此处。
+# 该文件只面向已装系统的 dnf 客户端；安装期闭包与冻结集由
+# lockfile/rpms.in.yaml 声明，二者分属两层，互不复用。
 # ===========================================================================
 
 [airymaxos-base]

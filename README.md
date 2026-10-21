@@ -51,7 +51,7 @@ distro/
 ├── release/
 │   └── os-release                 # Release identity SSoT (VERSION_ID)
 ├── repo/
-│   └── airymax-os.repo            # DNF repo definitions (runtime + lockfile input)
+│   └── airymax-os.repo            # DNF repo definitions (runtime clients only)
 ├── specs/
 │   ├── macros.airymax             # FHS layout macros (/etc/rpm/macros.airymax)
 │   └── airymaxos-release.spec     # Distribution identity package
@@ -63,8 +63,9 @@ distro/
 │   └── airymaxos-comps.xml        # Package groups: airymax-desktop* → UKUI set
 ├── lockfile/
 │   ├── README.md                  # Freeze policy + freeze-point log
+│   ├── rpms.in.yaml               # Lockfile input: upstream repos + package set
 │   ├── gen-lockfile.sh            # Lockfile generator (release workspace only)
-│   └── lockfile-openEuler-24.03-LTS-SP2.yaml
+│   └── lock_check.py              # Offline verify/diff over a generated lockfile
 ├── ostree/
 │   ├── README.md                  # rpm-ostree compose workflow
 │   └── airymaxos-workstation.treefile
