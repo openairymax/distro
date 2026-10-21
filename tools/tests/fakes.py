@@ -235,9 +235,9 @@ case " $specs " in
 *" @airymax-desktop "*) ;;
 *) printf 'dnf: 缺 @airymax-desktop 组\\n' >&2; exit 15 ;;
 esac
-case "$specs" in
-*"@core"*) ;;
-*) printf 'dnf: 缺 @core 组\\n' >&2; exit 11 ;;
+case " $specs " in
+*" @airymax-core "*) ;;
+*) printf 'dnf: 缺 @airymax-core 组\\n' >&2; exit 11 ;;
 esac
 case "$excl" in
 *kernel*) ;;

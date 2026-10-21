@@ -34,7 +34,7 @@ network --bootproto=dhcp --activate
 rootpw --iscrypted $6$testsalt$hash
 user --name=demo --iscrypted --password=$6$testsalt2$hash
 %packages
-@core
+@airymax-core
 airymaxos-kernel
 -kernel
 -kernel-tools
@@ -55,7 +55,7 @@ USER = "user --name=demo --iscrypted --password=$6$testsalt2$hash"
 DESKTOP = (VALID
            .replace("https://example.invalid/os/",
                     "https://example.invalid/os/$basearch/")
-           .replace("@core", "@^airymax-workstation")
+           .replace("@airymax-core", "@^airymax-workstation")
            .replace("bootloader",
                     "repo --name=update --baseurl=https://example.invalid/u/"
                     "$basearch/\n"
@@ -70,7 +70,7 @@ DESKTOP = (VALID
 
 # 安装期姿态基线：安装源即载荷，桌面环境不再要求四个上游仓库
 OFFLINE = (VALID
-           .replace("@core", "@^airymax-workstation")
+           .replace("@airymax-core", "@^airymax-workstation")
            .replace("url --url=https://example.invalid/os/",
                     "url --url=file:///run/install/repo/airymax/Packages"))
 

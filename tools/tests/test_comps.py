@@ -26,6 +26,17 @@ VALID = """\
 <!DOCTYPE comps PUBLIC "-//Airymax//DTD Comps 1.0//EN" "comps.dtd">
 <comps>
   <group>
+    <id>airymax-core</id>
+    <name>AirymaxOS Base</name>
+    <default>true</default>
+    <uservisible>false</uservisible>
+    <packagelist>
+      <packagereq type="mandatory">grub2</packagereq>
+      <packagereq type="mandatory">grub2-tools</packagereq>
+      <packagereq type="mandatory">chrony</packagereq>
+    </packagelist>
+  </group>
+  <group>
     <id>airymax-demo</id>
     <name>AirymaxOS Demo</name>
     <default>false</default>
@@ -39,11 +50,25 @@ VALID = """\
     <name>AirymaxOS Demo Environment</name>
     <display_order>99</display_order>
     <grouplist>
+      <groupid>airymax-core</groupid>
       <groupid>airymax-demo</groupid>
     </grouplist>
   </environment>
 </comps>
 """
+
+DEMO_END = ('      <packagereq type="mandatory">demo</packagereq>\n'
+            '    </packagelist>\n  </group>\n')
+
+
+def demo_refs(*refs):
+    """在 demo 组末尾追加 grouplist，作为组引用类规则的单点变异基线。"""
+    body = "".join(f"      <groupid>{ref}</groupid>\n" for ref in refs)
+    return VALID.replace(
+        DEMO_END,
+        '      <packagereq type="mandatory">demo</packagereq>\n'
+        '    </packagelist>\n    <grouplist>\n' + body +
+        '    </grouplist>\n  </group>\n')
 
 
 class CompsLintTest(unittest.TestCase):
@@ -114,7 +139,7 @@ class CompsLintTest(unittest.TestCase):
     def test_pkg_dup(self):
         text = VALID.replace(
             "</packagelist>",
-            "  <packagereq type=\"optional\">demo</packagereq>\n"
+            "  <packagereq type=\"optional\">grub2</packagereq>\n"
             "    </packagelist>", 1)
         self.assertIn("C006", self.codes(text))
 
@@ -142,27 +167,13 @@ class CompsLintTest(unittest.TestCase):
         self.assertIn("C007", self.codes(text))
 
     def test_group_ref(self):
-        text = VALID.replace(
-            "    </packagelist>\n  </group>",
-            "    </packagelist>\n    <grouplist>\n"
-            "      <groupid>airymax-gone</groupid>\n"
-            "    </grouplist>\n  </group>")
-        self.assertIn("C007", self.codes(text))
+        self.assertIn("C007", self.codes(demo_refs("airymax-gone")))
 
     def test_group_self_ref(self):
-        text = VALID.replace(
-            "    </packagelist>\n  </group>",
-            "    </packagelist>\n    <grouplist>\n"
-            "      <groupid>airymax-demo</groupid>\n"
-            "    </grouplist>\n  </group>")
-        self.assertIn("C007", self.codes(text))
+        self.assertIn("C007", self.codes(demo_refs("airymax-demo")))
 
     def test_group_cycle(self):
-        text = VALID.replace(
-            "    </packagelist>\n  </group>",
-            "    </packagelist>\n    <grouplist>\n"
-            "      <groupid>airymax-demo-two</groupid>\n"
-            "    </grouplist>\n  </group>")
+        text = demo_refs("airymax-demo-two")
         peer = """\
   <group>
     <id>airymax-demo-two</id>
@@ -184,17 +195,32 @@ class CompsLintTest(unittest.TestCase):
         self.assertIn("C008", self.codes(text))
 
     def test_ks_env_syntax(self):
-        self.ks("%packages\n@airymax-demo-env\n%end\n")
-        self.assertIn("C009", self.codes())
+        self.ks("%packages --nocore\n@airymax-core\n"
+                "@airymax-demo-env\n%end\n")
+        self.assertEqual(self.codes(), ["C009"])
 
     def test_ks_undefined(self):
-        self.ks("%packages\n@airymax-missing\n%end\n")
-        self.assertIn("C009", self.codes())
+        self.ks("%packages --nocore\n@airymax-core\n"
+                "@airymax-missing\n%end\n")
+        self.assertEqual(self.codes(), ["C009"])
 
     def test_ks_ok(self):
-        self.ks("%packages\n@^airymax-demo-env\n@airymax-demo\n"
-                "kernel\n-xorg*\n%end\n")
+        self.ks("%packages --nocore\n@airymax-core\n@^airymax-demo-env\n"
+                "@airymax-demo\nkernel\n-xorg*\n%end\n")
         self.assertEqual(self.codes(), [])
+
+    def test_implicit_core(self):
+        self.ks("%packages\n@^airymax-demo-env\n%end\n")
+        self.assertIn("C012", self.codes())
+
+    def test_nocore_without_base(self):
+        self.ks("%packages --nocore\n@^airymax-demo-env\n%end\n")
+        self.assertEqual(self.codes(), ["C013"])
+
+    def test_core_needs(self):
+        text = VALID.replace(
+            '      <packagereq type="mandatory">chrony</packagereq>\n', "")
+        self.assertIn("C014", self.codes(text))
 
     def test_real_comps(self):
         base = Path(__file__).resolve().parents[2]
@@ -218,7 +244,8 @@ class CompsLintTest(unittest.TestCase):
         envs = {env.findtext("id"): env for env in root.findall("environment")}
         chosen = {ref.text for ref in envs["airymax-workstation"].findall(
             "grouplist/groupid")}
-        self.assertTrue({"airymax-desktop-core", "airymax-desktop"} <= chosen)
+        self.assertTrue({"airymax-core", "airymax-desktop-core",
+                         "airymax-desktop"} <= chosen)
 
 
 def _packages(group):

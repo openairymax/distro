@@ -8,9 +8,12 @@
 # 本库用 kickstart 声明的仓库表与包清单在构建容器内跑一次真实解析，
 # 把事务中的全部 RPM 收进载荷，使安装只读 file:// 仓库。
 #
-# 包规格来自 tools/ks_spec.py（SSoT），并补 anaconda 无条件追加的
-# @core 组：配方不写它，安装器却必然安装它。排除项同样照搬配方，
-# 让两端的求解条件一致。
+# 包规格来自 tools/ks_spec.py（SSoT）。配方以 %packages --nocore 关闭
+# anaconda 隐式追加的 @core，基础用户空间改由 airymax-core 组显式声明，
+# 因此两端求解条件一致。安装器在引导阶段又自行追加引导包
+# （pyanaconda/modules/storage/bootloader/efi.py），这些包不在包清单里，
+# 却必须能从载荷解析；EFI 包按架构区分而 kickstart 无法表达，故在此
+# 按架构补齐。排除项同样照搬配方。
 #
 # 配方里的 @^环境 只对 anaconda 成立，dnf 命令行会把 ^ 当组名的一部分。
 # 因此收割前按 comps 的 environment/grouplist 展开为 @组（ks_spec.py
@@ -40,7 +43,6 @@ readonly CL_ROOT
 readonly CL_SPEC="${CL_ROOT}/tools/ks_spec.py"
 readonly CL_COMPS="${CL_ROOT}/comps/airymaxos-comps.xml"
 readonly CL_VER="${CLOSURE_VER:-24.03}"
-readonly CL_CORE="@core"
 readonly CL_TRY="${CLOSURE_TRY:-3}"
 readonly CL_WAIT="${CLOSURE_WAIT:-10}"
 readonly -a CL_DNF_OPTS=(
@@ -54,6 +56,7 @@ readonly -a CL_DNF_OPTS=(
 CL_SPECS=()
 CL_EXCL=()
 CL_ARGS=()
+CL_BOOT=()
 CL_NEW=0
 
 cl_repos()
@@ -88,10 +91,23 @@ closure_specs()
     [ "${#CL_SPECS[@]}" -gt 0 ]
 }
 
+cl_boot()
+{
+    case "$1" in
+    x86_64) CL_BOOT=(grub2-efi-x64 shim-x64 efibootmgr) ;;
+    aarch64) CL_BOOT=(grub2-efi-aa64 shim-aa64 efibootmgr) ;;
+    *)
+        printf 'closure: 未定义引导包架构 %s\n' "$1" >&2
+        return 1
+        ;;
+    esac
+}
+
 cl_args()
 {
     local list
-    CL_ARGS=("${CL_SPECS[@]}" "$CL_CORE")
+    cl_boot "$1" || return 1
+    CL_ARGS=("${CL_SPECS[@]}" "${CL_BOOT[@]}")
     list="$(IFS=,; printf '%s' "${CL_EXCL[*]}")"
     if [ -n "$list" ]; then
         CL_ARGS+=("--exclude=${list}")
@@ -170,7 +186,7 @@ closure_fetch()
     cl_arch "$arch" || return 1
     cl_repos "$ks" "${work}/repos/closure.repo" || return 1
     closure_specs "$ks" || return 1
-    cl_args
+    cl_args "$arch" || return 1
     cl_try "$work" "$arch" "$pkg" "$log" || return 1
     cl_harvest "${work}/dl" "$pkg" || return 1
     cl_audit "${work}/dl" "$pkg" || return 1

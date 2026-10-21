@@ -71,7 +71,14 @@ user --name=airymax --groups=wheel --iscrypted --password=$6$airy003user0x01$s1J
 services --enabled=lightdm,airymax-desktop-ready
 
 # ---- 包组 ----
-%packages
+# --nocore 关闭 anaconda 隐式追加的 @core（selection.core_group_enabled
+# 默认 True）。载荷 comps 里没有上游 core 组，追加它会让安装器判定缺组，
+# 转入「是否继续」交互问句，无头安装随即失败。基础用户空间改由
+# airymax-core 组显式提供（comps/airymaxos-comps.xml），该组同时携带
+# 安装器无条件需要的 grub2、grub2-tools 与 chrony。
+%packages --nocore
+# 基础用户空间；显式选择而不只靠环境携带，配方自身即可判定（C013）
+@airymax-core
 # 环境选择用 @^（pykickstart 环境语法）；@ 表示组
 @^airymax-workstation
 airymaxos-kernel
@@ -79,12 +86,10 @@ airymaxos-kernel
 # 启用边界见 %post 注释
 airymaxos-system
 
-# 内核与发行版标识唯一：anaconda 无条件把 @core 追加进安装清单
-# （pyanaconda get_installation_specs），openEuler 的 @core mandatory 含
-# kernel、default 含 kernel-tools，并携带 openEuler-release 与
-# openEuler-latest-release。这些包与本产品 airymaxos-kernel /
-# airymaxos-release 争用同一组文件路径与虚拟能力，不排除时 dnf 只能按
-# 求解顺序二选一，装机结果不可判定（K017 强制）。
+# 内核与发行版标识唯一：上游包组（@core 及其派生）携带 kernel、
+# kernel-tools、openEuler-release 与 openEuler-latest-release，这些包与
+# 本产品 airymaxos-kernel / airymaxos-release 争用同一组文件路径与虚拟
+# 能力，不排除时 dnf 只能按求解顺序二选一，装机结果不可判定（K017 强制）。
 -kernel
 -kernel-tools
 -openEuler-release

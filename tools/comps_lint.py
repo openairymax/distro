@@ -6,7 +6,12 @@
 # 只依赖标准库。XML 结构由标准库解析，项目语义（组/环境标识、包名、
 # 布尔字段、组引用与嵌套环、环境到组的引用、kickstart 选择）逐项复核；
 # comps/comps.dtd 供 xmllint --valid 做 DTD 结构校验。规则编号
-# C001~C011 与 tools/tests/test_comps.py 一一对应。
+# C001~C014 与 tools/tests/test_comps.py 一一对应。
+#
+# C012~C014 锁住安装期事务的完整性：anaconda 在 %packages 未加
+# --nocore 时隐式追加 @core，并在引导阶段无条件追加 grub2、grub2-tools
+# 与时区 NTP 包。载荷 comps 缺任一项，装机就会停在「是否继续」问句，
+# 无头安装直接失败（0.0.3 首次 L2 装机即由此暴露）。
 #
 # 退出码：0 通过；1 存在问题；2 用法或读取错误。
 #
@@ -31,11 +36,17 @@ PKGNAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")
 TYPES = frozenset({"mandatory", "default", "optional", "conditional"})
 BOOL = frozenset({"true", "false"})
 
-# 上游身份包不得进入产品包组（C011）：anaconda 安装期无条件追加 @core，
-# kernel 与 openEuler-release 系列与本产品 airymaxos-kernel /
+# 上游身份包不得进入产品包组（C011）：上游 core 组的 mandatory 含 kernel，
+# 并携带 openEuler-release 系列，与本产品 airymaxos-kernel /
 # airymaxos-release 争用同一组文件路径和 system-release 能力，写进包组
 # 会让 dnf 按求解顺序二选一（kickstart 侧的对应约束见 K014/K017）。
 UPSTREAM = ("kernel", "openEuler-release", "openEuler-latest-release")
+
+# 基础系统组及其必须携带的安装器隐式需求（C013/C014）
+CORE = "airymax-core"
+CORE_REF = "@" + CORE
+CORE_NEEDS = ("grub2", "grub2-tools", "chrony")
+NOCORE = "--nocore"
 
 
 def text_of(node: ET.Element, tag: str) -> str:
@@ -169,6 +180,16 @@ def check_cycles(edges: dict[str, list[str]], lines: list[str],
             walk_cycle(gid, edges, state, [], lines, issues)
 
 
+def check_core(grp: ET.Element, gid: str,
+               lines: list[str], issues: list[Issue]) -> None:
+    kinds = {(req.text or "").strip(): req.get("type", "default")
+             for req in grp.findall("packagelist/packagereq")}
+    for name in CORE_NEEDS:
+        if kinds.get(name, "optional") == "optional":
+            issues.append(Issue("C014", tag_line(lines, "id", gid),
+                                f"group {gid}: {name} must be installed"))
+
+
 def check_groups(root: ET.Element, lines: list[str],
                  issues: list[Issue]) -> set[str]:
     gids: set[str] = set()
@@ -181,6 +202,8 @@ def check_groups(root: ET.Element, lines: list[str],
             continue
         grp_body(grp, gid, lines, issues)
         grp_pkgs(grp, gid, lines, issues)
+        if gid == CORE:
+            check_core(grp, gid, lines, issues)
         edges[gid] = grp_refs(grp, gid, gids, lines, issues)
     check_cycles(edges, lines, issues)
     return gids
@@ -244,18 +267,25 @@ def check_bools(root: ET.Element, lines: list[str],
             check_bool(grp, gid, tag, lines, issues)
 
 
-def ks_pkgs(lines: list[str]) -> list[tuple[int, str]]:
-    out: list[tuple[int, str]] = []
+Sect = tuple[int, str, list[tuple[int, str]]]
+
+
+def ks_sects(lines: list[str]) -> list[Sect]:
+    sects: list[Sect] = []
     live = False
+    head, opts, items = 1, "", []
     for num, raw in enumerate(lines, 1):
         line = raw.split("#", 1)[0].strip()
-        if line == "%packages":
-            live = True
-        elif line == "%end":
+        if line.startswith("%packages"):
+            live, head = True, num
+            opts = line[len("%packages"):].strip()
+            items = []
+        elif live and line == "%end":
+            sects.append((head, opts, items))
             live = False
         elif live and line:
-            out.append((num, line))
-    return out
+            items.append((num, line))
+    return sects
 
 
 def check_env_ref(ref: str, num: int, eids: set[str],
@@ -282,6 +312,19 @@ def check_ref(line: str, num: int, gids: set[str], eids: set[str],
         check_grp_ref(line[1:].strip(), num, gids, eids, issues)
 
 
+def check_base(name: str, sect: Sect, gids: set[str],
+               issues: list[Issue]) -> None:
+    head, opts, items = sect
+    if NOCORE in opts.split():
+        if CORE_REF not in [spec for _num, spec in items]:
+            issues.append(Issue("C013", head,
+                                f"{name}: %packages {NOCORE} without "
+                                f"{CORE_REF}"))
+    elif "core" not in gids:
+        issues.append(Issue("C012", head,
+                            f"{name}: implicit @core undefined in comps"))
+
+
 def walk_ks(base: Path, gids: set[str], eids: set[str],
             issues: list[Issue]) -> None:
     for path in sorted((base / "kickstart").glob("*.ks")):
@@ -290,8 +333,10 @@ def walk_ks(base: Path, gids: set[str], eids: set[str],
         except OSError as err:
             issues.append(Issue("C009", 1, f"cannot read {path.name}: {err}"))
             continue
-        for num, line in ks_pkgs(lines):
-            check_ref(line, num, gids, eids, issues)
+        for sect in ks_sects(lines):
+            check_base(path.name, sect, gids, issues)
+            for num, line in sect[2]:
+                check_ref(line, num, gids, eids, issues)
 
 
 def lint_text(text: str, base: Path) -> list[Issue]:

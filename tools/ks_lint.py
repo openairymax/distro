@@ -62,11 +62,11 @@ VENDOR_URL = "file:///run/install/repo/airymax/Packages"
 KERNEL_PKG = "airymaxos-kernel"
 KERNEL_STOCK = "kernel"
 
-# 上游身份包（K017）：anaconda 的 get_installation_specs() 无条件把 @core
-# 加入安装清单，openEuler 的 @core mandatory 含 kernel、default 含
-# kernel-tools，并携带 openEuler-release 与 openEuler-latest-release。
-# 它们与本产品 airymaxos-kernel / airymaxos-release 争用同一组文件路径和
-# system-release 能力，不排除时 dnf 只能按求解顺序二选一。
+# 上游身份包（K017）：桌面环境与上游包组会带入 kernel、kernel-tools
+# （上游 core 组 mandatory / default），并携带 openEuler-release 与
+# openEuler-latest-release。它们与本产品 airymaxos-kernel /
+# airymaxos-release 争用同一组文件路径和 system-release 能力，不排除时
+# dnf 只能按求解顺序二选一。
 UPSTREAM_EXCLUDES = ("-kernel", "-kernel-tools", "-openEuler-release",
                      "-openEuler-latest-release")
 
