@@ -625,17 +625,33 @@ printf '%s  %s\\n' \\
 
 SYSTEMCTL = """\
 #!/bin/sh
-cmd=""; unit=""; prop=""; quiet=0
+cmd=""; unit=""; props=""; quiet=0; value=0
 while [ $# -gt 0 ]; do
     case "$1" in
     show|is-active|list-units) cmd=$1 ;;
-    -p) shift; prop=$1 ;;
+    -p) shift; props="$props $1" ;;
+    --value) value=1 ;;
     -q|--quiet) quiet=1 ;;
     -*) ;;
     *) unit=$1 ;;
     esac
     shift
 done
+field()
+{
+    case "$1" in
+    Slice) printf '%s\\n' "${FAKE_SLICE:-airymax-desktop.slice}" ;;
+    CPUWeight) printf '%s\\n' "${FAKE_CPU:-50}" ;;
+    IOWeight) printf '%s\\n' "${FAKE_IO:-50}" ;;
+    TasksMax) printf '%s\\n' "${FAKE_TASKS:-40%}" ;;
+    ActiveState) printf '%s\\n' "${FAKE_ACTIVE_STATE:-active}" ;;
+    SubState) printf '%s\\n' "${FAKE_SUB_STATE:-running}" ;;
+    Result) printf '%s\\n' "${FAKE_RESULT:-success}" ;;
+    NRestarts) printf '%s\\n' "${FAKE_NRESTARTS:-0}" ;;
+    MainPID) printf '%s\\n' "${FAKE_MAIN_PID:-0}" ;;
+    *) return 1 ;;
+    esac
+}
 case "$cmd" in
 list-units)
     # --failed 的输出只有失败单元；FAKE_FAILED_UNITS 以空格分隔给出清单，
@@ -653,16 +669,27 @@ is-active)
     exit 3
     ;;
 show)
-    case "$prop" in
-    Slice) printf '%s\\n' "${FAKE_SLICE:-airymax-desktop.slice}" ;;
-    CPUWeight) printf '%s\\n' "${FAKE_CPU:-50}" ;;
-    IOWeight) printf '%s\\n' "${FAKE_IO:-50}" ;;
-    TasksMax) printf '%s\\n' "${FAKE_TASKS:-40%}" ;;
-    *) exit 1 ;;
-    esac
+    # systemd 按 -p 出现顺序逐个输出，--value 去掉属性名。多个 -p 累积，
+    # 与真实语义一致。
+    [ -n "$props" ] || exit 1
+    for prop in $props; do
+        val=$(field "$prop") || exit 1
+        if [ "$value" -eq 1 ]; then
+            printf '%s\\n' "$val"
+        else
+            printf '%s=%s\\n' "$prop" "$val"
+        fi
+    done
     ;;
 *) exit 1 ;;
 esac
+"""
+
+JOURNALCTL = """\
+#!/bin/sh
+[ -n "${FAKE_JOURNAL_FILE:-}" ] || exit 0
+[ -r "${FAKE_JOURNAL_FILE}" ] || exit 0
+cat "${FAKE_JOURNAL_FILE}"
 """
 
 

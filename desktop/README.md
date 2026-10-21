@@ -103,6 +103,14 @@ Class=greeter、Type=x11、State=active|online 的会话，才打印
 未在窗口内就绪则打印 `AIRYMAX-DESKTOP-FAIL unit=lightdm wait=<n>s`。
 两种失败都以非零退出码结束，由镜像 CI 的启动段判定失败。
 
+失败前探针会先输出若干 `AIRYMAX-DESKTOP-DIAG <类别> <内容>` 行，把归因
+证据带到串口：`unit`（lightdm 的 ActiveState/SubState/Result/NRestarts/
+MainPID）、`journal`（该单元本次启动的 journal 尾部）、`file=lightdm`
+（`/var/log/lightdm/lightdm.log`）、`file=greeter`（`seat0-greeter.log`）、
+`file=xorg`（`x-0.log`）、`wchan`（主进程阻塞点）。诊断只是观测通道，
+不参与判定、不改变退出码，每类证据默认最多 20 行（`AIRYMAX_DIAG_LINES`），
+缺失的证据直接跳过。`AIRYMAX-DESKTOP-FAIL` 始终是最后一行。
+
 探针只读系统状态，不写状态文件、不改配置，默认轮询 90s（2s 间隔），可用
 `AIRYMAX_READY_WAIT` / `AIRYMAX_READY_POLL` 调整。minimal 剖面停留在
 multi-user.target，不会触发该单元；workstation kickstart 显式 enable，
