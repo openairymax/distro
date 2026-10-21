@@ -12,6 +12,7 @@
 #   pkgs [--comps FILE] FILE   输出 <install|exclude>\t<规格>
 #   envs FILE                  输出配方引用的环境 <id>
 #   verify DIR --env ID        校验载荷仓库 comps 是否携带该环境及其组
+#   resolve DIR --comps FILE   校验载荷按包名解析 comps 的全部成员
 #   install FILE               输出安装期配方（安装源改指载荷，剔除网络仓库）
 #
 # 同一份配方表达两个姿态，投影是纯函数：
@@ -27,6 +28,9 @@
 #
 # verify 用在镜像组装之后：createrepo_c 重写 comps 时若丢弃 environment
 # 段，交互安装的软件选择与按环境解析都会失败，必须在出镜像前拒绝。
+# resolve 补上另一半：组内成员按包名匹配，不参与 provides 解析，写一个
+# 上游只有虚拟 provide 的名字（如 grub2）不会报错，而是整条静默丢弃，
+# 装机时才暴露成缺包（0.0.3 首次 L2 装机即由此失败）。
 # repomd.xml 带默认命名空间，comps 也可能带，XML 一律按本地名匹配，
 # 否则真实仓库会被误判成没有 group 数据。
 #
@@ -256,7 +260,7 @@ def expand_envs(rows: list[tuple[str, str]],
     return out
 
 
-def group_meta(pkgdir: Path) -> bytes:
+def meta_of(pkgdir: Path, kind: str) -> bytes:
     repomd = pkgdir / "repodata" / "repomd.xml"
     try:
         root = ET.parse(repomd).getroot()
@@ -265,18 +269,46 @@ def group_meta(pkgdir: Path) -> bytes:
     except ET.ParseError as err:
         raise ValueError(f"仓库索引解析失败: {err}") from err
     for data in _desc(root, "data"):
-        if data.get("type") != "group":
+        if data.get("type") != kind:
             continue
         loc = _kids(data, "location")
         href = loc[0].get("href") if loc else None
         if not href:
-            raise ValueError("仓库 group 元数据缺少 location")
+            raise ValueError(f"仓库 {kind} 元数据缺少 location")
         try:
             raw = (pkgdir / href).read_bytes()
         except OSError as err:
-            raise ValueError(f"仓库 group 元数据读取失败: {err}") from err
+            raise ValueError(f"仓库 {kind} 元数据读取失败: {err}") from err
         return gzip.decompress(raw) if raw[:2] == GZIP_MAGIC else raw
-    raise ValueError("仓库索引缺少 group 元数据")
+    raise ValueError(f"仓库索引缺少 {kind} 元数据")
+
+
+def group_meta(pkgdir: Path) -> bytes:
+    return meta_of(Path(pkgdir), "group")
+
+
+def pkg_names(pkgdir: Path) -> set[str]:
+    try:
+        root = ET.fromstring(meta_of(Path(pkgdir), "primary"))
+    except ET.ParseError as err:
+        raise ValueError(f"仓库 primary 元数据解析失败: {err}") from err
+    return {_text(node, "name") for node in _desc(root, "package")} - {""}
+
+
+def res_repo(pkgdir: Path, comps: Path) -> None:
+    """组内成员只按包名匹配（provides 不参与），缺一个就整组不落盘。"""
+    try:
+        root = ET.parse(comps).getroot()
+    except OSError as err:
+        raise ValueError(f"comps 读取失败: {err}") from err
+    except ET.ParseError as err:
+        raise ValueError(f"comps 解析失败: {err}") from err
+    want = {(node.text or "").strip()
+            for node in _desc(root, "packagereq")} - {""}
+    miss = sorted(want - pkg_names(Path(pkgdir)))
+    if miss:
+        raise ValueError("载荷缺少 comps 成员: " + " ".join(miss))
+    print(f"comps\t{len(want)}")
 
 
 def verify_repo(pkgdir: Path, env: str) -> None:
@@ -335,6 +367,9 @@ def parse(argv: list[str]) -> argparse.Namespace:
     ver = sub.add_parser("verify")
     ver.add_argument("--env", required=True)
     ver.add_argument("dir", type=Path)
+    res = sub.add_parser("resolve")
+    res.add_argument("--comps", required=True, type=Path)
+    res.add_argument("dir", type=Path)
     return ap.parse_args(argv)
 
 
@@ -343,6 +378,9 @@ def main(argv: list[str]) -> int:
     try:
         if args.cmd == "verify":
             verify_repo(args.dir, args.env)
+            return 0
+        if args.cmd == "resolve":
+            res_repo(args.dir, args.comps)
             return 0
         text = args.file.read_text(encoding="utf-8")
         if args.cmd == "repos":

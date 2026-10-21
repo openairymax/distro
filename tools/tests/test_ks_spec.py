@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 TOOLS = Path(__file__).resolve().parents[1]
@@ -44,6 +45,28 @@ def stage_repo(root, raw, gz=True):
         '<data type="group">'
         f'<location href="repodata/{name}"/></data></repomd>',
         encoding="utf-8")
+
+
+def stage_primary(root, names, gz=True):
+    """写只带 primary 元数据的最小仓库索引（repomd 带命名空间）。"""
+    repodata = Path(root) / "repodata"
+    repodata.mkdir(parents=True, exist_ok=True)
+    name = "primary.xml.gz" if gz else "primary.xml"
+    body = ("<metadata>" + "".join(
+        f'<package type="rpm"><name>{pkg}</name></package>'
+        for pkg in sorted(names)) + "</metadata>").encode("utf-8")
+    (repodata / name).write_bytes(gzip.compress(body) if gz else body)
+    (repodata / "repomd.xml").write_text(
+        '<repomd xmlns="http://linux.duke.edu/metadata/repo">'
+        '<data type="primary">'
+        f'<location href="repodata/{name}"/></data></repomd>',
+        encoding="utf-8")
+
+
+def comps_pkgs(path):
+    root = ET.parse(path).getroot()
+    return {node.text.strip() for node in root.iter("packagereq")
+            if node.text and node.text.strip()}
 
 
 class KsSpecTest(unittest.TestCase):
@@ -215,6 +238,43 @@ class KsSpecTest(unittest.TestCase):
                                   ENV, tmp], text=True, capture_output=True)
             self.assertEqual(res.returncode, 5)
             self.assertIn("缺少环境", res.stderr)
+
+    def test_cli_resolve_repo(self):
+        names = comps_pkgs(COMPS)
+        with tempfile.TemporaryDirectory() as tmp:
+            stage_primary(tmp, names)
+            res = subprocess.run([PYTHON, str(SCRIPT), "resolve", tmp,
+                                  "--comps", str(COMPS)],
+                                 text=True, capture_output=True)
+            self.assertEqual(res.returncode, 0, res.stderr)
+            self.assertEqual(res.stdout.splitlines(), [f"comps\t{len(names)}"])
+
+    def test_resolve_missing(self):
+        names = comps_pkgs(COMPS) - {"chrony"}
+        with tempfile.TemporaryDirectory() as tmp:
+            stage_primary(tmp, names)
+            res = subprocess.run([PYTHON, str(SCRIPT), "resolve", tmp,
+                                  "--comps", str(COMPS)],
+                                 text=True, capture_output=True)
+            self.assertEqual(res.returncode, 5)
+            self.assertIn("载荷缺少 comps 成员", res.stderr)
+            self.assertIn("chrony", res.stderr)
+
+    def test_resolve_virtual(self):
+        raw = COMPS.read_text(encoding="utf-8").replace(
+            '<packagereq type="mandatory">grub2-tools</packagereq>',
+            '<packagereq type="mandatory">grub2</packagereq>')
+        names = comps_pkgs(COMPS) - {"grub2-tools"} | {"grub2-pc"}
+        with tempfile.TemporaryDirectory() as tmp:
+            comps = Path(tmp) / "comps.xml"
+            comps.write_text(raw, encoding="utf-8")
+            stage_primary(tmp, names)
+            res = subprocess.run([PYTHON, str(SCRIPT), "resolve", tmp,
+                                  "--comps", str(comps)],
+                                 text=True, capture_output=True)
+            self.assertEqual(res.returncode, 5)
+            self.assertIn("载荷缺少 comps 成员: grub2\n", res.stderr)
+            self.assertNotIn("grub2-pc", res.stderr)
 
     def test_cli_rejects_bad_file(self):
         with tempfile.TemporaryDirectory() as tmp:

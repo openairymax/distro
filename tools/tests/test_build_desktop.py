@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import fakes
@@ -36,6 +37,24 @@ CLOSURE = (
     "airymaxos-kernel-core-6.6.0-1.x86_64.rpm",
     "airymaxos-kernel-modules-6.6.0-1.x86_64.rpm",
 )
+
+
+def comps_pkgs():
+    root = ET.parse(COMPS).getroot()
+    return {node.text.strip() for node in root.iter("packagereq")
+            if node.text and node.text.strip()}
+
+
+def rpm_name(name):
+    bits = name[:-4].rsplit(".", 1)[0].split("-")
+    return "-".join(bits[:-2]) if len(bits) >= 3 else name[:-4]
+
+
+# 伪 dnf 的事务是「comps 全量成员 + 一个非组成员」；本地仓库已有的包
+# 复用同一文件名，收割端按文件名去重，所以新增数就是组内尚未在载荷里的包。
+STOCK = {rpm_name(name) for name in CLOSURE}
+HARVEST = len(comps_pkgs() - STOCK)
+TOTAL = len(CLOSURE) + HARVEST
 
 
 class BuildDesktopTest(unittest.TestCase):
@@ -191,14 +210,13 @@ class BuildDesktopTest(unittest.TestCase):
                          FAKE_DNF_LOG=str(log))
         self.assertEqual(res.returncode, 0, res.stderr)
         pkgdir = self.out / "payload" / "airymax" / "Packages"
-        for name in ("ukui-clock-3.1.3-3.oe2403sp2.x86_64.rpm",
-                     "gstreamer1-plugins-good-1.20.3-6.oe2403sp2.x86_64.rpm"):
+        for name in ("ukui-1.0-1.noarch.rpm", "grub2-tools-1.0-1.noarch.rpm"):
             self.assertTrue((pkgdir / name).is_file())
-        self.assertIn("闭包收割: 新增 2", res.stdout)
+        self.assertIn(f"闭包收割: 新增 {HARVEST}", res.stdout)
         manifest = (self.out / "payload" / "airymax" /
                     "payload-manifest.txt").read_text(encoding="utf-8")
-        self.assertIn("count=7", manifest)
-        self.assertIn("ukui-clock", manifest)
+        self.assertIn(f"count={TOTAL}", manifest)
+        self.assertIn("grub2-tools", manifest)
         specs = log.read_text(encoding="utf-8")
         self.assertIn("@airymax-core", specs)
         self.assertIn("@airymax-desktop-core", specs)
@@ -234,7 +252,7 @@ class BuildDesktopTest(unittest.TestCase):
                          FAKE_DNF_MODE="flaky", FAKE_DNF_FAILS="1",
                          FAKE_DNF_STATE=str(state), CLOSURE_WAIT="0")
         self.assertEqual(res.returncode, 0, res.stderr)
-        self.assertIn("闭包收割: 新增 2", res.stdout)
+        self.assertIn(f"闭包收割: 新增 {HARVEST}", res.stdout)
         self.assertEqual(state.read_text(encoding="utf-8").strip(), "2")
 
     def test_closure_retry_gives_up(self):
