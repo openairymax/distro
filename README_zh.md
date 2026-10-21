@@ -130,10 +130,14 @@ distro/
 `--boot-marker` 可替换，desktop 剖面用 `AIRYMAX-DESKTOP-READY` 断言
 UKUI 会话定义可执行、lightdm 与 greeter 会话真实就绪，验收剖面用
 `AIRYMAX-SMOKE-PASS`。`AIRYMAX-DESKTOP-FAIL`、`AIRYMAX-SMOKE-FAIL` 与
-装机期 `AIRYMAX-INSTALL-FAIL` 一律立即判失败，不等超时。kickstart 的
-`%post --log=` 把脚本输出写向目标系统文件，故标记由脚本显式写
-`/dev/console`（x86_64 路由到 ttyS0，aarch64 到 ttyAMA0），这是串口
-可观测的前提；虚拟显卡用 `virtio-gpu` 提供 DRM/KMS，因为内核基线只
+装机期 `AIRYMAX-INSTALL-FAIL` 一律立即判失败，不等超时。装机失败标记带
+`reason=<断言名>`（如 `system-release`、`root-account`），`%post` 的
+`trap ... EXIT` 另补发 `rc=N`，失败因此可直接归因，不必复现猜测。
+kickstart 的 `%post --log=` 把脚本输出写向目标系统文件，故标记由脚本
+显式写 `/dev/console`（x86_64 路由到 ttyS0，aarch64 到 ttyAMA0），这是
+串口可观测的前提；`%post` 运行在安装器的 chroot 内，没有可用的 systemd
+总线，单元文件动词一律用 `systemctl --root=/` 离线语义，默认 target 由
+各剖面 kickstart 唯一设定。虚拟显卡用 `virtio-gpu` 提供 DRM/KMS，因为内核基线只
 启用 `DRM_VIRTIO_GPU`，缺省 std VGA 没有对应驱动。输出为 TAP 14；缺
 QEMU 工具时输出 `1..0 # SKIP` 并退出 77，不以假通过掩盖环境缺口。
 

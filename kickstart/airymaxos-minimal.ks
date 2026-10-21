@@ -90,32 +90,48 @@ mark()
 
 trap 'rc=$?; [ "${rc}" -eq 0 ] || mark "AIRYMAX-INSTALL-FAIL rc=${rc}"' EXIT
 
-systemctl set-default multi-user.target
-systemctl enable sshd chronyd
-
-# 发行版标识：上游 release 包被排除后，system-release 由本包唯一提供
-rpm -q airymaxos-release >/dev/null 2>&1 || {
-    echo "ERROR: airymaxos-release is not installed" >&2
+# 失败必须可判读（DR-4）：标记带 reason=<断言名>，安装判定据此直接归因。
+fail()
+{
+    trap - EXIT
+    mark "AIRYMAX-INSTALL-FAIL reason=$1"
     exit 1
 }
+
+# 安装器的 chroot 内没有可用的 systemd 总线，单元文件类动词必须显式走
+# --root 离线语义；判定看落盘状态，不看命令退出码。
+set_default()
+{
+    local want="$1"
+
+    systemctl --root=/ set-default "${want}" ||
+        mark "AIRYMAX-INSTALL-NOTE set-default rc=$?"
+    [ "$(readlink -f /etc/systemd/system/default.target)" = \
+        "/usr/lib/systemd/system/${want}" ] || fail default-target
+}
+
+acct_ok()
+{
+    local state
+
+    state=$(passwd -S "$1" 2>/dev/null | awk '{print $2}') || return 1
+    [ "${state}" = "P" ]
+}
+
+# sshd 与 chronyd 的启用由 services 指令唯一承担（服务清单 SSoT）。
+# 发行版标识：上游 release 包被排除后，system-release 由本包唯一提供
+rpm -q airymaxos-release >/dev/null 2>&1 || fail release-pkg
 # system-release 缺失会让 anaconda 的 GRUB_DISTRIBUTOR 派生失败，grub-mkconfig
 # 在 set -e 下中止，装机结果不可引导；在装机段结束前显式判负。
-[ -r /etc/system-release ] || {
-    echo "ERROR: /etc/system-release is missing" >&2
-    exit 1
-}
+[ -r /etc/system-release ] || fail system-release
 
 # 账户自检：没有可登录账户的安装介质不具备「OS 能运行」的前提
-[ "$(passwd -S root | awk '{print $2}')" = "P" ] || {
-    echo "ERROR: root account is not usable" >&2
-    exit 1
-}
-[ "$(passwd -S airymax | awk '{print $2}')" = "P" ] || {
-    echo "ERROR: airymax account is not usable" >&2
-    exit 1
-}
+acct_ok root || fail root-account
+acct_ok airymax || fail airymax-account
 # root 只承担首次控制台接管：登录后强制修改初始口令
-chage -d 0 root
+chage -d 0 root || fail root-expire
+
+set_default multi-user.target
 
 mark "AirymaxOS minimal install complete (baseline $(date -u +%Y%m%d))"
 %end

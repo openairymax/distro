@@ -141,12 +141,18 @@ assert the UKUI session definition is executable and that lightdm and its
 greeter session are actually up; the acceptance profile uses
 `AIRYMAX-SMOKE-PASS`. `AIRYMAX-DESKTOP-FAIL`, `AIRYMAX-SMOKE-FAIL` and the
 install-time `AIRYMAX-INSTALL-FAIL` all fail the leg without waiting for
-the timeout. Because `%post --log=` sends script output to a file on the
-target system, kickstarts write these markers to `/dev/console` explicitly
-(ttyS0 on x86_64, ttyAMA0 on aarch64); that is what makes them observable
-on the serial line. Guests get `virtio-gpu` for DRM/KMS, as the kernel
-baseline only enables `DRM_VIRTIO_GPU`. It emits TAP 14 and exits 77 when
-the QEMU toolchain is unavailable.
+the timeout. Install failures carry `reason=<assertion>` (for example
+`system-release` or `root-account`), and the `%post` `trap ... EXIT` adds
+`rc=N`, so a failure is attributable from the serial line alone. Because
+`%post --log=` sends script output to a file on the target system,
+kickstarts write these markers to `/dev/console` explicitly (ttyS0 on
+x86_64, ttyAMA0 on aarch64); that is what makes them observable on the
+serial line. `%post` runs inside the installer chroot, which has no usable
+systemd bus, so unit-file verbs always use `systemctl --root=/` offline
+semantics and each profile kickstart is the single source of the default
+target. Guests get `virtio-gpu` for DRM/KMS, as the kernel baseline only
+enables `DRM_VIRTIO_GPU`. It emits TAP 14 and exits 77 when the QEMU
+toolchain is unavailable.
 
 Recipes are validated at commit time; actual RPM builds happen only in the
 release workspace, never inside this repository.

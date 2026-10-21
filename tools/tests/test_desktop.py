@@ -177,7 +177,12 @@ class DesktopAssetTest(unittest.TestCase):
         for legacy in ("/etc/profile.d", "gnome-background-properties",
                        "org.ukui.background", "|| true", "--now"):
             self.assertNotIn(legacy, text, f"legacy mechanism: {legacy}")
-        self.assertIn("systemctl set-default graphical.target", text)
+        # 默认 target 的唯一事实源是各剖面 kickstart 的 %post，策略脚本不介入
+        self.assertNotIn("set-default", text)
+        # 安装器 chroot 无 systemd 总线：单元文件动词必须走 --root 离线语义
+        self.assertNotIn("systemctl disable", text)
+        self.assertNotIn("systemctl mask", text)
+        self.assertIn("systemctl --root=/ mask", text)
         self.assertEqual(run(["bash", "-n", str(
             BASE / "desktop" / "70-airymax-ukui-policy.sh")]).returncode, 0)
 

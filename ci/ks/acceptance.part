@@ -23,7 +23,8 @@ install -m 0644 /run/install/repo/fixture/airymax-smoke-report.service \
 set -eu
 
 # 2) 同一观测点只允许一个判定者：产品就绪单元让位给会话内冒烟。
-systemctl mask airymax-desktop-ready.service
+#    安装器 chroot 内没有 systemd 总线，单元文件操作走 --root 离线语义。
+systemctl --root=/ mask airymax-desktop-ready.service
 
 # 3) 无人值守验收没有键盘输入。
 install -d -m 0755 /etc/lightdm/lightdm.conf.d
@@ -48,5 +49,5 @@ Terminal=false
 EOF
 
 # 6) 报告单元把 TAP 判定转发到串口。
-systemctl enable airymax-smoke-report.service
+systemctl --root=/ enable airymax-smoke-report.service
 %end
