@@ -148,6 +148,42 @@ on { print }' > "$dest"
 rm -f "$body"
 """
 
+# isomd5sum 把校验和写在 PVD 应用数据区，而该区域落在被校验的区间内。
+# 真实工具在计算摘要前先把整个应用数据区抹成空格，写入之后再放入记录，
+# 因此「植入」与「复核」对同一镜像得到相同摘要。伪工具必须复刻这一抹平
+# 语义，否则记录区一旦落入校验区间（验收夹具使镜像变大时即会发生），
+# 两边摘要必然不同。
+ISOMD5_LIB = r'''import hashlib, re, struct, sys
+from pathlib import Path
+
+SECTOR = 2048
+SKIP = 15
+APP_OFF = 883
+APP_LEN = 512
+
+
+def load(path):
+    data = bytearray(Path(path).read_bytes())
+    pvd = 16 * SECTOR
+    if len(data) < pvd + SECTOR or bytes(data[pvd:pvd + 6]) != b"\x01CD001":
+        sys.stderr.write("ERROR: Could not find primary volume!\n")
+        sys.exit(1)
+    vol = struct.unpack("<I", data[pvd + 80:pvd + 84])[0] * SECTOR
+    return data, pvd, vol
+
+
+def blank(data, pvd):
+    data[pvd + APP_OFF:pvd + APP_OFF + APP_LEN] = b" " * APP_LEN
+
+
+def digest(data, vol):
+    end = vol - SKIP * SECTOR
+    if end > len(data):
+        sys.stderr.write("ERROR: ISO is truncated\n")
+        sys.exit(1)
+    return hashlib.md5(bytes(data[:end])).hexdigest()
+'''
+
 IMPLANT = """\
 #!/bin/sh
 force=0; img=""
@@ -163,30 +199,18 @@ done
 [ -n "$img" ] || exit 2
 [ "${FAKE_IMPLANT_MODE:-ok}" = fail ] && exit 1
 python3 - "$img" "$force" <<'PY'
-import hashlib, struct, sys
-from pathlib import Path
-path = Path(sys.argv[1])
-force = sys.argv[2] == "1"
-data = bytearray(path.read_bytes())
-off = 16 * 2048
-if len(data) < off + 2048 or data[off:off + 6] != b"\\x01CD001":
-    sys.stderr.write("ERROR: Could not find primary volume!\\n")
-    sys.exit(1)
-vol = struct.unpack("<I", data[off + 80:off + 84])[0] * 2048
-app = data[off + 883:off + 1395]
-if not force and any(b != 0x20 for b in app):
+""" + ISOMD5_LIB + r"""data, pvd, vol = load(sys.argv[1])
+if sys.argv[2] != "1" and bytes(data[pvd + APP_OFF:pvd + APP_OFF + APP_LEN]) \
+        != b" " * APP_LEN:
     sys.stderr.write(
-        "ERROR: Application data has been used - not implanting md5sum!\\n")
+        "ERROR: Application data has been used - not implanting md5sum!\n")
     sys.exit(1)
-end = vol - 15 * 2048
-if end > len(data):
-    sys.stderr.write("ERROR: ISO is truncated\\n")
-    sys.exit(1)
-digest = hashlib.md5(bytes(data[:end])).hexdigest().encode()
-rec = b"ISO MD5SUM = " + digest + b";SKIPSECTORS = 15;RHLISOSTATUS=0;"
-rec += b" " * (512 - len(rec))
-data[off + 883:off + 1395] = rec
-path.write_bytes(data)
+blank(data, pvd)
+hexsum = digest(data, vol).encode()
+rec = b"ISO MD5SUM = " + hexsum + b";SKIPSECTORS = 15;RHLISOSTATUS=0;"
+rec += b" " * (APP_LEN - len(rec))
+data[pvd + APP_OFF:pvd + APP_OFF + APP_LEN] = rec
+Path(sys.argv[1]).write_bytes(data)
 PY
 """
 
@@ -204,19 +228,16 @@ done
 [ -n "$img" ] || exit 2
 [ "${FAKE_CHECK_MODE:-ok}" = fail ] && exit 1
 python3 - "$img" <<'PY'
-import hashlib, re, struct, sys
-from pathlib import Path
-data = Path(sys.argv[1]).read_bytes()
-off = 16 * 2048
-vol = struct.unpack("<I", data[off + 80:off + 84])[0] * 2048
-app = data[off + 883:off + 1395].decode("latin-1")
-found = re.search(r"ISO MD5SUM = ([0-9a-f]{32})", app)
+""" + ISOMD5_LIB + r"""data, pvd, vol = load(sys.argv[1])
+found = re.search(r"ISO MD5SUM = ([0-9a-f]{32})",
+                  data[pvd + APP_OFF:pvd + APP_OFF + APP_LEN]
+                  .decode("latin-1"))
 if not found:
-    sys.stderr.write("ERROR: No checksum found\\n")
+    sys.stderr.write("ERROR: No checksum found\n")
     sys.exit(1)
-digest = hashlib.md5(data[:vol - 15 * 2048]).hexdigest()
-if found.group(1) != digest:
-    sys.stderr.write("ERROR: Checksum mismatch\\n")
+blank(data, pvd)
+if found.group(1) != digest(data, vol):
+    sys.stderr.write("ERROR: Checksum mismatch\n")
     sys.exit(1)
 PY
 """
