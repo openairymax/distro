@@ -6,7 +6,7 @@
 # 隔离铁律：agent 控制面唯一入口 = Gateway（JSON-RPC 2.0），桌面自带
 #           AI 控制面（KylinBot / kylin-ai*）一律排除，见 desktop/README.md
 #
-# 仓库结构（安装期闭包，缺任一项 UKUI 依赖即无法解析）：
+# 仓库结构（构建期闭包收割，缺任一项 UKUI 依赖即无法解析）：
 #   airymaxos-offline          — ISO 内离线仓库（内核 + distro 包），cost 最低
 #   openEuler OS               — 基础仓库（驱动/图形栈/工具链）
 #   openEuler update           — 基础仓库勘误
@@ -19,6 +19,10 @@
 # 离线仓库由 scripts/build-desktop.sh 注入 ISO 根 /airymax，Anaconda 以
 # file:// 直接读取；其 repodata 携带 comps 分组，@^airymax-workstation
 # 才能解析。SP 分支以 lockfile 冻结点为准（当前模板按 SP2 书写）。
+#
+# 本文件是构建期姿态：闭包收割需要上游仓库才能求解全部依赖。写入 ISO 的
+# 安装期配方由 ks_spec.py install 投影得到——安装源改指载荷仓库、剔除全部
+# 上游仓库，装机不触网。两份姿态同源，包清单不会漂移。
 # ===========================================================================
 
 # 安装界面用 text 以适配自动化；交互安装调试时可改为 graphical

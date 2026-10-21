@@ -12,6 +12,12 @@
 #   pkgs [--comps FILE] FILE   输出 <install|exclude>\t<规格>
 #   envs FILE                  输出配方引用的环境 <id>
 #   verify DIR --env ID        校验载荷仓库 comps 是否携带该环境及其组
+#   install FILE               输出安装期配方（安装源改指载荷，剔除网络仓库）
+#
+# 同一份配方表达两个姿态，投影是纯函数：
+#   构建期 — 上游网络仓库 + 载荷仓库，闭包收割要能解析全部依赖；
+#   安装期 — 只剩 file:// 载荷仓库，装机不触网，公网不可达也能装完。
+# 安装期配方不手抄第二份，避免包清单与仓库表在两处漂移。
 #
 # @^环境 只在 anaconda 语境成立：dnf 命令行把 @^airymax-workstation 当作
 # 组名 ^airymax-workstation 求解并报 "not available"。收割器因此按
@@ -41,6 +47,7 @@ EINVAL = 5
 ENV_HEAD = "@^"
 GROUP_HEAD = "@"
 GZIP_MAGIC = b"\x1f\x8b"
+VENDOR = "airymaxos-offline"
 
 
 def opt(words: list[str], key: str) -> str | None:
@@ -78,6 +85,62 @@ def repos(text: str) -> list[tuple[str, str, str]]:
                 raise ValueError("repo 指令缺少 --name 或 --baseurl")
             rows.append((name, base, opt(words, "--cost") or "1000"))
     return rows
+
+
+def payload_url(rows: list[tuple[str, str, str]]) -> str:
+    for name, base, _cost in rows:
+        if name == VENDOR:
+            return base
+    raise ValueError(f"配方缺少 {VENDOR} 仓库")
+
+
+def rewrite(line: str, key: str, val: str) -> str:
+    words = shlex.split(line)
+    out: list[str] = []
+    pos = 0
+    while pos < len(words):
+        word = words[pos]
+        if word == key:
+            out += [key, val]
+            pos += 2
+        else:
+            out.append(f"{key}={val}" if word.startswith(key + "=") else word)
+            pos += 1
+    return " ".join(out)
+
+
+def proj_line(line: str, base: str) -> str | None:
+    word = line.strip()
+    if not word or word.startswith("#"):
+        return line
+    words = shlex.split(word)
+    if words[0] == "url":
+        return rewrite(word, "--url", base) + "\n"
+    if words[0] == "repo" and opt(words, "--name") != VENDOR:
+        return None
+    return line
+
+
+def check_pose(text: str, src: str, base: str) -> None:
+    if pkgs(text) != pkgs(src):
+        raise ValueError("投影改变了包清单")
+    rows = repos(text)
+    if [row[0] for row in rows] != ["baseos", VENDOR]:
+        raise ValueError("投影后仓库表不纯净")
+    if any(row[1] != base for row in rows):
+        raise ValueError("投影后仓库未指向载荷")
+
+
+def project(text: str) -> str:
+    base = payload_url(repos(text))
+    lines = text.splitlines(keepends=True)
+    head = next((pos for pos, line in enumerate(lines)
+                 if line.strip().startswith("%")), len(lines))
+    body = [row for row in (proj_line(line, base) for line in lines[:head])
+            if row is not None]
+    flowed = "".join(body + lines[head:])
+    check_pose(flowed, text, base)
+    return flowed
 
 
 def pkgs(text: str) -> list[tuple[str, str]]:
@@ -248,6 +311,8 @@ def parse(argv: list[str]) -> argparse.Namespace:
     pkg.add_argument("file", type=Path)
     env = sub.add_parser("envs")
     env.add_argument("file", type=Path)
+    ins = sub.add_parser("install")
+    ins.add_argument("file", type=Path)
     ver = sub.add_parser("verify")
     ver.add_argument("--env", required=True)
     ver.add_argument("dir", type=Path)
@@ -265,6 +330,8 @@ def main(argv: list[str]) -> int:
             emit_repos(text, args.skip_file)
         elif args.cmd == "envs":
             emit_envs(text)
+        elif args.cmd == "install":
+            sys.stdout.write(project(text))
         else:
             emit_pkgs(text, args.comps)
     except (OSError, ValueError) as err:
