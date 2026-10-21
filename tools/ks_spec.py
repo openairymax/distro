@@ -27,6 +27,8 @@
 #
 # verify 用在镜像组装之后：createrepo_c 重写 comps 时若丢弃 environment
 # 段，交互安装的软件选择与按环境解析都会失败，必须在出镜像前拒绝。
+# repomd.xml 带默认命名空间，comps 也可能带，XML 一律按本地名匹配，
+# 否则真实仓库会被误判成没有 group 数据。
 #
 # 退出码：0 成功；5 配方或 comps 不满足。
 #
@@ -178,21 +180,38 @@ def comps_tree(path: Path) -> ET.Element:
         raise ValueError(f"comps 解析失败: {err}") from err
 
 
+def _local(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+def _desc(root: ET.Element, name: str) -> list[ET.Element]:
+    return [node for node in root.iter() if _local(node.tag) == name]
+
+
+def _kids(node: ET.Element, name: str) -> list[ET.Element]:
+    return [kid for kid in node if _local(kid.tag) == name]
+
+
+def _text(node: ET.Element, name: str) -> str:
+    kids = _kids(node, name)
+    return (kids[0].text or "").strip() if kids else ""
+
+
 def _refs(node: ET.Element) -> list[str]:
-    return [ref.text.strip() for ref in node.findall("grouplist/groupid")
-            if ref.text and ref.text.strip()]
+    return [ref.text.strip() for lst in _kids(node, "grouplist")
+            for ref in _kids(lst, "groupid") if ref.text and ref.text.strip()]
 
 
 def comps_ids(root: ET.Element):
     groups: dict[str, list[str]] = {}
-    for node in root.iter("group"):
-        gid = (node.findtext("id") or "").strip()
+    for node in _desc(root, "group"):
+        gid = _text(node, "id")
         if not gid:
             raise ValueError("comps 包组缺少 id")
         groups[gid] = _refs(node)
     envs: dict[str, list[str]] = {}
-    for node in root.iter("environment"):
-        eid = (node.findtext("id") or "").strip()
+    for node in _desc(root, "environment"):
+        eid = _text(node, "id")
         if not eid:
             raise ValueError("comps 环境缺少 id")
         envs[eid] = _refs(node)
@@ -245,11 +264,11 @@ def group_meta(pkgdir: Path) -> bytes:
         raise ValueError(f"仓库索引读取失败: {err}") from err
     except ET.ParseError as err:
         raise ValueError(f"仓库索引解析失败: {err}") from err
-    for data in root.iter("data"):
+    for data in _desc(root, "data"):
         if data.get("type") != "group":
             continue
-        loc = data.find("location")
-        href = loc.get("href") if loc is not None else None
+        loc = _kids(data, "location")
+        href = loc[0].get("href") if loc else None
         if not href:
             raise ValueError("仓库 group 元数据缺少 location")
         try:

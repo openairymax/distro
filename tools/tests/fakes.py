@@ -111,8 +111,9 @@ fi
 """
 
 # 真实 createrepo_c 按 --general-compress-type 压缩 group 元数据，并在
-# repomd.xml 里用 location 指向该文件。伪工具必须复刻这一布局，否则
-# 「载荷 comps 是否仍带环境」这类断言测的不是真实产物。
+# repomd.xml 里用 location 指向该文件；repomd 带默认命名空间，伪工具
+# 必须连命名空间一起复刻，否则「载荷 comps 是否仍带环境」这类断言测的
+# 不是真实产物。
 # FAKE_CREATEREPO_MODE=noenv 模拟 comps 环境段被丢弃，用于验证门禁。
 CREATEREPO = """\
 #!/bin/sh
@@ -163,10 +164,11 @@ PY
     fi
 fi
 if [ -n "$href" ]; then
-    printf '<repomd><data type="group"><location href="%s"/></data></repomd>\\n' \\
+    printf '<repomd xmlns="http://linux.duke.edu/metadata/repo"><data type="group"><location href="%s"/></data></repomd>\\n' \\
         "$href" > "$repo/repodata/repomd.xml"
 else
-    printf '<repomd/>\\n' > "$repo/repodata/repomd.xml"
+    printf '<repomd xmlns="http://linux.duke.edu/metadata/repo"/>\\n' \\
+        > "$repo/repodata/repomd.xml"
 fi
 """
 
