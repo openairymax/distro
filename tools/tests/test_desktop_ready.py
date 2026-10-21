@@ -89,6 +89,16 @@ class DesktopReadyTest(unittest.TestCase):
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertIn(READY, res.stdout)
 
+    def test_greeter_service_family(self):
+        res = self.run_probe(FAKE_SERVICE="lightdm-greeter")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn(READY, res.stdout)
+
+    def test_foreign_session_service(self):
+        res = self.run_probe(FAKE_SERVICE="gdm")
+        self.assertEqual(res.returncode, 1)
+        self.assertIn(FAIL, res.stdout)
+
     def test_lightdm_inactive(self):
         res = self.run_probe(FAKE_LIGHTDM="inactive")
         self.assertEqual(res.returncode, 1)

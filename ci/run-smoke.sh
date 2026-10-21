@@ -72,6 +72,14 @@ expect() { # expect <实际值> <期望值> <字段>
     return 1
 }
 
+expect_prefix() { # expect_prefix <实际值> <期望前缀> <字段>
+    case "$1" in
+    "$2"*) return 0 ;;
+    esac
+    printf '%s: %s (want %s*)\n' "$3" "${1:-unknown}" "$2"
+    return 1
+}
+
 retry() { # retry <秒> <命令...> — 等待并发启动的守护进程，超时即失败
     local limit="$1" waited=0
     shift
@@ -98,7 +106,8 @@ t1_x11() {
     [ -n "${DISPLAY:-}" ] || { echo "DISPLAY unset"; return 1; }
     [ -n "${XDG_SESSION_ID:-}" ] || { echo "XDG_SESSION_ID unset"; return 1; }
     expect "$(session_prop Type)" x11 "session type" || return 1
-    expect "$(session_prop Service)" lightdm "session service" || return 1
+    expect_prefix "$(session_prop Service)" lightdm "session service" ||
+        return 1
     expect "$(session_prop Active)" yes "session active" || return 1
     pgrep -f ukui-session >/dev/null || {
         echo "ukui-session not running"
