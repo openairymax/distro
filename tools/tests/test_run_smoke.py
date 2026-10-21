@@ -16,6 +16,7 @@
 import shutil
 import subprocess
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -52,6 +53,7 @@ class RunSmokeTest(unittest.TestCase):
             "QT_IM_MODULE": "fcitx",
             "XMODIFIERS": "@im=fcitx",
             "FAKE_PROCS": "ukui-session-manager fcitx",
+            "AIRYMAX_SMOKE_WAIT": "0",
         }
         env.update(extra)
         return subprocess.run([BASH, str(SCRIPT), *args], env=env,
@@ -193,6 +195,20 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke()
         self.assert_fail(res, 3)
         self.assertIn("pactl not installed", res.stdout)
+
+    def test_audio_latency(self):
+        self.tools()
+        ready = self.root / "pactl.ready"
+        fakes.write(self.bin, "pactl",
+                    "#!/bin/sh\n[ -e '%s' ] || exit 1\n" % ready)
+        timer = threading.Timer(1.5, ready.touch)
+        timer.start()
+        try:
+            res = self.run_smoke(AIRYMAX_SMOKE_WAIT="15")
+        finally:
+            timer.cancel()
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertEqual(self.summary(res), {"pass": 5, "fail": 0})
 
     def test_slice_wrong(self):
         self.tools()
