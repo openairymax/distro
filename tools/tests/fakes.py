@@ -17,7 +17,7 @@ from pathlib import Path
 TOOLS = ("awk", "base64", "basename", "bash", "cat", "cmp", "cp", "date",
          "dirname", "find", "git", "grep", "head", "mkdir", "mv", "python3",
          "rm", "sed", "seq", "sha256sum", "sleep", "sort", "tail", "timeout",
-         "tr", "uname")
+         "tr", "uname", "wc")
 
 MKKSISO = """\
 #!/bin/sh
@@ -491,6 +491,11 @@ case "${FAKE_QEMU_BOOT_MODE:-ok}" in
 ok) printf 'AirymaxOS login:\\nAIRYMAX-DESKTOP-READY unit=lightdm ' > "$log"
     printf 'class=greeter type=x11\\n' >> "$log" ;;
 login-only) printf 'AirymaxOS login:\\n' > "$log" ;;
+noisy) printf '[FAILED] Failed to start OpenSSH server daemon.\\n' > "$log"
+    printf "See 'systemctl status sshd.service' for details.\\n" >> "$log"
+    printf 'AirymaxOS login:\\n' >> "$log" ;;
+degraded) printf '[FAILED] Failed to start OpenSSH server daemon.\\n' > "$log"
+    printf 'AIRYMAX-BOOT-DEGRADED failed=1 units=sshd.service\\n' >> "$log" ;;
 desktop-fail) printf 'AirymaxOS login:\\nAIRYMAX-DESKTOP-FAIL reason=session ' > "$log"
     printf 'path=/usr/share/xsessions/ukui.desktop\\n' >> "$log" ;;
 smoke-pass) printf 'AirymaxOS login:\\nAIRYMAX-SMOKE-PASS ' > "$log"
@@ -623,7 +628,7 @@ SYSTEMCTL = """\
 cmd=""; unit=""; prop=""; quiet=0
 while [ $# -gt 0 ]; do
     case "$1" in
-    show|is-active) cmd=$1 ;;
+    show|is-active|list-units) cmd=$1 ;;
     -p) shift; prop=$1 ;;
     -q|--quiet) quiet=1 ;;
     -*) ;;
@@ -632,6 +637,14 @@ while [ $# -gt 0 ]; do
     shift
 done
 case "$cmd" in
+list-units)
+    # --failed 的输出只有失败单元；FAKE_FAILED_UNITS 以空格分隔给出清单，
+    # 空清单对应干净启动。
+    for unit in ${FAKE_FAILED_UNITS:-}; do
+        printf '%s loaded failed failed %s\\n' "$unit" "$unit"
+    done
+    exit 0
+    ;;
 is-active)
     state=${FAKE_SLICE_ACTIVE:-active}
     [ "$unit" = lightdm.service ] && state=${FAKE_LIGHTDM:-active}

@@ -67,9 +67,17 @@ class DesktopReadyTest(unittest.TestCase):
     def test_ready(self):
         res = self.run_probe()
         self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("AIRYMAX-BOOT-HEALTH failed=0", res.stdout)
         self.assertIn(
             f"{READY} unit=lightdm class=greeter type=x11", res.stdout)
         self.assertNotIn(FAIL, res.stdout)
+
+    def test_degraded_units(self):
+        res = self.run_probe(FAKE_FAILED_UNITS="sssd.service upower.service")
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("AIRYMAX-BOOT-DEGRADED failed=2 "
+                      "units=sssd.service,upower.service", res.stdout)
+        self.assertNotIn(READY, res.stdout)
 
     def test_online_session_is_ready(self):
         res = self.run_probe(FAKE_STATE="online")

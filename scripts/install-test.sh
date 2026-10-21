@@ -6,7 +6,8 @@
 # 每条固件腿、每一轮验证两件事：
 #   1. 安装：空 qcow2 从 ISO 引导，kickstart 执行完成并触发重启；
 #   2. 启动：安装后的磁盘冷启动到登录提示（或验收标记
-#      AIRYMAX-SMOKE-PASS），无内核 panic / 单元失败。
+#      AIRYMAX-SMOKE-PASS），无内核 panic，且会话内探针报告 systemd
+#      记账里没有失败单元。
 #
 # 安装腿失败时该轮启动腿直接判负并跳过，不在无引导盘上空转；两条腿
 # 每 30 秒回显一次串口尾行，便于失败现场在 CI 日志中直接可读。
@@ -29,7 +30,13 @@ set -uo pipefail
 readonly SKIP=77
 readonly EINVAL=5
 readonly DISTRO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-readonly BOOT_FAIL='Kernel panic|Failed to start|Welcome to emergency mode|dracut-initqueue.*timeout|AIRYMAX-DESKTOP-FAIL|AIRYMAX-SMOKE-FAIL'
+# 启动腿的判负只认两类证据：引导层失败（panic、emergency、dracut 超时），
+# 以及会话内探针给出的结论标记（AIRYMAX-BOOT-DEGRADED / DESKTOP-FAIL /
+# SMOKE-FAIL）。「Failed to start」这类通用文本不进判定集：它出现在启动
+# 前几秒，按它提前结束会让启动腿在桌面尚未拉起时就收尾，既掩盖「UKUI 能否
+# 进入」的证据，也把单元失败与桌面失败混成同一个结论。单元失败以探针读到
+# 的 systemd 记账为准，宿主机只做归因，不立第二个事实源。
+readonly BOOT_FAIL='Kernel panic|Welcome to emergency mode|dracut-initqueue.*timeout|AIRYMAX-BOOT-DEGRADED|AIRYMAX-DESKTOP-FAIL|AIRYMAX-SMOKE-FAIL'
 readonly INST_FAIL='Kernel panic|Fatal glibc error|dracut-initqueue.*timeout|AIRYMAX-INSTALL-FAIL'
 # rpm 事务级错误（scriptlet 非零退出、依赖解析失败）会让 anaconda 停在
 # “按 ENTER 退出:” 等待输入而不退出进程，必须与安装失败标记同等判负。
@@ -390,6 +397,19 @@ probe_log()
     return 1
 }
 
+# 归因用，不参与判定：systemd 在失败单元之后会打印
+# 「See 'systemctl status <unit>' for details.」，这里的 unit 才是关键字，
+# 上一行的 daemon 描述文本不是。清单写进 CI 日志，便于直接定位到单元。
+note_units()
+{
+    local units
+
+    units=$(grep -oE "systemctl status [^']+" "$1" 2>/dev/null |
+                awk '{ print $3 }' | sort -u | head -n 8)
+    [ -n "${units}" ] || return 0
+    printf '#   boot unit failures: %s\n' "${units//$'\n'/,}" >&2
+}
+
 wait_marker()
 {
     local log="$1" pid="$2" deadline="$3" start="$4" rc now
@@ -434,6 +454,7 @@ boot_run()
     wait_marker "${log}" "${pid}" "$((start + BOOT_TIMEOUT))" "${start}"
     code=$?
     stop_qemu "${pid}"
+    note_units "${log}"
     now=$(date +%s)
     BOOT_S=$((now - start))
     case "${code}" in
