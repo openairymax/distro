@@ -4,8 +4,8 @@
 # test_run_smoke.py — ci/run-smoke.sh 契约回归测试
 #
 # 冒烟脚本必须在已登录的 UKUI 桌面会话内运行，CI 宿主机不具备该环境。
-# 脚本对外契约是：TAP 14 计划、五项探测的判定、77 跳过语义，以及
-# “跳过不掩盖失败”的退出码规则。这里用 PATH 沙箱提供伪 loginctl /
+# 脚本对外契约是：TAP 14 计划、五项探测的判定，以及“探测工具缺失即失败”
+# 的退出码规则。这里用 PATH 沙箱提供伪 loginctl /
 # pgrep / xdpyinfo / fcitx-remote / pactl / systemctl / gsettings /
 # sha256sum，每个用例只破坏一个前提，从而在无桌面环境下判定真实控制流。
 #
@@ -89,8 +89,8 @@ class RunSmokeTest(unittest.TestCase):
         self.tools()
         res = self.run_smoke()
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res),
-                         {"pass": 5, "fail": 0, "skip": 0})
+        self.assertEqual(self.summary(res), {"pass": 5, "fail": 0})
+        self.assertNotIn("# SKIP", res.stdout)
         self.assertEqual(len(self.taps(res)), 5)
         for line in self.taps(res):
             self.assertTrue(line.startswith("ok"), line)
@@ -181,7 +181,6 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke()
         self.assert_fail(res, 2)
         self.assertIn("fcitx-remote not installed", res.stdout)
-        self.assertEqual(self.summary(res)["skip"], 0)
 
     def test_pactl_unreachable(self):
         self.tools()
@@ -224,7 +223,6 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke()
         self.assert_fail(res, 5)
         self.assertIn("gsettings not installed", res.stdout)
-        self.assertEqual(self.summary(res)["skip"], 0)
 
     def test_wallpaper_schema_missing(self):
         self.tools()
@@ -250,20 +248,14 @@ class RunSmokeTest(unittest.TestCase):
         self.assert_fail(res, 5)
         self.assertIn("wallpaper sha256", res.stdout)
 
-    def test_loginctl_absent_skips(self):
+    def test_probe_tool_absent_fails(self):
         self.tools(omit=("loginctl",))
         res = self.run_smoke()
-        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res),
-                         {"pass": 4, "fail": 0, "skip": 1})
-        self.assertIn("# SKIP loginctl not installed", self.tap(res, 1))
-
-    def test_skip_does_not_mask_failure(self):
-        self.tools(omit=("loginctl",))
-        res = self.run_smoke(FAKE_PACTL="fail")
-        self.assertEqual(res.returncode, 1)
-        self.assertEqual(self.summary(res),
-                         {"pass": 3, "fail": 1, "skip": 1})
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertEqual(self.summary(res), {"pass": 4, "fail": 1})
+        self.assert_fail(res, 1)
+        self.assertIn("loginctl not installed", res.stdout)
+        self.assertNotIn("# SKIP", res.stdout)
 
 
 if __name__ == "__main__":

@@ -4,8 +4,10 @@
 # airymax-smoke-report.sh — 验收 ISO 的串口结果上报
 #
 # 等待会话内 runner 写出 /var/log/airymax/smoke.tap，按 TAP 14 判定：
-#   计划必须为 1..5；不得出现 not ok / Bail out!；ok 行必须为 5；
-#   T5 不得 SKIP；summary 的 fail 必须为 0。
+#   计划必须为 1..5；不得出现 not ok / Bail out! / SKIP；ok 行必须为 5；
+#   summary 的 fail 必须为 0。
+# 探测工具由产品镜像自身提供，runner 不产生 SKIP；出现 SKIP 说明跑的不是
+# 本版 runner，按失败计，避免旧语义把缺失的探测放行。
 # 通过打印 AIRYMAX-SMOKE-PASS；失败打印 AIRYMAX-SMOKE-FAIL。
 #
 # 退出码：0 通过；1 失败或超时。
@@ -37,7 +39,7 @@ verdict()
     grep -qE '^(not ok|Bail out!)' "${TAP}" && return 1
     grep -qxF '1..5' "${TAP}" || return 1
     [ "$(count_ok)" -eq 5 ] || return 1
-    grep -qE '^ok 5 - .*# SKIP' "${TAP}" && return 1
+    grep -q '# SKIP' "${TAP}" && return 1
     ! grep -qE '^# summary: .*fail=[1-9]' "${TAP}"
 }
 
