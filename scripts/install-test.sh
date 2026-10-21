@@ -37,14 +37,24 @@ RPM_FAIL='Error in (PREIN|POSTIN|PREUN|POSTUN|PRETRANS|POSTTRANS|'
 RPM_FAIL="${RPM_FAIL}TRIGGERIN|TRIGGERUN|TRIGGERPOSTUN) scriptlet|"
 RPM_FAIL="${RPM_FAIL}An error occurred during the transaction"
 readonly RPM_FAIL
+# 取包失败（仓库不可达、单一镜像重试耗尽）在 anaconda 里是致命错误，随后
+# 停在「按 ENTER 退出:」等待输入；无头安装没有 stdin，进程既不自退也不打
+# 失败标记，只能空耗 --install-timeout。取包致命提示本身即失败证据。
+PAY_FAIL='Failed to download the following packages|'
+PAY_FAIL="${PAY_FAIL}安装负载时出现以下错误|"
+PAY_FAIL="${PAY_FAIL}There was an error installing the packages|"
+PAY_FAIL="${PAY_FAIL}Cannot download, all mirrors were already tried"
+readonly PAY_FAIL
 # anaconda 在配置阶段遇到无法自处理的错误时转为交互问句（引导装载程序写
 # 配置失败即属此类），无头安装没有 stdin，进程不会退出也不会打印失败标记，
 # 只能等到 --install-timeout。问句本身即失败证据，命中就判负。
 ASK_FAIL='failed to write boot loader configuration|'
 ASK_FAIL="${ASK_FAIL}Please answer .yes. or .no.|"
-ASK_FAIL="${ASK_FAIL}请回答 .yes. 或 .no."
+ASK_FAIL="${ASK_FAIL}请回答 .yes. 或 .no.|"
+ASK_FAIL="${ASK_FAIL}按 ENTER 退出|"
+ASK_FAIL="${ASK_FAIL}Press ENTER to exit"
 readonly ASK_FAIL
-readonly INST_ERR="${INST_FAIL}|${RPM_FAIL}|${ASK_FAIL}"
+readonly INST_ERR="${INST_FAIL}|${RPM_FAIL}|${PAY_FAIL}|${ASK_FAIL}"
 
 . "${DISTRO_ROOT}/scripts/lib/outdir.sh"
 
@@ -314,6 +324,11 @@ progress()
     PROG_AT=$((elapsed + PROGRESS_EVERY))
 }
 
+fail_hit()
+{
+    grep -oE "${INST_ERR}" "$1" 2>/dev/null | head -n 1
+}
+
 wait_inst()
 {
     local log="$1" pid="$2" deadline="$3" start="$4" now
@@ -353,8 +368,8 @@ install_run()
     stop_qemu "${pid}"
     if [ "${rc}" -ne 0 ]; then
         case "${rc}" in
-        2) printf 'install failure pattern in run-%s-%s/install.log\n' \
-               "${fw}" "${n}" >&2 ;;
+        2) printf 'install failure pattern in run-%s-%s/install.log: %.110s\n' \
+               "${fw}" "${n}" "$(fail_hit "${log}")" >&2 ;;
         3) printf 'install timeout in run-%s-%s after %ss\n' \
                "${fw}" "${n}" "$(($(date +%s) - start))" >&2 ;;
         *) printf 'install run %s-%s exited rc=%s\n' "${fw}" "${n}" "${rc}" >&2 ;;

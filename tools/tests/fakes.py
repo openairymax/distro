@@ -15,8 +15,9 @@ import shutil
 from pathlib import Path
 
 TOOLS = ("awk", "basename", "bash", "cat", "cmp", "cp", "date", "dirname",
-         "find", "git", "grep", "mkdir", "mv", "python3", "rm", "sed", "seq",
-         "sha256sum", "sleep", "sort", "tail", "timeout", "tr", "uname")
+         "find", "git", "grep", "head", "mkdir", "mv", "python3", "rm", "sed",
+         "seq", "sha256sum", "sleep", "sort", "tail", "timeout", "tr",
+         "uname")
 
 MKKSISO = """\
 #!/bin/sh
@@ -282,6 +283,13 @@ if [ "$boot" = "order=d" ]; then
             > "$log"
         printf 'failed to write boot loader configuration\\n' >> "$log"
         printf "请回答 'yes' 或 'no': " >> "$log"; exec sleep 60 ;;
+    payload) printf '安装负载时出现以下错误。这是个致命错误，安装将中止。\\n' \\
+            > "$log"
+        printf 'Failed to download the following packages:\\n' >> "$log"
+        printf 'ukui-clock-3.1.3-3.oe2403sp2.x86_64: ' >> "$log"
+        printf 'Cannot download, all mirrors were already tried without ' \\
+            >> "$log"
+        printf 'success\\n按 ENTER 退出:\\n' >> "$log"; exec sleep 60 ;;
     hang) printf '正在配置 firewalld.noarch\\n' > "$log"; exec sleep 60 ;;
     esac
     printf 'install complete\\n' > "$log"
