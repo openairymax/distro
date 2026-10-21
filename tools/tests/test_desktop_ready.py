@@ -27,6 +27,7 @@ UNIT = BASE / "desktop" / "airymax-desktop-ready.service"
 BASH = shutil.which("bash") or "/bin/bash"
 READY = "AIRYMAX-DESKTOP-READY"
 FAIL = "AIRYMAX-DESKTOP-FAIL"
+DIAG = "AIRYMAX-DESKTOP-DIAG"
 SESSION = """\
 [Desktop Entry]
 Name=UKUI
@@ -42,11 +43,14 @@ class DesktopReadyTest(unittest.TestCase):
         self.root = Path(self._tmp.name)
         self.bin = self.root / "bin"
         self.xs = self.root / "xsessions"
+        self.logs = self.root / "lightdm"
         self.bin.mkdir()
         self.xs.mkdir()
+        self.logs.mkdir()
         fakes.link_tools(self.bin)
         fakes.write(self.bin, "loginctl", fakes.LOGINCTL)
         fakes.write(self.bin, "systemctl", fakes.SYSTEMCTL)
+        fakes.write(self.bin, "journalctl", fakes.JOURNALCTL)
         fakes.write(self.bin, "ukui-session", "#!/bin/sh\nexit 0\n")
         self.write_session(SESSION)
 
@@ -59,7 +63,8 @@ class DesktopReadyTest(unittest.TestCase):
     def run_probe(self, *args, **extra):
         env = {"PATH": str(self.bin), "HOME": str(self.root),
                "AIRYMAX_READY_WAIT": "0", "AIRYMAX_READY_POLL": "1",
-               "AIRYMAX_XSESSIONS_DIR": str(self.xs)}
+               "AIRYMAX_XSESSIONS_DIR": str(self.xs),
+               "AIRYMAX_LIGHTDM_LOG": str(self.logs)}
         env.update(extra)
         return subprocess.run([BASH, str(SCRIPT), *args], env=env,
                               text=True, capture_output=True)
@@ -151,6 +156,52 @@ class DesktopReadyTest(unittest.TestCase):
         self.assertEqual(res.returncode, 1)
         self.assertLess(elapsed, 10)
         self.assertIn("wait=2s", res.stdout)
+
+    def test_fail_reports_unit(self):
+        res = self.run_probe(FAKE_LIGHTDM="inactive",
+                             FAKE_ACTIVE_STATE="activating",
+                             FAKE_SUB_STATE="start",
+                             FAKE_RESULT="timeout")
+        self.assertEqual(res.returncode, 1)
+        self.assertIn(f"{DIAG} unit ActiveState=activating", res.stdout)
+        self.assertIn(f"{DIAG} unit SubState=start", res.stdout)
+        self.assertIn(f"{DIAG} unit Result=timeout", res.stdout)
+        last = res.stdout.rstrip().splitlines()[-1]
+        self.assertTrue(last.startswith(FAIL))
+
+    def test_fail_reports_logs(self):
+        (self.logs / "lightdm.log").write_text("seat0: waiting\n",
+                                               encoding="utf-8")
+        (self.logs / "seat0-greeter.log").write_text("greeter: no display\n",
+                                                     encoding="utf-8")
+        (self.logs / "x-0.log").write_text("Xorg: no screens found\n",
+                                           encoding="utf-8")
+        res = self.run_probe(FAKE_LIGHTDM="inactive")
+        self.assertEqual(res.returncode, 1)
+        self.assertIn(f"{DIAG} file=lightdm seat0: waiting", res.stdout)
+        self.assertIn(f"{DIAG} file=greeter greeter: no display", res.stdout)
+        self.assertIn(f"{DIAG} file=xorg Xorg: no screens found", res.stdout)
+
+    def test_diag_is_bounded(self):
+        body = "".join(f"line{i}\n" for i in range(100))
+        (self.logs / "lightdm.log").write_text(body, encoding="utf-8")
+        res = self.run_probe(FAKE_LIGHTDM="inactive", AIRYMAX_DIAG_LINES="3")
+        self.assertEqual(res.returncode, 1)
+        files = [ln for ln in res.stdout.splitlines()
+                 if ln.startswith(f"{DIAG} file=lightdm")]
+        self.assertEqual(len(files), 3)
+
+    def test_session_fail_reports_diag(self):
+        (self.xs / "ukui.desktop").unlink()
+        res = self.run_probe()
+        self.assertEqual(res.returncode, 1)
+        self.assertIn(f"{DIAG} unit", res.stdout)
+        self.assertIn("reason=session", res.stdout)
+
+    def test_ready_has_no_diag(self):
+        res = self.run_probe()
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertNotIn(DIAG, res.stdout)
 
     def test_unit_contract(self):
         parser = configparser.ConfigParser(interpolation=None, strict=False)

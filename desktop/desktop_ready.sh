@@ -17,6 +17,13 @@
 # 失败以非零退出码上报，由 install-test.sh 的 BOOT_FAIL 规则捕获；不写
 # 任何状态文件，避免与 systemd 状态形成第二个事实源。
 #
+# 失败前的 AIRYMAX-DESKTOP-DIAG 行是观测通道，不参与任何判定，也不改变
+# 退出码。冷启动失败时宿主只能拿到「等了 N 秒」，无法区分是单元未激活、
+# greeter 崩溃、X server 未起还是进程阻塞在某个内核路径上；逐轮加日志重跑
+# 的代价极高，因此这里一次性把可归因的五类证据（单元状态、单元 journal、
+# lightdm 与 greeter 日志、X server 日志、主进程 wchan）有界地带出。
+# 每类证据的行数固定上限，避免串口被日志淹没；证据缺失按正常情况跳过。
+#
 # 部署：airymaxos-release 包安装到 /usr/lib/airymaxos/desktop/。
 # 调用：airymax-desktop-ready.service（WantedBy=graphical.target）。
 # ===========================================================================
@@ -30,6 +37,8 @@ GREETER_TYPE="x11"
 SESSION_NAME="ukui"
 XSESSIONS_DIR="${AIRYMAX_XSESSIONS_DIR:-/usr/share/xsessions}"
 UKUI_SESSION="${XSESSIONS_DIR}/${SESSION_NAME}.desktop"
+DIAG_MAX="${AIRYMAX_DIAG_LINES:-20}"
+LDM_LOG_DIR="${AIRYMAX_LIGHTDM_LOG:-/var/log/lightdm}"
 
 session_exec()
 {
@@ -120,10 +129,58 @@ wait_ready()
     done
 }
 
+# 诊断通道：每类证据独立取，取不到就跳过，绝不影响返回值。
+diag_out()
+{
+    head -n "${DIAG_MAX}" 2>/dev/null |
+        sed "s/^/AIRYMAX-DESKTOP-DIAG ${1} /"
+}
+
+diag_unit()
+{
+    systemctl show -p ActiveState -p SubState -p Result \
+        -p NRestarts -p MainPID "${GREETER_SVC}.service" 2>/dev/null |
+        diag_out unit
+}
+
+diag_journal()
+{
+    journalctl -b -u "${GREETER_SVC}.service" -n "${DIAG_MAX}" \
+        -o cat --no-pager 2>/dev/null | diag_out journal
+}
+
+diag_tail()
+{
+    [ -r "$2" ] || return 0
+    tail -n "${DIAG_MAX}" -- "$2" 2>/dev/null | diag_out "file=$1"
+}
+
+diag_wchan()
+{
+    local pid path
+
+    pid=$(systemctl show -p MainPID --value "${GREETER_SVC}.service" \
+        2>/dev/null)
+    path="/proc/${pid}/wchan"
+    [ -r "${path}" ] || return 0
+    diag_out wchan <"${path}"
+}
+
+diagnose()
+{
+    diag_unit
+    diag_journal
+    diag_tail lightdm "${LDM_LOG_DIR}/lightdm.log"
+    diag_tail greeter "${LDM_LOG_DIR}/seat0-greeter.log"
+    diag_tail xorg "${LDM_LOG_DIR}/x-0.log"
+    diag_wchan
+}
+
 main()
 {
     boot_health || return 1
     if ! session_exec; then
+        diagnose
         printf 'AIRYMAX-DESKTOP-FAIL reason=session path=%s\n' \
             "${UKUI_SESSION}"
         return 1
@@ -133,6 +190,7 @@ main()
             "${GREETER_SVC}" "${GREETER_CLASS}" "${GREETER_TYPE}"
         return 0
     fi
+    diagnose
     printf 'AIRYMAX-DESKTOP-FAIL unit=%s wait=%ss\n' \
         "${GREETER_SVC}" "${READY_WAIT}"
     return 1
