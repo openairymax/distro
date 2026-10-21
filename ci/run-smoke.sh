@@ -15,30 +15,24 @@
 #   T5  内置壁纸：背景键指向内置路径，图像 sha256 与发行资产一致
 #
 # 判定语义:
-#   0  — 全部通过（允许跳过）
+#   0  — 全部通过
 #   1  — 存在失败用例
-#   77 — 单个用例跳过（测试机缺少探测工具，不代表特性通过）
-# 跳过不掩盖失败：仅当 FAIL=0 时退出码为 0。
+# 探测工具由被测镜像自身提供（loginctl/pgrep/xdpyinfo 来自本项目的包组合），
+# 缺失说明镜像不完整，按失败计；不以 SKIP 掩盖，因为这里没有“不支持的外
+# 部测试机”这一情形。
 # ===========================================================================
 set -uo pipefail
 
 TARGET="${1:?usage: run-smoke.sh <target-id>}"
-SKIP=77
 WALLPAPER=/usr/share/backgrounds/airymaxos/airymaxos-default.jpg
 PAPER_SHA=fee7f439834ac7dacfc75deaf80a1db1c4bc7459583248eecc87125d52a5ef18
 
 PASS=0
 FAIL=0
-SKIPPED=0
 
 tap_ok() {
     printf 'ok %s - %s\n' "$1" "$2"
     PASS=$((PASS + 1))
-}
-
-tap_skip() {
-    printf 'ok %s - %s # SKIP %s\n' "$1" "$2" "$3"
-    SKIPPED=$((SKIPPED + 1))
 }
 
 tap_fail() {
@@ -54,17 +48,17 @@ probe() { # probe <编号> <名称> <探测函数>
     shift 2
     out="$("$@" 2>&1)"
     rc=$?
-    case "${rc}" in
-    0) tap_ok "${id}" "${name}" ;;
-    "${SKIP}") tap_skip "${id}" "${name}" "${out:-unsupported}" ;;
-    *) tap_fail "${id}" "${name}" "${out:-probe rc=${rc}}" ;;
-    esac
+    if [ "${rc}" -eq 0 ]; then
+        tap_ok "${id}" "${name}"
+    else
+        tap_fail "${id}" "${name}" "${out:-probe rc=${rc}}"
+    fi
 }
 
-need() { # need <命令> — 探测工具缺失时跳过当前用例
+need() { # need <命令> — 探测工具随镜像交付，缺失即失败
     command -v "$1" >/dev/null 2>&1 && return 0
     printf '%s not installed\n' "$1"
-    return "${SKIP}"
+    return 1
 }
 
 expect() { # expect <实际值> <期望值> <字段>
@@ -188,5 +182,5 @@ probe 3 "T3 pulseaudio stack" t3_audio
 probe 4 "T4 desktop slice" t4_slice
 probe 5 "T5 built-in wallpaper" t5_wallpaper
 
-printf '# summary: pass=%d fail=%d skip=%d\n' "${PASS}" "${FAIL}" "${SKIPPED}"
+printf '# summary: pass=%d fail=%d\n' "${PASS}" "${FAIL}"
 [ "${FAIL}" -eq 0 ]

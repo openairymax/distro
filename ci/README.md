@@ -49,9 +49,10 @@ lockfile 冻结点（滚动触发） × 内核 RPM（6.6-airymax.n）
   语义校验与工具回归测试（Python 标准库，无 `rpmbuild`/`mock` 依赖）；
 - `run-smoke.sh` 必须在已登录的 UKUI 桌面会话内以该桌面用户运行
   （TV-02 桌面验收），不由宿主机驱动；探测只读系统状态，不改配置。
-  `loginctl`/`pgrep`/`xdpyinfo` 属探测工具，缺失时该用例记 77 跳过；
-  `fcitx-remote`/`pactl`/`gsettings`/`sha256sum` 属被测特性的一部分，
-  缺失即失败而非跳过（T5 不得以 SKIP 掩盖壁纸缺失）。
+  `loginctl`/`pgrep`/`xdpyinfo`/`fcitx-remote`/`pactl`/`gsettings`/
+  `sha256sum` 随镜像交付，缺失即判失败：被测系统就是产品镜像本身，
+  工具缺失说明包组合不完整，没有“外部测试机不支持”这一豁免，因此
+  runner 不产生 TAP SKIP。
   镜像 CI 只覆盖安装与启动链，不替代桌面冒烟。
   测试机接入：0.0.3 由 GitHub Actions runner 承载安装与冷启动验收
   （`image-ci.yml` 的 `accept` job），不依赖独立测试机；`/dev/kvm` 可用时
@@ -89,8 +90,8 @@ ci/run-image-ci.sh --out /out --iso-base /path/netinst.iso \
 4. `airymax-smoke-report.service` 轮询 TAP，经串口输出
    `AIRYMAX-SMOKE-PASS` 或 `AIRYMAX-SMOKE-FAIL`。
 
-判定要求计划为 `1..5`、五条 `ok`、无 `not ok`/`Bail out!`、T5 不以
-`# SKIP` 掩盖、`# summary` 的 `fail=0`。会话内 runner 上限 180s，
+判定要求计划为 `1..5`、五条 `ok`、无 `not ok`/`Bail out!`/`# SKIP`、
+`# summary` 的 `fail=0`。会话内 runner 上限 180s，
 report 轮询上限 240s；`AIRYMAX-SMOKE-FAIL` 已进入 `install-test.sh` 的
 `BOOT_FAIL`，失败时无需等满超时。夹具只存在于验收 ISO，产品配方与产品
 ISO 不受影响；验收配方另在 `OUT/acceptance/` 留存，manifest 记
