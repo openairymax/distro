@@ -64,7 +64,9 @@ FAKE_DESKTOP = """\
 set -eu
 out=""
 : > "$ARGS_LOG"
+: > "$ARGS_LOG.all"
 while [ $# -gt 0 ]; do
+    printf '%s\\n' "$1" >> "$ARGS_LOG.all"
     case "$1" in
     --out) shift; out=$1 ;;
     --rpms) shift; printf '%s\\n' "$1" >> "$ARGS_LOG" ;;
@@ -446,6 +448,25 @@ class MediaArgsTest(unittest.TestCase):
             encoding="utf-8")
         for stage in ("rpm=pass", "kernel=pass", "iso=pass"):
             self.assertIn(f"stage {stage}", manifest)
+
+    def test_closure_follows_profile(self):
+        script = self.distro / "ci" / "run-image-ci.sh"
+        env = {"PATH": str(self.bin), "HOME": str(self.root)}
+        cases = (("desk", ("--profile", "desktop"), True),
+                 ("mini", (), False),
+                 ("off", ("--profile", "desktop", "--no-closure"), False),
+                 ("force", ("--closure",), True))
+        for label, args, want in cases:
+            log = self.root / f"{label}.args"
+            env["ARGS_LOG"] = str(log)
+            res = subprocess.run(
+                [BASH, str(script), "--out", str(self.root / label),
+                 "--iso-base", str(self.base), "--skip-install", *args],
+                env=env, text=True, capture_output=True)
+            self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+            body = (self.root / f"{label}.args.all").read_text(
+                encoding="utf-8").split()
+            self.assertEqual("--closure" in body, want, label)
 
 
 if __name__ == "__main__":

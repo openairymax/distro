@@ -7,8 +7,11 @@
 # 一起分发，再委派 build-iso.sh 完成 kickstart 注入与引导复核。minimal
 # 与 desktop 两个剖面共用这一路径。本产品自有包只从 ISO 内
 # /airymax/Packages 解析（cost 最低，保证 airymaxos-* 优先于上游同名
-# 能力）；基础用户空间与 UKUI 闭包仍由 kickstart 声明的 openEuler 网络
-# 仓库提供，即安装期需要网络。
+# 能力）。
+#
+# --closure 追加安装闭包收割：按 kickstart 声明的仓库求解一次完整事务，
+# 把其中全部 RPM 收进同一载荷，安装期只读 file:// 仓库而不再依赖公网。
+# 收割在构建容器内完成，载荷因此同时包含基础用户空间与 UKUI 闭包。
 #
 # 产物（0.0.3 任务方案 M-15；190-distribution/03-installer-design.md §7.1）：
 #   DIR/payload/airymax/Packages/*.rpm        离线包集合
@@ -37,6 +40,8 @@ readonly COMPS="${DISTRO_ROOT}/comps/airymaxos-comps.xml"
 . "${DISTRO_ROOT}/scripts/lib/arch.sh"
 # shellcheck source=lib/iso.sh
 . "${DISTRO_ROOT}/scripts/lib/iso.sh"
+# shellcheck source=lib/closure.sh
+. "${DISTRO_ROOT}/scripts/lib/closure.sh"
 
 BASE=""
 KS=""
@@ -46,6 +51,7 @@ VOLID="AIRYMAXOS"
 VERSION=""
 GPG_KEY=""
 MD5=1
+CLOSURE=0
 RPMS=()
 ADDS=()
 REQUIRE=()
@@ -74,6 +80,9 @@ usage()
   --add PATH         额外加入 ISO 的文件或目录，可重复
   --gpg-key KEYID    生成 ISO 分离签名 .asc
   --no-md5           跳过 implantisomd5（仅限调试）
+  --closure          收割完整安装闭包：按 kickstart 仓库求解安装事务并
+                     将全部 RPM 收入载荷，装机不再访问公网（需 dnf 与
+                     同架构宿主）
   -h, --help         显示本帮助
 
 产出:
@@ -101,6 +110,15 @@ need()
         die "${E_NOSUP}" "缺少镜像构建工具: $1"
 }
 
+need_closure()
+{
+    if [ "$CLOSURE" -ne 1 ]; then
+        return 0
+    fi
+    need dnf
+    need python3
+}
+
 optarg()
 {
     [ "$2" -ge 2 ] || die "${E_INVAL}" "$1 缺少参数"
@@ -121,6 +139,7 @@ parse_args()
         --add) optarg "$1" "$#"; ADDS+=("$2"); shift 2 ;;
         --gpg-key) optarg "$1" "$#"; GPG_KEY="$2"; shift 2 ;;
         --no-md5) MD5=0; shift ;;
+        --closure) CLOSURE=1; shift ;;
         -h|--help) usage; exit 0 ;;
         *) die "${E_INVAL}" "未知参数: $1" ;;
         esac
@@ -153,6 +172,9 @@ check_args()
         [ -n "$pkg" ] || die "${E_INVAL}" "--require 包名不得为空"
     done
     [ -f "$COMPS" ] || die "${E_INVAL}" "comps 定义缺失: ${COMPS}"
+    if [ "$CLOSURE" -eq 1 ]; then
+        [ -f "$CL_SPEC" ] || die "${E_INVAL}" "规格提取器缺失: ${CL_SPEC}"
+    fi
     for add in "${ADDS[@]}"; do
         [ -e "$add" ] || die "${E_INVAL}" "--add 路径不存在: ${add}"
     done
@@ -262,6 +284,17 @@ make_repo()
         die "${E_IO}" "仓库缺少 comps 分组元数据"
 }
 
+run_closure()
+{
+    if [ "$CLOSURE" -ne 1 ]; then
+        return 0
+    fi
+    local work="${OUT_ABS}/closure" log="${OUT_ABS}/logs/closure.log"
+    closure_fetch "$KS" "$ARCH" "$PKGDIR" "$work" "$log" ||
+        die "${E_IO}" "安装闭包收割失败（日志 ${log}）"
+    printf '闭包收割: 新增 %d 个 RPM（总计 %d）\n' "$CL_NEW" "${#NAMES[@]}"
+}
+
 run_iso()
 {
     local add rc=0
@@ -327,11 +360,14 @@ main()
     need sha256sum
     need find
     need sort
+    need_closure
     prep_payload
     collect_rpms
     closure_default
-    check_closure
     make_repo
+    run_closure
+    make_repo
+    check_closure
     write_payload
     printf '汇集 RPM: %d 个（架构 %s）\n' "${#NAMES[@]}" "$ARCH"
     run_iso

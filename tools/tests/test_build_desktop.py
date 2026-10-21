@@ -175,6 +175,49 @@ class BuildDesktopTest(unittest.TestCase):
         res = self.build(FAKE_CREATEREPO_MODE="fail")
         self.assertEqual(res.returncode, 6)
 
+    def test_closure_harvests_payload(self):
+        self.tools()
+        self.stock()
+        res = self.build("--arch", "x86_64", "--closure")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        pkgdir = self.out / "payload" / "airymax" / "Packages"
+        for name in ("ukui-clock-3.1.3-3.oe2403sp2.x86_64.rpm",
+                     "gstreamer1-plugins-good-1.20.3-6.oe2403sp2.x86_64.rpm"):
+            self.assertTrue((pkgdir / name).is_file())
+        self.assertIn("闭包收割: 新增 2", res.stdout)
+        manifest = (self.out / "payload" / "airymax" /
+                    "payload-manifest.txt").read_text(encoding="utf-8")
+        self.assertIn("count=7", manifest)
+        self.assertIn("ukui-clock", manifest)
+
+    def test_closure_off_by_default(self):
+        self.tools()
+        self.stock()
+        log = self.root / "dnf.log"
+        res = self.build("--arch", "x86_64", FAKE_DNF_LOG=str(log))
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertFalse(log.exists())
+
+    def test_closure_needs_dnf(self):
+        self.tools()
+        (self.bin / "dnf").unlink()
+        self.stock()
+        self.assertEqual(self.build("--closure").returncode, 11)
+
+    def test_closure_solver_fail(self):
+        self.tools()
+        self.stock()
+        res = self.build("--arch", "x86_64", "--closure",
+                         FAKE_DNF_MODE="fail")
+        self.assertEqual(res.returncode, 6)
+
+    def test_closure_downloads_nothing(self):
+        self.tools()
+        self.stock()
+        res = self.build("--arch", "x86_64", "--closure",
+                         FAKE_DNF_MODE="empty")
+        self.assertEqual(res.returncode, 6)
+
     def test_mkksiso_fail(self):
         self.tools()
         self.stock()
