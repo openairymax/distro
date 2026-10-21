@@ -75,7 +75,9 @@ services --enabled=lightdm,airymax-desktop-ready
 # 默认 True）。载荷 comps 里没有上游 core 组，追加它会让安装器判定缺组，
 # 转入「是否继续」交互问句，无头安装随即失败。基础用户空间改由
 # airymax-core 组显式提供（comps/airymaxos-comps.xml），该组同时携带
-# 安装器无条件需要的 grub2、grub2-tools 与 chrony。
+# 安装器无条件需要的 grub2-tools 与 chrony；grub2 本体是架构相关的虚拟
+# provide（x86_64 由 grub2-pc 提供），由 scripts/lib/closure.sh 按架构
+# 随载荷收割。
 %packages --nocore
 # 基础用户空间；显式选择而不只靠环境携带，配方自身即可判定（C013）
 @airymax-core

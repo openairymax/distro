@@ -18,9 +18,15 @@
        （kernel / kernel-tools / openEuler-release /
        openEuler-latest-release 由本产品的 airymaxos-kernel 与
        airymaxos-release 取代），并补入安装器无条件需要的
-       grub2、grub2-tools 与 chrony。配方以 %packages 的 nocore
-       选项关闭 anaconda 隐式追加的 @core，改由本组显式供包，
-       使构建期求解与安装期事务读同一份定义。 -->
+       grub2-tools 与 chrony。配方以 %packages 的 nocore 选项
+       关闭 anaconda 隐式追加的 @core，改由本组显式供包，使
+       构建期求解与安装期事务读同一份定义。
+
+       安装器的 GRUB2.packages 请求的是虚拟名 grub2，上游没有同名
+       二进制包，由架构对应的引导器包提供（x86_64 为 grub2-pc，
+       兼作 BIOS 腿的引导器）。引导器包按架构区分而 kickstart 无法
+       表达，由 scripts/lib/closure.sh 的 cl_boot 随载荷收割，
+       本组只列 grub2-tools 这类与架构无关的成员。 -->
   <group>
     <id>airymax-core</id>
     <name>AirymaxOS Core</name>
@@ -33,8 +39,8 @@
       <packagereq type="mandatory">audit</packagereq>
       <packagereq type="mandatory">basesystem</packagereq>
       <packagereq type="mandatory">bash</packagereq>
-      <!-- 安装器引导阶段无条件追加（GRUB2.packages） -->
-      <packagereq type="mandatory">grub2</packagereq>
+      <!-- 安装器引导阶段无条件追加（GRUB2.packages）；grub2 本体是
+           架构相关的虚拟 provide，由 cl_boot 按架构收割 -->
       <packagereq type="mandatory">grub2-tools</packagereq>
       <!-- 安装器时区模块的 NTP 依赖（NTP_PACKAGE） -->
       <packagereq type="mandatory">chrony</packagereq>

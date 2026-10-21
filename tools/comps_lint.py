@@ -9,9 +9,12 @@
 # C001~C014 与 tools/tests/test_comps.py 一一对应。
 #
 # C012~C014 锁住安装期事务的完整性：anaconda 在 %packages 未加
-# --nocore 时隐式追加 @core，并在引导阶段无条件追加 grub2、grub2-tools
-# 与时区 NTP 包。载荷 comps 缺任一项，装机就会停在「是否继续」问句，
-# 无头安装直接失败（0.0.3 首次 L2 装机即由此暴露）。
+# --nocore 时隐式追加 @core，并在引导阶段无条件追加 grub2 与 grub2-tools
+# 及时区 NTP 包。grub2 在上游是架构相关的虚拟 provide（x86_64 由
+# grub2-pc 提供），kickstart 与 comps 都表达不了架构条件，由
+# scripts/lib/closure.sh 的 cl_boot 随载荷按架构收割；comps 侧只约束
+# 与架构无关的成员。载荷 comps 缺任一项，装机就会停在「是否继续」
+# 问句，无头安装直接失败（0.0.3 首次 L2 装机即由此暴露）。
 #
 # 退出码：0 通过；1 存在问题；2 用法或读取错误。
 #
@@ -45,7 +48,7 @@ UPSTREAM = ("kernel", "openEuler-release", "openEuler-latest-release")
 # 基础系统组及其必须携带的安装器隐式需求（C013/C014）
 CORE = "airymax-core"
 CORE_REF = "@" + CORE
-CORE_NEEDS = ("grub2", "grub2-tools", "chrony")
+CORE_NEEDS = ("grub2-tools", "chrony")
 NOCORE = "--nocore"
 
 

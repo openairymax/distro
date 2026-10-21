@@ -11,9 +11,10 @@
 # 包规格来自 tools/ks_spec.py（SSoT）。配方以 %packages --nocore 关闭
 # anaconda 隐式追加的 @core，基础用户空间改由 airymax-core 组显式声明，
 # 因此两端求解条件一致。安装器在引导阶段又自行追加引导包
-# （pyanaconda/modules/storage/bootloader/efi.py），这些包不在包清单里，
-# 却必须能从载荷解析；EFI 包按架构区分而 kickstart 无法表达，故在此
-# 按架构补齐。排除项同样照搬配方。
+# （pyanaconda/modules/storage/bootloader/grub2.py 与 efi.py），这些包
+# 不在包清单里，却必须能从载荷解析。安装器 GRUB2.packages 请求的是虚拟
+# 名 grub2，上游由 grub2-pc 这类架构相关包提供；EFI 包同样按架构区分，
+# 而 kickstart 无法表达架构条件，故在此按架构补齐。排除项同样照搬配方。
 #
 # 配方里的 @^环境 只对 anaconda 成立，dnf 命令行会把 ^ 当组名的一部分。
 # 因此收割前按 comps 的 environment/grouplist 展开为 @组（ks_spec.py
@@ -94,7 +95,7 @@ closure_specs()
 cl_boot()
 {
     case "$1" in
-    x86_64) CL_BOOT=(grub2-efi-x64 shim-x64 efibootmgr) ;;
+    x86_64) CL_BOOT=(grub2-pc grub2-efi-x64 shim-x64 efibootmgr) ;;
     aarch64) CL_BOOT=(grub2-efi-aa64 shim-aa64 efibootmgr) ;;
     *)
         printf 'closure: 未定义引导包架构 %s\n' "$1" >&2
