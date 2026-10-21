@@ -53,6 +53,7 @@ SKIP_KERNEL=0
 SKIP_ISO=0
 SKIP_INSTALL=0
 ACCEPTANCE=0
+CLOSURE=auto
 
 PASS=0
 FAIL=0
@@ -92,6 +93,8 @@ usage()
   --skip-kernel      跳过内核构建段
   --skip-iso         跳过 ISO 组装段（需配合 --iso）
   --skip-install     跳过装机段
+  --closure          强制收割安装闭包（缺省 desktop 剖面开启）
+  --no-closure       关闭安装闭包收割，装机回退公网仓库（仅限调试）
   -h, --help         显示本帮助
 
 产物:
@@ -153,6 +156,8 @@ parse_args()
         --skip-kernel) SKIP_KERNEL=1; shift ;;
         --skip-iso) SKIP_ISO=1; shift ;;
         --skip-install) SKIP_INSTALL=1; shift ;;
+        --closure) CLOSURE=1; shift ;;
+        --no-closure) CLOSURE=0; shift ;;
         -h|--help) usage; exit 0 ;;
         *) die "未知参数: $1" ;;
         esac
@@ -289,6 +294,18 @@ kern_args()
     fi
 }
 
+# 闭包收割让装机只读 ISO 内仓库。desktop 剖面缺省开启：产品目标是离线
+# 可装，而不是在装机现场依赖公网镜像；minimal 保持按需，便于用小载荷
+# 快速验证组装链。
+want_closure()
+{
+    case "${CLOSURE}" in
+    1) return 0 ;;
+    0) return 1 ;;
+    auto) [ "${PROFILE}" = desktop ] ;;
+    esac
+}
+
 media_args()
 {
     local a
@@ -299,6 +316,9 @@ media_args()
         MEDIA_ARGS+=(--out "${OUT}" --require airymaxos-kernel \
             --require airymaxos-kernel-core \
             --require airymaxos-kernel-modules)
+    fi
+    if want_closure; then
+        MEDIA_ARGS+=(--closure)
     fi
     for a in "${RPMS_DIRS[@]}"; do
         MEDIA_ARGS+=(--rpms "$a")

@@ -122,6 +122,78 @@ if [ -n "$grp" ]; then
 fi
 """
 
+# dnf 在闭包收割里承担两件事：解出安装事务，并把事务里的 RPM 落到
+# --downloaddir。伪工具必须同时校验调用前提，否则 build-desktop 的顺序
+# 一旦回退（例如收割早于 createrepo_c），测试仍会通过而装机现场才失败。
+DNF = """\
+#!/bin/sh
+set -u
+dl=""; root=""; repos=""; pkg=""; excl=""; specs=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+    --downloaddir=*) dl=${1#*=} ;;
+    --downloaddir) shift; dl=$1 ;;
+    --installroot=*) root=${1#*=} ;;
+    --installroot) shift; root=$1 ;;
+    --setopt=reposdir=*) repos=${1#--setopt=reposdir=} ;;
+    --setopt=*) ;;
+    --repofrompath=*) pkg=${1#*,} ;;
+    --exclude=*) excl=${1#*=} ;;
+    --exclude) shift; excl=$1 ;;
+    --releasever|--forcearch) shift ;;
+    -*) ;;
+    *) specs="$specs $1" ;;
+    esac
+    shift
+done
+if [ -n "${FAKE_DNF_LOG:-}" ]; then
+    printf 'dl=%s pkg=%s specs=%s excl=%s\\n' \\
+        "$dl" "$pkg" "$specs" "$excl" >> "$FAKE_DNF_LOG"
+fi
+[ -n "$dl" ] && [ -n "$root" ] && [ -n "$pkg" ] || exit 4
+[ -f "$pkg/repodata/repomd.xml" ] || {
+    printf 'dnf: 本地仓库尚未索引: %s\\n' "$pkg" >&2; exit 6; }
+[ -d "$repos" ] || { printf 'dnf: reposdir 缺失\\n' >&2; exit 7; }
+cfg=""
+for f in "$repos"/*.repo; do
+    [ -f "$f" ] || continue
+    cfg="$cfg$(cat "$f")"
+done
+case "$cfg" in
+*airymaxos-offline*)
+    printf 'dnf: 离线自引用仓库未剔除\\n' >&2; exit 8 ;;
+esac
+case "$cfg" in
+*"[baseos]"*) ;;
+*) printf 'dnf: 缺 baseos 仓库\\n' >&2; exit 9 ;;
+esac
+case "$specs" in
+*"@^airymax-workstation"*) ;;
+*) printf 'dnf: 缺环境组规格\\n' >&2; exit 10 ;;
+esac
+case "$specs" in
+*"@core"*) ;;
+*) printf 'dnf: 缺 @core 组\\n' >&2; exit 11 ;;
+esac
+case "$excl" in
+*kernel*) ;;
+*) printf 'dnf: 缺 kernel 排除项\\n' >&2; exit 12 ;;
+esac
+case "$excl" in
+*kylin-ai*) ;;
+*) printf 'dnf: 缺 kylin-ai 排除项\\n' >&2; exit 13 ;;
+esac
+case "${FAKE_DNF_MODE:-ok}" in
+fail) printf 'dnf: 依赖解析失败\\n' >&2; exit 1 ;;
+empty) exit 0 ;;
+esac
+for r in gstreamer1-plugins-good-1.20.3-6.oe2403sp2.x86_64.rpm \\
+    ukui-clock-3.1.3-3.oe2403sp2.x86_64.rpm \\
+    airymaxos-system-0.0.3-1.noarch.rpm; do
+    printf 'rpm %s\\n' "$r" > "$dl/$r"
+done
+"""
+
 XORRISO = """\
 #!/bin/sh
 indev=""; path=""; dest=""
@@ -491,6 +563,7 @@ def iso_tools(bin_dir):
 def desk_tools(bin_dir):
     iso_tools(bin_dir)
     write(bin_dir, "createrepo_c", CREATEREPO)
+    write(bin_dir, "dnf", DNF)
 
 
 def qemu_tools(bin_dir, arch="x86_64", qemu=True):
