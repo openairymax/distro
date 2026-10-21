@@ -16,6 +16,10 @@
 # 因此收割前按 comps 的 environment/grouplist 展开为 @组（ks_spec.py
 # pkgs --comps），与环境安装读同一份定义。
 #
+# 收割要从公网拉取约 2.5 GB RPM。链路劣化时 dnf 的默认超时形同无限等待，
+# 会把 CI 预算无声耗尽；因此求解显式限定并行度、超时、最低速率与重试，
+# 让劣化表现为快速失败而不是挂起。
+#
 # 调用约定：
 #   closure_fetch KS ARCH PKGDIR WORK LOG
 #                    新增包数写入 CL_NEW；收割到的文件名追加到调用方的
@@ -32,6 +36,13 @@ readonly CL_SPEC="${CL_ROOT}/tools/ks_spec.py"
 readonly CL_COMPS="${CL_ROOT}/comps/airymaxos-comps.xml"
 readonly CL_VER="${CLOSURE_VER:-24.03}"
 readonly CL_CORE="@core"
+readonly -a CL_DNF_OPTS=(
+    --setopt=strict=1
+    --setopt=max_parallel_downloads=10
+    --setopt=timeout=30
+    --setopt=minrate=1000
+    --setopt=retries=5
+)
 
 CL_SPECS=()
 CL_EXCL=()
@@ -96,7 +107,7 @@ cl_run()
     dnf -y install --downloadonly --downloaddir="${work}/dl" \
         --installroot="${work}/root" --releasever="$CL_VER" \
         --forcearch="$arch" --setopt="reposdir=${work}/repos" \
-        --setopt=strict=1 --nogpgcheck \
+        "${CL_DNF_OPTS[@]}" --nogpgcheck \
         --repofrompath="airymax-local,${pkg}" \
         "${CL_ARGS[@]}" >"$log" 2>&1
 }
