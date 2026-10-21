@@ -110,10 +110,11 @@ if [ -n "${FAKE_MKKSISO_LOG:-}" ]; then
 fi
 """
 
-# 真实 createrepo_c 按 --general-compress-type 压缩 group 元数据，并在
-# repomd.xml 里用 location 指向该文件；repomd 带默认命名空间，伪工具
-# 必须连命名空间一起复刻，否则「载荷 comps 是否仍带环境」这类断言测的
-# 不是真实产物。
+# 真实 createrepo_c 按 --general-compress-type 压缩元数据，并在 repomd.xml
+# 里用 location 指向该文件；repomd 带默认命名空间，伪工具必须连命名空间
+# 一起复刻，否则「载荷 comps 是否仍带环境」这类断言测的不是真实产物。
+# 真实工具同时按目录内的 RPM 生成 primary 元数据，包名来自文件名的 NVR；
+# 载荷的 comps 成员校验读的正是它，因此伪工具也要生成。
 # FAKE_CREATEREPO_MODE=noenv 模拟 comps 环境段被丢弃，用于验证门禁。
 CREATEREPO = """\
 #!/bin/sh
@@ -135,41 +136,46 @@ if [ -n "$grp" ] && [ ! -f "$grp" ]; then
     exit 3
 fi
 mkdir -p "$repo/repodata"
-href=""
-if [ -n "$grp" ]; then
-    cp "$grp" "$repo/repodata/comps.xml"
-    if [ "$mode" = noenv ]; then
-        python3 - "$repo/repodata/comps.xml" <<'PY'
-import re, sys
-path = sys.argv[1]
-with open(path, encoding="utf-8") as fh:
-    raw = fh.read()
-raw = re.sub(r"(?s)<environment\\b.*?</environment>", "", raw)
-with open(path, "w", encoding="utf-8") as fh:
-    fh.write(raw)
+python3 - "$repo" "$grp" "$ct" "$mode" <<'PY'
+import gzip, re, sys
+from pathlib import Path
+
+repo = Path(sys.argv[1])
+grp = sys.argv[2]
+ct = sys.argv[3]
+mode = sys.argv[4]
+meta = []
+
+
+def emit(kind, name, raw):
+    (repo / "repodata" / name).write_bytes(
+        gzip.compress(raw) if ct == "gz" else raw)
+    meta.append(f'<data type="{kind}">'
+                f'<location href="repodata/{name}"/></data>')
+
+
+if grp:
+    raw = Path(grp).read_bytes()
+    if mode == "noenv":
+        raw = re.sub(rb"(?s)<environment\\b.*?</environment>", b"", raw)
+    emit("group", "comps.xml.gz" if ct == "gz" else "comps.xml", raw)
+
+names = set()
+for rpm in sorted(repo.glob("*.rpm")):
+    bits = rpm.name[:-4].rsplit(".", 1)[0].split("-")
+    if len(bits) >= 3:
+        names.add("-".join(bits[:-2]))
+if names:
+    body = "<metadata>" + "".join(
+        f'<package type="rpm"><name>{n}</name></package>'
+        for n in sorted(names)) + "</metadata>"
+    emit("primary", "primary.xml.gz" if ct == "gz" else "primary.xml",
+         body.encode("utf-8"))
+
+(repo / "repodata" / "repomd.xml").write_text(
+    '<repomd xmlns="http://linux.duke.edu/metadata/repo">'
+    + "".join(meta) + "</repomd>\\n", encoding="utf-8")
 PY
-    fi
-    href="repodata/comps.xml"
-    if [ "$ct" = gz ]; then
-        python3 - "$repo/repodata/comps.xml" <<'PY'
-import gzip, sys
-path = sys.argv[1]
-with open(path, "rb") as fh:
-    raw = fh.read()
-with gzip.open(path + ".gz", "wb") as fh:
-    fh.write(raw)
-PY
-        rm -f "$repo/repodata/comps.xml"
-        href="repodata/comps.xml.gz"
-    fi
-fi
-if [ -n "$href" ]; then
-    printf '<repomd xmlns="http://linux.duke.edu/metadata/repo"><data type="group"><location href="%s"/></data></repomd>\\n' \\
-        "$href" > "$repo/repodata/repomd.xml"
-else
-    printf '<repomd xmlns="http://linux.duke.edu/metadata/repo"/>\\n' \\
-        > "$repo/repodata/repomd.xml"
-fi
 """
 
 # dnf 在闭包收割里承担两件事：解出安装事务，并把事务里的 RPM 落到
@@ -259,11 +265,44 @@ flaky)
     printf '%s\\n' "$n" >"$st"
     [ "$n" -gt "${FAKE_DNF_FAILS:-1}" ] || exit 1 ;;
 esac
-for r in gstreamer1-plugins-good-1.20.3-6.oe2403sp2.x86_64.rpm \\
-    ukui-clock-3.1.3-3.oe2403sp2.x86_64.rpm \\
-    airymaxos-system-0.0.3-1.noarch.rpm; do
-    printf 'rpm %s\\n' "$r" > "$dl/$r"
-done
+# 真实 dnf 的事务包含组内全部成员，加上不在组里的依赖。伪工具按组元数据
+# 展开成员，并补一个非组成员，保证「载荷须含 comps 全量成员」这条门禁
+# 在测试里真的被驱动；本地仓库里已有的 NEVRA 复用同一文件名，与 dnf 选中
+# 同一份包一致，也让收割端按文件名去重。
+python3 - "$dl" "$pkg" <<'PY'
+import gzip, sys
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+
+def local(tag):
+    return tag.rsplit("}", 1)[-1]
+
+
+def rpm_name(path):
+    bits = path.name[:-4].rsplit(".", 1)[0].split("-")
+    return "-".join(bits[:-2]) if len(bits) >= 3 else path.name[:-4]
+
+
+dl, pkg = Path(sys.argv[1]), Path(sys.argv[2])
+href = ""
+for data in ET.parse(pkg / "repodata" / "repomd.xml").getroot():
+    if local(data.tag) != "data" or data.get("type") != "group":
+        continue
+    href = next((node.get("href") for node in data.iter()
+                 if local(node.tag) == "location"), "")
+blob = (pkg / href).read_bytes()
+if blob[:2] == b"\\x1f\\x8b":
+    blob = gzip.decompress(blob)
+members = [n.text.strip() for n in ET.fromstring(blob).iter()
+           if local(n.tag) == "packagereq" and (n.text or "").strip()]
+have = {}
+for rpm in pkg.glob("*.rpm"):
+    have.setdefault(rpm_name(rpm), rpm.name)
+for name in members + ["airymaxos-system"]:
+    (dl / have.get(name, f"{name}-1.0-1.noarch.rpm")).write_text(
+        f"rpm {name}\\n", encoding="utf-8")
+PY
 """
 
 XORRISO = """\

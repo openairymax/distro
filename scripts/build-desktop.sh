@@ -296,11 +296,18 @@ make_repo()
 check_comps()
 {
     local env log="${OUT_ABS}/logs/comps.log"
+    : >"$log"
     while IFS= read -r env; do
         [ -n "$env" ] || continue
-        python3 "$CL_SPEC" verify "$PKGDIR" --env "$env" >"$log" 2>&1 ||
+        python3 "$CL_SPEC" verify "$PKGDIR" --env "$env" >>"$log" 2>&1 ||
             die "${E_IO}" "载荷 comps 缺环境 ${env}（日志 ${log}）"
     done < <(python3 "$CL_SPEC" envs "$KS")
+    # 只有闭包收割才宣称载荷可离线安装；未收割的载荷仅含本地产物，
+    # 按 comps 全量解析没有意义。
+    if [ "$CLOSURE" -eq 1 ]; then
+        python3 "$CL_SPEC" resolve "$PKGDIR" --comps "$CL_COMPS" >>"$log" 2>&1 ||
+            die "${E_IO}" "载荷缺 comps 成员（日志 ${log}）"
+    fi
 }
 
 run_closure()
