@@ -211,6 +211,18 @@ class InstallTestTest(unittest.TestCase):
         self.assertIn("请回答 'yes' 或 'no'", res.stderr)
         self.assertLess(elapsed, 30)
 
+    def test_install_payload_fast(self):
+        self.tools()
+        start = time.monotonic()
+        res = self.install("--runs", "1", "--install-timeout", "60",
+                           FAKE_QEMU_INSTALL_MODE="payload")
+        elapsed = time.monotonic() - start
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("not ok 1", res.stdout)
+        self.assertIn("install failure pattern", res.stderr)
+        self.assertIn("安装负载时出现以下错误", res.stderr)
+        self.assertLess(elapsed, 30)
+
     def test_install_timeout(self):
         self.tools()
         start = time.monotonic()
