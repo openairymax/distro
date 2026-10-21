@@ -46,7 +46,7 @@ distro/
 ├── release/
 │   └── os-release                 # 发行版标识唯一事实源（VERSION_ID）
 ├── repo/
-│   └── airymax-os.repo            # DNF 仓库定义（运行期 + lockfile 输入）
+│   └── airymax-os.repo            # DNF 仓库定义（仅运行期客户端）
 ├── specs/
 │   ├── macros.airymax             # FHS 布局宏（/etc/rpm/macros.airymax）
 │   └── airymaxos-release.spec     # 发行版标识包
@@ -58,8 +58,9 @@ distro/
 │   └── airymaxos-comps.xml        # 包组定义：airymax-desktop* → UKUI 组件集
 ├── lockfile/
 │   ├── README.md                  # 冻结策略 + 冻结点记录表
+│   ├── rpms.in.yaml               # 冻结输入：上游仓库 + 包清单
 │   ├── gen-lockfile.sh            # lockfile 生成脚本（仅发布工作区执行）
-│   └── lockfile-openEuler-24.03-LTS-SP2.yaml
+│   └── lock_check.py              # 冻结集离线校验与 diff（verify/diff）
 ├── ostree/
 │   ├── README.md                  # rpm-ostree compose 流程
 │   └── airymaxos-workstation.treefile
