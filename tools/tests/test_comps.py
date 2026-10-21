@@ -31,7 +31,6 @@ VALID = """\
     <default>true</default>
     <uservisible>false</uservisible>
     <packagelist>
-      <packagereq type="mandatory">grub2</packagereq>
       <packagereq type="mandatory">grub2-tools</packagereq>
       <packagereq type="mandatory">chrony</packagereq>
     </packagelist>
@@ -139,7 +138,7 @@ class CompsLintTest(unittest.TestCase):
     def test_pkg_dup(self):
         text = VALID.replace(
             "</packagelist>",
-            "  <packagereq type=\"optional\">grub2</packagereq>\n"
+            "  <packagereq type=\"optional\">grub2-tools</packagereq>\n"
             "    </packagelist>", 1)
         self.assertIn("C006", self.codes(text))
 
