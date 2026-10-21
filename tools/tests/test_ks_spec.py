@@ -11,6 +11,8 @@
 # Version: 0.0.3
 # ===========================================================================
 
+import gzip
+import re
 import subprocess
 import sys
 import tempfile
@@ -25,7 +27,22 @@ import ks_spec  # noqa: E402
 SCRIPT = TOOLS / "ks_spec.py"
 DISTRO = TOOLS.parent
 KS = DISTRO / "kickstart" / "airymaxos-workstation.ks"
+COMPS = DISTRO / "comps" / "airymaxos-comps.xml"
 PYTHON = sys.executable
+ENV = "airymax-workstation"
+
+
+def stage_repo(root, raw, gz=True):
+    """按 createrepo_c 的产物布局写一个最小仓库索引。"""
+    repodata = Path(root) / "repodata"
+    repodata.mkdir(parents=True, exist_ok=True)
+    name = "comps.xml.gz" if gz else "comps.xml"
+    data = raw.encode("utf-8")
+    (repodata / name).write_bytes(gzip.compress(data) if gz else data)
+    (repodata / "repomd.xml").write_text(
+        '<repomd><data type="group">'
+        f'<location href="repodata/{name}"/></data></repomd>',
+        encoding="utf-8")
 
 
 class KsSpecTest(unittest.TestCase):
@@ -93,12 +110,72 @@ class KsSpecTest(unittest.TestCase):
         self.assertEqual(len(rows), 5)
 
     def test_cli_pkgs(self):
-        res = subprocess.run([PYTHON, str(SCRIPT), "pkgs", str(KS)],
+        res = subprocess.run([PYTHON, str(SCRIPT), "pkgs",
+                              "--comps", str(COMPS), str(KS)],
                              text=True, capture_output=True)
         self.assertEqual(res.returncode, 0, res.stderr)
-        self.assertIn("install\t@^airymax-workstation",
-                      res.stdout.splitlines())
-        self.assertIn("exclude\tkylin-ai*", res.stdout.splitlines())
+        lines = res.stdout.splitlines()
+        self.assertIn("install\t@airymax-desktop-core", lines)
+        self.assertIn("install\t@airymax-desktop", lines)
+        self.assertIn("exclude\tkylin-ai*", lines)
+        self.assertFalse([row for row in lines if row.startswith("install\t@^")])
+        self.assertEqual(lines.count("install\t@airymax-desktop-core"), 1)
+
+    def test_cli_pkgs_needs_comps(self):
+        res = subprocess.run([PYTHON, str(SCRIPT), "pkgs", str(KS)],
+                             text=True, capture_output=True)
+        self.assertEqual(res.returncode, 5)
+        self.assertIn("需 --comps 展开", res.stderr)
+
+    def test_cli_envs(self):
+        res = subprocess.run([PYTHON, str(SCRIPT), "envs", str(KS)],
+                             text=True, capture_output=True)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(res.stdout.splitlines(), [ENV])
+
+    def test_expand_dedup(self):
+        rows = [("install", "@^" + ENV),
+                ("install", "@airymax-desktop"),
+                ("exclude", "kernel")]
+        out = ks_spec.expand_envs(rows, COMPS)
+        self.assertEqual(out, [("install", "@airymax-desktop-core"),
+                               ("install", "@airymax-desktop"),
+                               ("exclude", "kernel")])
+
+    def test_expand_unknown_env(self):
+        with self.assertRaises(ValueError):
+            ks_spec.expand_envs([("install", "@^no-such-env")], COMPS)
+
+    def test_cli_verify_repo(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            stage_repo(tmp, COMPS.read_text(encoding="utf-8"))
+            res = subprocess.run([PYTHON, str(SCRIPT), "verify", "--env",
+                                  ENV, tmp], text=True, capture_output=True)
+            self.assertEqual(res.returncode, 0, res.stderr)
+            lines = res.stdout.splitlines()
+            self.assertIn("env\t" + ENV, lines)
+            self.assertIn("group\tairymax-desktop-core", lines)
+            res = subprocess.run([PYTHON, str(SCRIPT), "verify", "--env",
+                                  "no-such-env", tmp],
+                                 text=True, capture_output=True)
+            self.assertEqual(res.returncode, 5)
+
+    def test_verify_plain_comps(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            stage_repo(tmp, COMPS.read_text(encoding="utf-8"), gz=False)
+            res = subprocess.run([PYTHON, str(SCRIPT), "verify", "--env",
+                                  ENV, tmp], text=True, capture_output=True)
+            self.assertEqual(res.returncode, 0, res.stderr)
+
+    def test_verify_env_dropped(self):
+        raw = re.sub(r"(?s)<environment\b.*?</environment>", "",
+                     COMPS.read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as tmp:
+            stage_repo(tmp, raw)
+            res = subprocess.run([PYTHON, str(SCRIPT), "verify", "--env",
+                                  ENV, tmp], text=True, capture_output=True)
+            self.assertEqual(res.returncode, 5)
+            self.assertIn("缺少环境", res.stderr)
 
     def test_cli_rejects_bad_file(self):
         with tempfile.TemporaryDirectory() as tmp:

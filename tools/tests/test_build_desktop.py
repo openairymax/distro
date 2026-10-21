@@ -12,6 +12,7 @@
 # Version: 0.0.3
 # ===========================================================================
 
+import gzip
 import hashlib
 import shutil
 import subprocess
@@ -175,10 +176,19 @@ class BuildDesktopTest(unittest.TestCase):
         res = self.build(FAKE_CREATEREPO_MODE="fail")
         self.assertEqual(res.returncode, 6)
 
+    def test_comps_env_missing(self):
+        self.tools()
+        self.stock()
+        res = self.build(FAKE_CREATEREPO_MODE="noenv")
+        self.assertEqual(res.returncode, 6)
+        self.assertIn("comps 缺环境", res.stderr)
+
     def test_closure_harvests_payload(self):
         self.tools()
         self.stock()
-        res = self.build("--arch", "x86_64", "--closure")
+        log = self.root / "dnf.log"
+        res = self.build("--arch", "x86_64", "--closure",
+                         FAKE_DNF_LOG=str(log))
         self.assertEqual(res.returncode, 0, res.stderr)
         pkgdir = self.out / "payload" / "airymax" / "Packages"
         for name in ("ukui-clock-3.1.3-3.oe2403sp2.x86_64.rpm",
@@ -189,6 +199,10 @@ class BuildDesktopTest(unittest.TestCase):
                     "payload-manifest.txt").read_text(encoding="utf-8")
         self.assertIn("count=7", manifest)
         self.assertIn("ukui-clock", manifest)
+        specs = log.read_text(encoding="utf-8")
+        self.assertIn("@airymax-desktop-core", specs)
+        self.assertIn("@airymax-desktop ", specs)
+        self.assertNotIn("@^", specs)
 
     def test_closure_off_by_default(self):
         self.tools()
@@ -239,8 +253,9 @@ class BuildDesktopTest(unittest.TestCase):
         pkgdir = self.out / "payload" / "airymax" / "Packages"
         self.assertTrue((pkgdir / "airymaxos-agent-0.0.3-1.x86_64.rpm").is_file())
         self.assertTrue((pkgdir / "repodata" / "repomd.xml").is_file())
-        self.assertEqual((pkgdir / "repodata" / "comps.xml").read_bytes(),
-                         COMPS.read_bytes())
+        self.assertEqual(
+            gzip.decompress((pkgdir / "repodata" / "comps.xml.gz").read_bytes()),
+            COMPS.read_bytes())
         manifest = (self.out / "payload" / "airymax" /
                     "payload-manifest.txt").read_text(encoding="utf-8")
         self.assertIn("arch=x86_64", manifest)

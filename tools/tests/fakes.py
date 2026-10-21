@@ -14,10 +14,10 @@
 import shutil
 from pathlib import Path
 
-TOOLS = ("awk", "basename", "bash", "cat", "cmp", "cp", "date", "dirname",
-         "find", "git", "grep", "head", "mkdir", "mv", "python3", "rm", "sed",
-         "seq", "sha256sum", "sleep", "sort", "tail", "timeout", "tr",
-         "uname")
+TOOLS = ("awk", "base64", "basename", "bash", "cat", "cmp", "cp", "date",
+         "dirname", "find", "git", "grep", "head", "mkdir", "mv", "python3",
+         "rm", "sed", "seq", "sha256sum", "sleep", "sort", "tail", "timeout",
+         "tr", "uname")
 
 MKKSISO = """\
 #!/bin/sh
@@ -59,17 +59,29 @@ body=$out.body
 } > "$body"
 for a in $adds; do
     [ -e "$a" ] || continue
-    if [ -d "$a" ]; then
-        name=$(basename "$a")
-        find "$a" -type f | sort | while IFS= read -r f; do
-            rel=${f#"$a"/}
-            printf '=== /%s/%s\\n' "$name" "$rel"
-            cat "$f"
-        done >> "$body"
-    else
-        printf '=== /%s\\n' "$(basename "$a")" >> "$body"
-        cat "$a" >> "$body"
-    fi
+    python3 - "$a" "$body" <<'PY'
+import base64, sys
+from pathlib import Path
+root = Path(sys.argv[1])
+if root.is_file():
+    files = [(root.name, root)]
+else:
+    files = [(f"{root.name}/{p.relative_to(root)}", p)
+             for p in sorted(root.rglob("*")) if p.is_file()]
+with open(sys.argv[2], "ab") as out:
+    for name, path in files:
+        raw = path.read_bytes()
+        out.write(f"=== /{name}\\n".encode())
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            text = ""
+        if text.endswith("\\n") and "=== " not in text \\
+                 and not text.startswith("@@base64"):
+            out.write(raw)
+        else:
+            out.write(b"@@base64\\n" + base64.encodebytes(raw))
+PY
 done
 python3 - "$out" "$body" "$p2" <<'PY' || exit 5
 import struct, sys
@@ -98,27 +110,63 @@ if [ -n "${FAKE_MKKSISO_LOG:-}" ]; then
 fi
 """
 
+# 真实 createrepo_c 按 --general-compress-type 压缩 group 元数据，并在
+# repomd.xml 里用 location 指向该文件。伪工具必须复刻这一布局，否则
+# 「载荷 comps 是否仍带环境」这类断言测的不是真实产物。
+# FAKE_CREATEREPO_MODE=noenv 模拟 comps 环境段被丢弃，用于验证门禁。
 CREATEREPO = """\
 #!/bin/sh
-grp=""; repo=""
+grp=""; repo=""; ct="gz"
 while [ $# -gt 0 ]; do
     case "$1" in
     --groupfile) shift; grp=$1 ;;
+    --general-compress-type) shift; ct=$1 ;;
+    --general-compress-type=*) ct=${1#*=} ;;
     -*) ;;
     *) repo=$1 ;;
     esac
     shift
 done
-[ "${FAKE_CREATEREPO_MODE:-ok}" = fail ] && exit 1
+mode=${FAKE_CREATEREPO_MODE:-ok}
+[ "$mode" = fail ] && exit 1
 [ -n "$repo" ] && [ -d "$repo" ] || exit 2
 if [ -n "$grp" ] && [ ! -f "$grp" ]; then
     exit 3
 fi
 mkdir -p "$repo/repodata"
-printf 'repomd\\n' > "$repo/repodata/repomd.xml"
+href=""
 if [ -n "$grp" ]; then
     cp "$grp" "$repo/repodata/comps.xml"
-    printf '<data type="group"/>\\n' >> "$repo/repodata/repomd.xml"
+    if [ "$mode" = noenv ]; then
+        python3 - "$repo/repodata/comps.xml" <<'PY'
+import re, sys
+path = sys.argv[1]
+with open(path, encoding="utf-8") as fh:
+    raw = fh.read()
+raw = re.sub(r"(?s)<environment\\b.*?</environment>", "", raw)
+with open(path, "w", encoding="utf-8") as fh:
+    fh.write(raw)
+PY
+    fi
+    href="repodata/comps.xml"
+    if [ "$ct" = gz ]; then
+        python3 - "$repo/repodata/comps.xml" <<'PY'
+import gzip, sys
+path = sys.argv[1]
+with open(path, "rb") as fh:
+    raw = fh.read()
+with gzip.open(path + ".gz", "wb") as fh:
+    fh.write(raw)
+PY
+        rm -f "$repo/repodata/comps.xml"
+        href="repodata/comps.xml.gz"
+    fi
+fi
+if [ -n "$href" ]; then
+    printf '<repomd><data type="group"><location href="%s"/></data></repomd>\\n' \\
+        "$href" > "$repo/repodata/repomd.xml"
+else
+    printf '<repomd/>\\n' > "$repo/repodata/repomd.xml"
 fi
 """
 
@@ -167,9 +215,23 @@ case "$cfg" in
 *"[baseos]"*) ;;
 *) printf 'dnf: 缺 baseos 仓库\\n' >&2; exit 9 ;;
 esac
+# 配方里的 @^环境 只在 anaconda 成立；dnf 命令行把它当组名 ^环境 求解。
+# 伪工具必须复刻这一拒绝语义，否则收割器漏做环境展开时 L0 仍会全绿，
+# 直到镜像 CI 才暴露。
 case "$specs" in
-*"@^airymax-workstation"*) ;;
-*) printf 'dnf: 缺环境组规格\\n' >&2; exit 10 ;;
+*"@^"*)
+    env=${specs#*@^}
+    printf "dnf: Module or Group '^%s' is not available.\\n" "${env%% *}" >&2
+    printf 'dnf: Nothing to do.\\n' >&2
+    exit 14 ;;
+esac
+case " $specs " in
+*" @airymax-desktop-core "*) ;;
+*) printf 'dnf: 缺 @airymax-desktop-core 组\\n' >&2; exit 10 ;;
+esac
+case " $specs " in
+*" @airymax-desktop "*) ;;
+*) printf 'dnf: 缺 @airymax-desktop 组\\n' >&2; exit 15 ;;
 esac
 case "$specs" in
 *"@core"*) ;;
@@ -217,8 +279,12 @@ grep -qxF "=== ${path}" "$body" || { rm -f "$body"; exit 1; }
 tr -d '\\000' < "$body" |
     awk -v p="$path" '$0 == "=== " p { on = 1; next }
 on && /^=== / { exit }
-on { print }' > "$dest"
+on { print }' > "$dest" || { rm -f "$body"; exit 3; }
 rm -f "$body"
+if [ "$(head -n 1 "$dest")" = "@@base64" ]; then
+    tail -n +2 "$dest" | base64 -d > "${dest}.raw" || exit 4
+    mv "${dest}.raw" "$dest"
+fi
 """
 
 # isomd5sum 把校验和写在 PVD 应用数据区，而该区域落在被校验的区间内。

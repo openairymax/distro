@@ -12,6 +12,8 @@
 # --closure 追加安装闭包收割：按 kickstart 声明的仓库求解一次完整事务，
 # 把其中全部 RPM 收进同一载荷，安装期只读 file:// 仓库而不再依赖公网。
 # 收割在构建容器内完成，载荷因此同时包含基础用户空间与 UKUI 闭包。
+# 出镜像前再校验载荷仓库仍携带配方的环境组，避免交互安装与按环境解析
+# 在现场才失败。
 #
 # 产物（0.0.3 任务方案 M-15；190-distribution/03-installer-design.md §7.1）：
 #   DIR/payload/airymax/Packages/*.rpm        离线包集合
@@ -32,7 +34,6 @@ readonly E_NOSUP=11
 
 DISTRO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 readonly DISTRO_ROOT
-readonly COMPS="${DISTRO_ROOT}/comps/airymaxos-comps.xml"
 
 # shellcheck source=lib/outdir.sh
 . "${DISTRO_ROOT}/scripts/lib/outdir.sh"
@@ -116,7 +117,6 @@ need_closure()
         return 0
     fi
     need dnf
-    need python3
 }
 
 optarg()
@@ -171,10 +171,8 @@ check_args()
     for pkg in "${REQUIRE[@]}"; do
         [ -n "$pkg" ] || die "${E_INVAL}" "--require 包名不得为空"
     done
-    [ -f "$COMPS" ] || die "${E_INVAL}" "comps 定义缺失: ${COMPS}"
-    if [ "$CLOSURE" -eq 1 ]; then
-        [ -f "$CL_SPEC" ] || die "${E_INVAL}" "规格提取器缺失: ${CL_SPEC}"
-    fi
+    [ -f "$CL_COMPS" ] || die "${E_INVAL}" "comps 定义缺失: ${CL_COMPS}"
+    [ -f "$CL_SPEC" ] || die "${E_INVAL}" "规格提取器缺失: ${CL_SPEC}"
     for add in "${ADDS[@]}"; do
         [ -e "$add" ] || die "${E_INVAL}" "--add 路径不存在: ${add}"
     done
@@ -258,7 +256,8 @@ sum_of()
 write_payload()
 {
     local base sum comps_sum
-    comps_sum="$(sum_of "$COMPS")" || die "${E_IO}" "sha256sum 失败: ${COMPS}"
+    comps_sum="$(sum_of "$CL_COMPS")" ||
+        die "${E_IO}" "sha256sum 失败: ${CL_COMPS}"
     {
         printf '# AirymaxOS payload manifest\n'
         printf 'arch=%s\n' "$ARCH"
@@ -275,13 +274,24 @@ write_payload()
 make_repo()
 {
     local log="${OUT_ABS}/logs/createrepo.log"
-    if ! createrepo_c --groupfile "$COMPS" "$PKGDIR" >"$log" 2>&1; then
+    if ! createrepo_c --general-compress-type gz \
+        --groupfile "$CL_COMPS" "$PKGDIR" >"$log" 2>&1; then
         die "${E_IO}" "createrepo_c 失败（日志 ${log}）"
     fi
     [ -f "${PKGDIR}/repodata/repomd.xml" ] ||
         die "${E_IO}" "仓库元数据缺失: ${PKGDIR}/repodata/repomd.xml"
     grep -q 'type="group"' "${PKGDIR}/repodata/repomd.xml" ||
         die "${E_IO}" "仓库缺少 comps 分组元数据"
+}
+
+check_comps()
+{
+    local env log="${OUT_ABS}/logs/comps.log"
+    while IFS= read -r env; do
+        [ -n "$env" ] || continue
+        python3 "$CL_SPEC" verify "$PKGDIR" --env "$env" >"$log" 2>&1 ||
+            die "${E_IO}" "载荷 comps 缺环境 ${env}（日志 ${log}）"
+    done < <(python3 "$CL_SPEC" envs "$KS")
 }
 
 run_closure()
@@ -360,6 +370,7 @@ main()
     need sha256sum
     need find
     need sort
+    need python3
     need_closure
     prep_payload
     collect_rpms
@@ -367,6 +378,7 @@ main()
     make_repo
     run_closure
     make_repo
+    check_comps
     check_closure
     write_payload
     printf '汇集 RPM: %d 个（架构 %s）\n' "${#NAMES[@]}" "$ARCH"
