@@ -17,7 +17,6 @@ import subprocess
 import sys
 import tempfile
 import unittest
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
 TOOLS = Path(__file__).resolve().parents[1]
@@ -63,10 +62,10 @@ def stage_primary(root, names, gz=True):
         encoding="utf-8")
 
 
-def comps_pkgs(path):
-    root = ET.parse(path).getroot()
-    return {node.text.strip() for node in root.iter("packagereq")
-            if node.text and node.text.strip()}
+def need_pkgs():
+    """安装事务请求的包名（所选组的 mandatory/default + 显式包名）。"""
+    return ks_spec.need_pkgs(ks_spec.pkgs(KS.read_text(encoding="utf-8")),
+                             COMPS)
 
 
 class KsSpecTest(unittest.TestCase):
@@ -240,20 +239,31 @@ class KsSpecTest(unittest.TestCase):
             self.assertIn("缺少环境", res.stderr)
 
     def test_cli_resolve_repo(self):
-        names = comps_pkgs(COMPS)
+        names = need_pkgs()
         with tempfile.TemporaryDirectory() as tmp:
             stage_primary(tmp, names)
-            res = subprocess.run([PYTHON, str(SCRIPT), "resolve", tmp,
+            res = subprocess.run([PYTHON, str(SCRIPT), "resolve", str(KS), tmp,
                                   "--comps", str(COMPS)],
                                  text=True, capture_output=True)
             self.assertEqual(res.returncode, 0, res.stderr)
             self.assertEqual(res.stdout.splitlines(), [f"comps\t{len(names)}"])
 
-    def test_resolve_missing(self):
-        names = comps_pkgs(COMPS) - {"chrony"}
+    def test_resolve_skips_optional(self):
+        names = need_pkgs()
+        self.assertNotIn("ukui-biometric-manager", names)
+        self.assertNotIn("firefox", names)
         with tempfile.TemporaryDirectory() as tmp:
             stage_primary(tmp, names)
-            res = subprocess.run([PYTHON, str(SCRIPT), "resolve", tmp,
+            res = subprocess.run([PYTHON, str(SCRIPT), "resolve", str(KS), tmp,
+                                  "--comps", str(COMPS)],
+                                 text=True, capture_output=True)
+            self.assertEqual(res.returncode, 0, res.stderr)
+
+    def test_resolve_missing(self):
+        names = need_pkgs() - {"chrony"}
+        with tempfile.TemporaryDirectory() as tmp:
+            stage_primary(tmp, names)
+            res = subprocess.run([PYTHON, str(SCRIPT), "resolve", str(KS), tmp,
                                   "--comps", str(COMPS)],
                                  text=True, capture_output=True)
             self.assertEqual(res.returncode, 5)
@@ -264,12 +274,12 @@ class KsSpecTest(unittest.TestCase):
         raw = COMPS.read_text(encoding="utf-8").replace(
             '<packagereq type="mandatory">grub2-tools</packagereq>',
             '<packagereq type="mandatory">grub2</packagereq>')
-        names = comps_pkgs(COMPS) - {"grub2-tools"} | {"grub2-pc"}
+        names = need_pkgs() - {"grub2-tools"} | {"grub2-pc"}
         with tempfile.TemporaryDirectory() as tmp:
             comps = Path(tmp) / "comps.xml"
             comps.write_text(raw, encoding="utf-8")
             stage_primary(tmp, names)
-            res = subprocess.run([PYTHON, str(SCRIPT), "resolve", tmp,
+            res = subprocess.run([PYTHON, str(SCRIPT), "resolve", str(KS), tmp,
                                   "--comps", str(comps)],
                                  text=True, capture_output=True)
             self.assertEqual(res.returncode, 5)
