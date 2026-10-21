@@ -3,9 +3,10 @@
 # ===========================================================================
 # test_preset_lint.py — preset_lint 规则回归测试
 #
-# 每个用例以最小合法 preset 与单元集合为基线，只做单点变异，断言目标
-# 规则号出现；规则间耦合时能立刻定位被破坏的那一条。用标准库 unittest
-# 编写，可被 pytest 直接收集。
+# 每个用例以最小合法 preset 目录与单元集合为基线，只做单点变异，断言目标
+# 规则号出现；规则间耦合时能立刻定位被破坏的那一条。单文件规则用
+# lint_file 校验，目录级规则（P007/P008）用 lint_dir 校验。用标准库
+# unittest 编写，可被 pytest 直接收集。
 #
 # Author: Decheng Li <lidecheng@spharx.cn>
 # Version: 0.0.3
@@ -27,6 +28,11 @@ VALID = """\
 disable agentrt.target
 disable agentrt-dsl.target
 disable agentrt-*.service
+"""
+
+BLANKET = """\
+# baseline blanket
+disable *
 """
 
 INSTALL = """\
@@ -52,13 +58,17 @@ class PresetLintTest(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.units = self.root / "units"
         self.units.mkdir()
-        self.preset = self.root / "90-airymax.preset"
+        self.pdir = self.root / "presets"
+        self.pdir.mkdir()
+        self.preset = self.pdir / "90-airymax.preset"
+        self.blanket = self.pdir / "99-airymax-default-disable.preset"
         for name in ("agentrt.target", "agentrt-dsl.target",
                      "agentrt-a.service"):
             (self.units / name).write_text(INSTALL, encoding="utf-8")
         (self.units / "agentrt-tmpl@.service").write_text(
             NO_INSTALL, encoding="utf-8")
         self.write(VALID)
+        self.write_blanket(BLANKET)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -67,12 +77,22 @@ class PresetLintTest(unittest.TestCase):
         self.preset.write_text(text, encoding="utf-8")
         self.preset.chmod(mode)
 
+    def write_blanket(self, text, name=None):
+        path = self.pdir / (name or self.blanket.name)
+        path.write_text(text, encoding="utf-8")
+        path.chmod(0o644)
+        return path
+
     def codes(self):
         issues = preset_lint.lint_file(self.preset, self.units)
         return {issue.code for issue in issues}
 
+    def dir_codes(self):
+        results = preset_lint.lint_dir(self.pdir, self.units)
+        return {issue.code for _, issues in results for issue in issues}
+
     def test_valid(self):
-        self.assertEqual(set(), self.codes())
+        self.assertEqual(set(), self.dir_codes())
 
     def test_comments_ignored(self):
         self.write("# disable agentrt-gone.service\n" + VALID)
@@ -136,31 +156,59 @@ class PresetLintTest(unittest.TestCase):
         self.preset.write_bytes(b"disable agentrt.target\n\xff\n")
         self.assertIn("P001", self.codes())
 
-    def test_missing_preset(self):
-        self.preset.unlink()
+    def test_blanket_skips_units(self):
+        self.assertEqual([], preset_lint.lint_file(self.blanket, self.units))
+
+    def test_missing_blanket(self):
+        self.blanket.unlink()
+        self.assertIn("P007", self.dir_codes())
+
+    def test_two_blankets(self):
+        self.write_blanket(BLANKET, "98-other.preset")
+        self.assertIn("P007", self.dir_codes())
+
+    def test_blanket_extra_rule(self):
+        self.write_blanket(BLANKET + "disable agentrt-a.service\n")
+        self.assertIn("P007", self.dir_codes())
+
+    def test_blanket_order(self):
+        self.write_blanket("disable *\n", "80-blanket.preset")
+        self.blanket.unlink()
+        self.assertIn("P008", self.dir_codes())
+
+    def test_missing_dir(self):
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
-            rc = preset_lint.main([str(self.preset), str(self.units)])
+            rc = preset_lint.main(["preset_lint",
+                                   str(self.root / "absent"),
+                                   str(self.units)])
         self.assertEqual(2, rc)
 
     def test_missing_units(self):
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
-            rc = preset_lint.main([str(self.preset),
+            rc = preset_lint.main(["preset_lint",
+                                   str(self.pdir),
                                    str(self.root / "absent")])
         self.assertEqual(2, rc)
 
-    def test_real_preset(self):
-        issues = preset_lint.lint_file(preset_lint.DEFAULT,
-                                       preset_lint.UNITS)
-        self.assertEqual([], issues)
+    def test_real_presets(self):
+        results = preset_lint.lint_dir(preset_lint.DIR, preset_lint.UNITS)
+        self.assertEqual([], [issue for _, issues in results
+                              for issue in issues])
 
     def test_spec_installs(self):
         text = SPEC.read_text(encoding="utf-8")
         self.assertIn("Source19:       90-airymax.preset", text)
+        self.assertIn("Source20:       99-airymax-default-disable.preset",
+                      text)
         self.assertIn("%{_presetdir}/90-airymax.preset", text)
+        self.assertIn("%{_presetdir}/99-airymax-default-disable.preset", text)
         self.assertIn("install -m 0644 %{_sourcedir}/90-airymax.preset",
                       text)
+        self.assertIn(
+            "install -m 0644 %{_sourcedir}/99-airymax-default-disable.preset",
+            text)
 
 
 if __name__ == "__main__":
