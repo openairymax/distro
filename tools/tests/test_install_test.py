@@ -265,11 +265,22 @@ class InstallTestTest(unittest.TestCase):
         self.assertIn("not ok 2", res.stdout)
         self.assertIn("run bios run=1 boot=fail", self.manifest())
 
-    def test_boot_unit_failed(self):
+    def test_boot_unit_text_not_fatal(self):
+        # 单元失败的串口文本只做归因：启动腿必须继续等到标记，
+        # 否则桌面是否进得去永远没有证据。
         self.tools()
-        res = self.install("--runs", "1", FAKE_QEMU_BOOT_MODE="failed")
+        res = self.install("--runs", "1", FAKE_QEMU_BOOT_MODE="noisy")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("run bios run=1 boot=pass", self.manifest())
+        self.assertIn("boot unit failures: sshd.service", res.stderr)
+
+    def test_boot_degraded_fails(self):
+        self.tools()
+        res = self.install("--runs", "1", FAKE_QEMU_BOOT_MODE="degraded")
         self.assertEqual(res.returncode, 1)
         self.assertIn("not ok 2", res.stdout)
+        self.assertIn("run bios run=1 boot=fail", self.manifest())
+        self.assertIn("boot failure pattern", res.stderr)
 
     def test_boot_marker_missing(self):
         self.tools()
