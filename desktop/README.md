@@ -96,8 +96,9 @@ AirymaxOS 系统桌面默认壁纸 = `wallpaper/airymaxos-default.jpg`
 达成后执行 `desktop_ready.sh`，把「桌面能进」转换为宿主机可判定的串口
 标记。探针做两级校验：先静态确认 `/usr/share/xsessions/ukui.desktop`
 存在且其 `Exec` 可解析可执行（与 lightdm 的 `user-session=ukui` 对应），
-再要求 lightdm 单元 active，且 logind 中存在 Service=lightdm、
-Class=greeter、Type=x11、State=active|online 的会话，才打印
+再要求 lightdm 单元 active，且 logind 中存在 Service 属 lightdm 家族
+（greeter 走独立 PAM 服务，记为 lightdm-greeter）、Class=greeter、
+Type=x11、State=active|online 的会话，才打印
 `AIRYMAX-DESKTOP-READY`。会话定义缺失或不可执行时立即打印
 `AIRYMAX-DESKTOP-FAIL reason=session` 并退出，不进行无效轮询；greeter
 未在窗口内就绪则打印 `AIRYMAX-DESKTOP-FAIL unit=lightdm wait=<n>s`。
