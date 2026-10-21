@@ -116,47 +116,62 @@ mark()
 # 本段任一断言失败时补发失败标记，装机的失败判定不必等到超时。
 trap 'rc=$?; [ "${rc}" -eq 0 ] || mark "AIRYMAX-INSTALL-FAIL rc=${rc}"' EXIT
 
-# 1) 图形目标为默认（UKUI 会话经 lightdm 拉起）
-systemctl set-default graphical.target
-
-# 2) 桌面隔离与 UKUI 策略由 airymaxos-release 包 %post 完成
-#    （airymax-desktop.slice + 70-airymax-ukui-policy.sh，幂等）
-rpm -q airymaxos-release >/dev/null 2>&1 || {
-    echo "ERROR: airymaxos-release is not installed" >&2
+# 失败必须可判读（DR-4）：标记带 reason=<断言名>，安装判定据此直接归因，
+# 不必靠复现去猜是哪一条断言。
+fail()
+{
+    trap - EXIT
+    mark "AIRYMAX-INSTALL-FAIL reason=$1"
     exit 1
 }
+
+# 安装器的 chroot 内没有可用的 systemd 总线，单元文件类动词必须显式走
+# --root 离线语义。判定不看命令退出码，而看落盘状态：不同 systemd 版本在
+# chroot 内对 set-default 的退出码语义不一致，default.target 符号链接才是
+# 唯一事实。
+set_default()
+{
+    local want="$1"
+
+    systemctl --root=/ set-default "${want}" ||
+        mark "AIRYMAX-INSTALL-NOTE set-default rc=$?"
+    [ "$(readlink -f /etc/systemd/system/default.target)" = \
+        "/usr/lib/systemd/system/${want}" ] || fail default-target
+}
+
+acct_ok()
+{
+    local state
+
+    state=$(passwd -S "$1" 2>/dev/null | awk '{print $2}') || return 1
+    [ "${state}" = "P" ]
+}
+
+# 1) 桌面隔离与 UKUI 策略由 airymaxos-release 包 %post 完成
+#    （airymax-desktop.slice + 70-airymax-ukui-policy.sh，幂等）
+rpm -q airymaxos-release >/dev/null 2>&1 || fail release-pkg
 #    system-release 是引导配置生成的输入（anaconda 由它派生
 #    GRUB_DISTRIBUTOR，grub-mkconfig 在 set -e 下 source 该文件），缺失即
 #    不可引导，必须在装机段结束前暴露。
-[ -r /etc/system-release ] || {
-    echo "ERROR: /etc/system-release is missing" >&2
-    exit 1
-}
+[ -r /etc/system-release ] || fail system-release
 
-# 3) 系统编排单元必须随镜像落盘（OS-OPS-010 的包级前提）
-rpm -q airymaxos-system >/dev/null 2>&1 || {
-    echo "ERROR: airymaxos-system is not installed" >&2
-    exit 1
-}
+# 2) 系统编排单元必须随镜像落盘（OS-OPS-010 的包级前提）
+rpm -q airymaxos-system >/dev/null 2>&1 || fail system-pkg
 
-# 4) 账户自检：没有可登录账户的安装介质不具备「OS 能运行」的前提
-[ "$(passwd -S root | awk '{print $2}')" = "P" ] || {
-    echo "ERROR: root account is not usable" >&2
-    exit 1
-}
-[ "$(passwd -S airymax | awk '{print $2}')" = "P" ] || {
-    echo "ERROR: airymax account is not usable" >&2
-    exit 1
-}
+# 3) 账户自检：没有可登录账户的安装介质不具备「OS 能运行」的前提
+acct_ok root || fail root-account
+acct_ok airymax || fail airymax-account
 # root 只承担首次控制台接管：登录后强制修改初始口令
-chage -d 0 root
+chage -d 0 root || fail root-expire
+
+# 4) 图形目标为默认（UKUI 会话经 lightdm 拉起）
+set_default graphical.target
 
 # 5) agentrt.target 的启用推迟到 daemon 二进制交付版本：
 #    该 target 强依赖 12 个 /usr/sbin/*_d，0.0.3 尚未打包，提前 enable
 #    会让每次冷启动进入 degraded，违背「OS 能正常运行」验收口径。
 #    启用项与 airymaxos-services 同版本落地，届时此处补
 #    `systemctl enable agentrt.target`（OS-OPS-010）。
-systemctl daemon-reload
 
 mark "AirymaxOS workstation install complete (baseline $(date -u +%Y%m%d))"
 %end

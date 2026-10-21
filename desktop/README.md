@@ -21,8 +21,9 @@ KylinBot 及其 MCP 桌面控制栈（`kylin-ai*` 包族）**排除 + 屏蔽**�
 桌面成为第二套 agent 控制面、破坏 capability 安全穹顶。落点：
 
 - kickstart `%packages`：`-kylin-ai*` 通配排除；
-- `70-airymax-ukui-policy.sh`：对已存在的同名单元 `systemctl disable` +
-  `mask`（离线 chroot 可用，不使用 `--now`）。
+- `70-airymax-ukui-policy.sh`：对已存在的同名单元走离线语义
+  `systemctl --root=/ disable` + `mask`（不依赖 systemd 总线，不使用
+  `--now`）。
 
 openEuler 24.03 LTS-SP2 冻结点不含任何 `kylin-ai*` 包，脚本中的单元清单
 是防御式约束：上游以后引入同名单元时屏蔽仍然生效。
@@ -132,7 +133,7 @@ multi-user.target，不会触发该单元；workstation kickstart 显式 enable�
 - `desktop_ready.sh` → `/usr/lib/airymaxos/desktop/`
   （探针实现：UKUI 会话定义与 lightdm/greeter 会话校验）
 - `70-airymax-ukui-policy.sh` → `/usr/share/airymaxos/distro/desktop/`
-  （`%post` 调用：屏蔽 AI 控制面单元、固定默认 target）
+  （`%post` 调用：屏蔽 AI 控制面单元）
 - `lightdm/50-airymax.conf` → `/etc/lightdm/lightdm.conf.d/`
 - `xinitrc.d/70-airymax-im.sh` → `/etc/X11/xinit/xinitrc.d/`
 - `autostart/airymax-input-method.desktop` → `/etc/xdg/autostart/`

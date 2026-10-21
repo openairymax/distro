@@ -3,13 +3,16 @@
 # ===========================================================================
 # 70-airymax-ukui-policy.sh — UKUI 桌面运行期策略
 #
-# 只执行装配完成后才能确定的动作：屏蔽桌面自带 AI 控制面单元、固定默认
-# target。静态资产（lightdm 座位、会话输入法环境、输入法自启、壁纸与背景
-# 默认值、slice drop-in）由 airymaxos-release 包直接安装到最终路径，本脚本
-# 不再复制，避免同一路径出现两处事实来源。
+# 只执行装配完成后才能确定的动作：屏蔽桌面自带 AI 控制面单元。静态资产
+# （lightdm 座位、会话输入法环境、输入法自启、壁纸与背景默认值、slice
+# drop-in）由 airymaxos-release 包直接安装到最终路径，本脚本不再复制，避免
+# 同一路径出现两处事实来源。默认 target 由各剖面 kickstart 的 %post 唯一
+# 设定（workstation → graphical.target，minimal → multi-user.target），
+# 本脚本不介入，避免同一事实两处来源。
 #
 # 部署：airymaxos-release 包安装到 /usr/share/airymaxos/distro/desktop/。
-# 调用：该包 %post。离线（安装器 chroot）与在线系统均可执行，幂等。
+# 调用：该包 %post。离线（安装器 chroot）与在线系统均可执行，幂等；
+# 屏蔽属单元文件操作，一律走 --root 离线语义，不依赖 systemd 总线。
 # ===========================================================================
 set -euo pipefail
 
@@ -38,10 +41,7 @@ for unit in ${AIRY_AI_UNITS}; do
     if ! unit_exists "${unit}"; then
         continue
     fi
-    systemctl disable "${unit}"
-    systemctl mask "${unit}"
+    systemctl --root=/ disable "${unit}"
+    systemctl --root=/ mask "${unit}"
     echo "[airymax-policy] masked ${unit}"
 done
-
-systemctl set-default graphical.target
-echo "[airymax-policy] default target: graphical.target"
