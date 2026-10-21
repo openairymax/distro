@@ -20,12 +20,17 @@
 # 探测工具由被测镜像自身提供（loginctl/pgrep/xdpyinfo 来自本项目的包组合），
 # 缺失说明镜像不完整，按失败计；不以 SKIP 掩盖，因为这里没有“不支持的外
 # 部测试机”这一情形。
+#
+# 本脚本自身由 XDG autostart 拉起，与 fcitx、pulseaudio 的 autostart 条目
+# 同阶段并发执行，守护进程此刻可能尚未就绪。因此这两项探测做有界等待：
+# AIRYMAX_SMOKE_WAIT 秒内反复探测，超时仍不就绪即判失败（不放宽判定）。
 # ===========================================================================
 set -uo pipefail
 
 TARGET="${1:?usage: run-smoke.sh <target-id>}"
 WALLPAPER=/usr/share/backgrounds/airymaxos/airymaxos-default.jpg
 PAPER_SHA=fee7f439834ac7dacfc75deaf80a1db1c4bc7459583248eecc87125d52a5ef18
+START_WAIT="${AIRYMAX_SMOKE_WAIT:-30}"
 
 PASS=0
 FAIL=0
@@ -67,6 +72,16 @@ expect() { # expect <实际值> <期望值> <字段>
     return 1
 }
 
+retry() { # retry <秒> <命令...> — 等待并发启动的守护进程，超时即失败
+    local limit="$1" waited=0
+    shift
+    until "$@" >/dev/null 2>&1; do
+        [ "${waited}" -ge "${limit}" ] && return 1
+        sleep 1
+        waited=$((waited + 1))
+    done
+}
+
 session_prop() { # session_prop <loginctl 属性>
     loginctl show-session "${XDG_SESSION_ID}" -p "$1" --value 2>/dev/null || :
 }
@@ -95,6 +110,10 @@ t1_x11() {
     }
 }
 
+ime_state() { # ime_state — 打印 fcitx 状态，socket 不可达时返回非零
+    fcitx-remote 2>/dev/null
+}
+
 # T2: 输入法（fcitx 4 守护进程与会话变量）
 t2_ime() {
     need pgrep || return $?
@@ -102,15 +121,16 @@ t2_ime() {
         echo "fcitx-remote not installed"
         return 1
     }
-    pgrep -x fcitx >/dev/null || {
+    retry "${START_WAIT}" pgrep -x fcitx || {
         echo "fcitx not running"
         return 1
     }
-    local state
-    state="$(fcitx-remote 2>/dev/null)" || {
+    retry "${START_WAIT}" ime_state || {
         echo "fcitx-remote cannot reach daemon"
         return 1
     }
+    local state
+    state="$(ime_state)"
     case "${state}" in
     0 | 1 | 2) : ;;
     *)
@@ -129,7 +149,7 @@ t3_audio() {
         echo "pactl not installed"
         return 1
     }
-    pactl info >/dev/null 2>&1 || {
+    retry "${START_WAIT}" pactl info || {
         echo "PulseAudio unreachable"
         return 1
     }
