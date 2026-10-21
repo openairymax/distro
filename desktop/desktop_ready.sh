@@ -6,8 +6,8 @@
 # 安装后的启动验收需要区分「内核起来了」与「桌面能进」。本脚本在
 # graphical.target 达成后做三级校验：先读 systemd 的失败记账，再静态确认
 # UKUI 会话定义存在且其 Exec 可执行（lightdm 的 user-session 指向它），
-# 最后检查 lightdm 单元处于 active 且存在 Service=lightdm、Class=greeter、
-# Type=x11 的活动会话。全部成立才向串口打印 AIRYMAX-DESKTOP-READY。
+# 最后检查 lightdm 单元处于 active 且存在归其所有、Class=greeter、Type=x11
+# 的活动会话。全部成立才向串口打印 AIRYMAX-DESKTOP-READY。
 #
 # 失败记账放在最前：系统是否「正常运行」的判据是 systemd 的单元状态，而
 # 不是串口里有没有某行文本。宿主机按文本判负会与内核日志争抢截断点，
@@ -72,15 +72,19 @@ session_key()
         "$(session_field "$1" State)"
 }
 
+# lightdm 的 greeter 走独立 PAM 服务，logind 记为 Service=lightdm-greeter，
+# 只有用户会话才记为 lightdm；判定按服务家族前缀归属，不把服务名钉死成
+# 单一字面量，四元组复用 session_key 与诊断通道保持同一事实源。
 greeter_session()
 {
-    local id
+    local id key
 
     for id in $(loginctl list-sessions --no-legend 2>/dev/null |
                     awk '{print $1}'); do
-        case "$(session_key "${id}")" in
-        "${GREETER_SVC}|${GREETER_CLASS}|${GREETER_TYPE}|active" | \
-        "${GREETER_SVC}|${GREETER_CLASS}|${GREETER_TYPE}|online")
+        key="$(session_key "${id}")"
+        case "${key}" in
+        "${GREETER_SVC}"*"|${GREETER_CLASS}|${GREETER_TYPE}|active" | \
+        "${GREETER_SVC}"*"|${GREETER_CLASS}|${GREETER_TYPE}|online")
             printf '%s\n' "${id}"
             return 0
             ;;
