@@ -33,14 +33,15 @@ ENV = "airymax-workstation"
 
 
 def stage_repo(root, raw, gz=True):
-    """按 createrepo_c 的产物布局写一个最小仓库索引。"""
+    """按 createrepo_c 的产物布局写一个最小仓库索引（repomd 带命名空间）。"""
     repodata = Path(root) / "repodata"
     repodata.mkdir(parents=True, exist_ok=True)
     name = "comps.xml.gz" if gz else "comps.xml"
     data = raw.encode("utf-8")
     (repodata / name).write_bytes(gzip.compress(data) if gz else data)
     (repodata / "repomd.xml").write_text(
-        '<repomd><data type="group">'
+        '<repomd xmlns="http://linux.duke.edu/metadata/repo">'
+        '<data type="group">'
         f'<location href="repodata/{name}"/></data></repomd>',
         encoding="utf-8")
 
