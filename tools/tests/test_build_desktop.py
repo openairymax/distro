@@ -200,6 +200,7 @@ class BuildDesktopTest(unittest.TestCase):
         self.assertIn("count=7", manifest)
         self.assertIn("ukui-clock", manifest)
         specs = log.read_text(encoding="utf-8")
+        self.assertIn("@airymax-core", specs)
         self.assertIn("@airymax-desktop-core", specs)
         self.assertIn("@airymax-desktop ", specs)
         self.assertNotIn("@^", specs)

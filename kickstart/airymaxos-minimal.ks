@@ -53,19 +53,16 @@ firewall --enabled --service=ssh
 firstboot --disable
 
 # ---- 包组 ----
-%packages
-# @core 是基础用户空间的唯一来源（本产品不复述上游清单）；airymaxos-release
-# 接管 system-release 与 /etc/os-release，补上被排除的上游标识包。
-@core
+# --nocore 关闭 anaconda 隐式追加的 @core：载荷 comps 不定义上游 core 组，
+# 追加它会让安装器判定缺组并转入交互问句。基础用户空间（含 sshd、
+# NetworkManager、chrony 与引导器）由 airymax-core 组显式提供；
+# airymaxos-release 接管 system-release 与 /etc/os-release。
+%packages --nocore
+@airymax-core
 airymaxos-kernel
 airymaxos-release
-dnf
-openssh-server
-NetworkManager
-chronyd
-sudo
 
-# 内核与发行版标识唯一（与工作站剖面同口径）：@core 携带上游 kernel /
+# 内核与发行版标识唯一（与工作站剖面同口径）：上游包组携带上游 kernel /
 # kernel-tools 与两个 openEuler-release 包，必须显式排除（K017 强制）。
 -kernel
 -kernel-tools

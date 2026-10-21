@@ -112,6 +112,7 @@ class KsSpecTest(unittest.TestCase):
         install = [spec for kind, spec in rows if kind == "install"]
         exclude = [spec for kind, spec in rows if kind == "exclude"]
         self.assertIn("@^airymax-workstation", install)
+        self.assertIn("@airymax-core", install)
         self.assertIn("airymaxos-kernel", install)
         self.assertIn("airymaxos-system", install)
         for spec in ("kernel", "kernel-tools", "openEuler-release",
@@ -151,6 +152,7 @@ class KsSpecTest(unittest.TestCase):
                              text=True, capture_output=True)
         self.assertEqual(res.returncode, 0, res.stderr)
         lines = res.stdout.splitlines()
+        self.assertIn("install\t@airymax-core", lines)
         self.assertIn("install\t@airymax-desktop-core", lines)
         self.assertIn("install\t@airymax-desktop", lines)
         self.assertIn("exclude\tkylin-ai*", lines)
@@ -174,7 +176,8 @@ class KsSpecTest(unittest.TestCase):
                 ("install", "@airymax-desktop"),
                 ("exclude", "kernel")]
         out = ks_spec.expand_envs(rows, COMPS)
-        self.assertEqual(out, [("install", "@airymax-desktop-core"),
+        self.assertEqual(out, [("install", "@airymax-core"),
+                               ("install", "@airymax-desktop-core"),
                                ("install", "@airymax-desktop"),
                                ("exclude", "kernel")])
 

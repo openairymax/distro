@@ -13,6 +13,90 @@
   新增条目必须先确认可从上述仓库解析，否则安装会直接失败。
 -->
 <comps>
+  <!-- 基础系统组：openEuler 24.03 LTS-SP2 comps 中 core 组
+       mandatory + default 的投影，剔除上游身份包与上游内核
+       （kernel / kernel-tools / openEuler-release /
+       openEuler-latest-release 由本产品的 airymaxos-kernel 与
+       airymaxos-release 取代），并补入安装器无条件需要的
+       grub2、grub2-tools 与 chrony。配方以 %packages 的 nocore
+       选项关闭 anaconda 隐式追加的 @core，改由本组显式供包，
+       使构建期求解与安装期事务读同一份定义。 -->
+  <group>
+    <id>airymax-core</id>
+    <name>AirymaxOS Core</name>
+    <name xml:lang="zh_CN">AirymaxOS 基础系统</name>
+    <description>Base operating system</description>
+    <description xml:lang="zh_CN">基础系统（引导、系统服务、包管理与安全策略）</description>
+    <default>false</default>
+    <uservisible>false</uservisible>
+    <packagelist>
+      <packagereq type="mandatory">audit</packagereq>
+      <packagereq type="mandatory">basesystem</packagereq>
+      <packagereq type="mandatory">bash</packagereq>
+      <!-- 安装器引导阶段无条件追加（GRUB2.packages） -->
+      <packagereq type="mandatory">grub2</packagereq>
+      <packagereq type="mandatory">grub2-tools</packagereq>
+      <!-- 安装器时区模块的 NTP 依赖（NTP_PACKAGE） -->
+      <packagereq type="mandatory">chrony</packagereq>
+      <packagereq type="mandatory">coreutils</packagereq>
+      <packagereq type="mandatory">cronie</packagereq>
+      <packagereq type="mandatory">curl</packagereq>
+      <packagereq type="mandatory">dnf</packagereq>
+      <packagereq type="mandatory">e2fsprogs</packagereq>
+      <packagereq type="mandatory">filesystem</packagereq>
+      <packagereq type="mandatory">firewalld</packagereq>
+      <packagereq type="mandatory">glibc</packagereq>
+      <packagereq type="mandatory">grubby</packagereq>
+      <packagereq type="mandatory">hostname</packagereq>
+      <packagereq type="mandatory">initscripts</packagereq>
+      <packagereq type="mandatory">iproute</packagereq>
+      <packagereq type="mandatory">iprutils</packagereq>
+      <packagereq type="mandatory">iputils</packagereq>
+      <packagereq type="mandatory">irqbalance</packagereq>
+      <packagereq type="mandatory">kbd</packagereq>
+      <packagereq type="mandatory">kexec-tools</packagereq>
+      <packagereq type="mandatory">less</packagereq>
+      <packagereq type="mandatory">man-db</packagereq>
+      <packagereq type="mandatory">ncurses</packagereq>
+      <packagereq type="mandatory">openssh</packagereq>
+      <packagereq type="mandatory">openssh-server</packagereq>
+      <packagereq type="mandatory">openssh-clients</packagereq>
+      <packagereq type="mandatory">parted</packagereq>
+      <packagereq type="mandatory">passwd</packagereq>
+      <packagereq type="mandatory">policycoreutils</packagereq>
+      <packagereq type="mandatory">procps-ng</packagereq>
+      <packagereq type="mandatory">rng-tools</packagereq>
+      <packagereq type="mandatory">rootfiles</packagereq>
+      <packagereq type="mandatory">rpm</packagereq>
+      <packagereq type="mandatory">selinux-policy-targeted</packagereq>
+      <packagereq type="mandatory">setup</packagereq>
+      <packagereq type="mandatory">shadow</packagereq>
+      <packagereq type="mandatory">sssd</packagereq>
+      <packagereq type="mandatory">sudo</packagereq>
+      <packagereq type="mandatory">systemd</packagereq>
+      <packagereq type="mandatory">tuned</packagereq>
+      <packagereq type="mandatory">util-linux</packagereq>
+      <packagereq type="mandatory">vim-minimal</packagereq>
+      <packagereq type="mandatory">xfsprogs</packagereq>
+      <packagereq type="mandatory">yum</packagereq>
+      <packagereq type="mandatory">wget</packagereq>
+      <packagereq type="default">NetworkManager</packagereq>
+      <packagereq type="default">NetworkManager-config-server</packagereq>
+      <packagereq type="default">authselect</packagereq>
+      <packagereq type="default">dnf-plugins-core</packagereq>
+      <packagereq type="default">dracut-config-rescue</packagereq>
+      <packagereq type="default">iptables-nft</packagereq>
+      <packagereq type="default">sysfsutils</packagereq>
+      <packagereq type="default">linux-firmware</packagereq>
+      <packagereq type="default">lshw</packagereq>
+      <packagereq type="default">lsscsi</packagereq>
+      <packagereq type="default">rsyslog</packagereq>
+      <packagereq type="default">security-tool</packagereq>
+      <packagereq type="default">sg3_utils</packagereq>
+      <packagereq type="default">systemd-cryptsetup</packagereq>
+    </packagelist>
+  </group>
+
   <!-- 核心组：最小可启动 UKUI 桌面会话 -->
   <group>
     <id>airymax-desktop-core</id>
@@ -107,6 +191,7 @@
     <description xml:lang="zh_CN">智能体操作系统工作站（UKUI 桌面 + 系统层组件）</description>
     <display_order>99</display_order>
     <grouplist>
+      <groupid>airymax-core</groupid>
       <groupid>airymax-desktop-core</groupid>
       <groupid>airymax-desktop</groupid>
     </grouplist>
