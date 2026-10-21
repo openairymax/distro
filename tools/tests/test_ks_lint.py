@@ -18,6 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import ks_lint
+import ks_spec
 
 VALID = """\
 text
@@ -65,6 +66,13 @@ DESKTOP = (VALID
                     "repo --name=everything --baseurl=https://example.invalid"
                     "/x/$basearch/\n"
                     "bootloader"))
+
+
+# 安装期姿态基线：安装源即载荷，桌面环境不再要求四个上游仓库
+OFFLINE = (VALID
+           .replace("@core", "@^airymax-workstation")
+           .replace("url --url=https://example.invalid/os/",
+                    "url --url=file:///run/install/repo/airymax/Packages"))
 
 
 class KsLintTest(unittest.TestCase):
@@ -230,6 +238,29 @@ class KsLintTest(unittest.TestCase):
     def test_valid_services_list(self):
         text = VALID.replace("reboot\n", "services --enabled=a,b\nreboot\n")
         self.assertEqual(self.codes(text), [])
+
+    def test_offline_pose(self):
+        self.assertEqual(self.codes(OFFLINE), [])
+
+    def test_offline_extra_repo(self):
+        text = OFFLINE.replace(
+            "bootloader",
+            "repo --name=update --baseurl=https://example.invalid/u/"
+            "$basearch/\nbootloader")
+        self.assertIn("K015", self.codes(text))
+
+    def test_offline_src_mismatch(self):
+        text = OFFLINE.replace(
+            "url --url=file:///run/install/repo/airymax/Packages",
+            "url --url=file:///mnt/payload")
+        self.assertIn("K015", self.codes(text))
+
+    def test_install_pose(self):
+        base = Path(__file__).resolve().parents[2]
+        for path in sorted((base / "kickstart").glob("*.ks")):
+            text = ks_spec.project(path.read_text(encoding="utf-8"))
+            self.assertEqual(ks_lint.lint_text(text), [],
+                             f"{path.name} install pose violates rules")
 
     def test_real_kickstarts(self):
         base = Path(__file__).resolve().parents[2]

@@ -271,6 +271,15 @@ write_payload()
     } >"${AIRY}/payload-manifest.txt"
 }
 
+derive_ks()
+{
+    local out="${OUT_ABS}/install.ks" log="${OUT_ABS}/logs/install-ks.log"
+    python3 "$CL_SPEC" install "$KS" >"$out" 2>"$log" ||
+        die "${E_INVAL}" "安装期配方投影失败（日志 ${log}）"
+    KS="$out"
+    printf '安装期配方: %s\n' "$KS"
+}
+
 make_repo()
 {
     local log="${OUT_ABS}/logs/createrepo.log"
@@ -381,6 +390,7 @@ main()
     check_comps
     check_closure
     write_payload
+    derive_ks
     printf '汇集 RPM: %d 个（架构 %s）\n' "${#NAMES[@]}" "$ARCH"
     run_iso
     iso_path

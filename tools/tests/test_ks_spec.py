@@ -71,6 +71,41 @@ class KsSpecTest(unittest.TestCase):
         self.assertNotIn("airymaxos-offline", [row[0] for row in kept])
         self.assertEqual(len(kept), 5)
 
+    def test_install_source(self):
+        rows = ks_spec.repos(ks_spec.project(self.text))
+        self.assertEqual([row[0] for row in rows],
+                         ["baseos", "airymaxos-offline"])
+        self.assertEqual({row[1] for row in rows},
+                         {"file:///run/install/repo/airymax/Packages"})
+
+    def test_install_drops_net(self):
+        text = ks_spec.project(self.text)
+        self.assertNotIn("https://", text)
+        self.assertNotIn("repo.openeuler.org", text)
+
+    def test_install_keeps_pkgs(self):
+        text = ks_spec.project(self.text)
+        self.assertEqual(ks_spec.pkgs(text), ks_spec.pkgs(self.text))
+
+    def test_install_keeps_scripts(self):
+        text = ks_spec.project(self.text)
+        self.assertIn("%post --log", text)
+        self.assertTrue(text.endswith("reboot\n"))
+
+    def test_install_needs_vendor(self):
+        text = re.sub(r"(?m)^repo --name=airymaxos-offline.*\n", "",
+                      self.text)
+        with self.assertRaises(ValueError):
+            ks_spec.project(text)
+
+    def test_install_cli(self):
+        res = subprocess.run([PYTHON, str(SCRIPT), "install", str(KS)],
+                             text=True, capture_output=True)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("url --url=file:///run/install/repo/airymax/Packages",
+                      res.stdout)
+        self.assertNotIn("https://", res.stdout)
+
     def test_pkgs_real(self):
         rows = ks_spec.pkgs(self.text)
         install = [spec for kind, spec in rows if kind == "install"]

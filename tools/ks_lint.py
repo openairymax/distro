@@ -10,6 +10,11 @@
 # 参数语法。包组引用（@组 / @^环境）由 comps_lint 交叉校验，此处不重复
 # 实现。规则编号 K001~K017 与 tools/tests/test_ks_lint.py 一一对应。
 #
+# 配方有两种姿态，判据不同：
+#   构建期 — 安装源为上游 https，桌面环境要求四仓库齐全（K013）；
+#   安装期 — 安装源为 file:// 载荷，只允许载荷仓库，多一个仓库即 K015。
+# 姿态由安装源协议判定，同一份规则同时约束手写配方与投影产物。
+#
 # 退出码：0 通过；1 存在问题；2 用法或读取错误。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
@@ -303,7 +308,7 @@ def check_repo(name: str, cmd: Cmd | None, issues: list[Issue]) -> None:
 
 def check_repos(cmds: list[Cmd], sects: list[Sect],
                 issues: list[Issue]) -> None:
-    if DESKTOP_ENV not in pkg_set(sects):
+    if is_offline(cmds) or DESKTOP_ENV not in pkg_set(sects):
         return
     repos = repo_map(cmds)
     for name in DESKTOP_REPOS:
@@ -312,6 +317,16 @@ def check_repos(cmds: list[Cmd], sects: list[Sect],
         if cmd.name == "url" and "$basearch" not in opt_val(cmd.args, "--url"):
             issues.append(Issue("K013", cmd.num,
                                 "install url needs $basearch"))
+
+
+def src_cmd(cmds: list[Cmd]) -> Cmd | None:
+    return next((cmd for cmd in cmds if cmd.name in SOURCES), None)
+
+
+def is_offline(cmds: list[Cmd]) -> bool:
+    cmd = src_cmd(cmds)
+    return (cmd is not None and cmd.name == "url"
+            and opt_val(cmd.args, "--url").startswith("file://"))
 
 
 def check_vendor(cmds: list[Cmd], issues: list[Issue]) -> None:
@@ -323,6 +338,19 @@ def check_vendor(cmds: list[Cmd], issues: list[Issue]) -> None:
     if url != VENDOR_URL:
         issues.append(Issue("K015", cmd.num,
                             f"{LOCAL_REPO} must use {VENDOR_URL}"))
+        return
+    if is_offline(cmds):
+        check_off_src(cmds, issues)
+
+
+def check_off_src(cmds: list[Cmd], issues: list[Issue]) -> None:
+    for cmd in cmds:
+        if cmd.name == "url" and opt_val(cmd.args, "--url") != VENDOR_URL:
+            issues.append(Issue("K015", cmd.num,
+                                "offline source must be the payload"))
+        elif cmd.name == "repo" and opt_val(cmd.args, "--name") != LOCAL_REPO:
+            issues.append(Issue("K015", cmd.num,
+                                "offline recipe must not add repos"))
 
 
 def strict(body: list[tuple[int, str]]) -> bool:
