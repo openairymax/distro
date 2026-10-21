@@ -16,15 +16,20 @@
 # 因此收割前按 comps 的 environment/grouplist 展开为 @组（ks_spec.py
 # pkgs --comps），与环境安装读同一份定义。
 #
-# 收割要从公网拉取约 2.5 GB RPM。链路劣化时 dnf 的默认超时形同无限等待，
-# 会把 CI 预算无声耗尽；因此求解显式限定并行度、超时、最低速率与重试，
-# 让劣化表现为快速失败而不是挂起。
+# 收割要从公网拉取约 2.5 GB RPM，而镜像的并发限速会让单连接速率跌破
+# 最低速率、HTTP/2 流的瞬时错误也会中止单个文件。因此求解限定并行度
+# （并发越高越容易触发限速）、放宽最低速率与超时，并在事务级重试：
+# dnf 会跳过 --downloaddir 里已完成的包，重试只补拉残缺部分，把链路
+# 抖动从「整份镜像失败」降为「多花一轮时间」。
 #
 # 调用约定：
 #   closure_fetch KS ARCH PKGDIR WORK LOG
 #                    新增包数写入 CL_NEW；收割到的文件名追加到调用方的
 #                    NAMES 数组（与 collect_rpms 共用同一份载荷清单）。
 #   closure_specs    从配方填充 CL_SPECS/CL_EXCL，供测试单独调用。
+#
+# 退出码：0 表示事务内全部 RPM 已落盘并通过审计；非 0 时调用方据此
+# 判定构建失败，不得带病产出镜像。
 #
 # 依赖：dnf、python3；PKGDIR 须已由调用方 createrepo_c 索引，否则
 # 本地包与 comps 分组无法参与求解。
@@ -36,12 +41,14 @@ readonly CL_SPEC="${CL_ROOT}/tools/ks_spec.py"
 readonly CL_COMPS="${CL_ROOT}/comps/airymaxos-comps.xml"
 readonly CL_VER="${CLOSURE_VER:-24.03}"
 readonly CL_CORE="@core"
+readonly CL_TRY="${CLOSURE_TRY:-3}"
+readonly CL_WAIT="${CLOSURE_WAIT:-10}"
 readonly -a CL_DNF_OPTS=(
     --setopt=strict=1
-    --setopt=max_parallel_downloads=10
-    --setopt=timeout=30
-    --setopt=minrate=1000
-    --setopt=retries=5
+    --setopt=max_parallel_downloads=4
+    --setopt=timeout=60
+    --setopt=minrate=200
+    --setopt=retries=10
 )
 
 CL_SPECS=()
@@ -109,7 +116,21 @@ cl_run()
         --forcearch="$arch" --setopt="reposdir=${work}/repos" \
         "${CL_DNF_OPTS[@]}" --nogpgcheck \
         --repofrompath="airymax-local,${pkg}" \
-        "${CL_ARGS[@]}" >"$log" 2>&1
+        "${CL_ARGS[@]}" >>"$log" 2>&1
+}
+
+cl_try()
+{
+    local work="$1" arch="$2" pkg="$3" log="$4" n=1
+    : >"$log"
+    while :; do
+        printf '\n## 求解尝试 %d\n' "$n" >>"$log"
+        cl_run "$work" "$arch" "$pkg" "$log" && return 0
+        [ "$n" -lt "$CL_TRY" ] || return 1
+        printf 'closure: 第 %d 次求解未完成，%d 秒后重试\n' "$n" "$CL_WAIT" >&2
+        n=$((n + 1))
+        sleep "$CL_WAIT"
+    done
 }
 
 cl_harvest()
@@ -150,7 +171,7 @@ closure_fetch()
     cl_repos "$ks" "${work}/repos/closure.repo" || return 1
     closure_specs "$ks" || return 1
     cl_args
-    cl_run "$work" "$arch" "$pkg" "$log" || return 1
+    cl_try "$work" "$arch" "$pkg" "$log" || return 1
     cl_harvest "${work}/dl" "$pkg" || return 1
     cl_audit "${work}/dl" "$pkg" || return 1
     rm -rf "${work}/root" "${work}/dl"

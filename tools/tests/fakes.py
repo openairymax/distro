@@ -248,6 +248,14 @@ esac
 case "${FAKE_DNF_MODE:-ok}" in
 fail) printf 'dnf: 依赖解析失败\\n' >&2; exit 1 ;;
 empty) exit 0 ;;
+flaky)
+    # 链路抖动：前 FAKE_DNF_FAILS 轮失败且不落任何 RPM，之后成功。
+    # 用于验证收割的事务级重试，而不是每次失败都重启整份构建。
+    st="${FAKE_DNF_STATE:?}"
+    n=$(cat "$st" 2>/dev/null || echo 0)
+    n=$((n + 1))
+    printf '%s\\n' "$n" >"$st"
+    [ "$n" -gt "${FAKE_DNF_FAILS:-1}" ] || exit 1 ;;
 esac
 for r in gstreamer1-plugins-good-1.20.3-6.oe2403sp2.x86_64.rpm \\
     ukui-clock-3.1.3-3.oe2403sp2.x86_64.rpm \\
