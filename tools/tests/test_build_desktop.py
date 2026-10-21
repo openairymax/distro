@@ -222,8 +222,29 @@ class BuildDesktopTest(unittest.TestCase):
         self.tools()
         self.stock()
         res = self.build("--arch", "x86_64", "--closure",
-                         FAKE_DNF_MODE="fail")
+                         FAKE_DNF_MODE="fail", CLOSURE_WAIT="0")
         self.assertEqual(res.returncode, 6)
+
+    def test_closure_retries_link(self):
+        self.tools()
+        self.stock()
+        state = self.root / "dnf.state"
+        res = self.build("--arch", "x86_64", "--closure",
+                         FAKE_DNF_MODE="flaky", FAKE_DNF_FAILS="1",
+                         FAKE_DNF_STATE=str(state), CLOSURE_WAIT="0")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("闭包收割: 新增 2", res.stdout)
+        self.assertEqual(state.read_text(encoding="utf-8").strip(), "2")
+
+    def test_closure_retry_gives_up(self):
+        self.tools()
+        self.stock()
+        res = self.build("--arch", "x86_64", "--closure",
+                         FAKE_DNF_MODE="flaky", FAKE_DNF_FAILS="9",
+                         FAKE_DNF_STATE=str(self.root / "dnf.state"),
+                         CLOSURE_TRY="2", CLOSURE_WAIT="0")
+        self.assertEqual(res.returncode, 6)
+        self.assertIn("安装闭包收割失败", res.stderr)
 
     def test_closure_downloads_nothing(self):
         self.tools()
