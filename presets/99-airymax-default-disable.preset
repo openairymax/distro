@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# ===========================================================================
+# 99-airymax-default-disable.preset — 默认关闭兜底
+#
+# systemd 按文件名自小至大读取 preset，首个命中的规则即生效（first match
+# wins），未被任何规则命中的单元在 systemctl preset 下会被 enable。仅靠
+# 90-airymax.preset 的显式 disable，第三方包携带 [Install] 的单元（sssd、
+# tcsd、upower、chrony-wait 等）仍会按默认语义被拉起，其中多数在没有
+# 对应硬件或上游服务时启动失败，系统随之进入 degraded，违背「OS 能正常
+# 运行」的验收口径。
+#
+# 上游 openEuler-release 以 99-default-disable.preset 做同一件事；我方
+# airymaxos-release 以 Obsoletes 接管该包后，该文件不复存在，因此由本包
+# 补齐。文件名排在任何 enable 规则之后，保证前述显式条目仍先命中。
+#
+# 启用项不由 preset 表达：安装器在 kickstart %post 末尾显式 enable 并断言
+# 结果（OS-OPS-010），preset 只声明默认关闭，避免启用清单分裂成两处事实源。
+# ===========================================================================
+
+disable *

@@ -61,15 +61,6 @@ network --bootproto=dhcp --activate --hostname=airymaxos
 rootpw --iscrypted $6$airy003root0x01$WF29rbJ84L5jwK05P.Rs/EfkAjDBZmOtti6K29tIzd30tv29YlnNvYiZHK0QzPl4RBKlSiUshySWmYzgN3ybT0
 user --name=airymax --groups=wheel --iscrypted --password=$6$airy003user0x01$s1JW7QjW0kiAW7B51kVB2hNsabAadz4G/h6yBDRvpWzwsV7NO7Kh3ChDjLtapHZ6HGl5WoqNKi.IAY7IT5yRc/
 
-# ---- 服务 ----
-# OS-OPS-010：安装器显式 enable 需要的单元，包自身 %post 不 enable。
-# airymax-desktop-ready 在 graphical.target 下校验 lightdm 与 greeter 会话，
-# 作为镜像 CI「桌面能进」的宿主机可判定证据（验收④）；minimal 剖面停留在
-# multi-user.target，不涉及该单元。
-# --enabled 的值是逗号分隔列表；用空格分隔会让第二个单元成为位置参数，
-# anaconda 在解析 kickstart 阶段即终止安装。
-services --enabled=lightdm,airymax-desktop-ready
-
 # ---- 包组 ----
 # --nocore 关闭 anaconda 隐式追加的 @core（selection.core_group_enabled
 # 默认 True）。载荷 comps 里没有上游 core 组，追加它会让安装器判定缺组，
@@ -199,11 +190,30 @@ chage -d 0 root || fail root-expire
 # 4) 图形目标为默认（UKUI 会话经 lightdm 拉起）
 set_default graphical.target
 
-# 5) agentrt.target 的启用推迟到 daemon 二进制交付版本：
+# 5) 启用边界由本段确定性收口。presets/ 是默认关闭策略：自有单元显式
+#    disable，99-airymax-default-disable.preset 以 `disable *` 兜底，避免
+#    任何带 [Install] 的第三方单元在 %systemd_post 里被隐式拉起。因此
+#    开机要跑的单元必须在这里显式启用，且以 is-enabled 落盘状态为唯一
+#    事实（--root 离线语义，chroot 内无总线）。preset-all 先于 enable
+#    执行：它把 90-airymax.preset 的策略投影到现有单元，再叠加本清单。
+systemctl --root=/ preset-all >/dev/null 2>&1 ||
+    mark "AIRYMAX-INSTALL-NOTE preset-all rc=$?"
+boot_set="lightdm.service airymax-desktop-ready.service
+NetworkManager.service chronyd.service firewalld.service sshd.service"
+for unit in ${boot_set}; do
+    systemctl --root=/ enable "${unit}" >/dev/null 2>&1 || :
+    state=$(systemctl --root=/ is-enabled "${unit}" 2>/dev/null || true)
+    [ "${state}" = enabled ] || {
+        mark "AIRYMAX-INSTALL-DIAG unit=${unit} state=${state}"
+        fail "enable-${unit}"
+    }
+done
+
+# 6) agentrt.target 的启用推迟到 daemon 二进制交付版本：
 #    该 target 强依赖 12 个 /usr/sbin/*_d，0.0.3 尚未打包，提前 enable
 #    会让每次冷启动进入 degraded，违背「OS 能正常运行」验收口径。
-#    启用项与 airymaxos-services 同版本落地，届时此处补
-#    `systemctl enable agentrt.target`（OS-OPS-010）。
+#    启用项与 airymaxos-services 同版本落地，届时在 boot_set 中补
+#    agentrt.target（OS-OPS-010）。
 
 mark "AirymaxOS workstation install complete (baseline $(date -u +%Y%m%d))"
 %end

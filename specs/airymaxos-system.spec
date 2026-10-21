@@ -9,9 +9,11 @@
 #   3. 在 %%post/%%postun 内刷新 systemd 单元缓存。
 #
 # 单元启用（systemctl enable）由安装器在 kickstart 中显式完成，
-# 本包只负责文件到位与缓存刷新（OS-OPS-010）。随包落盘的 preset 把整栈
-# 钉在 disabled，防止 systemctl preset-all 的默认 enable 语义提前拉起
-# 尚未交付二进制的单元。
+# 本包只负责文件到位与缓存刷新（OS-OPS-010）。随包落盘两份 preset：
+# 90-airymax.preset 把自有栈钉在 disabled，防止 systemctl preset-all 的
+# 默认 enable 语义提前拉起尚未交付二进制的单元；99-airymax-default-disable.preset
+# 补齐上游 openEuler-release 被 Obsoletes 接管后丢失的「默认关闭」兜底，
+# 避免第三方单元按未命中即 enable 的语义被拉起。
 #
 # 构建约束：全部 Source 为仓库内裸露文件名，由构建流水线 staging 到
 # _sourcedir 后 rpmbuild；配方本身不生成任何内容。
@@ -21,7 +23,7 @@
 # spec-lint: source-root ../../system/scripts
 
 %global airy_version 0.0.3
-%global airy_release 1
+%global airy_release 2
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -53,6 +55,7 @@ Source16:       airy-incident@.service
 Source17:       firstboot.sh
 Source18:       health_check.sh
 Source19:       90-airymax.preset
+Source20:       99-airymax-default-disable.preset
 
 Requires:       bash
 Requires:       procps-ng
@@ -81,6 +84,8 @@ install -d -m 0755 %{buildroot}/usr/lib/airymaxos/scripts
 install -m 0755 %{_sourcedir}/*.sh %{buildroot}/usr/lib/airymaxos/scripts/
 install -d -m 0755 %{buildroot}%{_presetdir}
 install -m 0644 %{_sourcedir}/90-airymax.preset %{buildroot}%{_presetdir}/
+install -m 0644 %{_sourcedir}/99-airymax-default-disable.preset \
+    %{buildroot}%{_presetdir}/
 
 %check
 test -x %{buildroot}/usr/lib/airymaxos/scripts/firstboot.sh
@@ -96,6 +101,9 @@ grep -qxF 'disable agentrt.target' \
     %{buildroot}%{_presetdir}/90-airymax.preset
 grep -qxF 'disable agentrt-*.service' \
     %{buildroot}%{_presetdir}/90-airymax.preset
+test -f %{buildroot}%{_presetdir}/99-airymax-default-disable.preset
+grep -qxF 'disable *' \
+    %{buildroot}%{_presetdir}/99-airymax-default-disable.preset
 
 %post
 if command -v systemctl >/dev/null 2>&1; then
@@ -115,8 +123,12 @@ fi
 %{_unitdir}/*.service
 %{_unitdir}/*.target
 %{_presetdir}/90-airymax.preset
+%{_presetdir}/99-airymax-default-disable.preset
 
 %changelog
+* Wed Oct 21 2026 Liren Wang <wangliren@spharx.cn> - 0.0.3-2
+- Ship 99-airymax-default-disable.preset to restore the default-off
+  policy lost when airymaxos-release obsoletes openEuler-release
 * Sat Oct 17 2026 Liren Wang <wangliren@spharx.cn> - 0.0.3-1
 - Initial system orchestration package for AirymaxOS 0.0.3
 - Pin agentrt units to disabled via systemd preset
