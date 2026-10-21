@@ -150,12 +150,33 @@ set_default()
         "/usr/lib/systemd/system/${want}" ] || fail default-target
 }
 
-acct_ok()
+# 账户状态只读 /etc/shadow 的哈希字段：安装器写口令走 chpasswd -e，哈希
+# 原样落盘，锁定语义是前缀 !，禁用是 *。passwd -S 依赖 PAM 与本地化输出，
+# 在 chroot 内的判读条件不如直接读文件确定。
+acct_state()
+{
+    local pw
+
+    pw=$(awk -F: -v n="$1" '$1 == n { print $2; exit }' /etc/shadow)
+    case "${pw}" in
+    '') printf 'missing' ;;
+    '!'*) printf 'locked' ;;
+    '*'*) printf 'nologin' ;;
+    '$6$'*) printf 'sha512' ;;
+    '$'*) printf 'hashed' ;;
+    *) printf 'plain' ;;
+    esac
+}
+
+# 断言与归因合一：失配时先打印状态分类（不含哈希），装机失败可直接判读。
+acct_chk()
 {
     local state
 
-    state=$(passwd -S "$1" 2>/dev/null | awk '{print $2}') || return 1
-    [ "${state}" = "P" ]
+    state=$(acct_state "$1")
+    [ "${state}" = sha512 ] && return 0
+    mark "AIRYMAX-INSTALL-DIAG acct=$1 state=${state}"
+    fail "$2"
 }
 
 # 1) 桌面隔离与 UKUI 策略由 airymaxos-release 包 %post 完成
@@ -170,8 +191,8 @@ rpm -q airymaxos-release >/dev/null 2>&1 || fail release-pkg
 rpm -q airymaxos-system >/dev/null 2>&1 || fail system-pkg
 
 # 3) 账户自检：没有可登录账户的安装介质不具备「OS 能运行」的前提
-acct_ok root || fail root-account
-acct_ok airymax || fail airymax-account
+acct_chk root root-account
+acct_chk airymax airymax-account
 # root 只承担首次控制台接管：登录后强制修改初始口令
 chage -d 0 root || fail root-expire
 
