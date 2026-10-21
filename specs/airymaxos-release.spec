@@ -11,8 +11,8 @@
 #   4. 部署桌面会话静态资产：lightdm 座位策略、X11 会话输入法环境、输入法
 #      自启项、UKUI 壁纸注册表与背景默认值、默认壁纸、桌面调度 slice、
 #      user@.service 挂接及登录链就绪探针；
-#   5. %%post 只执行装配后才能确定的运行期动作：屏蔽桌面自带 AI 控制面单元、
-#      固定默认 target、编译 glib schema、重载 systemd。
+#   5. %%post 只执行装配后才能确定的运行期动作：编译 glib schema、屏蔽桌面
+#      自带 AI 控制面单元、在运行中的系统上重载 systemd。
 #
 # 静态资产一律由 %%install 直接落到最终路径，%%post 不复制文件，同一路径只有
 # 一处事实来源。
@@ -178,12 +178,14 @@ grep -qF "picture-filename='" \
 test -s %{buildroot}%{_datadir}/backgrounds/airymaxos/airymaxos-default.jpg
 
 %post
-%{_datadir}/airymaxos/distro/desktop/70-airymax-ukui-policy.sh
-
+# schema 编译先于策略脚本：内置壁纸默认值（T5 验收项）不能被后续脚本的
+# 失败连带跳过。
 if [ -f %{_datadir}/glib-2.0/schemas/org.mate.background.gschema.xml ] &&
    command -v glib-compile-schemas >/dev/null 2>&1; then
     glib-compile-schemas %{_datadir}/glib-2.0/schemas
 fi
+
+%{_datadir}/airymaxos/distro/desktop/70-airymax-ukui-policy.sh
 
 if [ -d /run/systemd/system ]; then
     systemctl daemon-reload >/dev/null 2>&1 || :
