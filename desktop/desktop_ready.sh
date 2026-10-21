@@ -149,6 +149,18 @@ diag_journal()
         -o cat --no-pager 2>/dev/null | diag_out journal
 }
 
+# 逐会话复用判定用的四元组，一眼能看出是被哪一项否掉的。
+diag_session()
+{
+    local id
+
+    for id in $(loginctl list-sessions --no-legend 2>/dev/null |
+                    awk '{print $1}'); do
+        printf 'session=%s %s\n' "${id}" "$(session_key "${id}")" |
+            diag_out session
+    done
+}
+
 diag_tail()
 {
     [ -r "$2" ] || return 0
@@ -169,6 +181,7 @@ diag_wchan()
 diagnose()
 {
     diag_unit
+    diag_session
     diag_journal
     diag_tail lightdm "${LDM_LOG_DIR}/lightdm.log"
     diag_tail greeter "${LDM_LOG_DIR}/seat0-greeter.log"

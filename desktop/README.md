@@ -105,7 +105,8 @@ Class=greeter、Type=x11、State=active|online 的会话，才打印
 
 失败前探针会先输出若干 `AIRYMAX-DESKTOP-DIAG <类别> <内容>` 行，把归因
 证据带到串口：`unit`（lightdm 的 ActiveState/SubState/Result/NRestarts/
-MainPID）、`journal`（该单元本次启动的 journal 尾部）、`file=lightdm`
+MainPID）、`session`（每个 logind 会话判定用的 Service/Class/Type/State
+四元组）、`journal`（该单元本次启动的 journal 尾部）、`file=lightdm`
 （`/var/log/lightdm/lightdm.log`）、`file=greeter`（`seat0-greeter.log`）、
 `file=xorg`（`x-0.log`）、`wchan`（主进程阻塞点）。诊断只是观测通道，
 不参与判定、不改变退出码，每类证据默认最多 20 行（`AIRYMAX_DIAG_LINES`），

@@ -182,6 +182,12 @@ class DesktopReadyTest(unittest.TestCase):
         self.assertIn(f"{DIAG} file=greeter greeter: no display", res.stdout)
         self.assertIn(f"{DIAG} file=xorg Xorg: no screens found", res.stdout)
 
+    def test_fail_reports_sessions(self):
+        res = self.run_probe(FAKE_LIGHTDM="inactive", FAKE_TYPE="tty")
+        self.assertEqual(res.returncode, 1)
+        self.assertIn(f"{DIAG} session session=1 lightdm|greeter|tty|active",
+                      res.stdout)
+
     def test_diag_is_bounded(self):
         body = "".join(f"line{i}\n" for i in range(100))
         (self.logs / "lightdm.log").write_text(body, encoding="utf-8")
