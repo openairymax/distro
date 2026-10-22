@@ -87,12 +87,16 @@ ci/run-image-ci.sh --out /out --iso-base /path/netinst.iso \
    介质复制到 `/usr/lib/airymaxos/ci/`；
 3. autologin 进入 UKUI 后由 XDG autostart 运行
    `airymax-smoke-run.sh`，TAP 原子写入 `/var/log/airymax/smoke.tap`；
-4. `airymax-smoke-report.service` 轮询 TAP，经串口输出
-   `AIRYMAX-SMOKE-PASS` 或 `AIRYMAX-SMOKE-FAIL`。
+4. `airymax-smoke-report.service` 轮询 TAP，先以 `AIRYMAX-TAP|` 前缀把 TAP
+   原文逐行转发到串口，再输出 `AIRYMAX-SMOKE-PASS` 或 `AIRYMAX-SMOKE-FAIL`。
 
 判定要求计划为 `1..5`、五条 `ok`、无 `not ok`/`Bail out!`/`# SKIP`、
 `# summary` 的 `fail=0`。会话内 runner 上限 180s，
-report 轮询上限 240s；`AIRYMAX-SMOKE-FAIL` 已进入 `install-test.sh` 的
+report 轮询上限 240s；由于转发先于结论标记，宿主机命中
+`AIRYMAX-SMOKE-PASS` 时 TAP 全文已在串口，`image-ci.yml` 的
+"Extract smoke TAP" 步骤据此还原 `smoke-run-<fw>-<n>.tap`
+（验收发行方案 §9.3 的 L3 归档证据）。`AIRYMAX-SMOKE-FAIL` 已进入
+`install-test.sh` 的
 `BOOT_FAIL`，失败时无需等满超时。夹具只存在于验收 ISO，产品配方与产品
 ISO 不受影响；验收配方另在 `OUT/acceptance/` 留存，manifest 记
 `acceptance=1`。
