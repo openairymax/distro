@@ -20,6 +20,20 @@
 #     产出 core/modules/headers/devel/tools，不拆 debuginfo；
 #   - initramfs 是安装期产物，任何子包都不拥有它，只由 %%post 生成并校验。
 #
+# 引导镜像选择：
+#   Kbuild 的可引导镜像随配置变化（arm64/riscv 可能是 Image.gz 或
+#   vmlinuz.efi，loongarch 可能是 vmlinux.efi 或 vmlinuz.efi），硬编码单一
+#   路径必然与配置漂移。本配方统一以 make -s image_name 取当前配置的可引导
+#   镜像，安装为 /boot/vmlinuz-<release>。
+#
+# 交叉构建：
+#   调用方以 --define "cross_prefix <前缀>" 传入交叉工具链前缀，配方在各
+#   make 调用点条件展开为 CROSS_COMPILE；未定义该宏即原生构建。
+#
+# 工具子包：
+#   perf 与 bpftool 需要目标架构的 sysroot，只有在目标架构与构建机一致时
+#   才产出 airymaxos-kernel-tools；交叉构建跳过该子包，不产出空壳。
+#
 # 内核身份声明（M-15）：
 #   AirymaxOS 是单内核发行版，二进制包名带 airymaxos- 前缀；而 Anaconda 在
 #   bootloader 阶段按 "kernel" 这一包身份挑选要写入引导项的内核，上层包也
@@ -38,23 +52,26 @@
 %global kernel_release %{kernel_version}%{kernel_local}
 %global ksrc %{_builddir}/airymaxos-kernel-%{kernel_version}
 %global debug_package %{nil}
+%global native %(test "%{_target_cpu}" = "$(uname -m)" && echo 1 || echo 0)
 
 %ifarch x86_64
 %global karch x86
 %global kdir x86
-%global kimage bzImage
 %endif
 
 %ifarch aarch64
 %global karch arm64
 %global kdir arm64
-%global kimage Image
 %endif
 
 %ifarch riscv64
 %global karch riscv
 %global kdir riscv
-%global kimage Image
+%endif
+
+%ifarch loongarch64
+%global karch loongarch
+%global kdir loongarch
 %endif
 
 Name:           airymaxos-kernel
@@ -63,7 +80,7 @@ Release:        %{airy_release}%{?dist}
 Summary:        AirymaxOS kernel with the airy security subsystem
 License:        GPL-2.0-only OR AGPL-3.0-or-later
 URL:            https://atomgit.com/openairymax/agent-linux
-ExclusiveArch:  x86_64 aarch64 riscv64
+ExclusiveArch:  x86_64 aarch64 riscv64 loongarch64
 
 # spec-lint: generated-source airymaxos-kernel-6.6.157.tar.gz
 Source0:        airymaxos-kernel-%{kernel_version}.tar.gz
@@ -124,11 +141,13 @@ Requires:       airymaxos-kernel-headers = %{version}-%{release}
 Headers, scripts and symbol maps needed to build external kernel modules
 against the AirymaxOS kernel.
 
+%if %{native}
 %package tools
 Summary:        AirymaxOS kernel performance and BPF tools
 
 %description tools
 Perf and bpftool built from the AirymaxOS kernel tree.
+%endif
 
 %prep
 %setup -q -n airymaxos-kernel-%{kernel_version}
@@ -146,20 +165,25 @@ KBUILD_BUILD_TIMESTAMP="$(date -u -d "@${SOURCE_DATE_EPOCH}" \
     '+%%Y-%%m-%%d %%H:%%M:%%S')"
 export KCFLAGS="-ffile-prefix-map=%{ksrc}=."
 
-make ARCH=%{karch} defconfig
+make ARCH=%{karch} %{?cross_prefix:CROSS_COMPILE=%{cross_prefix}} defconfig
 sh scripts/kconfig/merge_config.sh -m .config airymax-local.fragment
-make ARCH=%{karch} olddefconfig
-make ARCH=%{karch} %{?_smp_mflags} %{kimage} modules
+make ARCH=%{karch} %{?cross_prefix:CROSS_COMPILE=%{cross_prefix}} olddefconfig
+make ARCH=%{karch} %{?cross_prefix:CROSS_COMPILE=%{cross_prefix}} \
+    %{?_smp_mflags} all modules
+%if %{native}
 make -C tools/perf %{?_smp_mflags}
 make -C tools/bpf/bpftool %{?_smp_mflags}
+%endif
 
 %install
+img="$(make -C %{ksrc} -s ARCH=%{karch} \
+    %{?cross_prefix:CROSS_COMPILE=%{cross_prefix}} image_name)"
 install -d -m 0755 %{buildroot}/boot
-install -m 0755 %{ksrc}/arch/%{kdir}/boot/%{kimage} \
-    %{buildroot}/boot/vmlinuz-%{kernel_release}
+install -m 0755 "%{ksrc}/${img}" %{buildroot}/boot/vmlinuz-%{kernel_release}
 
-make -C %{ksrc} ARCH=%{karch} INSTALL_MOD_PATH=%{buildroot}/usr \
-    INSTALL_MOD_STRIP=1 modules_install
+make -C %{ksrc} ARCH=%{karch} \
+    %{?cross_prefix:CROSS_COMPILE=%{cross_prefix}} \
+    INSTALL_MOD_PATH=%{buildroot}/usr INSTALL_MOD_STRIP=1 modules_install
 rm -f %{buildroot}/usr/lib/modules/%{kernel_release}/build \
       %{buildroot}/usr/lib/modules/%{kernel_release}/source
 
@@ -187,11 +211,13 @@ find "$ksrc_devel" -type f \( -name '*.o' -o -name '*.o.*' \
     -o -name '*.ko' -o -name '*.cmd' -o -name '*.a' -o -name '*.mod' \
     -o -name '*.mod.*' \) -delete
 
+%if %{native}
 install -d -m 0755 %{buildroot}%{_bindir}
 install -m 0755 %{ksrc}/tools/perf/perf \
     %{buildroot}%{_bindir}/airymax-perf
 install -m 0755 %{ksrc}/tools/bpf/bpftool/bpftool \
     %{buildroot}%{_bindir}/airymax-bpftool
+%endif
 
 ln -sfn /usr/src/kernels/%{kernel_release} \
     %{buildroot}/usr/lib/modules/%{kernel_release}/build
@@ -212,8 +238,10 @@ grep -qx 'CONFIG_LOCALVERSION="%{kernel_local}"' %{ksrc}/.config
 test -s %{buildroot}/boot/vmlinuz-%{kernel_release}
 test -s %{ksrc}/System.map
 readelf -h %{ksrc}/vmlinux >/dev/null
+%if %{native}
 test -s %{ksrc}/tools/perf/perf
 test -s %{ksrc}/tools/bpf/bpftool/bpftool
+%endif
 
 %post core
 if command -v kernel-install >/dev/null 2>&1; then
@@ -257,9 +285,11 @@ depmod -a %{kernel_release}
 /usr/lib/modules/%{kernel_release}/build
 /usr/lib/modules/%{kernel_release}/source
 
+%if %{native}
 %files tools
 %{_bindir}/airymax-perf
 %{_bindir}/airymax-bpftool
+%endif
 
 %changelog
 * Sat Oct 17 2026 SPHARX <dev@spharx.com> - 0.0.3-1
