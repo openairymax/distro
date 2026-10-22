@@ -10,6 +10,10 @@
 # 本版 runner，按失败计，避免旧语义把缺失的探测放行。
 # 通过打印 AIRYMAX-SMOKE-PASS；失败打印 AIRYMAX-SMOKE-FAIL。
 #
+# 结论标记之外，TAP 原文逐行以 AIRYMAX-TAP| 前缀转发到串口，供宿主机从
+# 串口日志还原 smoke.tap 归档（验收发行方案 §9.3）。转发先于结论标记，
+# 保证 install-test.sh 命中 --boot-marker 时全文已经落盘。
+#
 # 退出码：0 通过；1 失败或超时。
 # ===========================================================================
 set -uo pipefail
@@ -17,6 +21,7 @@ set -uo pipefail
 readonly TAP=/var/log/airymax/smoke.tap
 readonly WAIT=240
 readonly STEP=2
+readonly TAP_TOKEN='AIRYMAX-TAP|'
 
 wait_tap()
 {
@@ -43,12 +48,21 @@ verdict()
     ! grep -qE '^# summary: .*fail=[1-9]' "${TAP}"
 }
 
+emit_tap()
+{
+    local line
+    while IFS= read -r line; do
+        printf '%s%s\n' "${TAP_TOKEN}" "${line}"
+    done <"${TAP}"
+}
+
 main()
 {
     if ! wait_tap; then
         printf 'AIRYMAX-SMOKE-FAIL reason=timeout tap=%s\n' "${TAP}"
         return 1
     fi
+    emit_tap
     if verdict; then
         printf 'AIRYMAX-SMOKE-PASS tap=%s\n' "${TAP}"
         return 0
