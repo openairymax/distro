@@ -94,7 +94,7 @@ ci/run-image-ci.sh --out /out --iso-base /path/netinst.iso \
 `# summary` 的 `fail=0`。会话内 runner 上限 180s，
 report 轮询上限 240s；由于转发先于结论标记，宿主机命中
 `AIRYMAX-SMOKE-PASS` 时 TAP 全文已在串口，`image-ci.yml` 的
-"Extract smoke TAP" 步骤据此还原 `smoke-run-<fw>-<n>.tap`
+"Extract smoke TAP" 步骤据此还原 `smoke-<fw>-<n>.tap`
 （验收发行方案 §9.3 的 L3 归档证据）。`AIRYMAX-SMOKE-FAIL` 已进入
 `install-test.sh` 的
 `BOOT_FAIL`，失败时无需等满超时。夹具只存在于验收 ISO，产品配方与产品
