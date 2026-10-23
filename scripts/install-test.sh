@@ -36,30 +36,19 @@ readonly DISTRO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 # 前几秒，按它提前结束会让启动腿在桌面尚未拉起时就收尾，既掩盖「UKUI 能否
 # 进入」的证据，也把单元失败与桌面失败混成同一个结论。单元失败以探针读到
 # 的 systemd 记账为准，宿主机只做归因，不立第二个事实源。
-readonly BOOT_FAIL='Kernel panic|Welcome to emergency mode|dracut-initqueue.*timeout|AIRYMAX-BOOT-DEGRADED|AIRYMAX-DESKTOP-FAIL|AIRYMAX-SMOKE-FAIL'
-readonly INST_FAIL='Kernel panic|Fatal glibc error|dracut-initqueue.*timeout|AIRYMAX-INSTALL-FAIL'
+. "${DISTRO_ROOT}/scripts/lib/verdict.env"
+readonly BOOT_FAIL
+readonly INST_FAIL
 # rpm 事务级错误（scriptlet 非零退出、依赖解析失败）会让 anaconda 停在
 # “按 ENTER 退出:” 等待输入而不退出进程，必须与安装失败标记同等判负。
-RPM_FAIL='Error in (PREIN|POSTIN|PREUN|POSTUN|PRETRANS|POSTTRANS|'
-RPM_FAIL="${RPM_FAIL}TRIGGERIN|TRIGGERUN|TRIGGERPOSTUN) scriptlet|"
-RPM_FAIL="${RPM_FAIL}An error occurred during the transaction"
 readonly RPM_FAIL
 # 取包失败（仓库不可达、单一镜像重试耗尽）在 anaconda 里是致命错误，随后
 # 停在「按 ENTER 退出:」等待输入；无头安装没有 stdin，进程既不自退也不打
 # 失败标记，只能空耗 --install-timeout。取包致命提示本身即失败证据。
-PAY_FAIL='Failed to download the following packages|'
-PAY_FAIL="${PAY_FAIL}安装负载时出现以下错误|"
-PAY_FAIL="${PAY_FAIL}There was an error installing the packages|"
-PAY_FAIL="${PAY_FAIL}Cannot download, all mirrors were already tried"
 readonly PAY_FAIL
 # anaconda 在配置阶段遇到无法自处理的错误时转为交互问句（引导装载程序写
 # 配置失败即属此类），无头安装没有 stdin，进程不会退出也不会打印失败标记，
 # 只能等到 --install-timeout。问句本身即失败证据，命中就判负。
-ASK_FAIL='failed to write boot loader configuration|'
-ASK_FAIL="${ASK_FAIL}Please answer .yes. or .no.|"
-ASK_FAIL="${ASK_FAIL}请回答 .yes. 或 .no.|"
-ASK_FAIL="${ASK_FAIL}按 ENTER 退出|"
-ASK_FAIL="${ASK_FAIL}Press ENTER to exit"
 readonly ASK_FAIL
 readonly INST_ERR="${INST_FAIL}|${RPM_FAIL}|${PAY_FAIL}|${ASK_FAIL}"
 
