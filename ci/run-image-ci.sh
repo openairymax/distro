@@ -41,6 +41,7 @@ FIRMWARE="bios"
 RUNS=3
 JOBS=""
 KERNEL=""
+KER_RPMS=""
 INSTALL_TIMEOUT=3600
 BOOT_TIMEOUT=300
 MAX_BOOT=""
@@ -84,6 +85,9 @@ usage()
                      AIRYMAX-SMOKE-PASS；仅 desktop，与 --ks 互斥，
                      需 --iso-base 重新组装
   --kernel DIR       内核源码树，缺省 build-kernel 的默认值
+  --kernel-rpms DIR  复用已发布的内核 RPM 目录，替代内核构建段；目录内
+                     必须含 airymaxos-kernel/-core/-modules。与 --kernel、
+                     --skip-kernel 互斥
   --jobs N           并行度，缺省由子驱动决定
   --install-timeout S  装机超时秒数，缺省 3600
   --boot-timeout S     启动硬超时秒数，缺省 300
@@ -145,6 +149,7 @@ parse_args()
         --add) optarg "$1" "$#"; ADDS+=("$2"); shift 2 ;;
         --acceptance) ACCEPTANCE=1; shift ;;
         --kernel) optarg "$1" "$#"; KERNEL="$2"; shift 2 ;;
+        --kernel-rpms) optarg "$1" "$#"; KER_RPMS="$2"; shift 2 ;;
         --jobs) optarg "$1" "$#"; JOBS="$2"; shift 2 ;;
         --install-timeout)
             optarg "$1" "$#"; need_num "$1" "$2"; INSTALL_TIMEOUT="$2"; shift 2 ;;
@@ -186,6 +191,11 @@ check_args()
             die "--acceptance 需要 --iso-base 重新组装镜像"
     fi
     [ "${RUNS}" -ge 1 ] || die "--runs 必须大于 0"
+    if [ -n "${KER_RPMS}" ]; then
+        [ -d "${KER_RPMS}" ] || die "内核 RPM 目录不存在: ${KER_RPMS}"
+        [ "${SKIP_KERNEL}" -eq 0 ] || die "--kernel-rpms 与 --skip-kernel 互斥"
+        [ -z "${KERNEL}" ] || die "--kernel-rpms 与 --kernel 互斥"
+    fi
     if [ -n "${ISO}" ]; then
         [ -f "${ISO}" ] || die "ISO 不存在: ${ISO}"
     fi
@@ -326,7 +336,9 @@ media_args()
     if [ "${SKIP_RPMS}" -eq 0 ]; then
         MEDIA_ARGS+=(--rpms "${OUT}/rpms/RPMS")
     fi
-    if [ "${SKIP_KERNEL}" -eq 0 ]; then
+    if [ -n "${KER_RPMS}" ]; then
+        MEDIA_ARGS+=(--rpms "${KER_RPMS}")
+    elif [ "${SKIP_KERNEL}" -eq 0 ]; then
         MEDIA_ARGS+=(--rpms "${OUT}/kernel/RPMS")
     fi
     for a in "${ADDS[@]}"; do
@@ -359,8 +371,29 @@ stage_rpm()
     fi
 }
 
+# 复用发行资产里的内核包：镜像与 Release 由同一次内核构建产出，载荷中
+# 的内核哈希才能与发行校验和逐条对齐。缺包直接判失败，不回落就地构建，
+# 否则两条链路又各自产出一份同名不同哈希的内核包。
+kern_reuse()
+{
+    local pkg
+    for pkg in airymaxos-kernel airymaxos-kernel-core airymaxos-kernel-modules; do
+        if ! compgen -G "${KER_RPMS}/${pkg}-[0-9]*.rpm" >/dev/null; then
+            tap_fail 2 "kernel payload" "${pkg} 不在 ${KER_RPMS}"
+            ROWS+=("kernel=fail")
+            return 0
+        fi
+    done
+    tap_skip 2 "kernel build" "reuse ${KER_RPMS}"
+    ROWS+=("kernel=reuse")
+}
+
 stage_kern()
 {
+    if [ -n "${KER_RPMS}" ]; then
+        kern_reuse
+        return 0
+    fi
     if [ "${SKIP_KERNEL}" -eq 1 ]; then
         tap_skip 2 "kernel build" "requested"
         ROWS+=("kernel=skip")
