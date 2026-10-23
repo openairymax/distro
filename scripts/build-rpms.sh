@@ -35,9 +35,11 @@ DIST=""
 REPO=0
 STREAM="BaseOS"
 GPG_KEY=""
+NODEPS=0
 SPECS=()
 SPEC_DIRS=()
 SRC_DIRS=()
+DEFS=()
 OUT_ABS=""
 WORK=""
 TOPDIR=""
@@ -51,9 +53,13 @@ usage()
   --spec FILE        指定配方，可重复
   --spec-dir DIR     收集 DIR/*.spec，可重复；缺省为 distro/specs
   --src-dir DIR      Source 额外搜索目录，可重复
-  --arch ARCH        x86_64|aarch64|riscv64|ppc64le，缺省为宿主
+  --arch ARCH        x86_64|aarch64|riscv64|ppc64le|loongarch64，
+                     缺省为宿主
   --jobs N           MAKEFLAGS 并行度，缺省为 nproc
   --dist TAG         定义 %dist（如 .airy03），缺省沿用环境
+  --define "N V"     追加 rpmbuild 宏，可重复；值不得为空
+                     （如 --define "cross_prefix aarch64-linux-gnu-"）
+  --nodeps           跳过 BuildRequires 解析，供无 rpmdb 的构建机使用
   --repo             生成 dnf 仓库元数据
   --stream NAME      BaseOS|AppStream|updates，缺省 BaseOS
   --gpg-key KEYID    仓库签名密钥（--repo 时必填）
@@ -85,6 +91,21 @@ optarg()
     [ "$2" -ge 2 ] || die "${E_INVAL}" "$1 缺少参数"
 }
 
+def_split()
+{
+    local raw="$1" name val
+    name="${raw%%[[:space:]]*}"
+    val="${raw#"$name"}"
+    val="${val#"${val%%[![:space:]]*}"}"
+    [ -n "$name" ] && [ -n "$val" ] || return 1
+}
+
+check_def()
+{
+    def_split "$1" ||
+        die "${E_INVAL}" "--define 必须为 \"名字 值\" 形式: ${1}"
+}
+
 parse_args()
 {
     while [ $# -gt 0 ]; do
@@ -96,6 +117,9 @@ parse_args()
         --arch) optarg "$1" "$#"; ARCH="$2"; shift 2 ;;
         --jobs) optarg "$1" "$#"; JOBS="$2"; shift 2 ;;
         --dist) optarg "$1" "$#"; DIST="$2"; shift 2 ;;
+        --define) optarg "$1" "$#"; check_def "$2"
+            DEFS+=("$2"); shift 2 ;;
+        --nodeps) NODEPS=1; shift ;;
         --stream) optarg "$1" "$#"; STREAM="$2"; shift 2 ;;
         --gpg-key) optarg "$1" "$#"; GPG_KEY="$2"; shift 2 ;;
         --repo) REPO=1; shift ;;
@@ -111,7 +135,7 @@ check_arch()
         ARCH="$(host_arch)"
     fi
     case "$ARCH" in
-    x86_64|aarch64|riscv64|ppc64le) ;;
+    x86_64|aarch64|riscv64|ppc64le|loongarch64) ;;
     *) die "${E_INVAL}" "不支持的架构: $ARCH" ;;
     esac
 }
@@ -268,12 +292,18 @@ prep_work()
 
 build_one()
 {
-    local spec="$1" stem log
+    local spec="$1" stem log def
     local -a defs=()
     stem="$(basename "${spec%.spec}")"
     log="$WORK/logs/${stem}.build.log"
     if [ -n "$DIST" ]; then
         defs+=(--define "dist ${DIST}")
+    fi
+    for def in "${DEFS[@]}"; do
+        defs+=(--define "$def")
+    done
+    if [ "$NODEPS" -eq 1 ]; then
+        defs+=(--nodeps)
     fi
     if ! rpmbuild -bb "$spec" \
         --define "_topdir ${TOPDIR}" \
@@ -309,7 +339,7 @@ sum_of()
 
 write_manifest()
 {
-    local file rel sum manifest="$OUT_ABS/build-manifest.txt"
+    local file rel sum def manifest="$OUT_ABS/build-manifest.txt"
     {
         printf '# AirymaxOS RPM build manifest\n'
         printf 'arch=%s\n' "$ARCH"
@@ -317,6 +347,9 @@ write_manifest()
         if [ -n "$DIST" ]; then
             printf 'dist=%s\n' "$DIST"
         fi
+        for def in "${DEFS[@]}"; do
+            printf 'define=%s\n' "$def"
+        done
         while IFS= read -r file; do
             sum="$(sum_of "$file")" ||
                 die "${E_IO}" "sha256sum 失败: $file"

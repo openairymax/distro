@@ -12,6 +12,9 @@
 # 写入归档名与时间。同一提交重复归档必须得到同一 SHA-256，构建清单因此
 # 可复核。
 #
+# 交叉构建由 --cross 传入工具链前缀，最终以 cross_prefix 宏交给配方；配方
+# 只在原生架构产出 perf/bpftool 子包，交叉构建的子包集合因此更小。
+#
 # 退出码（190-distribution/01-rpm-packaging.md §8）：
 #   0 成功；2 AIRY_EEXIST；5 AIRY_EINVAL；6 AIRY_EIO；
 #   11 AIRY_ENOTSUP；12 AIRY_EPERM。
@@ -40,6 +43,8 @@ DIST=""
 REPO=0
 STREAM="BaseOS"
 GPG_KEY=""
+CROSS=""
+NODEPS=0
 OUT_ABS=""
 SRC=""
 KV=""
@@ -54,9 +59,11 @@ usage()
 
   --out DIR          产物目录（必须在源码区之外，必填）
   --kernel DIR       内核源码树，缺省为 distro 同级的 kernel
-  --arch ARCH        x86_64|aarch64|riscv64，缺省为宿主
+  --arch ARCH        x86_64|aarch64|riscv64|loongarch64，缺省为宿主
+  --cross PREFIX     交叉工具链前缀（须以 - 结尾），缺省为原生构建
   --jobs N           并行度，缺省由 build-rpms.sh 取 nproc
   --dist TAG         定义 %dist（如 .airy03），缺省沿用环境
+  --nodeps           跳过 BuildRequires 解析，供无 rpmdb 的构建机使用
   --repo             构建后生成 dnf 仓库元数据
   --stream NAME      BaseOS|AppStream|updates，缺省 BaseOS
   --gpg-key KEYID    仓库签名密钥（--repo 时必填）
@@ -98,6 +105,8 @@ parse_args()
         --arch) optarg "$1" "$#"; ARCH="$2"; shift 2 ;;
         --jobs) optarg "$1" "$#"; JOBS="$2"; shift 2 ;;
         --dist) optarg "$1" "$#"; DIST="$2"; shift 2 ;;
+        --cross) optarg "$1" "$#"; CROSS="$2"; shift 2 ;;
+        --nodeps) NODEPS=1; shift ;;
         --stream) optarg "$1" "$#"; STREAM="$2"; shift 2 ;;
         --gpg-key) optarg "$1" "$#"; GPG_KEY="$2"; shift 2 ;;
         --repo) REPO=1; shift ;;
@@ -113,8 +122,19 @@ check_arch()
         ARCH="$(host_arch)"
     fi
     case "$ARCH" in
-    x86_64|aarch64|riscv64) ;;
+    x86_64|aarch64|riscv64|loongarch64) ;;
     *) die "${E_INVAL}" "内核不支持的架构: $ARCH" ;;
+    esac
+}
+
+check_cross()
+{
+    if [ -z "$CROSS" ]; then
+        return 0
+    fi
+    case "$CROSS" in
+    *-) ;;
+    *) die "${E_INVAL}" "交叉前缀须以 - 结尾: ${CROSS}" ;;
     esac
 }
 
@@ -233,6 +253,12 @@ run_build()
     if [ -n "$DIST" ]; then
         args+=(--dist "$DIST")
     fi
+    if [ -n "$CROSS" ]; then
+        args+=(--define "cross_prefix ${CROSS}")
+    fi
+    if [ "$NODEPS" -eq 1 ]; then
+        args+=(--nodeps)
+    fi
     if [ "$REPO" -eq 1 ]; then
         args+=(--repo --stream "$STREAM")
     fi
@@ -246,6 +272,7 @@ main()
 {
     parse_args "$@"
     check_arch
+    check_cross
     check_kdir
     check_tree
     check_ver

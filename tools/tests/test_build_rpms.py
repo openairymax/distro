@@ -49,6 +49,7 @@ exec cat "$last"
 
 RPMBUILD = """\
 #!/bin/sh
+orig=$*
 rpmdir=""; sourcedir=""; target=""
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -68,6 +69,7 @@ done
 [ -n "$target" ] || exit 9
 [ -f "$sourcedir/demo.conf" ] || exit 8
 mkdir -p "$rpmdir/$target"
+printf '%s\\n' "$orig" > "$rpmdir/$target/argv.txt"
 printf 'payload\\n' > "$rpmdir/$target/demo-0.0.3-1.$target.rpm"
 """
 
@@ -202,6 +204,27 @@ class BuildRpmsTest(unittest.TestCase):
         self.assertRegex(
             manifest,
             r"rpm [0-9a-f]{64} RPMS/x86_64/demo-0\.0\.3-1\.x86_64\.rpm")
+
+    def test_define_without_value(self):
+        self.tools()
+        res = self.run_script("--out", str(self.out), "--spec",
+                              str(self.spec), "--define", "cross_prefix")
+        self.assertEqual(res.returncode, 5)
+        self.assertFalse(self.out.exists())
+
+    def test_define_and_nodeps(self):
+        self.full()
+        res = self.run_script("--out", str(self.out), "--spec", str(self.spec),
+                              "--arch", "loongarch64", "--nodeps",
+                              "--define", "cross_prefix loongarch64-linux-gnu-")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        argv = (self.out / "work" / "rpmbuild" / "RPMS" / "loongarch64"
+                / "argv.txt").read_text(encoding="utf-8")
+        self.assertIn("--define cross_prefix loongarch64-linux-gnu-", argv)
+        self.assertIn("--nodeps", argv)
+        manifest = (self.out / "build-manifest.txt").read_text(
+            encoding="utf-8")
+        self.assertIn("define=cross_prefix loongarch64-linux-gnu-", manifest)
 
     def test_repo_build(self):
         self.full()
