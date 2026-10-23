@@ -216,6 +216,22 @@ class BuildKernelTest(unittest.TestCase):
         second = hashlib.sha256(self.tarball().read_bytes()).hexdigest()
         self.assertEqual(first, second)
 
+    def test_cross_prefix_invalid(self):
+        self.tools()
+        res = self.base("--arch", "aarch64", "--cross", "aarch64-linux-gnu")
+        self.assertEqual(res.returncode, 5)
+        self.assertFalse(self.out.exists())
+
+    def test_cross_define(self):
+        self.tools(("rpmspec", RPMSPEC), ("rpmbuild", RPMBUILD))
+        res = self.base("--arch", "loongarch64",
+                        "--cross", "loongarch64-linux-gnu-", "--nodeps")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        manifest = (self.out / "build-manifest.txt").read_text(
+            encoding="utf-8")
+        self.assertIn("arch=loongarch64", manifest)
+        self.assertIn("define=cross_prefix loongarch64-linux-gnu-", manifest)
+
     def test_delegation(self):
         self.tools(("rpmspec", RPMSPEC), ("rpmbuild", RPMBUILD))
         res = self.base("--arch", "x86_64", "--dist", ".airy03")
