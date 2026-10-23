@@ -35,6 +35,8 @@ ASSETS = (
      "%{_unitdir}/airymax-desktop-ready.service"),
     ("desktop/desktop_ready.sh",
      "/usr/lib/airymaxos/desktop/desktop_ready.sh"),
+    ("desktop/boot_state.sh",
+     "/usr/lib/airymaxos/desktop/boot_state.sh"),
     ("desktop/70-airymax-ukui-policy.sh",
      "%{_datadir}/airymaxos/distro/desktop/70-airymax-ukui-policy.sh"),
     ("desktop/lightdm/50-airymax.conf",

@@ -61,6 +61,7 @@ Source11:       99-airymaxos-default.gschema.override
 Source12:       50-airymax-desktop.conf
 Source13:       airymax-desktop-ready.service
 Source14:       desktop_ready.sh
+Source15:       boot_state.sh
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -106,6 +107,8 @@ install -m 0644 %{SOURCE13} \
 install -d -m 0755 %{buildroot}/usr/lib/airymaxos/desktop
 install -m 0755 %{SOURCE14} \
     %{buildroot}/usr/lib/airymaxos/desktop/desktop_ready.sh
+install -m 0644 %{SOURCE15} \
+    %{buildroot}/usr/lib/airymaxos/desktop/boot_state.sh
 
 install -d -m 0755 %{buildroot}%{_sysconfdir}/lightdm/lightdm.conf.d
 install -m 0644 %{SOURCE7} \
@@ -163,6 +166,8 @@ grep -qxF 'CPUWeight=50' %{buildroot}%{_unitdir}/airymax-desktop.slice
 grep -qxF 'WantedBy=graphical.target' \
     %{buildroot}%{_unitdir}/airymax-desktop-ready.service
 bash -n %{buildroot}/usr/lib/airymaxos/desktop/desktop_ready.sh
+bash -n %{buildroot}/usr/lib/airymaxos/desktop/boot_state.sh
+test -r %{buildroot}/usr/lib/airymaxos/desktop/boot_state.sh
 bash -n %{buildroot}%{_datadir}/airymaxos/distro/desktop/70-airymax-ukui-policy.sh
 grep -qxF 'user-session=ukui' \
     %{buildroot}%{_sysconfdir}/lightdm/lightdm.conf.d/50-airymax.conf
@@ -206,6 +211,7 @@ fi
 %{_unitdir}/airymax-desktop.slice
 %{_unitdir}/airymax-desktop-ready.service
 /usr/lib/airymaxos/desktop/desktop_ready.sh
+/usr/lib/airymaxos/desktop/boot_state.sh
 %{_datadir}/ukui-background-properties/airymaxos-default.xml
 %{_datadir}/glib-2.0/schemas/99-airymaxos-default.gschema.override
 %{_datadir}/backgrounds/airymaxos/airymaxos-default.jpg

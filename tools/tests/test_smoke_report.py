@@ -4,10 +4,11 @@
 # test_smoke_report.py — ci/fixture/airymax-smoke-report.sh 契约回归测试
 #
 # 该脚本是验收 ISO 唯一的串口判定者：产品就绪单元在验收安装中被 mask，
-# 因此 TAP 结论与关键链转发都只在这里发生。脚本运行于已登录的图形会话，
-# CI 宿主机没有该环境；这里用 PATH 沙箱提供伪 systemd-analyze，用 TAP
-# 文件与环境变量控制输入，逐项验证「先转发、后结论」的顺序、前缀原文
-# 不改写、以及四种结论路径的退出码。
+# 因此 TAP 结论、关键链转发与失败单元记账都只在这里发生。脚本运行于已
+# 登录的图形会话，CI 宿主机没有该环境；这里用 PATH 沙箱提供伪
+# systemd-analyze/systemctl/journalctl，用 TAP 文件与环境变量控制输入，
+# 逐项验证「先转发、后结论」的顺序、前缀原文不改写、取证行数有界，以及
+# 五种结论路径的退出码。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
 # Version: 0.0.3
@@ -23,6 +24,7 @@ import fakes
 
 SCRIPT = (Path(__file__).resolve().parents[2] / "ci" / "fixture" /
           "airymax-smoke-report.sh")
+BOOT_STATE = Path(__file__).resolve().parents[2] / "desktop" / "boot_state.sh"
 BASH = shutil.which("bash") or "/bin/bash"
 
 PLAN = "TAP version 14\n1..5\n"
@@ -56,11 +58,21 @@ class SmokeReportTest(unittest.TestCase):
             "PATH": str(self.bin),
             "AIRYMAX_SMOKE_TAP": str(self.tap),
             "AIRYMAX_SMOKE_WAIT": "0",
+            "AIRYMAX_BOOT_STATE": str(BOOT_STATE),
             "FAKE_CHAIN_FILE": str(self.chain),
         }
         env.update(extra)
         return subprocess.run([BASH, str(SCRIPT)], env=env, text=True,
                               capture_output=True)
+
+    def journal(self, units, lines=2):
+        log_dir = self.root / "journal"
+        log_dir.mkdir(exist_ok=True)
+        for unit in units:
+            (log_dir / unit).write_text(
+                "".join(f"{unit} line{n}\n" for n in range(lines)),
+                encoding="utf-8")
+        return {"FAKE_JOURNAL_DIR": str(log_dir)}
 
     def lines(self, res, token):
         return [line for line in res.stdout.splitlines()
@@ -124,6 +136,68 @@ class SmokeReportTest(unittest.TestCase):
                          [f"AIRYMAX-SMOKE-FAIL reason=timeout tap={self.tap}"])
         self.assertEqual(self.lines(res, "AIRYMAX-TAP|"), [])
         self.assertEqual(len(self.lines(res, "AIRYMAX-BOOT-CHAIN|")), 3)
+
+    def test_health_reported(self):
+        res = self.report()
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertEqual(self.lines(res, "AIRYMAX-BOOT-HEALTH"),
+                         ["AIRYMAX-BOOT-HEALTH failed=0"])
+        self.assertEqual(self.lines(res, "AIRYMAX-UNIT-STATE|"), [])
+        self.assertEqual(self.lines(res, "AIRYMAX-UNIT-JOURNAL|"), [])
+
+    def test_degraded_units_fail_run(self):
+        res = self.report(FAKE_FAILED_UNITS="sssd.service upower.service",
+                          **self.journal(["sssd.service", "upower.service"]))
+        self.assertEqual(res.returncode, 1)
+        self.assertEqual(self.lines(res, "AIRYMAX-BOOT-DEGRADED"),
+                         ["AIRYMAX-BOOT-DEGRADED failed=2 "
+                          "units=sssd.service,upower.service"])
+        self.assertEqual(self.lines(res, "AIRYMAX-SMOKE-FAIL"),
+                         [f"AIRYMAX-SMOKE-FAIL reason=degraded "
+                          f"tap={self.tap}"])
+        self.assertIn("AIRYMAX-UNIT-STATE|upower.service|"
+                      "ActiveState=active SubState=running Result=success "
+                      "NRestarts=0 MainPID=0", res.stdout)
+        self.assertEqual(len(self.lines(
+            res, "AIRYMAX-UNIT-JOURNAL|upower.service|")), 2)
+        self.assertEqual(res.stdout.rstrip().splitlines()[-1],
+                         f"AIRYMAX-SMOKE-FAIL reason=degraded tap={self.tap}")
+
+    def test_evidence_is_bounded(self):
+        units = [f"u{n}.service" for n in range(12)]
+        res = self.report(FAKE_FAILED_UNITS=" ".join(units),
+                          **self.journal(units, lines=40))
+        self.assertEqual(res.returncode, 1)
+        shown = sorted(units)[:8]
+        self.assertIn("AIRYMAX-BOOT-DEGRADED failed=12 units="
+                      + ",".join(shown), res.stdout)
+        self.assertEqual(len(self.lines(res, "AIRYMAX-UNIT-STATE|")), 8)
+        for unit in shown:
+            logs = self.lines(res, f"AIRYMAX-UNIT-JOURNAL|{unit}|")
+            self.assertEqual(len(logs), 12)
+
+    def test_evidence_precedes_fail(self):
+        res = self.report(FAKE_FAILED_UNITS="sssd.service",
+                          **self.journal(["sssd.service"]))
+        marker = self.verdict_at(res, "AIRYMAX-SMOKE-FAIL")
+        last = max(index for index, line in enumerate(res.stdout.splitlines())
+                   if line.startswith("AIRYMAX-UNIT-"))
+        self.assertLess(last, marker)
+
+    def test_boot_state_missing(self):
+        absent = self.root / "absent.sh"
+        res = self.report(AIRYMAX_BOOT_STATE=str(absent))
+        self.assertEqual(res.returncode, 1)
+        self.assertEqual(self.lines(res, "AIRYMAX-SMOKE-FAIL"),
+                         [f"AIRYMAX-SMOKE-FAIL reason=boot-state "
+                          f"path={absent}"])
+
+    def test_timeout_reports_health(self):
+        res = self.report(tap=None)
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("AIRYMAX-BOOT-HEALTH failed=0", res.stdout)
+        self.assertEqual(res.stdout.rstrip().splitlines()[-1],
+                         f"AIRYMAX-SMOKE-FAIL reason=timeout tap={self.tap}")
 
     def test_rejects_bad_tap(self):
         cases = {

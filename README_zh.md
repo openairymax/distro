@@ -69,6 +69,7 @@ distro/
 │   ├── airymax-desktop.slice      # 桌面低干扰 cgroup slice
 │   ├── airymax-desktop-ready.service  # 图形登录链就绪探针
 │   ├── desktop_ready.sh           # UKUI 会话定义与 lightdm/greeter 校验
+│   ├── boot_state.sh              # 失败单元记账与有界取证（共享库）
 │   ├── 70-airymax-ukui-policy.sh  # 安装后策略脚本（mask + 默认 target）
 │   ├── lightdm/                   # lightdm 座位策略
 │   ├── xinitrc.d/                 # X11 会话输入法环境

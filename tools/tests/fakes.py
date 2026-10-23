@@ -687,9 +687,27 @@ esac
 
 JOURNALCTL = """\
 #!/bin/sh
-[ -n "${FAKE_JOURNAL_FILE:-}" ] || exit 0
-[ -r "${FAKE_JOURNAL_FILE}" ] || exit 0
-cat "${FAKE_JOURNAL_FILE}"
+unit=""; n=""; file=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+    -u) shift; unit="$1" ;;
+    -n) shift; n="$1" ;;
+    -o) shift ;;
+    esac
+    shift
+done
+if [ -n "${FAKE_JOURNAL_DIR:-}" ] && [ -n "$unit" ]; then
+    file="${FAKE_JOURNAL_DIR}/${unit}"
+else
+    file="${FAKE_JOURNAL_FILE:-}"
+fi
+[ -n "$file" ] || exit 0
+[ -r "$file" ] || exit 0
+if [ -n "$n" ]; then
+    tail -n "$n" "$file"
+else
+    cat "$file"
+fi
 """
 
 ANALYZE = """\
@@ -746,3 +764,5 @@ def smoke_tools(bin_dir, omit=()):
 
 def report_tools(bin_dir):
     write(bin_dir, "systemd-analyze", ANALYZE)
+    write(bin_dir, "systemctl", SYSTEMCTL)
+    write(bin_dir, "journalctl", JOURNALCTL)

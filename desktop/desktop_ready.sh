@@ -14,6 +14,10 @@
 # 也会把单元失败与桌面失败混成同一个结论。这里如实上报一项，再由宿主
 # 机按标记归因。
 #
+# 记账与取证由 boot_state.sh 提供：验收 ISO 的串口上报是同一套判据的另一
+# 个消费者，两处各写一份实现会让观测点给出不同语义。库缺失按硬失败处理，
+# 不做无取证的回退。
+#
 # 失败以非零退出码上报，由 install-test.sh 的 BOOT_FAIL 规则捕获；不写
 # 任何状态文件，避免与 systemd 状态形成第二个事实源。
 #
@@ -28,6 +32,14 @@
 # 调用：airymax-desktop-ready.service（WantedBy=graphical.target）。
 # ===========================================================================
 set -uo pipefail
+
+BOOT_STATE="${AIRYMAX_BOOT_STATE:-${0%/*}/boot_state.sh}"
+if [ ! -r "${BOOT_STATE}" ]; then
+    printf 'AIRYMAX-DESKTOP-FAIL reason=boot-state path=%s\n' "${BOOT_STATE}"
+    exit 1
+fi
+# shellcheck source=boot_state.sh
+. "${BOOT_STATE}"
 
 READY_WAIT="${AIRYMAX_READY_WAIT:-90}"
 POLL="${AIRYMAX_READY_POLL:-2}"
@@ -96,23 +108,6 @@ greeter_session()
 unit_active()
 {
     systemctl is-active --quiet "$1.service" 2>/dev/null
-}
-
-# 失败记账只在本次启动内有效，不落盘；空集合才打印 HEALTH，非空打印
-# DEGRADED 并附单元清单，宿主机据此直接归因到具体单元。
-boot_health()
-{
-    local list
-
-    list=$(systemctl list-units --failed --no-legend --plain --no-pager \
-        2>/dev/null | awk 'NF { print $1 }' | sort -u)
-    if [ -z "${list}" ]; then
-        printf 'AIRYMAX-BOOT-HEALTH failed=0\n'
-        return 0
-    fi
-    printf 'AIRYMAX-BOOT-DEGRADED failed=%s units=%s\n' \
-        "$(printf '%s\n' "${list}" | wc -l)" "${list//$'\n'/,}"
-    return 1
 }
 
 ready_once()
