@@ -93,7 +93,13 @@ class KernelSpecTest(unittest.TestCase):
                       "%{?cross_prefix:CROSS_COMPILE=%{cross_prefix}}",
                       self.text)
         self.assertIn("%global kmake make -C %{ksrc} %{kenv}", self.text)
-        self.assertEqual(self.text.count("%{?cross_prefix:"), 1)
+
+    def test_cross_strip(self):
+        head = self.text.partition("%description")[0]
+        start = head.index("%if %{?cross_prefix:1}%{!?cross_prefix:0}")
+        block = head[start:head.index("%endif", start)]
+        self.assertIn("%global __strip %{cross_prefix}strip", block)
+        self.assertIn("%global __objdump %{cross_prefix}objdump", block)
 
     def test_tools_deps(self):
         head = self.text.partition("%description")[0]

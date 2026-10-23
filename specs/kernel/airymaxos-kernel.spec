@@ -78,6 +78,15 @@
 %global kenv ARCH=%{karch} %{?cross_prefix:CROSS_COMPILE=%{cross_prefix}}
 %global kmake make -C %{ksrc} %{kenv}
 
+# rpm 在 %%install 之后以 brp-strip 统一去符号，其可执行文件取自 __strip 与
+# __objdump。交叉构建时这两项必须换成目标架构 binutils，否则主机的
+# /usr/bin/strip 无法解析交叉产物，brp-strip 以非零退出中断打包。原生
+# 构建不定义 cross_prefix，故保持 rpm 缺省值不变。
+%if %{?cross_prefix:1}%{!?cross_prefix:0}
+%global __strip %{cross_prefix}strip
+%global __objdump %{cross_prefix}objdump
+%endif
+
 Name:           airymaxos-kernel
 Version:        %{airy_version}
 Release:        %{airy_release}%{?dist}
