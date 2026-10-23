@@ -101,6 +101,17 @@ class KernelSpecTest(unittest.TestCase):
         self.assertIn("%global __strip %{cross_prefix}strip", block)
         self.assertIn("%global __objdump %{cross_prefix}objdump", block)
 
+    def test_cross_no_host_progs(self):
+        inst = body(self.text, "install")
+        start = inst.index("%if !%{native}")
+        block = inst[start:inst.index("%endif", start)]
+        self.assertIn('"$ksrc_devel/scripts"', block)
+        self.assertIn("-perm -u+x", block)
+        self.assertIn("7f454c46", block)
+        start = inst.index("%if %{native}")
+        block = inst[start:inst.index("%endif", start)]
+        self.assertIn("tools/objtool/objtool", block)
+
     def test_tools_deps(self):
         head = self.text.partition("%description")[0]
         start = head.index("%if %{native}")

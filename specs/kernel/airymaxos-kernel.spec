@@ -30,6 +30,14 @@
 #   调用方以 --define "cross_prefix <前缀>" 传入交叉工具链前缀，配方在各
 #   make 调用点条件展开为 CROSS_COMPILE；未定义该宏即原生构建。
 #
+# 交叉构建的发布边界：
+#   Kbuild 的 hostprogs（scripts/ 下的 modpost、unifdef、asn1_compiler 等，
+#   以及 objtool、resolve_btfids）由构建机的 HOSTCC 编译，架构与目标包不同。
+#   它们装入 devel 树后既无法在目标机执行（Exec format error），又会让
+#   brp-strip 以目标 binutils 解析失败。故交叉构建只发布与目标架构一致的
+#   内容，这些可执行文件不装入；目标机执行 make modules_prepare 时从随包的
+#   scripts/ 源码重建。原生构建不受影响，仍按惯例发布预编译工具。
+#
 # 工具子包：
 #   perf 与 bpftool 需要目标架构的 sysroot，只有在目标架构与构建机一致时
 #   才产出 airymaxos-kernel-tools；交叉构建跳过该子包，不产出空壳。
@@ -218,15 +226,26 @@ for file in Makefile .config System.map Module.symvers; do
 done
 cp -a %{ksrc}/include "$ksrc_devel/include"
 cp -a %{ksrc}/scripts "$ksrc_devel/scripts"
+%if !%{native}
+# 构建机 ELF 不随交叉包发布：目标机无法执行，且会让 brp-strip 失败。
+find "$ksrc_devel/scripts" -type f -perm -u+x |
+while IFS= read -r prog; do
+    if [ "$(od -An -tx1 -N4 "$prog" | tr -d ' \n')" = 7f454c46 ]; then
+        rm -f "$prog"
+    fi
+done
+%endif
 install -d -m 0755 "$ksrc_devel/arch/%{kdir}"
 cp -a %{ksrc}/arch/%{kdir}/include "$ksrc_devel/arch/%{kdir}/include"
 install -m 0644 %{ksrc}/arch/%{kdir}/Makefile \
     "$ksrc_devel/arch/%{kdir}/Makefile"
+%if %{native}
 for tool in tools/objtool/objtool tools/bpf/resolve_btfids/resolve_btfids; do
     if [ -x "%{ksrc}/${tool}" ]; then
         install -D -m 0755 "%{ksrc}/${tool}" "$ksrc_devel/${tool}"
     fi
 done
+%endif
 find "$ksrc_devel" -type f \( -name '*.o' -o -name '*.o.*' \
     -o -name '*.ko' -o -name '*.cmd' -o -name '*.a' -o -name '*.mod' \
     -o -name '*.mod.*' \) -delete
