@@ -449,6 +449,51 @@ class MediaArgsTest(unittest.TestCase):
         for stage in ("rpm=pass", "kernel=pass", "iso=pass"):
             self.assertIn(f"stage {stage}", manifest)
 
+    def reuse_rpms(self, pkgs=KERNEL):
+        rpms = self.root / "rel-rpms"
+        rpms.mkdir()
+        for pkg in pkgs:
+            (rpms / pkg).write_text("rpm\n", encoding="utf-8")
+        return rpms
+
+    def run_reuse(self, rpms, *args):
+        env = {"PATH": str(self.bin), "HOME": str(self.root),
+               "ARGS_LOG": str(self.args)}
+        return subprocess.run(
+            [BASH, str(self.distro / "ci" / "run-image-ci.sh"),
+             "--out", str(self.out), "--profile", "desktop",
+             "--iso-base", str(self.base), "--skip-install",
+             "--kernel-rpms", str(rpms), *args],
+            env=env, text=True, capture_output=True)
+
+    def test_kernel_reuse_replaces_build(self):
+        rpms = self.reuse_rpms()
+        res = self.run_reuse(rpms)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("ok 2 - kernel build # SKIP", res.stdout)
+        self.assertEqual(self.args.read_text(encoding="utf-8").split(),
+                         [f"{self.out}/rpms/RPMS", str(rpms)])
+        manifest = (self.out / "image-ci-manifest.txt").read_text(
+            encoding="utf-8")
+        self.assertIn("stage kernel=reuse", manifest)
+        self.assertIn("result=pass", manifest)
+
+    def test_kernel_reuse_incomplete(self):
+        res = self.run_reuse(self.reuse_rpms(KERNEL[:2]))
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("not ok 2 - kernel payload", res.stdout)
+        manifest = (self.out / "image-ci-manifest.txt").read_text(
+            encoding="utf-8")
+        self.assertIn("stage kernel=fail", manifest)
+        self.assertIn("result=fail", manifest)
+
+    def test_kernel_reuse_conflicts(self):
+        rpms = self.reuse_rpms()
+        cases = (("--skip-kernel",), ("--kernel", str(self.root / "src")))
+        for extra in cases:
+            self.assertEqual(self.run_reuse(rpms, *extra).returncode, 5)
+        self.assertEqual(self.run_reuse(self.root / "gone").returncode, 5)
+
     def test_closure_follows_profile(self):
         script = self.distro / "ci" / "run-image-ci.sh"
         env = {"PATH": str(self.bin), "HOME": str(self.root)}
