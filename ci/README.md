@@ -88,7 +88,12 @@ ci/run-image-ci.sh --out /out --iso-base /path/netinst.iso \
 3. autologin 进入 UKUI 后由 XDG autostart 运行
    `airymax-smoke-run.sh`，TAP 原子写入 `/var/log/airymax/smoke.tap`；
 4. `airymax-smoke-report.service` 轮询 TAP，先以 `AIRYMAX-TAP|` 前缀把 TAP
-   原文逐行转发到串口，再输出 `AIRYMAX-SMOKE-PASS` 或 `AIRYMAX-SMOKE-FAIL`。
+   原文逐行转发到串口，再以 `AIRYMAX-BOOT-CHAIN|` 前缀转发
+   `systemd-analyze critical-chain` 前 24 行（NFR-P-005 服务级门限的实测
+   来源），最后输出 `AIRYMAX-SMOKE-PASS` 或 `AIRYMAX-SMOKE-FAIL`。
+
+关键链只在此处采集：验收安装 `%post` 已 mask `airymax-desktop-ready.service`，
+同一观测点不设第二个判定者，`osaccrt_bootchain` 据此对账 `boot.service`。
 
 判定要求计划为 `1..5`、五条 `ok`、无 `not ok`/`Bail out!`/`# SKIP`、
 `# summary` 的 `fail=0`。会话内 runner 上限 180s，
