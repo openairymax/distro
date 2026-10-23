@@ -692,6 +692,13 @@ JOURNALCTL = """\
 cat "${FAKE_JOURNAL_FILE}"
 """
 
+ANALYZE = """\
+#!/bin/sh
+[ -n "${FAKE_CHAIN_FILE:-}" ] || exit 1
+[ -r "${FAKE_CHAIN_FILE}" ] || exit 1
+cat "${FAKE_CHAIN_FILE}"
+"""
+
 
 def link_tools(bin_dir):
     for name in TOOLS:
@@ -735,3 +742,7 @@ def smoke_tools(bin_dir, omit=()):
     for name, body in table:
         if name not in omit:
             write(bin_dir, name, body)
+
+
+def report_tools(bin_dir):
+    write(bin_dir, "systemd-analyze", ANALYZE)

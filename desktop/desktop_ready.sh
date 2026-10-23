@@ -24,10 +24,6 @@
 # lightdm 与 greeter 日志、X server 日志、主进程 wchan）有界地带出。
 # 每类证据的行数固定上限，避免串口被日志淹没；证据缺失按正常情况跳过。
 #
-# AIRYMAX-BOOT-CHAIN 行是另一路观测：无论就绪与否，都把
-# `systemd-analyze critical-chain` 的前若干行原文转发出去，供宿主侧
-# 对账 NFR-P-005 的关键服务耗时。它只上报事实，判定仍由宿主完成。
-#
 # 部署：airymaxos-release 包安装到 /usr/lib/airymaxos/desktop/。
 # 调用：airymax-desktop-ready.service（WantedBy=graphical.target）。
 # ===========================================================================
@@ -43,8 +39,6 @@ XSESSIONS_DIR="${AIRYMAX_XSESSIONS_DIR:-/usr/share/xsessions}"
 UKUI_SESSION="${XSESSIONS_DIR}/${SESSION_NAME}.desktop"
 DIAG_MAX="${AIRYMAX_DIAG_LINES:-20}"
 LDM_LOG_DIR="${AIRYMAX_LIGHTDM_LOG:-/var/log/lightdm}"
-CHAIN_MAX="${AIRYMAX_CHAIN_LINES:-24}"
-CHAIN_MARK="AIRYMAX-BOOT-CHAIN|"
 
 session_exec()
 {
@@ -199,22 +193,11 @@ diagnose()
     diag_wchan
 }
 
-# 关键链是 NFR-P-005 服务级门限的唯一实测来源：systemd 自己记下的单元
-# 达成时刻与自身耗时，比任何外部计时都更能指认"慢在哪一环"。原文逐行
-# 加前缀转发，不改写 systemd 的输出格式，也不参与本脚本的判定与退出码。
-boot_chain()
-{
-    systemd-analyze critical-chain --no-pager 2>/dev/null |
-        head -n "${CHAIN_MAX}" |
-        sed "s/^/${CHAIN_MARK}/"
-}
-
 main()
 {
     boot_health || return 1
     if ! session_exec; then
         diagnose
-        boot_chain
         printf 'AIRYMAX-DESKTOP-FAIL reason=session path=%s\n' \
             "${UKUI_SESSION}"
         return 1
@@ -222,11 +205,9 @@ main()
     if wait_ready; then
         printf 'AIRYMAX-DESKTOP-READY unit=%s class=%s type=%s\n' \
             "${GREETER_SVC}" "${GREETER_CLASS}" "${GREETER_TYPE}"
-        boot_chain
         return 0
     fi
     diagnose
-    boot_chain
     printf 'AIRYMAX-DESKTOP-FAIL unit=%s wait=%ss\n' \
         "${GREETER_SVC}" "${READY_WAIT}"
     return 1
