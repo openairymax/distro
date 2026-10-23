@@ -82,11 +82,18 @@ class KernelSpecTest(unittest.TestCase):
 
     def test_three_step_config(self):
         build = body(self.text, "build")
-        order = [build.find("make ARCH=%{karch} defconfig"),
+        order = [build.find("%{kmake} defconfig"),
                  build.find("merge_config.sh -m .config"),
-                 build.find("make ARCH=%{karch} olddefconfig")]
+                 build.find("%{kmake} olddefconfig")]
         self.assertEqual(order, sorted(order))
         self.assertNotIn(-1, order)
+
+    def test_make_macro(self):
+        self.assertIn("%global kenv ARCH=%{karch} "
+                      "%{?cross_prefix:CROSS_COMPILE=%{cross_prefix}}",
+                      self.text)
+        self.assertIn("%global kmake make -C %{ksrc} %{kenv}", self.text)
+        self.assertEqual(self.text.count("%{?cross_prefix:"), 1)
 
     def test_localversion(self):
         self.assertIn('CONFIG_LOCALVERSION="%{kernel_local}"', self.text)

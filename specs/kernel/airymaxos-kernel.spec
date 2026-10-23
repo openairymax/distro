@@ -74,6 +74,10 @@
 %global kdir loongarch
 %endif
 
+# 所有内核 make 调用统一走 kmake：架构与交叉前缀只在此处定义一次。
+%global kenv ARCH=%{karch} %{?cross_prefix:CROSS_COMPILE=%{cross_prefix}}
+%global kmake make -C %{ksrc} %{kenv}
+
 Name:           airymaxos-kernel
 Version:        %{airy_version}
 Release:        %{airy_release}%{?dist}
@@ -165,30 +169,26 @@ KBUILD_BUILD_TIMESTAMP="$(date -u -d "@${SOURCE_DATE_EPOCH}" \
     '+%%Y-%%m-%%d %%H:%%M:%%S')"
 export KCFLAGS="-ffile-prefix-map=%{ksrc}=."
 
-make ARCH=%{karch} %{?cross_prefix:CROSS_COMPILE=%{cross_prefix}} defconfig
+%{kmake} defconfig
 sh scripts/kconfig/merge_config.sh -m .config airymax-local.fragment
-make ARCH=%{karch} %{?cross_prefix:CROSS_COMPILE=%{cross_prefix}} olddefconfig
-make ARCH=%{karch} %{?cross_prefix:CROSS_COMPILE=%{cross_prefix}} \
-    %{?_smp_mflags} all modules
+%{kmake} olddefconfig
+%{kmake} %{?_smp_mflags} all modules
 %if %{native}
 make -C tools/perf %{?_smp_mflags}
 make -C tools/bpf/bpftool %{?_smp_mflags}
 %endif
 
 %install
-img="$(make -C %{ksrc} -s ARCH=%{karch} \
-    %{?cross_prefix:CROSS_COMPILE=%{cross_prefix}} image_name)"
+img="$(%{kmake} -s image_name)"
 install -d -m 0755 %{buildroot}/boot
 install -m 0755 "%{ksrc}/${img}" %{buildroot}/boot/vmlinuz-%{kernel_release}
 
-make -C %{ksrc} ARCH=%{karch} \
-    %{?cross_prefix:CROSS_COMPILE=%{cross_prefix}} \
-    INSTALL_MOD_PATH=%{buildroot}/usr INSTALL_MOD_STRIP=1 modules_install
+%{kmake} INSTALL_MOD_PATH=%{buildroot}/usr INSTALL_MOD_STRIP=1 \
+    modules_install
 rm -f %{buildroot}/usr/lib/modules/%{kernel_release}/build \
       %{buildroot}/usr/lib/modules/%{kernel_release}/source
 
-make -C %{ksrc} ARCH=%{karch} INSTALL_HDR_PATH=%{buildroot}/usr \
-    headers_install
+%{kmake} INSTALL_HDR_PATH=%{buildroot}/usr headers_install
 rm -f %{buildroot}/usr/.install
 
 ksrc_devel=%{buildroot}/usr/src/kernels/%{kernel_release}
