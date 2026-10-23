@@ -60,6 +60,13 @@ class DesktopReadyTest(unittest.TestCase):
     def write_session(self, body):
         (self.xs / "ukui.desktop").write_text(body, encoding="utf-8")
 
+    def journal(self, logs):
+        log_dir = self.root / "journal"
+        log_dir.mkdir(exist_ok=True)
+        for unit, body in logs.items():
+            (log_dir / unit).write_text(body, encoding="utf-8")
+        return {"FAKE_JOURNAL_DIR": str(log_dir)}
+
     def run_probe(self, *args, **extra):
         env = {"PATH": str(self.bin), "HOME": str(self.root),
                "AIRYMAX_READY_WAIT": "0", "AIRYMAX_READY_POLL": "1",
@@ -76,12 +83,42 @@ class DesktopReadyTest(unittest.TestCase):
         self.assertIn(
             f"{READY} unit=lightdm class=greeter type=x11", res.stdout)
         self.assertNotIn(FAIL, res.stdout)
+        self.assertNotIn("AIRYMAX-UNIT-STATE|", res.stdout)
 
     def test_degraded_units(self):
         res = self.run_probe(FAKE_FAILED_UNITS="sssd.service upower.service")
         self.assertEqual(res.returncode, 1)
         self.assertIn("AIRYMAX-BOOT-DEGRADED failed=2 "
                       "units=sssd.service,upower.service", res.stdout)
+        self.assertNotIn(READY, res.stdout)
+
+    def test_degraded_reports_evidence(self):
+        res = self.run_probe(FAKE_FAILED_UNITS="upower.service",
+                             **self.journal({"upower.service":
+                                             "upowerd: exit 1\n"}))
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("AIRYMAX-UNIT-STATE|upower.service|ActiveState=active",
+                      res.stdout)
+        self.assertIn("AIRYMAX-UNIT-JOURNAL|upower.service|upowerd: exit 1",
+                      res.stdout)
+        self.assertIn("AIRYMAX-BOOT-DEGRADED failed=1 units=upower.service",
+                      res.stdout)
+        self.assertNotIn(READY, res.stdout)
+
+    def test_evidence_is_bounded(self):
+        body = "".join(f"line{n}\n" for n in range(40))
+        res = self.run_probe(FAKE_FAILED_UNITS="upower.service",
+                             AIRYMAX_UNIT_LOG="3",
+                             **self.journal({"upower.service": body}))
+        self.assertEqual(res.returncode, 1)
+        logs = [ln for ln in res.stdout.splitlines()
+                if ln.startswith("AIRYMAX-UNIT-JOURNAL|")]
+        self.assertEqual(len(logs), 3)
+
+    def test_boot_state_missing(self):
+        res = self.run_probe(AIRYMAX_BOOT_STATE=str(self.root / "absent.sh"))
+        self.assertEqual(res.returncode, 1)
+        self.assertIn(f"{FAIL} reason=boot-state", res.stdout)
         self.assertNotIn(READY, res.stdout)
 
     def test_online_session_is_ready(self):

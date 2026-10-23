@@ -19,9 +19,21 @@
 # 关键链在此时已经完整；产品就绪单元在验收 ISO 被 mask，因此观测点只留
 # 这一处，避免两个判定者各说一套。
 #
-# 退出码：0 通过；1 失败或超时。
+# 失败单元记账同样落在本观测点：产品就绪单元被 mask 后，DEGRADED 不会由
+# 产品路径上报，只能由这里给出。记账与取证来自 boot_state.sh，与产品探针
+# 共用同一实现，避免两个观测点对「什么算失败」各持一套语义。
+#
+# 退出码：0 通过；1 失败（超时、单元失败或 TAP 判负）。
 # ===========================================================================
 set -uo pipefail
+
+BOOT_STATE="${AIRYMAX_BOOT_STATE:-/usr/lib/airymaxos/desktop/boot_state.sh}"
+if [ ! -r "${BOOT_STATE}" ]; then
+    printf 'AIRYMAX-SMOKE-FAIL reason=boot-state path=%s\n' "${BOOT_STATE}"
+    exit 1
+fi
+# shellcheck source=../../desktop/boot_state.sh
+. "${BOOT_STATE}"
 
 readonly TAP="${AIRYMAX_SMOKE_TAP:-/var/log/airymax/smoke.tap}"
 readonly WAIT="${AIRYMAX_SMOKE_WAIT:-240}"
@@ -72,21 +84,26 @@ boot_chain()
         sed "s/^/${CHAIN_TOKEN}/"
 }
 
+conclude()
+{
+    printf 'AIRYMAX-SMOKE-FAIL reason=%s tap=%s\n' "$1" "${TAP}"
+    return 1
+}
+
 main()
 {
     if ! wait_tap; then
         boot_chain
-        printf 'AIRYMAX-SMOKE-FAIL reason=timeout tap=%s\n' "${TAP}"
+        boot_health
+        conclude timeout
         return 1
     fi
     emit_tap
     boot_chain
-    if verdict; then
-        printf 'AIRYMAX-SMOKE-PASS tap=%s\n' "${TAP}"
-        return 0
-    fi
-    printf 'AIRYMAX-SMOKE-FAIL reason=tap tap=%s\n' "${TAP}"
-    return 1
+    boot_health || { conclude degraded; return 1; }
+    verdict || { conclude tap; return 1; }
+    printf 'AIRYMAX-SMOKE-PASS tap=%s\n' "${TAP}"
+    return 0
 }
 
 main "$@"

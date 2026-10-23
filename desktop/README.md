@@ -119,6 +119,25 @@ multi-user.target，不会触发该单元；workstation kickstart 显式 enable�
 遵循 OS-OPS-010。该标记证明 greeter 已就绪，桌面会话内的进程与音频探测
 仍由 `ci/run-smoke.sh` 承担。
 
+## 失败单元记账（决策 2026-10-23）
+
+「本次启动有没有单元失败、分别是哪几个」是产品探针与验收 ISO 串口上报
+共同的问题，实现只放在 `boot_state.sh` 一处，两个观测点 source 同一个库：
+
+- `boot_health`：干净启动打印 `AIRYMAX-BOOT-HEALTH failed=0`；
+  存在失败单元打印 `AIRYMAX-BOOT-DEGRADED failed=<真实总数> units=<前 N 个>`，
+  并返回非零；`systemctl` 不可用时打印 `failed=unknown` 而非谎报干净。
+- `AIRYMAX-UNIT-STATE|<unit>|ActiveState=… Result=… NRestarts=… MainPID=…`
+  与 `AIRYMAX-UNIT-JOURNAL|<unit>|<journal 原文>` 是逐单元取证，只在
+  DEGRADED 时输出。每单元最多 12 行（`AIRYMAX_UNIT_LOG`），最多覆盖
+  8 个单元（`AIRYMAX_UNIT_LIST`）；`units=` 是被取证子集，`failed=` 是
+  真实总数，两者不混用。
+
+这两类标记是纯观测通道，不进 `verdict.env` 的判负集；判定只认
+`AIRYMAX-BOOT-HEALTH` / `AIRYMAX-BOOT-DEGRADED`。记账不落盘——systemd
+已是唯一事实源，再写状态文件只会制造第二个事实源。库缺失按硬失败处理
+（`reason=boot-state`），不回退到无取证的路径。
+
 ## 冻结点核对结论（openEuler 24.03 LTS-SP2）
 
 | 项 | 模板假设 | 实际结论 | 状态 |
@@ -142,6 +161,8 @@ multi-user.target，不会触发该单元；workstation kickstart 显式 enable�
   （`graphical.target` 下拉起登录链探针）
 - `desktop_ready.sh` → `/usr/lib/airymaxos/desktop/`
   （探针实现：UKUI 会话定义与 lightdm/greeter 会话校验）
+- `boot_state.sh` → `/usr/lib/airymaxos/desktop/`
+  （共享库：失败单元记账与有界取证，探针与验收上报共用）
 - `70-airymax-ukui-policy.sh` → `/usr/share/airymaxos/distro/desktop/`
   （`%post` 调用：屏蔽 AI 控制面单元）
 - `lightdm/50-airymax.conf` → `/etc/lightdm/lightdm.conf.d/`
