@@ -273,6 +273,7 @@ grep -qx 'CONFIG_AIRY_IPC=y' %{ksrc}/.config
 grep -qx 'CONFIG_AIRY_AGENT_TRACING=y' %{ksrc}/.config
 grep -qx 'CONFIG_AIRY_CAP_TABLE_SIZE=1024' %{ksrc}/.config
 grep -qx 'CONFIG_IO_URING=y' %{ksrc}/.config
+grep -qx 'CONFIG_USER_NS=y' %{ksrc}/.config
 grep -qx 'CONFIG_LOCALVERSION="%{kernel_local}"' %{ksrc}/.config
 test -s %{buildroot}/boot/vmlinuz-%{kernel_release}
 test -s %{ksrc}/System.map
