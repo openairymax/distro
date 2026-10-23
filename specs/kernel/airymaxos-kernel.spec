@@ -100,6 +100,17 @@ BuildRequires:  openssl-devel
 BuildRequires:  python3-devel
 BuildRequires:  rsync
 BuildRequires:  zlib-devel
+# tools 子包只在本机架构构建：bpftool 的 skeleton 通过 clang 编译并以
+# llvm-strip 瘦身，perf 依赖 libcap/libnuma/sdt/libdw。交叉构建不产出
+# tools，故这些依赖随之只在原生构建时声明。
+%if %{native}
+BuildRequires:  clang
+BuildRequires:  elfutils-devel
+BuildRequires:  libcap-devel
+BuildRequires:  llvm
+BuildRequires:  numactl-devel
+BuildRequires:  systemtap-sdt-devel
+%endif
 Requires:       airymaxos-kernel-core = %{version}-%{release}
 Requires:       airymaxos-kernel-modules = %{version}-%{release}
 Provides:       kernel = %{kernel_version}

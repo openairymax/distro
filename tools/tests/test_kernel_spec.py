@@ -95,6 +95,14 @@ class KernelSpecTest(unittest.TestCase):
         self.assertIn("%global kmake make -C %{ksrc} %{kenv}", self.text)
         self.assertEqual(self.text.count("%{?cross_prefix:"), 1)
 
+    def test_tools_deps(self):
+        head = self.text.partition("%description")[0]
+        start = head.index("%if %{native}")
+        block = head[start:head.index("%endif", start)]
+        for dep in ("clang", "llvm", "elfutils-devel", "libcap-devel",
+                    "numactl-devel", "systemtap-sdt-devel"):
+            self.assertIn("BuildRequires:  " + dep, block)
+
     def test_localversion(self):
         self.assertIn('CONFIG_LOCALVERSION="%{kernel_local}"', self.text)
         self.assertIn("%global kernel_local -agentrt", self.text)
