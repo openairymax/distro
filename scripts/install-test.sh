@@ -109,6 +109,8 @@ usage()
 
 OUT 必须位于源码区之外；缺失 qemu-system-$ARCH / qemu-img 时以 77 跳过。
 aarch64 仅支持 uefi 固件；UEFI 固件按 OVMF/AAVMF 常见路径探测。
+x86_64 装机盘按腿区分：uefi 腿为 NVMe（与目标机交付形态一致），
+bios 腿为 SATA（QEMU 的 NVMe 没有 SeaBIOS 可用的选件 ROM，BIOS 看不到）。
 EOF
 }
 
@@ -274,22 +276,32 @@ disk_kind()
 {
     if [ "${ARCH}" = aarch64 ]; then
         printf 'scsi'
-    else
+    elif [ "$1" = uefi ]; then
         printf 'nvme'
+    else
+        printf 'sata'
     fi
 }
 
 dev_disk()
 {
+    local file="$1" fw="$2"
     if [ "${ARCH}" = aarch64 ]; then
-        QARGS+=(-drive "file=$1,if=none,id=hd0,format=qcow2"
+        QARGS+=(-drive "file=${file},if=none,id=hd0,format=qcow2"
                 -device scsi-hd,drive=hd0)
-    else
+    elif [ "$(disk_kind "${fw}")" = nvme ]; then
         # 装机盘按交付形态取 NVMe。目标机（如 B50）只有 NVMe，virtio-blk
         # 只存在于虚拟化环境：过去用 virtio 自检，内核漏编 NVMe 时门禁
         # 依然全绿，直到真机装完才发现根分区挂不上。
-        QARGS+=(-drive "file=$1,if=none,id=hd0,format=qcow2"
+        QARGS+=(-drive "file=${file},if=none,id=hd0,format=qcow2"
                 -device nvme,drive=hd0,serial=airy003)
+    else
+        # BIOS 腿改挂 SATA：QEMU 的 nvme 控制器没有 SeaBIOS 可用的选件
+        # ROM，BIOS 固件看不到这块盘（qemu-project/qemu#665），装机成功
+        # 后冷启动连引导器都进不去，串口一个字都不出。真机 BIOS 的 NVMe
+        # 访问由主板固件自带驱动提供，不依赖 QEMU 这条通路，所以 NVMe
+        # 覆盖交给与交付形态一致的 UEFI 腿，BIOS 腿只验证传统引导链。
+        QARGS+=(-drive "file=${file},if=ide,format=qcow2")
     fi
 }
 
@@ -364,7 +376,7 @@ install_run()
         { printf 'qemu-img create failed: run-%s-%s\n' "${fw}" "${n}" >&2; return 1; }
     qemu_base
     fw_args "${fw}" "${dir}" || return 1
-    dev_disk "${disk}"
+    dev_disk "${disk}" "${fw}"
     dev_cdrom "${ISO}"
     QARGS+=(-boot order=d -netdev user,id=n0 -device virtio-net-pci,netdev=n0
             -serial "file:${log}")
@@ -447,7 +459,7 @@ boot_run()
     [ -f "${disk}" ] || { printf 'no disk for run-%s-%s\n' "${fw}" "${n}" >&2; return 1; }
     qemu_base
     fw_args "${fw}" "${dir}" || return 1
-    dev_disk "${disk}"
+    dev_disk "${disk}" "${fw}"
     QARGS+=(-boot order=c -serial "file:${log}")
     start=$(date +%s)
     PROG_AT=${PROGRESS_EVERY}
@@ -491,6 +503,15 @@ iso_sum()
     printf '%s' "${sum}"
 }
 
+disk_map()
+{
+    local f out=""
+    for f in "${LEGS[@]}"; do
+        out="${out}${out:+,}${f}:$(disk_kind "${f}")"
+    done
+    printf '%s' "${out}"
+}
+
 manifest()
 {
     local row
@@ -499,7 +520,7 @@ manifest()
         printf 'iso %s %s\n' "$(iso_sum)" "$(basename "${ISO}")"
         printf 'arch=%s\nfirmware=%s\nruns=%s\nmax_boot=%s\n' \
             "${ARCH}" "${FIRMWARE}" "${RUNS}" "${MAX_BOOT:-auto}"
-        printf 'disk=%s\n' "$(disk_kind)"
+        printf 'disk=%s\n' "$(disk_map)"
         printf 'accel=%s\ninstall_timeout=%s\nboot_timeout=%s\n' \
             "${ACCEL}" "${INSTALL_TIMEOUT}" "${BOOT_TIMEOUT}"
         for row in "${ROWS[@]}"; do
