@@ -82,11 +82,22 @@ class KernelSpecTest(unittest.TestCase):
 
     def test_three_step_config(self):
         build = body(self.text, "build")
-        order = [build.find("%{kmake} defconfig"),
+        order = [build.find("%{kmake} %{kbase}"),
                  build.find("merge_config.sh -m .config"),
                  build.find("%{kmake} olddefconfig")]
         self.assertEqual(order, sorted(order))
         self.assertNotIn(-1, order)
+
+    def test_kbase_per_arch(self):
+        # 基线按架构取包内已有的配置文件：x86 上 `make defconfig` 只会
+        # 落到 x86_64_defconfig，缺 NVMe/igc/rtw89，装机根文件系统不可见。
+        for arch, base in (("x86_64", "openeuler_defconfig"),
+                           ("aarch64", "openeuler_defconfig"),
+                           ("riscv64", "defconfig"),
+                           ("loongarch64", "loongson3_defconfig")):
+            block = self.text.partition("%%ifarch %s\n" % arch)[2]
+            block = block.partition("%%endif")[0]
+            self.assertIn("%%global kbase %s\n" % base, block)
 
     def test_make_macro(self):
         self.assertIn("%global kenv ARCH=%{karch} "
