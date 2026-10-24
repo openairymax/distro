@@ -45,8 +45,10 @@ repo --name=everything --baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-
 repo --name=airymaxos-offline --baseurl=file:///run/install/repo/airymax/Packages --cost=1
 
 # ---- 引导与分区（UEFI + BIOS 双栈）----
-# 串口控制台保留给无头验收与故障恢复（install-test.sh 依赖 login: 哨兵）
-bootloader --timeout=3 --append="console=ttyS0,115200 console=ttyAMA0,115200"
+# tty0 在前，本地屏幕保留内核与 systemd 日志；串口留给无头验收与故障
+# 恢复（install-test.sh 依赖 login: 哨兵）。只给串口时真机故障即黑屏，
+# 现场无从取证。
+bootloader --timeout=3 --append="console=tty0 console=ttyS0,115200 console=ttyAMA0,115200"
 clearpart --all --initlabel
 autopart --type=plain --fstype=ext4
 

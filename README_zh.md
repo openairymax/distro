@@ -151,7 +151,7 @@ QEMU 工具时输出 `1..0 # SKIP` 并退出 77，不以假通过掩盖环境缺
 
 `scripts/build-iso.sh --iso SRC --ks FILE --out DIR` 组装无人值守安装镜像：
 以官方安装介质为底座，经 `mkksiso` 注入 kickstart 与串口控制台参数
-（缺省 `console=ttyS0,115200`），重建卷标（缺省 `AIRYMAXOS`），产出
+（缺省 `console=tty0 console=ttyS0,115200`），重建卷标（缺省 `AIRYMAXOS`），产出
 ISO、`.sha256` 与 `iso-manifest.txt`，`--gpg-key` 追加分离签名。构建后从
 镜像内回读 `/ks.cfg` 与 BIOS/UEFI 引导配置：kickstart 必须逐字节一致，
 引导配置必须含 `inst.ks=`，且所有 `inst.stage2=` 的卷标与最终卷标一致；

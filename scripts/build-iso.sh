@@ -40,7 +40,7 @@ VOLID="AIRYMAXOS"
 ARCH=""
 VERSION=""
 GPG_KEY=""
-KARGS="console=ttyS0,115200"
+KARGS="console=tty0 console=ttyS0,115200"
 MD5=1
 ADDS=()
 OUT_ABS=""
@@ -62,7 +62,7 @@ usage()
   --arch ARCH        x86_64|aarch64，缺省为宿主
   --version VER      版本号，缺省取 release/os-release 的 VERSION_ID
   --kargs TEXT       追加到安装内核命令行的参数，缺省
-                     "console=ttyS0,115200"；传空串则不追加
+                     "console=tty0 console=ttyS0,115200"；传空串则不追加
   --add PATH         额外加入 ISO 的文件或目录，可重复
   --gpg-key KEYID    生成分离签名 .asc
   --no-md5           跳过尾部补齐与校验块注入（仅限调试）
