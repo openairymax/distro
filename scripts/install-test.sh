@@ -270,13 +270,26 @@ qemu_base()
     fi
 }
 
+disk_kind()
+{
+    if [ "${ARCH}" = aarch64 ]; then
+        printf 'scsi'
+    else
+        printf 'nvme'
+    fi
+}
+
 dev_disk()
 {
     if [ "${ARCH}" = aarch64 ]; then
         QARGS+=(-drive "file=$1,if=none,id=hd0,format=qcow2"
                 -device scsi-hd,drive=hd0)
     else
-        QARGS+=(-drive "file=$1,if=virtio,format=qcow2")
+        # 装机盘按交付形态取 NVMe。目标机（如 B50）只有 NVMe，virtio-blk
+        # 只存在于虚拟化环境：过去用 virtio 自检，内核漏编 NVMe 时门禁
+        # 依然全绿，直到真机装完才发现根分区挂不上。
+        QARGS+=(-drive "file=$1,if=none,id=hd0,format=qcow2"
+                -device nvme,drive=hd0,serial=airy003)
     fi
 }
 
@@ -486,6 +499,7 @@ manifest()
         printf 'iso %s %s\n' "$(iso_sum)" "$(basename "${ISO}")"
         printf 'arch=%s\nfirmware=%s\nruns=%s\nmax_boot=%s\n' \
             "${ARCH}" "${FIRMWARE}" "${RUNS}" "${MAX_BOOT:-auto}"
+        printf 'disk=%s\n' "$(disk_kind)"
         printf 'accel=%s\ninstall_timeout=%s\nboot_timeout=%s\n' \
             "${ACCEL}" "${INSTALL_TIMEOUT}" "${BOOT_TIMEOUT}"
         for row in "${ROWS[@]}"; do
