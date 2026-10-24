@@ -168,7 +168,7 @@ checkout. Exit codes follow `190-distribution/01-rpm-packaging.md` §8.
 `scripts/build-iso.sh --iso SRC --ks FILE --out DIR` assembles the
 unattended install medium: it takes the official installer image as the
 base, injects the kickstart and serial console arguments through `mkksiso`
-(`console=ttyS0,115200` by default), and relabels the volume
+(`console=tty0 console=ttyS0,115200` by default), and relabels the volume
 (`AIRYMAXOS` by default). Outputs are the ISO, its `.sha256`, and
 `iso-manifest.txt`; `--gpg-key` adds a detached signature. The driver then
 reads `/ks.cfg` and the BIOS/UEFI boot configuration back out of the

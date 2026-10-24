@@ -181,7 +181,7 @@ class BuildIsoTest(unittest.TestCase):
         self.assertIn("volid=AIRYMAXOS", manifest)
         self.assertRegex(manifest, r"iso [0-9a-f]{64} airymaxos-0\.0\.3")
         self.assertRegex(manifest, r"base [0-9a-f]{64} base\.iso")
-        self.assertIn("cmd=console=ttyS0,115200",
+        self.assertIn("cmd=console=tty0 console=ttyS0,115200",
                       self.log.read_text(encoding="utf-8"))
         raw = iso.read_bytes()
         vol = int.from_bytes(raw[16 * 2048 + 80:16 * 2048 + 84], "little")
