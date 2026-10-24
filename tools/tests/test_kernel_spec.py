@@ -99,6 +99,17 @@ class KernelSpecTest(unittest.TestCase):
             block = block.partition("%%endif")[0]
             self.assertIn("%%global kbase %s\n" % base, block)
 
+    def test_fragment_paths(self):
+        # 片段路径相对内核树根。曾误写成 kernel/configs/defconfig-agent，
+        # 该路径在内核树里不存在，%prep 直接 cp 失败，而只有真跑构建
+        # 才会暴露；这里把路径钉住。
+        prep = body(self.text, "prep")
+        self.assertIn("cp configs/defconfig-agent airymax-agent.fragment",
+                      prep)
+        self.assertIn("cp arch/%{kdir}/configs/airy_defconfig "
+                      "airymax-local.fragment", prep)
+        self.assertNotIn("cp kernel/configs/", prep)
+
     def test_make_macro(self):
         self.assertIn("%global kenv ARCH=%{karch} "
                       "%{?cross_prefix:CROSS_COMPILE=%{cross_prefix}}",

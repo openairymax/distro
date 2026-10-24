@@ -196,7 +196,7 @@ Perf and bpftool built from the AirymaxOS kernel tree.
 
 %prep
 %setup -q -n airymaxos-kernel-%{kernel_version}
-cp kernel/configs/defconfig-agent airymax-agent.fragment
+cp configs/defconfig-agent airymax-agent.fragment
 cp arch/%{kdir}/configs/airy_defconfig airymax-local.fragment
 printf 'CONFIG_LOCALVERSION="%{kernel_local}"\n' >> airymax-local.fragment
 
