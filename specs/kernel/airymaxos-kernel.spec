@@ -4,9 +4,16 @@
 #
 # 职责：
 #   1. 以仓库内 kernel/ 工作树为唯一源码事实源，按 70-build-system/
-#      02-kconfig-system.md §7.1 三步法生成 .config；
+#      02-kconfig-system.md §7.1 的基线 + 片段合并方式生成 .config；
 #   2. 产出可引导镜像、模块树、UAPI 头文件与外部模块开发树；
 #   3. 在目标机安装期生成与内核版本严格对应的 initramfs。
+#
+# 配置基线（0.0.3-2 起）：
+#   x86/arm64 取 openeuler_defconfig。此前用 defconfig（x86 即精简的
+#   x86_64_defconfig），其中没有 NVMe/IGC，B50 这类 NVMe-only 机器装完
+#   无法挂载根分区。openeuler_defconfig 是唯一在这两个架构上同时覆盖
+#   NVMe、RTL8852BE（rtw89）与服务器网卡的完整基线。riscv64/loongarch64
+#   无该文件，仍取各自架构自带基线。
 #
 # 源码包：airymaxos-kernel-<kernel_version>.tar.gz 由 scripts/build-kernel.sh
 # 从 kernel/ 工作树确定性导出（git archive | gzip -n），不在仓库内落盘，
@@ -54,7 +61,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.3
-%global airy_release 1
+%global airy_release 2
 %global kernel_version 6.6.157
 %global kernel_local -agentrt
 %global kernel_release %{kernel_version}%{kernel_local}
@@ -65,21 +72,27 @@
 %ifarch x86_64
 %global karch x86
 %global kdir x86
+%global kbase openeuler_defconfig
 %endif
 
 %ifarch aarch64
 %global karch arm64
 %global kdir arm64
+%global kbase openeuler_defconfig
 %endif
 
 %ifarch riscv64
 %global karch riscv
 %global kdir riscv
+%global kbase defconfig
 %endif
 
+# loongarch 上游不提供 arch/loongarch/configs/defconfig，`make defconfig`
+# 在该架构上必然失败，取唯一可用的通用基线 loongson3_defconfig。
 %ifarch loongarch64
 %global karch loongarch
 %global kdir loongarch
+%global kbase loongson3_defconfig
 %endif
 
 # 所有内核 make 调用统一走 kmake：架构与交叉前缀只在此处定义一次。
@@ -183,6 +196,7 @@ Perf and bpftool built from the AirymaxOS kernel tree.
 
 %prep
 %setup -q -n airymaxos-kernel-%{kernel_version}
+cp kernel/configs/defconfig-agent airymax-agent.fragment
 cp arch/%{kdir}/configs/airy_defconfig airymax-local.fragment
 printf 'CONFIG_LOCALVERSION="%{kernel_local}"\n' >> airymax-local.fragment
 
@@ -197,7 +211,8 @@ KBUILD_BUILD_TIMESTAMP="$(date -u -d "@${SOURCE_DATE_EPOCH}" \
     '+%%Y-%%m-%%d %%H:%%M:%%S')"
 export KCFLAGS="-ffile-prefix-map=%{ksrc}=."
 
-%{kmake} defconfig
+%{kmake} %{kbase}
+sh scripts/kconfig/merge_config.sh -m .config airymax-agent.fragment
 sh scripts/kconfig/merge_config.sh -m .config airymax-local.fragment
 %{kmake} olddefconfig
 %{kmake} %{?_smp_mflags} all modules
@@ -275,6 +290,14 @@ grep -qx 'CONFIG_AIRY_CAP_TABLE_SIZE=1024' %{ksrc}/.config
 grep -qx 'CONFIG_IO_URING=y' %{ksrc}/.config
 grep -qx 'CONFIG_USER_NS=y' %{ksrc}/.config
 grep -qx 'CONFIG_LOCALVERSION="%{kernel_local}"' %{ksrc}/.config
+# 引导期驱动门禁（OP-P0-01）：B50 为 NVMe-only 存储，缺 NVMe 时装载后的
+# 系统无法挂载根分区；I226-V 有线走 igc，RTL8852BE 无线走 rtw89_8852be。
+# 基线回退（如误改回 defconfig）必须在此处中断打包，而不是留到装机现场。
+%ifarch x86_64
+grep -qE '^CONFIG_BLK_DEV_NVME=[ym]$' %{ksrc}/.config
+grep -qE '^CONFIG_IGC=[ym]$' %{ksrc}/.config
+grep -qE '^CONFIG_RTW89_8852BE=[ym]$' %{ksrc}/.config
+%endif
 test -s %{buildroot}/boot/vmlinuz-%{kernel_release}
 test -s %{ksrc}/System.map
 readelf -h %{ksrc}/vmlinux >/dev/null
@@ -332,5 +355,8 @@ depmod -a %{kernel_release}
 %endif
 
 %changelog
+* Sat Oct 24 2026 SPHARX <dev@spharx.com> - 0.0.3-2
+- x86/arm64 内核基线由 defconfig 改为 openeuler_defconfig，恢复 NVMe、
+  igc、rtw89 支持；NVMe 内建于 vmlinuz，并在 %%check 中加驱动门禁
 * Sat Oct 17 2026 SPHARX <dev@spharx.com> - 0.0.3-1
 - Initial kernel package for AirymaxOS 0.0.3
