@@ -63,7 +63,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.3
-%global airy_release 3
+%global airy_release 4
 %global kernel_version 6.6.157
 %global kernel_local -alk
 %global kernel_release %{kernel_version}%{kernel_local}
@@ -234,6 +234,14 @@ make -C tools/bpf/bpftool %{?_smp_mflags}
 img="$(%{kmake} -s image_name)"
 install -d -m 0755 %{buildroot}/boot
 install -m 0755 "%{ksrc}/${img}" %{buildroot}/boot/vmlinuz-%{kernel_release}
+# 内核身份三件套（D-12）：/boot 只有 vmlinuz 时，目标机上核对「跑的是不是
+# 这个内核、配置是否与包一致」只剩 /proc/config.gz 一条路，缺符号表也没有
+# crash/kdump 与 ftrace 的现场取证依据。发行版惯例是同名的 config-<release>
+# 与 System.map-<release>，随 core 子包发布。
+install -m 0644 %{ksrc}/.config \
+    %{buildroot}/boot/config-%{kernel_release}
+install -m 0644 %{ksrc}/System.map \
+    %{buildroot}/boot/System.map-%{kernel_release}
 
 %{kmake} INSTALL_MOD_PATH=%{buildroot}/usr INSTALL_MOD_STRIP=1 \
     modules_install
@@ -317,6 +325,8 @@ grep -qx 'CONFIG_SYSFB_SIMPLEFB=y' %{ksrc}/.config
 grep -qx 'CONFIG_DRM_SIMPLEDRM=y' %{ksrc}/.config
 %endif
 test -s %{buildroot}/boot/vmlinuz-%{kernel_release}
+test -s %{buildroot}/boot/config-%{kernel_release}
+test -s %{buildroot}/boot/System.map-%{kernel_release}
 test -s %{ksrc}/System.map
 readelf -h %{ksrc}/vmlinux >/dev/null
 %if %{native}
@@ -352,6 +362,8 @@ depmod -a %{kernel_release}
 
 %files core
 /boot/vmlinuz-%{kernel_release}
+/boot/config-%{kernel_release}
+/boot/System.map-%{kernel_release}
 
 %files modules
 %exclude /usr/lib/modules/%{kernel_release}/build
@@ -373,6 +385,12 @@ depmod -a %{kernel_release}
 %endif
 
 %changelog
+* Sun Oct 25 2026 SPHARX <dev@spharx.com> - 0.0.3-4
+- core 子包补齐内核身份三件套：/boot/config-<release> 与
+  /boot/System.map-<release> 与此前的 vmlinuz-<release> 同置。/boot 只有
+  镜像时，目标机无法在本地核对「配置是否与包一致」，缺符号表也没有
+  crash/kdump 与 ftrace 的取证依据；distro 冒烟新增 T6 断言三者齐全、
+  运行内核带 -alk 后缀且 CONFIG_SECURITY_AIRY=y
 * Sun Oct 25 2026 SPHARX <dev@spharx.com> - 0.0.3-3
 - headers 子包补齐内核身份声明（Provides/Obsoletes: kernel-headers）。
   缺此声明时 glibc-devel 的 kernel-headers 依赖会把上游包拉进同一事务，

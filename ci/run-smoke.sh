@@ -13,6 +13,7 @@
 #   T3  PulseAudio 音频栈：pactl 与守护进程握手
 #   T4  桌面隔离 slice：user@UID.service 归属与 slice 资源参数
 #   T5  内置壁纸：背景键指向内置路径，图像 sha256 与发行资产一致
+#   T6  内核归属：运行的内核是包内 ALK，/boot 三件套齐全且配置一致
 #
 # 判定语义:
 #   0  — 全部通过
@@ -200,8 +201,42 @@ t5_wallpaper() {
     expect "${sum%% *}" "${PAPER_SHA}" "wallpaper sha256" || return 1
 }
 
+# T6: 内核归属（运行内核、/boot 三件套与配置一致）
+t6_kernel_identity() {
+    local rel f
+    rel="$(uname -r)"
+    # 发行版内核带 -alk 本地版本后缀，这是「跑的是不是自己的内核」最便宜的
+    # 判别。上游 openEuler 内核为 6.6.0-*.oe*，不会被误判为通过。
+    case "${rel}" in
+    *-alk) : ;;
+    *)
+        echo "uname -r: ${rel} (want *-alk)"
+        return 1
+        ;;
+    esac
+    for f in "/boot/vmlinuz-${rel}" "/boot/config-${rel}" \
+        "/boot/System.map-${rel}"; do
+        [ -s "${f}" ] || {
+            echo "${f} missing"
+            return 1
+        }
+    done
+    grep -qx 'CONFIG_LOCALVERSION="-alk"' "/boot/config-${rel}" || {
+        echo "config-${rel}: LOCALVERSION mismatch"
+        return 1
+    }
+    grep -qx 'CONFIG_SECURITY_AIRY=y' "/boot/config-${rel}" || {
+        echo "config-${rel}: CONFIG_SECURITY_AIRY not set"
+        return 1
+    }
+    grep -q ' start_kernel$' "/boot/System.map-${rel}" || {
+        echo "System.map-${rel}: start_kernel absent"
+        return 1
+    }
+}
+
 printf 'TAP version 14\n'
-printf '1..5\n'
+printf '1..6\n'
 printf '# AirymaxOS distro smoke: target=%s date=%s\n' \
     "${TARGET}" "$(date -u '+%FT%TZ')"
 
@@ -210,6 +245,7 @@ probe 2 "T2 fcitx input method" t2_ime
 probe 3 "T3 pulseaudio stack" t3_audio
 probe 4 "T4 desktop slice" t4_slice
 probe 5 "T5 built-in wallpaper" t5_wallpaper
+probe 6 "T6 kernel identity" t6_kernel_identity
 
 printf '# summary: pass=%d fail=%d\n' "${PASS}" "${FAIL}"
 [ "${FAIL}" -eq 0 ]
