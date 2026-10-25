@@ -26,14 +26,24 @@ set -eu
 #    安装器 chroot 内没有 systemd 总线，单元文件操作走 --root 离线语义。
 systemctl --root=/ mask airymax-desktop-ready.service
 
-# 3) 无人值守验收没有键盘输入。
-install -d -m 0755 /etc/lightdm/lightdm.conf.d
-cat > /etc/lightdm/lightdm.conf.d/99-airymax-accept.conf <<'EOF'
-[Seat:*]
-autologin-user=airymax
-autologin-user-timeout=0
-autologin-session=ukui
-EOF
+# 3) 无人值守验收没有键盘输入：自动登录必须由产品侧的
+#    /etc/lightdm/lightdm.conf.d/50-airymax.conf 提供。这里只断言，不再
+#    自写一份配置——否则产品资产退化成空时，验收依然会绿。
+lightdm=/etc/lightdm/lightdm.conf.d/50-airymax.conf
+for want in 'autologin-user=airymax' 'autologin-session=ukui'; do
+    if ! grep -qx "${want}" "${lightdm}" 2>/dev/null; then
+        echo "AIRYMAX-ACCEPT-FAIL lightdm ${want}" >&2
+        exit 1
+    fi
+done
+
+#    同一批断言覆盖 SSH 侧：空口令账户没有 PermitEmptyPasswords 就没有
+#    远程入口，属于 P0 交付缺口，必须在装机段判负而不是留给现场发现。
+sshd_dropin=/etc/ssh/sshd_config.d/50-airymax-sshd.conf
+if ! grep -qx 'PermitEmptyPasswords yes' "${sshd_dropin}" 2>/dev/null; then
+    echo "AIRYMAX-ACCEPT-FAIL sshd PermitEmptyPasswords" >&2
+    exit 1
+fi
 
 # 4) 冒烟结果目录：会话用户写入，root 报告单元读取。
 install -d -o airymax -g airymax -m 0755 /var/log/airymax
