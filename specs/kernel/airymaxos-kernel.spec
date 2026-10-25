@@ -63,7 +63,7 @@
 %global airy_version 0.0.3
 %global airy_release 2
 %global kernel_version 6.6.157
-%global kernel_local -agentrt
+%global kernel_local -alk
 %global kernel_release %{kernel_version}%{kernel_local}
 %global ksrc %{_builddir}/airymaxos-kernel-%{kernel_version}
 %global debug_package %{nil}
