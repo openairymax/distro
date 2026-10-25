@@ -225,7 +225,16 @@ check_env()
         die "aarch64 仅支持 uefi 固件"
     fi
     if [ "${FIRMWARE}" != bios ] && ! fw_probe; then
-        die "未找到 UEFI 固件（OVMF/AAVMF）"
+        # --firmware both 是「能测就测两条腿」的意图声明，宿主机没有
+        # OVMF/AAVMF 时 UEFI 腿本就无从执行。此时按 bios 腿继续，而不是
+        # 让整轮装机段以参数错误退出：否则一台未装 edk2 的构建机连 BIOS
+        # 腿的证据也拿不到，缺陷被环境问题掩盖。
+        if [ "${FIRMWARE}" = both ]; then
+            printf 'install-test: 未找到 UEFI 固件，UEFI 腿降级为跳过，仅跑 BIOS 腿\n' >&2
+            FIRMWARE=bios
+        else
+            die "未找到 UEFI 固件（OVMF/AAVMF）"
+        fi
     fi
 }
 
