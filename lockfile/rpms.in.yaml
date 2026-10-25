@@ -43,6 +43,13 @@ contentOrigin:
       gpgcheck: false
 
 packages:
+  # airymax-core：网络与无线
+  # Wi-Fi 设备插件必须与 NetworkManager 同版本冻结，否则求解时会因
+  # requires 的 EVR 精确匹配而与主包版本漂移
+  - NetworkManager-wifi
+  - wpa_supplicant
+  - wireless-regdb
+  - iw
   # airymax-desktop-core：会话、窗管、登录管理器
   - ukui
   - xorg-x11-server

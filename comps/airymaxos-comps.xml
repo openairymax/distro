@@ -88,6 +88,18 @@
       <packagereq type="mandatory">wget</packagereq>
       <packagereq type="default">NetworkManager</packagereq>
       <packagereq type="default">NetworkManager-config-server</packagereq>
+      <!-- 无线：NetworkManager 的 Wi-Fi 设备插件与 WPA 认证后端必须成组存在，
+           缺 NetworkManager-wifi 时 nmcli 报「未发现 Wi-Fi 设备」，缺
+           wpa_supplicant 时能扫到 AP 但无法关联；两者都缺失时网卡驱动与
+           固件再正常也无法联网（0.0.3 真机缺陷 D-01/D-02） -->
+      <packagereq type="default">NetworkManager-wifi</packagereq>
+      <packagereq type="default">wpa_supplicant</packagereq>
+      <!-- 监管域数据库：缺失时 regulatory.0 固件加载失败（error -2），
+           5GHz 频段与发射功率受限，部分 AP 不可见（0.0.3 真机缺陷 D-03） -->
+      <packagereq type="default">wireless-regdb</packagereq>
+      <!-- nl80211 诊断工具：现场定位无线问题的唯一不依赖 NetworkManager
+           的取证手段，随镜像提供（0.0.3 真机缺陷 D-04） -->
+      <packagereq type="default">iw</packagereq>
       <packagereq type="default">authselect</packagereq>
       <packagereq type="default">dnf-plugins-core</packagereq>
       <packagereq type="default">dracut-config-rescue</packagereq>
