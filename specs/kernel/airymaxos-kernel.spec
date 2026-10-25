@@ -63,7 +63,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.3
-%global airy_release 4
+%global airy_release 5
 %global kernel_version 6.6.157
 %global kernel_local -alk
 %global kernel_release %{kernel_version}%{kernel_local}
@@ -385,6 +385,13 @@ depmod -a %{kernel_release}
 %endif
 
 %changelog
+* Sun Oct 25 2026 SPHARX <dev@spharx.com> - 0.0.3-5
+- security/airy：补充钩子改由 airy_init() 与核心钩子表相邻注册，修复
+  /sys/kernel/security/lsm 中 "airy" 被登记两次的问题。security_add_hooks()
+  会把模块名追加进 LSM 注册表，而 lsm_append() 只与末尾名字去重；原先在
+  superv 的 late_initcall 里以同名二次注册时 "airy" 已不是末尾项，注册表
+  出现重复项。distro 冒烟新增 T7 断言该表内 airy 恰好一次、airy_lockdown
+  在位
 * Sun Oct 25 2026 SPHARX <dev@spharx.com> - 0.0.3-4
 - core 子包补齐内核身份三件套：/boot/config-<release> 与
   /boot/System.map-<release> 与此前的 vmlinuz-<release> 同置。/boot 只有
