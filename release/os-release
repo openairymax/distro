@@ -2,12 +2,12 @@
 # AirymaxOS release identity — single source of truth for VERSION_ID.
 # Installed as /usr/lib/os-release with /etc/os-release symlinked to it.
 NAME="AirymaxOS"
-VERSION="0.0.3 (Jijing)"
+VERSION="0.0.3 (OpenAirymax)"
 ID=airymaxos
 ID_LIKE="openeuler"
 VERSION_ID="0.0.3"
-PRETTY_NAME="AirymaxOS 0.0.3 (Jijing)"
-VERSION_CODENAME=jijing
+PRETTY_NAME="AirymaxOS 0.0.3 (OpenAirymax)"
+VERSION_CODENAME=openairymax
 VARIANT="Workstation"
 # 不声明 VARIANT_ID：openEuler 24.03 的 firewalld %posttrans 按 VARIANT_ID 选择
 # 变体配置并对其执行 sed -i，而该包只发布 firewalld-standard.conf。声明
