@@ -107,6 +107,10 @@ class CompsLintTest(unittest.TestCase):
                              "-//Red Hat, Inc.//DTD Comps info//EN")
         self.assertIn("C002", self.codes(text))
 
+    def test_comment_double_hyphen(self):
+        text = VALID.replace("<comps>", "<!-- xmllint --valid -->\n<comps>", 1)
+        self.assertIn("C015", self.codes(text))
+
     def test_group_id(self):
         text = VALID.replace("<id>airymax-demo</id>",
                              "<id>airymax demo</id>", 1)
