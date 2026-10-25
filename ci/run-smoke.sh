@@ -7,6 +7,12 @@
 #   ./run-smoke.sh <被测镜像/系统标识>
 #   在已登录的 UKUI X11 桌面会话内执行；探测只读系统状态，不改配置。
 #
+# 环境:
+#   AIRYMAX_SMOKE_WAIT  守护进程就绪等待秒数（默认 30）
+#   AIRYMAX_SMOKE_ROOT  只读系统视图的根前缀（默认空，即真实 /）。T6/T7 读取
+#                       /boot 与 /sys，单测在沙箱里用该前缀复核判定，装机
+#                       现场保持默认值。
+#
 # 覆盖:
 #   T1  UKUI X11 会话：loginctl 会话属性、ukui-session 进程、X server 可达
 #   T2  fcitx 4 输入法：守护进程、fcitx-remote 可达、会话输入法变量
@@ -14,6 +20,7 @@
 #   T4  桌面隔离 slice：user@UID.service 归属与 slice 资源参数
 #   T5  内置壁纸：背景键指向内置路径，图像 sha256 与发行资产一致
 #   T6  内核归属：运行的内核是包内 ALK，/boot 三件套齐全且配置一致
+#   T7  LSM 注册表：airy 只登记一次，配套 lockdown LSM 在位
 #
 # 判定语义:
 #   0  — 全部通过
@@ -32,6 +39,7 @@ TARGET="${1:?usage: run-smoke.sh <target-id>}"
 WALLPAPER=/usr/share/backgrounds/airymaxos/airymaxos-default.jpg
 PAPER_SHA=fee7f439834ac7dacfc75deaf80a1db1c4bc7459583248eecc87125d52a5ef18
 START_WAIT="${AIRYMAX_SMOKE_WAIT:-30}"
+SYSROOT="${AIRYMAX_SMOKE_ROOT:-}"
 
 PASS=0
 FAIL=0
@@ -214,29 +222,51 @@ t6_kernel_identity() {
         return 1
         ;;
     esac
-    for f in "/boot/vmlinuz-${rel}" "/boot/config-${rel}" \
-        "/boot/System.map-${rel}"; do
+    for f in "${SYSROOT}/boot/vmlinuz-${rel}" "${SYSROOT}/boot/config-${rel}" \
+        "${SYSROOT}/boot/System.map-${rel}"; do
         [ -s "${f}" ] || {
             echo "${f} missing"
             return 1
         }
     done
-    grep -qx 'CONFIG_LOCALVERSION="-alk"' "/boot/config-${rel}" || {
+    grep -qx 'CONFIG_LOCALVERSION="-alk"' "${SYSROOT}/boot/config-${rel}" || {
         echo "config-${rel}: LOCALVERSION mismatch"
         return 1
     }
-    grep -qx 'CONFIG_SECURITY_AIRY=y' "/boot/config-${rel}" || {
+    grep -qx 'CONFIG_SECURITY_AIRY=y' "${SYSROOT}/boot/config-${rel}" || {
         echo "config-${rel}: CONFIG_SECURITY_AIRY not set"
         return 1
     }
-    grep -q ' start_kernel$' "/boot/System.map-${rel}" || {
+    grep -q ' start_kernel$' "${SYSROOT}/boot/System.map-${rel}" || {
         echo "System.map-${rel}: start_kernel absent"
         return 1
     }
 }
 
+# T7: LSM 注册表（同名模块只能登记一次）
+t7_lsm_registry() {
+    local list seen
+    list="$(cat "${SYSROOT}/sys/kernel/security/lsm" 2>&1)" || {
+        echo "lsm registry unreadable: ${list}"
+        return 1
+    }
+    # security_add_hooks() 顺带把模块名写进这张表，而 lsm_append() 只与
+    # 末尾名字去重。补充钩子若在 late_initcall 里以同名二次注册，"airy"
+    # 就会出现两次：这不是两个模块，而是同一个模块被登记了两遍。
+    seen="$(printf '%s\n' "${list}" | tr ',' '\n' | grep -cx 'airy')"
+    [ "${seen}" -eq 1 ] || {
+        echo "airy registered ${seen} time(s): ${list}"
+        return 1
+    }
+    # airy_lockdown 是独立命名的一层（只挂 locked_down），随产品内核交付。
+    printf '%s\n' "${list}" | tr ',' '\n' | grep -qx 'airy_lockdown' || {
+        echo "airy_lockdown absent: ${list}"
+        return 1
+    }
+}
+
 printf 'TAP version 14\n'
-printf '1..6\n'
+printf '1..7\n'
 printf '# AirymaxOS distro smoke: target=%s date=%s\n' \
     "${TARGET}" "$(date -u '+%FT%TZ')"
 
@@ -246,6 +276,7 @@ probe 3 "T3 pulseaudio stack" t3_audio
 probe 4 "T4 desktop slice" t4_slice
 probe 5 "T5 built-in wallpaper" t5_wallpaper
 probe 6 "T6 kernel identity" t6_kernel_identity
+probe 7 "T7 lsm registry" t7_lsm_registry
 
 printf '# summary: pass=%d fail=%d\n' "${PASS}" "${FAIL}"
 [ "${FAIL}" -eq 0 ]

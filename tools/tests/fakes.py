@@ -628,6 +628,18 @@ printf '%s  %s\\n' \\
     "$1"
 """
 
+# 冒烟 T6 用 uname -r 判定「跑的是不是产品内核」。真机上是唯一入口，
+# 沙箱里必须能给出被破坏的版本号，否则这条判定无法被测试驱动。
+UNAME = """\
+#!/bin/sh
+case "${1:-}" in
+-r) printf '%s\\n' "${FAKE_KERNEL_RELEASE:-6.6.157-alk}" ;;
+*)
+    printf 'Linux\\n'
+    ;;
+esac
+"""
+
 SYSTEMCTL = """\
 #!/bin/sh
 cmd=""; unit=""; props=""; quiet=0; value=0
@@ -761,7 +773,8 @@ def smoke_tools(bin_dir, omit=()):
     table = (("loginctl", LOGINCTL), ("pgrep", PGREP),
              ("xdpyinfo", XDPYINFO), ("fcitx-remote", FCITX_REMOTE),
              ("pactl", PACTL), ("systemctl", SYSTEMCTL),
-             ("gsettings", GSETTINGS), ("sha256sum", SHA256SUM))
+             ("gsettings", GSETTINGS), ("sha256sum", SHA256SUM),
+             ("uname", UNAME))
     for name, body in table:
         if name not in omit:
             write(bin_dir, name, body)

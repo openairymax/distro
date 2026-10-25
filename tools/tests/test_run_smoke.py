@@ -4,10 +4,11 @@
 # test_run_smoke.py — ci/run-smoke.sh 契约回归测试
 #
 # 冒烟脚本必须在已登录的 UKUI 桌面会话内运行，CI 宿主机不具备该环境。
-# 脚本对外契约是：TAP 14 计划、五项探测的判定，以及“探测工具缺失即失败”
+# 脚本对外契约是：TAP 14 计划、七项探测的判定，以及“探测工具缺失即失败”
 # 的退出码规则。这里用 PATH 沙箱提供伪 loginctl /
 # pgrep / xdpyinfo / fcitx-remote / pactl / systemctl / gsettings /
-# sha256sum，每个用例只破坏一个前提，从而在无桌面环境下判定真实控制流。
+# sha256sum / uname，并给 T6/T7 准备一份只读系统视图（AIRYMAX_SMOKE_ROOT），
+# 每个用例只破坏一个前提，从而在无桌面环境下判定真实控制流。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
 # Version: 0.0.3
@@ -28,6 +29,10 @@ BASH = shutil.which("bash") or "/bin/bash"
 LEGACY = ("tauri", "webkitwebprocess", "fcitx5", "pipewire",
           "kylin-app-cgroupd")
 
+# 用户态可见的发行版内核版本；T6 以 -alk 后缀区分产品内核与上游内核。
+KREL = "6.6.157-alk"
+LSM_LIST = "airy_lockdown,lockdown,capability,yama,airy,selinux"
+
 
 class RunSmokeTest(unittest.TestCase):
     def setUp(self):
@@ -35,9 +40,33 @@ class RunSmokeTest(unittest.TestCase):
         self.root = Path(self._tmp.name)
         self.bin = self.root / "bin"
         self.bin.mkdir()
+        self.sysroot = self.root / "sysroot"
+        self.make_sysroot()
 
     def tearDown(self):
         self._tmp.cleanup()
+
+    def make_sysroot(self):
+        """构造 T6/T7 读取的只读视图：/boot 三件套与 LSM 注册表。"""
+        boot = self.sysroot / "boot"
+        boot.mkdir(parents=True)
+        (boot / f"vmlinuz-{KREL}").write_bytes(b"vmlinuz\n")
+        self.write_boot("config", 'CONFIG_LOCALVERSION="-alk"\n'
+                                  "CONFIG_SECURITY_AIRY=y\n")
+        (boot / f"System.map-{KREL}").write_text(
+            "ffffffff81000000 T start_kernel\n", encoding="utf-8")
+        self.write_lsm(LSM_LIST)
+
+    def write_boot(self, kind, body):
+        path = self.sysroot / "boot" / f"{kind}-{KREL}"
+        path.write_text(body, encoding="utf-8")
+        return path
+
+    def write_lsm(self, body):
+        path = self.sysroot / "sys" / "kernel" / "security" / "lsm"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+        return path
 
     def tools(self, omit=()):
         fakes.link_tools(self.bin)
@@ -54,6 +83,7 @@ class RunSmokeTest(unittest.TestCase):
             "XMODIFIERS": "@im=fcitx",
             "FAKE_PROCS": "ukui-session-manager fcitx",
             "AIRYMAX_SMOKE_WAIT": "0",
+            "AIRYMAX_SMOKE_ROOT": str(self.sysroot),
         }
         env.update(extra)
         return subprocess.run([BASH, str(SCRIPT), *args], env=env,
@@ -91,9 +121,9 @@ class RunSmokeTest(unittest.TestCase):
         self.tools()
         res = self.run_smoke()
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res), {"pass": 5, "fail": 0})
+        self.assertEqual(self.summary(res), {"pass": 7, "fail": 0})
         self.assertNotIn("# SKIP", res.stdout)
-        self.assertEqual(len(self.taps(res)), 5)
+        self.assertEqual(len(self.taps(res)), 7)
         for line in self.taps(res):
             self.assertTrue(line.startswith("ok"), line)
 
@@ -101,7 +131,7 @@ class RunSmokeTest(unittest.TestCase):
         self.tools()
         res = self.run_smoke()
         self.assertIn("TAP version 14", res.stdout)
-        self.assertIn("1..5", res.stdout.splitlines())
+        self.assertIn("1..7", res.stdout.splitlines())
         self.assertIn(
             "# AirymaxOS distro smoke: target=airymaxos-0.0.3", res.stdout)
 
@@ -208,7 +238,7 @@ class RunSmokeTest(unittest.TestCase):
         finally:
             timer.cancel()
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res), {"pass": 5, "fail": 0})
+        self.assertEqual(self.summary(res), {"pass": 7, "fail": 0})
 
     def test_slice_wrong(self):
         self.tools()
@@ -268,10 +298,56 @@ class RunSmokeTest(unittest.TestCase):
         self.tools(omit=("loginctl",))
         res = self.run_smoke()
         self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res), {"pass": 4, "fail": 1})
+        self.assertEqual(self.summary(res), {"pass": 6, "fail": 1})
         self.assert_fail(res, 1)
         self.assertIn("loginctl not installed", res.stdout)
         self.assertNotIn("# SKIP", res.stdout)
+
+
+    def test_kernel_not_alk(self):
+        self.tools()
+        res = self.run_smoke(FAKE_KERNEL_RELEASE="6.6.0-1.oe2403")
+        self.assert_fail(res, 6)
+        self.assertIn("uname -r: 6.6.0-1.oe2403 (want *-alk)", res.stdout)
+
+    def test_kernel_boot_files_missing(self):
+        self.tools()
+        (self.sysroot / "boot" / f"config-{KREL}").unlink()
+        res = self.run_smoke()
+        self.assert_fail(res, 6)
+        self.assertIn(f"/boot/config-{KREL} missing", res.stdout)
+
+    def test_kernel_config_mismatch(self):
+        self.tools()
+        self.write_boot("config", 'CONFIG_LOCALVERSION=""\n'
+                                  "CONFIG_SECURITY_AIRY=y\n")
+        res = self.run_smoke()
+        self.assert_fail(res, 6)
+        self.assertIn(f"config-{KREL}: LOCALVERSION mismatch", res.stdout)
+
+    def test_lsm_duplicate_airy(self):
+        self.tools()
+        # 补充钩子在 late_initcall 里以同名二次注册时，注册表会出现两个
+        # airy；这不是两个模块，必须判失败。
+        self.write_lsm("airy_lockdown,lockdown,capability,yama,airy,selinux,"
+                       "airy")
+        res = self.run_smoke()
+        self.assert_fail(res, 7)
+        self.assertIn("airy registered 2 time(s)", res.stdout)
+
+    def test_lsm_lockdown_absent(self):
+        self.tools()
+        self.write_lsm("lockdown,capability,yama,airy,selinux")
+        res = self.run_smoke()
+        self.assert_fail(res, 7)
+        self.assertIn("airy_lockdown absent", res.stdout)
+
+    def test_lsm_registry_unreadable(self):
+        self.tools()
+        (self.sysroot / "sys" / "kernel" / "security" / "lsm").unlink()
+        res = self.run_smoke()
+        self.assert_fail(res, 7)
+        self.assertIn("lsm registry unreadable", res.stdout)
 
 
 if __name__ == "__main__":
