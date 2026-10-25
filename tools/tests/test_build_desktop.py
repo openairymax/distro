@@ -45,15 +45,38 @@ def comps_pkgs():
             if node.text and node.text.strip()}
 
 
+def ks_pkgs():
+    """配方 %packages 段的显式包名（不含组/环境，也不含 - 排除项）。
+
+    dnf 的事务同时包含组内成员与配方显式安装的包，收割器按文件名去重，
+    所以载荷新增数必须把这类非组成员算进来（airymaxos-kernel-devel 即
+    一例，它是 D-09 补进来的显式包）。
+    """
+    names, inside = set(), False
+    for raw in KS.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if line.startswith("%packages"):
+            inside = True
+            continue
+        if inside and line.startswith("%end"):
+            break
+        if not inside or not line or line[0] in "#@-":
+            continue
+        names.add(line)
+    return names
+
+
 def rpm_name(name):
     bits = name[:-4].rsplit(".", 1)[0].split("-")
     return "-".join(bits[:-2]) if len(bits) >= 3 else name[:-4]
 
 
-# 伪 dnf 的事务是「comps 全量成员 + 一个非组成员」；本地仓库已有的包
-# 复用同一文件名，收割端按文件名去重，所以新增数就是组内尚未在载荷里的包。
+# 伪 dnf 的事务是「comps 全量成员 + 配方显式包 + 架构引导包」；本地仓库
+# 已有的包复用同一文件名，收割端按文件名去重，因此新增数就是三者合集中
+# 尚未在载荷里的包。引导包清单与 closure.sh 的 cl_boot() x86_64 分支一致。
+BOOT = {"grub2-pc", "grub2-efi-x64", "shim-x64", "efibootmgr"}
 STOCK = {rpm_name(name) for name in CLOSURE}
-HARVEST = len(comps_pkgs() - STOCK)
+HARVEST = len((comps_pkgs() | ks_pkgs() | BOOT) - STOCK)
 TOTAL = len(CLOSURE) + HARVEST
 
 

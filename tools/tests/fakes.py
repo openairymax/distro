@@ -197,6 +197,9 @@ while [ $# -gt 0 ]; do
     --exclude=*) excl=${1#*=} ;;
     --exclude) shift; excl=$1 ;;
     --releasever|--forcearch) shift ;;
+    # install 是 dnf 的子命令，不是待求解的包名；伪工具若把它当规格，
+    # 就会凭空落一个 install-1.0-1.noarch.rpm，让载荷多出幽灵成员。
+    install|reinstall|upgrade) ;;
     -*) ;;
     *) specs="$specs $1" ;;
     esac
@@ -265,11 +268,12 @@ flaky)
     printf '%s\\n' "$n" >"$st"
     [ "$n" -gt "${FAKE_DNF_FAILS:-1}" ] || exit 1 ;;
 esac
-# 真实 dnf 的事务包含组内全部成员，加上不在组里的依赖。伪工具按组元数据
-# 展开成员，并补一个非组成员，保证「载荷须含 comps 全量成员」这条门禁
-# 在测试里真的被驱动；本地仓库里已有的 NEVRA 复用同一文件名，与 dnf 选中
-# 同一份包一致，也让收割端按文件名去重。
-python3 - "$dl" "$pkg" <<'PY'
+# 真实 dnf 的事务包含组内全部成员与配方显式安装的包，再加上不在组里的
+# 依赖。伪工具按组元数据展开成员，并补上配方里的显式包（例如
+# airymaxos-kernel-devel 这类非组成员），保证「载荷须含安装事务全量成员」
+# 这条门禁在测试里真的被驱动；本地仓库里已有的 NEVRA 复用同一文件名，
+# 与 dnf 选中同一份包一致，也让收割端按文件名去重。
+python3 - "$dl" "$pkg" "$specs" <<'PY'
 import gzip, sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -296,10 +300,11 @@ if blob[:2] == b"\\x1f\\x8b":
     blob = gzip.decompress(blob)
 members = [n.text.strip() for n in ET.fromstring(blob).iter()
            if local(n.tag) == "packagereq" and (n.text or "").strip()]
+members += [spec for spec in sys.argv[3].split() if not spec.startswith("@")]
 have = {}
 for rpm in pkg.glob("*.rpm"):
     have.setdefault(rpm_name(rpm), rpm.name)
-for name in members + ["airymaxos-system"]:
+for name in members:
     (dl / have.get(name, f"{name}-1.0-1.noarch.rpm")).write_text(
         f"rpm {name}\\n", encoding="utf-8")
 PY
