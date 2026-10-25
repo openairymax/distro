@@ -44,9 +44,11 @@ network --bootproto=dhcp --activate --hostname=airymaxos-min
 
 # ---- 账户 ----
 # OS-OPS-009：口令只以 SHA-512 crypt 哈希落盘，禁止明文。最小系统启用 sshd，
-# 必须留下可远程接管的 wheel 账户，否则安装完成后无任何入口。root 的初始
-# 口令在 %post 中置为过期，首次登录强制修改。
-rootpw --iscrypted $6$airy003root0x01$WF29rbJ84L5jwK05P.Rs/EfkAjDBZmOtti6K29tIzd30tv29YlnNvYiZHK0QzPl4RBKlSiUshySWmYzgN3ybT0
+# 必须留下可远程接管的 wheel 账户，否则安装完成后无任何入口。
+# 交付口径（0.0.3 决策）：airymax 免密（ssh 侧由 airymaxos-release 的
+# /etc/ssh/sshd_config.d/50-airymax-sshd.conf 放行空口令），root 交付口令
+# 固定 00000000 且不强制首登改密。
+rootpw --iscrypted $6$airy003root0x01$.lY1w9YA54iCwREQZCVZEoQ3xmCjcbkpWmWCrLciZeSNYA/T/6lkx4M2yFnhb13xBfbZLZQ64V01cSAkka1r30
 user --name=airymax --groups=wheel --iscrypted --password=$6$airy003user0x01$s1JW7QjW0kiAW7B51kVB2hNsabAadz4G/h6yBDRvpWzwsV7NO7Kh3ChDjLtapHZ6HGl5WoqNKi.IAY7IT5yRc/
 
 # ---- 服务与防火墙 ----
@@ -113,12 +115,37 @@ set_default()
         "/usr/lib/systemd/system/${want}" ] || fail default-target
 }
 
-acct_ok()
+# 账户状态只读 /etc/shadow 的哈希字段：安装器写口令走 chpasswd -e，哈希原样
+# 落盘，锁定语义是前缀 !，禁用是 *。空口令与「账户不存在」在 $2 上都是空串，
+# awk 因此对存在的账户打印 @empty 哨兵，避免把免密账户误判为缺失。
+# 与 workstation 剖面共用同一判读方式：passwd -S 依赖 PAM 与本地化输出，
+# 在 chroot 内的判读条件不如直接读文件确定。
+acct_state()
+{
+    local pw
+
+    pw=$(awk -F: -v n="$1" \
+        '$1 == n { print ($2 == "" ? "@empty" : $2); exit }' /etc/shadow)
+    case "${pw}" in
+    '') printf 'missing' ;;
+    '@empty') printf 'empty' ;;
+    '!'*) printf 'locked' ;;
+    '*'*) printf 'nologin' ;;
+    '$6$'*) printf 'sha512' ;;
+    '$'*) printf 'hashed' ;;
+    *) printf 'plain' ;;
+    esac
+}
+
+# 断言与归因合一：失配时先打印状态分类（不含哈希），装机失败可直接判读。
+acct_req()
 {
     local state
 
-    state=$(passwd -S "$1" 2>/dev/null | awk '{print $2}') || return 1
-    [ "${state}" = "P" ]
+    state=$(acct_state "$1")
+    [ "${state}" = "$2" ] && return 0
+    mark "AIRYMAX-INSTALL-DIAG acct=$1 state=${state} want=$2"
+    fail "$3"
 }
 
 # sshd 与 chronyd 的启用由 services 指令唯一承担（服务清单 SSoT）。
@@ -129,10 +156,10 @@ rpm -q airymaxos-release >/dev/null 2>&1 || fail release-pkg
 [ -r /etc/system-release ] || fail system-release
 
 # 账户自检：没有可登录账户的安装介质不具备「OS 能运行」的前提
-acct_ok root || fail root-account
-acct_ok airymax || fail airymax-account
-# root 只承担首次控制台接管：登录后强制修改初始口令
-chage -d 0 root || fail root-expire
+# root 交付为固定口令（sha512 哈希），airymax 交付为空口令（empty）。
+passwd -d airymax || fail airymax-unlock
+acct_req root sha512 root-account
+acct_req airymax empty airymax-account
 
 set_default multi-user.target
 

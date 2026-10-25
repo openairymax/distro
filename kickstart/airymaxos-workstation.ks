@@ -56,11 +56,13 @@ autopart --type=plain --fstype=ext4
 network --bootproto=dhcp --activate --hostname=airymaxos
 
 # ---- 账户 ----
-# OS-OPS-009：口令只以 SHA-512 crypt 哈希落盘，禁止明文。0.0.3 的无人值守
-# 安装没有交互建号环节，账户必须在安装结束后即可登录，否则 UKUI 与控制台
-# 都无入口。root 的初始口令在 %post 中置为过期，首次登录强制修改；airymax
-# 保持可用，保证 lightdm/UKUI 能直接进入桌面。
-rootpw --iscrypted $6$airy003root0x01$WF29rbJ84L5jwK05P.Rs/EfkAjDBZmOtti6K29tIzd30tv29YlnNvYiZHK0QzPl4RBKlSiUshySWmYzgN3ybT0
+# OS-OPS-009：口令只以 SHA-512 crypt 哈希落盘，禁止明文。
+# 交付口径（0.0.3 决策）：airymax 免密（本地座位自动登录 + SSH 空口令 +
+# 控制台空口令），root 交付口令固定 00000000 且不再强制首登改密。安装没有
+# 交互建号环节，账户必须在安装结束后即可登录，否则 UKUI 与控制台都无入口。
+# 空口令由 %post 的 passwd -d 落地（见下），ssh 侧由 airymaxos-release
+# 提供的 /etc/ssh/sshd_config.d/50-airymax-sshd.conf 放行。
+rootpw --iscrypted $6$airy003root0x01$.lY1w9YA54iCwREQZCVZEoQ3xmCjcbkpWmWCrLciZeSNYA/T/6lkx4M2yFnhb13xBfbZLZQ64V01cSAkka1r30
 user --name=airymax --groups=wheel --iscrypted --password=$6$airy003user0x01$s1JW7QjW0kiAW7B51kVB2hNsabAadz4G/h6yBDRvpWzwsV7NO7Kh3ChDjLtapHZ6HGl5WoqNKi.IAY7IT5yRc/
 
 # ---- 包组 ----
@@ -148,15 +150,18 @@ set_default()
 }
 
 # 账户状态只读 /etc/shadow 的哈希字段：安装器写口令走 chpasswd -e，哈希
-# 原样落盘，锁定语义是前缀 !，禁用是 *。passwd -S 依赖 PAM 与本地化输出，
-# 在 chroot 内的判读条件不如直接读文件确定。
+# 原样落盘，锁定语义是前缀 !，禁用是 *。空口令与「账户不存在」在 $2 上都是
+# 空串，awk 因此对存在的账户打印 @empty 哨兵，避免把免密账户误判为缺失。
+# passwd -S 依赖 PAM 与本地化输出，在 chroot 内的判读条件不如直接读文件确定。
 acct_state()
 {
     local pw
 
-    pw=$(awk -F: -v n="$1" '$1 == n { print $2; exit }' /etc/shadow)
+    pw=$(awk -F: -v n="$1" \
+        '$1 == n { print ($2 == "" ? "@empty" : $2); exit }' /etc/shadow)
     case "${pw}" in
     '') printf 'missing' ;;
+    '@empty') printf 'empty' ;;
     '!'*) printf 'locked' ;;
     '*'*) printf 'nologin' ;;
     '$6$'*) printf 'sha512' ;;
@@ -166,14 +171,14 @@ acct_state()
 }
 
 # 断言与归因合一：失配时先打印状态分类（不含哈希），装机失败可直接判读。
-acct_chk()
+acct_req()
 {
     local state
 
     state=$(acct_state "$1")
-    [ "${state}" = sha512 ] && return 0
-    mark "AIRYMAX-INSTALL-DIAG acct=$1 state=${state}"
-    fail "$2"
+    [ "${state}" = "$2" ] && return 0
+    mark "AIRYMAX-INSTALL-DIAG acct=$1 state=${state} want=$2"
+    fail "$3"
 }
 
 # 1) 桌面隔离与 UKUI 策略由 airymaxos-release 包 %post 完成
@@ -188,10 +193,10 @@ rpm -q airymaxos-release >/dev/null 2>&1 || fail release-pkg
 rpm -q airymaxos-system >/dev/null 2>&1 || fail system-pkg
 
 # 3) 账户自检：没有可登录账户的安装介质不具备「OS 能运行」的前提
-acct_chk root root-account
-acct_chk airymax airymax-account
-# root 只承担首次控制台接管：登录后强制修改初始口令
-chage -d 0 root || fail root-expire
+#    root 交付为固定口令（sha512 哈希），airymax 交付为空口令（empty）。
+passwd -d airymax || fail airymax-unlock
+acct_req root sha512 root-account
+acct_req airymax empty airymax-account
 
 # 4) 图形目标为默认（UKUI 会话经 lightdm 拉起）
 set_default graphical.target

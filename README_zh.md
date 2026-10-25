@@ -25,19 +25,21 @@
 
 ## 初始凭据
 
-两个 kickstart 都以 OS-OPS-009 要求的 SHA-512 crypt 哈希落盘初始口令，
-安装结束后即可登录，不再依赖尚不存在的首启建号流程：
+0.0.3 的交付口径是「开机即桌面」：`airymax` 免密，`root` 固定口令，
+都不强制改密。两个 kickstart 仍以 OS-OPS-009 要求的 SHA-512 crypt 哈希
+落盘，安装结束即可登录，不依赖尚不存在的首启建号流程：
 
-| 账户 | 初始口令 | 登录边界 |
+| 账户 | 交付状态 | 登录边界 |
 |------|----------|----------|
-| `root` | `Airymax@Root-0.0.3` | 控制台/SSH 接管；首登强制改密 |
-| `airymax` | `Airymax@User-0.0.3` | `wheel`；lightdm/UKUI 桌面账户 |
+| `root` | 固定口令 `00000000` | 控制台/SSH 接管；不强制改密 |
+| `airymax` | 空口令（免密） | `wheel`；lightdm 自动登录 + UKUI 桌面 |
 
-`root` 在 `%post` 中执行 `chage -d 0`，首次登录由 PAM 强制修改。
-`airymax` 不设过期：lightdm/ukui-greeter 对 `PAM_NEW_AUTHTOK_REQD` 的
-处理不在 0.0.3 可验证范围内，强制过期会让「UKUI 桌面能正常进入」验收
-不可判定；因此首次登录后必须立即修改口令。定制发行时在注入 ISO 前
-替换 kickstart 中的哈希，禁止写入明文。
+空口令由 kickstart 的 `%post` 执行 `passwd -d airymax` 落地，`%post` 末尾
+的账户断言把「root 为 sha512、airymax 为空口令」作为安装成功率的一部分。
+SSH 侧由 `airymaxos-release` 安装
+`/etc/ssh/sshd_config.d/50-airymax-sshd.conf`（`PermitEmptyPasswords yes`）
+放行；本地座位由 `50-airymax.conf` 的 `autologin-user=airymax` 免密进入。
+定制发行时在注入 ISO 前替换 kickstart 中的哈希，禁止写入明文。
 
 ## 仓库结构
 
@@ -77,6 +79,8 @@ distro/
 │   ├── user@.service.d/           # 会话挂接到 airymax-desktop.slice
 │   ├── wallpaper/                 # 默认壁纸与 UKUI 壁纸注册表
 │   └── glib-2.0/schemas/          # org.mate.background 默认值覆盖
+├── login/
+│   └── 50-airymax-sshd.conf       # sshd drop-in：放行空口令
 ├── ukui-patches/
 │   └── README.md                  # 零补丁策略（预留）
 ├── tools/

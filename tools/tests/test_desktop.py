@@ -55,6 +55,8 @@ ASSETS = (
      "99-airymaxos-default.gschema.override"),
     ("desktop/wallpaper/airymaxos-default.jpg",
      "%{_datadir}/backgrounds/airymaxos/airymaxos-default.jpg"),
+    ("login/50-airymax-sshd.conf",
+     "%{_sysconfdir}/ssh/sshd_config.d/50-airymax-sshd.conf"),
 )
 
 
@@ -159,6 +161,30 @@ class DesktopAssetTest(unittest.TestCase):
         self.assertEqual(list(conf.sections()), ["Seat:*"])
         self.assertEqual(conf["Seat:*"]["user-session"], "ukui")
         self.assertNotIn("type", conf["Seat:*"])
+
+    def test_lightdm_autologin(self):
+        # 0.0.3 口径：本地座位以 airymax 自动登录，与 shadow 空口令一致
+        conf = parse_kv(self.asset("desktop/lightdm/50-airymax.conf"))
+        self.assertEqual(conf["Seat:*"]["autologin-user"], "airymax")
+        self.assertEqual(conf["Seat:*"]["autologin-session"], "ukui")
+        self.assertEqual(conf["Seat:*"]["autologin-user-timeout"], "0")
+
+    def test_sshd_empty_password(self):
+        # 空口令账户要能过 sshd，必须显式放开 PermitEmptyPasswords；
+        # 只放开这一项，认证方式集合保持发行版默认
+        text = self.asset("login/50-airymax-sshd.conf").read_text(
+            encoding="utf-8")
+        directives = {}
+        for line in text.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            key, _, value = line.partition(" ")
+            directives[key] = value.strip()
+        self.assertEqual(directives, {
+            "PermitEmptyPasswords": "yes",
+            "KbdInteractiveAuthentication": "no",
+        })
 
     def test_user_session_slice(self):
         conf = parse_kv(
