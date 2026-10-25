@@ -53,15 +53,17 @@
 #   AirymaxOS 是单内核发行版，二进制包名带 airymaxos- 前缀；而 Anaconda 在
 #   bootloader 阶段按 "kernel" 这一包身份挑选要写入引导项的内核，上层包也
 #   常以 kernel-headers/kernel-devel 表达构建依赖。故主包声明上游内核身份
-#   与 install-only 语义，core/modules 子包同构声明，使 dnf 在解析 "kernel"
-#   依赖时命中本包并替换上游内核，避免同机出现两套内核树。
+#   与 install-only 语义，core/modules/headers 三个子包同构声明 kernel-core
+#   /kernel-modules/kernel-headers 身份，使 dnf 在解析这些依赖时命中本包并
+#   替换上游对应包，避免同机出现两套内核树或两套 UAPI 头（后者会直接造成
+#   /usr/include 文件冲突，使装机事务失败）。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
 # Version: 0.0.3
 # ===========================================================================
 
 %global airy_version 0.0.3
-%global airy_release 2
+%global airy_release 3
 %global kernel_version 6.6.157
 %global kernel_local -alk
 %global kernel_release %{kernel_version}%{kernel_local}
@@ -174,6 +176,13 @@ Loadable modules matching the AirymaxOS kernel image.
 
 %package headers
 Summary:        AirymaxOS kernel UAPI headers
+# 内核身份声明（M-15）的 headers 腿：glibc-devel 等上层包以
+# "kernel-headers" 表达构建依赖，若本包不声明该身份，dnf 会把上游
+# kernel-headers 一并纳入事务，两份 /usr/include/linux/* 直接文件冲突，
+# anaconda 在事务阶段转入交互问句直至超时。声明身份并 Obsoletes 上游
+# 包，与 core/modules 的做法保持一致，保证同机只有一套 UAPI 头。
+Provides:       kernel-headers = %{kernel_version}
+Obsoletes:      kernel-headers
 
 %description headers
 User space API headers exported by the AirymaxOS kernel.
@@ -364,6 +373,10 @@ depmod -a %{kernel_release}
 %endif
 
 %changelog
+* Sun Oct 25 2026 SPHARX <dev@spharx.com> - 0.0.3-3
+- headers 子包补齐内核身份声明（Provides/Obsoletes: kernel-headers）。
+  缺此声明时 glibc-devel 的 kernel-headers 依赖会把上游包拉进同一事务，
+  与 airymaxos-kernel-headers 发生 /usr/include 文件冲突，装机事务失败
 * Sat Oct 24 2026 SPHARX <dev@spharx.com> - 0.0.3-2
 - x86/arm64 内核基线由 defconfig 改为 openeuler_defconfig，恢复 NVMe、
   igc、rtw89 支持；NVMe 内建于 vmlinuz，并在 %%check 中加驱动门禁
