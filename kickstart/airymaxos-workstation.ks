@@ -77,6 +77,10 @@ user --name=airymax --groups=wheel --iscrypted --password=$6$airy003user0x01$s1J
 # 环境选择用 @^（pykickstart 环境语法）；@ 表示组
 @^airymax-workstation
 airymaxos-kernel
+# 内核开发树（真机缺陷 D-09）：devel 子包提供 /usr/src/kernels/<release> 与
+# /lib/modules/<release>/{build,source}，缺它则 dkms 与 out-of-tree 模块在
+# 目标机上无法编译。Workstation 变体面向 agent 开发，必须自带该能力。
+airymaxos-kernel-devel
 # 系统编排单元与首启脚本（airymaxos-system）：随镜像落盘但不在此启用，
 # 启用边界见 %post 注释
 airymaxos-system
@@ -216,6 +220,39 @@ done
 #    会让每次冷启动进入 degraded，违背「OS 能正常运行」验收口径。
 #    启用项与 airymaxos-services 同版本落地，届时在 boot_set 中补
 #    agentrt.target（OS-OPS-010）。
+
+# 7) 引导菜单分辨率（真机缺陷 D-07）。grub2-efi-x64 在 openEuler 上是预
+#    编译的 grubx64.efi，装机时不会把 unicode.pf2 放进 ESP；00_header 生成
+#    的 gfxmode 段落以 loadfont 成功为前置条件，字体缺失时整段被跳过，
+#    菜单与 efifb 停在固件默认（B50 实测 800x600）。字体落盘后同一份
+#    grub.cfg 即生效，无需删除或改写上游脚本。
+grub_dir=
+for d in /boot/efi/EFI/*; do
+    if [ -f "${d}/grub.cfg" ]; then
+        grub_dir="${d}"
+        break
+    fi
+done
+[ -n "${grub_dir}" ] || fail efi-grub-dir
+
+# 分辨率只做引导期一次选择：1.x 无 KMS，运行期改不了模式，因此把候选
+# 列表写在 /etc/default/grub，以 auto 兜底不认识的固件。
+sed -i '/^GRUB_GFXMODE=/d' /etc/default/grub
+printf 'GRUB_GFXMODE=1920x1080x32,1680x1050x32,1600x900x32,1280x1024x32,1024x768x32,auto\n' \
+    >>/etc/default/grub
+
+if [ -f /usr/share/grub/unicode.pf2 ]; then
+    install -d -m 0755 "${grub_dir}/fonts"
+    install -m 0644 /usr/share/grub/unicode.pf2 "${grub_dir}/fonts/unicode.pf2" ||
+        fail efi-grub-font
+    # chroot 内 os-prober 可能因缺 /dev 而告警；菜单本身由 10_linux 生成，
+    # 因此 grub2-mkconfig 的非零退出只记录，判定交给下面的事实断言。
+    grub2-mkconfig -o "${grub_dir}/grub.cfg" >/dev/null 2>&1 ||
+        mark "AIRYMAX-INSTALL-NOTE grub2-mkconfig rc=$?"
+    grep -q 'set gfxmode=' "${grub_dir}/grub.cfg" || fail efi-gfxmode
+else
+    mark "AIRYMAX-INSTALL-NOTE grub-font-source-missing"
+fi
 
 mark "AirymaxOS workstation install complete (baseline $(date -u +%Y%m%d))"
 %end
