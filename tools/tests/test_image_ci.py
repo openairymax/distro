@@ -93,6 +93,8 @@ done < "$list"
 mkdir -p "$out/iso"
 printf 'fake iso\\n' > "$out/iso/airymaxos-0.0.3-x86_64.iso"
 printf 'name=airymaxos-0.0.3-x86_64.iso\\n' > "$out/iso/iso-manifest.txt"
+(cd "$out/iso" && sha256sum airymaxos-0.0.3-x86_64.iso \
+    > airymaxos-0.0.3-x86_64.iso.sha256)
 """
 
 
@@ -234,10 +236,11 @@ class ImageCiTest(unittest.TestCase):
         res = self.pre("--skip-install")
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertIn("1..5", res.stdout)
-        self.assertEqual(res.stdout.count("# SKIP"), 5)
+        self.assertEqual(res.stdout.count("# SKIP"), 4)
+        self.assertIn("ok 4 - iso checksum", res.stdout)
         manifest = self.manifest()
         for stage in ("rpm=skip", "kernel=skip", "iso=skip",
-                      "checksum=skip", "install=skip"):
+                      "checksum=pass", "install=skip"):
             self.assertIn(f"stage {stage}", manifest)
         self.assertRegex(manifest, r"iso [0-9a-f]{64} airymaxos\.iso")
         self.assertIn("result=pass", manifest)
@@ -393,11 +396,13 @@ class ImageCiTest(unittest.TestCase):
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertIn("source_date_epoch=1700000000", self.manifest())
 
-    def test_install_skipped_checksum(self):
+    def test_install_skip_keeps_checksum(self):
+        """装机段跳过不影响 ISO 完整性校验：只出镜像也必须核 sha256。"""
         self.tools()
         res = self.pre("--skip-install")
         self.assertEqual(res.returncode, 0, res.stderr)
-        self.assertIn("stage checksum=skip", self.manifest())
+        self.assertIn("ok 4 - iso checksum", res.stdout)
+        self.assertIn("stage checksum=pass", self.manifest())
 
 
 class MediaArgsTest(unittest.TestCase):
