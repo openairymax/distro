@@ -226,14 +226,24 @@ done
 #    的 gfxmode 段落以 loadfont 成功为前置条件，字体缺失时整段被跳过，
 #    菜单与 efifb 停在固件默认（B50 实测 800x600）。字体落盘后同一份
 #    grub.cfg 即生效，无需删除或改写上游脚本。
+#
+#    本 ks 走 UEFI + BIOS 双栈（见 bootloader 行），两条腿的 grub 配置
+#    目录不同：UEFI 在 ESP，BIOS 在 /boot/grub2。按落盘事实分支，BIOS 腿
+#    不得触发任何 EFI 断言（0.0.3 装机曾在 BIOS 腿误报 efi-grub-dir）。
 grub_dir=
-for d in /boot/efi/EFI/*; do
-    if [ -f "${d}/grub.cfg" ]; then
-        grub_dir="${d}"
-        break
-    fi
-done
-[ -n "${grub_dir}" ] || fail efi-grub-dir
+if [ -d /boot/efi/EFI ]; then
+    for d in /boot/efi/EFI/*; do
+        if [ -f "${d}/grub.cfg" ]; then
+            grub_dir="${d}"
+            break
+        fi
+    done
+    [ -n "${grub_dir}" ] || fail efi-grub-dir
+elif [ -f /boot/grub2/grub.cfg ]; then
+    grub_dir=/boot/grub2
+else
+    fail grub-cfg-missing
+fi
 
 # 分辨率只做引导期一次选择：1.x 无 KMS，运行期改不了模式，因此把候选
 # 列表写在 /etc/default/grub，以 auto 兜底不认识的固件。
@@ -242,14 +252,16 @@ printf 'GRUB_GFXMODE=1920x1080x32,1680x1050x32,1600x900x32,1280x1024x32,1024x768
     >>/etc/default/grub
 
 if [ -f /usr/share/grub/unicode.pf2 ]; then
+    # 两条腿都把字体放进 ${grub_dir}/fonts：00_header 的 loadfont 是
+    # gfxmode 段落的前置条件，缺字体则整段被跳过。
     install -d -m 0755 "${grub_dir}/fonts"
     install -m 0644 /usr/share/grub/unicode.pf2 "${grub_dir}/fonts/unicode.pf2" ||
-        fail efi-grub-font
+        fail grub-font
     # chroot 内 os-prober 可能因缺 /dev 而告警；菜单本身由 10_linux 生成，
     # 因此 grub2-mkconfig 的非零退出只记录，判定交给下面的事实断言。
     grub2-mkconfig -o "${grub_dir}/grub.cfg" >/dev/null 2>&1 ||
         mark "AIRYMAX-INSTALL-NOTE grub2-mkconfig rc=$?"
-    grep -q 'set gfxmode=' "${grub_dir}/grub.cfg" || fail efi-gfxmode
+    grep -q 'set gfxmode=' "${grub_dir}/grub.cfg" || fail grub-gfxmode
 else
     mark "AIRYMAX-INSTALL-NOTE grub-font-source-missing"
 fi
