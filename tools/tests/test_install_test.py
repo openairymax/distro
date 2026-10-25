@@ -410,6 +410,19 @@ class InstallTestTest(unittest.TestCase):
         self.assertIn("run bios run=1 install=pass", manifest)
         self.assertIn("run uefi run=1 install=pass", manifest)
 
+    def test_firmware_both_without_uefi(self):
+        """缺 OVMF 时 both 降级为 BIOS 腿，而不是整轮以参数错误退出。"""
+        self.tools()
+        res = self.install("--runs", "1", "--firmware", "both",
+                           "--fw-dir", str(self.fwdir))
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("UEFI 腿降级", res.stderr)
+        self.assertIn("1..2", res.stdout)
+        self.assertEqual(len(self.taps(res)), 2)
+        manifest = self.manifest()
+        self.assertIn("firmware=bios", manifest)
+        self.assertNotIn("uefi", manifest)
+
     def test_aarch64_scsi(self):
         self.tools("aarch64")
         self.firmware("AAVMF")
