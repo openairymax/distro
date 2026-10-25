@@ -35,7 +35,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.3
-%global airy_release 1
+%global airy_release 2
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 
 Name:           airymaxos-release
@@ -62,6 +62,7 @@ Source12:       50-airymax-desktop.conf
 Source13:       airymax-desktop-ready.service
 Source14:       desktop_ready.sh
 Source15:       boot_state.sh
+Source16:       50-airymax-sshd.conf
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -113,6 +114,10 @@ install -m 0644 %{SOURCE15} \
 install -d -m 0755 %{buildroot}%{_sysconfdir}/lightdm/lightdm.conf.d
 install -m 0644 %{SOURCE7} \
     %{buildroot}%{_sysconfdir}/lightdm/lightdm.conf.d/50-airymax.conf
+
+install -d -m 0755 %{buildroot}%{_sysconfdir}/ssh/sshd_config.d
+install -m 0644 %{SOURCE16} \
+    %{buildroot}%{_sysconfdir}/ssh/sshd_config.d/50-airymax-sshd.conf
 
 install -d -m 0755 %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d
 install -m 0755 %{SOURCE8} \
@@ -171,6 +176,10 @@ test -r %{buildroot}/usr/lib/airymaxos/desktop/boot_state.sh
 bash -n %{buildroot}%{_datadir}/airymaxos/distro/desktop/70-airymax-ukui-policy.sh
 grep -qxF 'user-session=ukui' \
     %{buildroot}%{_sysconfdir}/lightdm/lightdm.conf.d/50-airymax.conf
+grep -qxF 'autologin-user=airymax' \
+    %{buildroot}%{_sysconfdir}/lightdm/lightdm.conf.d/50-airymax.conf
+grep -qxF 'PermitEmptyPasswords yes' \
+    %{buildroot}%{_sysconfdir}/ssh/sshd_config.d/50-airymax-sshd.conf
 sh -n %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/70-airymax-im.sh
 grep -qxF 'Exec=/usr/bin/fcitx' \
     %{buildroot}%{_sysconfdir}/xdg/autostart/airymax-input-method.desktop
@@ -205,6 +214,7 @@ fi
 %config(noreplace) %{_sysconfdir}/yum.repos.d/airymaxos.repo
 %config(noreplace) %{_sysconfdir}/rpm/macros.airymax
 %config(noreplace) %{_sysconfdir}/lightdm/lightdm.conf.d/50-airymax.conf
+%config(noreplace) %{_sysconfdir}/ssh/sshd_config.d/50-airymax-sshd.conf
 %config(noreplace) %{_sysconfdir}/X11/xinit/xinitrc.d/70-airymax-im.sh
 %config(noreplace) %{_sysconfdir}/xdg/autostart/airymax-input-method.desktop
 %config(noreplace) %{_sysconfdir}/systemd/system/user@.service.d/50-airymax-desktop.conf
@@ -219,6 +229,13 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Sun Oct 25 2026 SPHARX <dev@spharx.com> - 0.0.3-2
+- Ship the 0.0.3 password policy: lightdm autologin for airymax and an
+  sshd drop-in that permits empty passwords, so the shipped empty-password
+  account can log in locally and over SSH (PAM already has pam_unix nullok)
+- %check asserts both directives reach the buildroot, since a missing
+  drop-in silently degrades to "no login" instead of failing the build
+
 * Sun Oct 18 2026 SPHARX <dev@spharx.com> - 0.0.3-1
 - Ship /etc/airymaxos-release and /etc/system-release derived from
   os-release, so anaconda can build GRUB_DISTRIBUTOR and grub-mkconfig
