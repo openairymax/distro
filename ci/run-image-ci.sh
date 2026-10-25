@@ -333,12 +333,15 @@ media_args()
     for a in "${RPMS_DIRS[@]}"; do
         MEDIA_ARGS+=(--rpms "$a")
     done
-    if [ "${SKIP_RPMS}" -eq 0 ]; then
+    # --skip-rpms/--skip-kernel 只抑制"构建"，不抑制"载荷"。产物目录里已有
+    # 的包仍须进 ISO，否则闭包求解找不到 airymaxos-system 之类的本地包，
+    # 复跑就会退化成必须全量重建。
+    if [ -d "${OUT}/rpms/RPMS" ]; then
         MEDIA_ARGS+=(--rpms "${OUT}/rpms/RPMS")
     fi
     if [ -n "${KER_RPMS}" ]; then
         MEDIA_ARGS+=(--rpms "${KER_RPMS}")
-    elif [ "${SKIP_KERNEL}" -eq 0 ]; then
+    elif [ -d "${OUT}/kernel/RPMS" ]; then
         MEDIA_ARGS+=(--rpms "${OUT}/kernel/RPMS")
     fi
     for a in "${ADDS[@]}"; do
