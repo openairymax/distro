@@ -105,7 +105,11 @@ usage()
   DIR/run-FW-N/vars.fd         UEFI NVRAM（安装与启动共用）
   DIR/run-FW-N/install.log     第 N 轮安装串口日志
   DIR/run-FW-N/boot.log        第 N 轮启动串口日志
+  DIR/run-FW-N/qemu.log        安装阶段 QEMU 自身 stderr
+  DIR/run-FW-N/qemu-boot.log   启动阶段 QEMU 自身 stderr
   DIR/install-manifest.txt     轮次结果与 ISO 摘要
+
+每轮开始前会删除本轮 install.log/boot.log，判读只看本轮内容。
 
 OUT 必须位于源码区之外；缺失 qemu-system-$ARCH / qemu-img 时以 77 跳过。
 aarch64 仅支持 uefi 固件；UEFI 固件按 OVMF/AAVMF 常见路径探测。
@@ -381,6 +385,10 @@ install_run()
     mkdir -p "${dir}" || return 1
     disk="${dir}/disk.qcow2"
     log="${dir}/install.log"
+    # 判读只看日志内容、不看时间戳，因此上一轮的串口日志必须先删掉。
+    # wait_inst() 首轮就会 grep INST_ERR，残留日志能让空跑直接判失败；
+    # 末尾的 MARKER 断言同样会被残留日志满足，从而假通过。
+    rm -f "${log}" "${dir}/qemu.log" || return 1
     qemu-img create -f qcow2 "${disk}" 40G >"${dir}/qemu-img.log" 2>&1 ||
         { printf 'qemu-img create failed: run-%s-%s\n' "${fw}" "${n}" >&2; return 1; }
     qemu_base
@@ -391,7 +399,7 @@ install_run()
             -serial "file:${log}")
     start=$(date +%s)
     PROG_AT=${PROGRESS_EVERY}
-    "${QEMU}" "${QARGS[@]}" >/dev/null 2>&1 &
+    "${QEMU}" "${QARGS[@]}" >/dev/null 2>"${dir}/qemu.log" &
     pid=$!
     wait_inst "${log}" "${pid}" "$((start + INSTALL_TIMEOUT))" "${start}"
     rc=$?
@@ -405,6 +413,11 @@ install_run()
         *) printf 'install run %s-%s exited rc=%s\n' "${fw}" "${n}" "${rc}" >&2 ;;
         esac
         printf '#   serial tail: %.200s\n' "$(log_tail "${log}")" >&2
+        # QEMU 自己起不来（缺 KVM、镜像被占）时串口日志根本不存在，
+        # 上面的 tail 是空的；把 QEMU 的 stderr 打出来才定位得到。
+        [ -f "${log}" ] ||
+            printf '#   qemu: %.300s\n' \
+                "$(tr '\n' ' ' <"${dir}/qemu.log" 2>/dev/null)" >&2
         return 1
     fi
     grep -q "${MARKER}" "${log}" 2>/dev/null ||
@@ -466,13 +479,16 @@ boot_run()
     local disk="${dir}/disk.qcow2" log="${dir}/boot.log"
     local pid start now code
     [ -f "${disk}" ] || { printf 'no disk for run-%s-%s\n' "${fw}" "${n}" >&2; return 1; }
+    # 同 install_run：boot.log 若不轮转，wait_marker 首轮就能被上一轮的
+    # 标记满足，空跑会被判为启动成功。
+    rm -f "${log}" "${dir}/qemu-boot.log" || return 1
     qemu_base
     fw_args "${fw}" "${dir}" || return 1
     dev_disk "${disk}" "${fw}"
     QARGS+=(-boot order=c -serial "file:${log}")
     start=$(date +%s)
     PROG_AT=${PROGRESS_EVERY}
-    "${QEMU}" "${QARGS[@]}" >/dev/null 2>&1 &
+    "${QEMU}" "${QARGS[@]}" >/dev/null 2>"${dir}/qemu-boot.log" &
     pid=$!
     wait_marker "${log}" "${pid}" "$((start + BOOT_TIMEOUT))" "${start}"
     code=$?
@@ -488,6 +504,9 @@ boot_run()
     *) printf 'boot incomplete in run-%s-%s/boot.log after %ss\n' \
            "${fw}" "${n}" "${BOOT_S}" >&2
        printf '#   serial tail: %.200s\n' "$(log_tail "${log}")" >&2
+       [ -f "${log}" ] ||
+           printf '#   qemu: %.300s\n' \
+               "$(tr '\n' ' ' <"${dir}/qemu-boot.log" 2>/dev/null)" >&2
        return 1 ;;
     esac
     if [ -n "${MAX_BOOT}" ] && [ "${BOOT_S}" -gt "${MAX_BOOT}" ]; then
