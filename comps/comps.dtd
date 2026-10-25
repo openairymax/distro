@@ -5,7 +5,7 @@
 
   设计口径见 docs-linux/190-distribution/01-rpm-packaging.md 与
   03-installer-design.md；语义由 tools/comps_lint.py 复核，DTD 供
-  xmllint --valid 做结构校验。
+  xmllint 的 valid 模式做结构校验。
 
   元素顺序固定，避免 Anaconda 与 repodata 生成器对字段次序的隐式假设：
     comps       = (group*, environment*)

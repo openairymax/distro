@@ -5,8 +5,11 @@
 #
 # 只依赖标准库。XML 结构由标准库解析，项目语义（组/环境标识、包名、
 # 布尔字段、组引用与嵌套环、环境到组的引用、kickstart 选择）逐项复核；
-# comps/comps.dtd 供 xmllint --valid 做 DTD 结构校验。规则编号
-# C001~C014 与 tools/tests/test_comps.py 一一对应。
+# comps/comps.dtd 供 xmllint 的 valid 模式做 DTD 结构校验。规则编号
+# C001~C015 与 tools/tests/test_comps.py 一一对应。C015 在无 xmllint
+# 的机器上也能拦住注释里的双连字符：XML 注释体不允许出现「--」，
+# 而 comps.dtd 只在具备 xmllint 时才会被真正解析（0.0.3 在 B50 上
+# 首次跑到 DTD 校验时才暴露 comps.dtd 注释里的这一处）。
 #
 # C012~C014 锁住安装期事务的完整性：anaconda 在 %packages 未加
 # --nocore 时隐式追加 @core，并在引导阶段无条件追加 grub2 与 grub2-tools
@@ -36,6 +39,7 @@ SYSTEM = "comps.dtd"
 DOCTYPE = re.compile(
     r'<!DOCTYPE\s+comps\s+PUBLIC\s+"([^"]+)"\s+"([^"]+)"\s*>')
 PKGNAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")
+COMMENT = re.compile(r"<!--(.*?)-->", re.S)
 TYPES = frozenset({"mandatory", "default", "optional", "conditional"})
 BOOL = frozenset({"true", "false"})
 
@@ -81,6 +85,17 @@ def check_doctype(text: str, issues: list[Issue]) -> None:
         issues.append(Issue("C002", 1, f"bad public id: {hit.group(1)}"))
     if hit.group(2) != SYSTEM:
         issues.append(Issue("C002", 1, f"bad system id: {hit.group(2)}"))
+
+
+def comment_issues(text: str) -> list[Issue]:
+    """XML 注释体不允许出现双连字符，否则 XML 解析器直接拒绝整份文档。"""
+    issues: list[Issue] = []
+    for hit in COMMENT.finditer(text):
+        if "--" in hit.group(1):
+            num = text.count("\n", 0, hit.start()) + 1
+            issues.append(Issue("C015", num,
+                                "XML comment must not contain '--'"))
+    return issues
 
 
 def grp_id(grp: ET.Element, seen: set[str],
@@ -346,6 +361,7 @@ def lint_text(text: str, base: Path) -> list[Issue]:
     lines = text.splitlines()
     issues: list[Issue] = []
     check_doctype(text, issues)
+    issues.extend(comment_issues(text))
     try:
         root = ET.fromstring(text)
     except ET.ParseError as err:
@@ -381,6 +397,14 @@ def main(argv: list[str]) -> int:
             print(f"comps_lint: {err}", file=sys.stderr)
             return 2
         total += dump(path, issues)
+    dtd = base / "comps" / SYSTEM
+    if dtd.is_file():
+        try:
+            dtd_issues = comment_issues(dtd.read_text(encoding="utf-8"))
+        except OSError as err:
+            print(f"comps_lint: {err}", file=sys.stderr)
+            return 2
+        total += dump(dtd, dtd_issues)
     return report("comps_lint", total)
 
 
