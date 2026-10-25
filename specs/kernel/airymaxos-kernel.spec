@@ -300,6 +300,10 @@ grep -qE '^CONFIG_RTW89_8852BE=[ym]$' %{ksrc}/.config
 # 显示通路门禁（真机缺陷 D-06/D-08）：没有 i915/xe 时，simpledrm 是唯一
 # 能提供 /dev/dri 的驱动，merge_config 若因依赖不满足把这两项丢掉，
 # 装机后桌面会退到 efifb 且无法再被发现。
+# CONFIG_DRM 也要守：DRM_SIMPLEDRM 是 tristate 且 depends on DRM，base
+# defconfig 里 DRM=m 时 =y 会被静默压成 =m，simpledrm 又因缺 modalias
+# 无法被 udev 加载，等于整条显示通路失效。
+grep -qx 'CONFIG_DRM=y' %{ksrc}/.config
 grep -qx 'CONFIG_SYSFB_SIMPLEFB=y' %{ksrc}/.config
 grep -qx 'CONFIG_DRM_SIMPLEDRM=y' %{ksrc}/.config
 %endif
