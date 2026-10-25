@@ -228,22 +228,24 @@ done
 #    grub.cfg 即生效，无需删除或改写上游脚本。
 #
 #    本 ks 走 UEFI + BIOS 双栈（见 bootloader 行），两条腿的 grub 配置
-#    目录不同：UEFI 在 ESP，BIOS 在 /boot/grub2。按落盘事实分支，BIOS 腿
-#    不得触发任何 EFI 断言（0.0.3 装机曾在 BIOS 腿误报 efi-grub-dir）。
+#    目录不同：UEFI 在 ESP，BIOS 在 /boot/grub2。判据只能是 grub.cfg 是否
+#    落盘，不能是目录是否存在：双栈声明了 part /boot/efi，BIOS 装机同样会
+#    创建空的 /boot/efi/EFI/<vendor>（实测 openEuler 目录为空，无 grub.cfg），
+#    以目录存在作为 UEFI 判据会让 BIOS 腿误报 efi-grub-dir（D-27）。
+#    两腿的 grub 前缀都落在 /boot/grub2（grub.cfg 里的 prefix 指向该目录），
+#    因此它存在时即唯一落点；仅当它缺失时才退回 ESP 内的配置。
 grub_dir=
-if [ -d /boot/efi/EFI ]; then
+if [ -f /boot/grub2/grub.cfg ]; then
+    grub_dir=/boot/grub2
+else
     for d in /boot/efi/EFI/*; do
         if [ -f "${d}/grub.cfg" ]; then
             grub_dir="${d}"
             break
         fi
     done
-    [ -n "${grub_dir}" ] || fail efi-grub-dir
-elif [ -f /boot/grub2/grub.cfg ]; then
-    grub_dir=/boot/grub2
-else
-    fail grub-cfg-missing
 fi
+[ -n "${grub_dir}" ] || fail grub-cfg-missing
 
 # 分辨率只做引导期一次选择：1.x 无 KMS，运行期改不了模式，因此把候选
 # 列表写在 /etc/default/grub，以 auto 兜底不认识的固件。
