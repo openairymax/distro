@@ -144,7 +144,7 @@ class KernelSpecTest(unittest.TestCase):
 
     def test_localversion(self):
         self.assertIn('CONFIG_LOCALVERSION="%{kernel_local}"', self.text)
-        self.assertIn("%global kernel_local -agentrt", self.text)
+        self.assertIn("%global kernel_local -alk", self.text)
         self.assertIn("%global kernel_release %{kernel_version}"
                       "%{kernel_local}", self.text)
 
