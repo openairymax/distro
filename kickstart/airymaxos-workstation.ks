@@ -253,6 +253,14 @@ sed -i '/^GRUB_GFXMODE=/d' /etc/default/grub
 printf 'GRUB_GFXMODE=1920x1080x32,1680x1050x32,1600x900x32,1280x1024x32,1024x768x32,auto\n' \
     >>/etc/default/grub
 
+# grub 2.12 的 00_header 只认 GRUB_TERMINAL_INPUT/OUTPUT，不认旧变量
+# GRUB_TERMINAL；anaconda 写下的 GRUB_TERMINAL="serial console" 在该版本
+# 是死配置。gfxterm 不在输出终端列表里时，00_header 整段不生成 gfxmode，
+# 上面的字体与 GFXMODE 都无从生效（D-28）。这里显式声明输出终端：原生
+# console、串口、gfxterm 依次追加，任一不可用只影响它自己。
+sed -i '/^GRUB_TERMINAL_OUTPUT=/d' /etc/default/grub
+printf 'GRUB_TERMINAL_OUTPUT="console serial gfxterm"\n' >>/etc/default/grub
+
 if [ -f /usr/share/grub/unicode.pf2 ]; then
     # 两条腿都把字体放进 ${grub_dir}/fonts：00_header 的 loadfont 是
     # gfxmode 段落的前置条件，缺字体则整段被跳过。
