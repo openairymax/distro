@@ -455,10 +455,13 @@ sum_ok()
         { printf 'sha256 filename mismatch\n' >&2; return 1; }
 }
 
+# 完整性校验只依赖 ISO 本身，与是否执行装机段无关。此前把 --skip-install
+# 一并当成跳过理由，导致「只出镜像不装机」的常用路径连 sha256 都不核，
+# 产物一旦损坏要等到装机现场才暴露。
 stage_sum()
 {
-    if [ "${SKIP_INSTALL}" -eq 1 ]; then
-        tap_skip 4 "iso checksum" "install skipped"
+    if [ -z "${ISO}" ] || [ ! -f "${ISO}" ]; then
+        tap_skip 4 "iso checksum" "no iso"
         ROWS+=("checksum=skip")
         return 0
     fi
