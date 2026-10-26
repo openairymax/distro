@@ -27,9 +27,10 @@ SCRIPT = (Path(__file__).resolve().parents[2] / "ci" / "fixture" /
 BOOT_STATE = Path(__file__).resolve().parents[2] / "desktop" / "boot_state.sh"
 BASH = shutil.which("bash") or "/bin/bash"
 
-PLAN = "TAP version 14\n1..5\n"
-GOOD = PLAN + "".join(f"ok {n} - probe {n}\n" for n in range(1, 6))
-PASS = GOOD + "# summary: pass=5 fail=0\n"
+PROBES = 9
+PLAN = f"TAP version 14\n1..{PROBES}\n"
+GOOD = PLAN + "".join(f"ok {n} - probe {n}\n" for n in range(1, PROBES + 1))
+PASS = GOOD + f"# summary: pass={PROBES} fail=0\n"
 CHAIN = ("graphical.target @7.178s\n"
          "└─multi-user.target @7.178s\n"
          "  └─lightdm.service @6.976s +201ms\n")
@@ -201,8 +202,11 @@ class SmokeReportTest(unittest.TestCase):
 
     def test_rejects_bad_tap(self):
         cases = {
-            "missing probe": PASS.replace("ok 5 - probe 5\n", ""),
-            "short plan": PASS.replace("1..5", "1..4"),
+            "missing probe": PASS.replace(
+                f"ok {PROBES} - probe {PROBES}\n", ""),
+            "short plan": PASS.replace(f"1..{PROBES}", f"1..{PROBES - 1}"),
+            "duplicate probe": PASS.replace("ok 3 - probe 3",
+                                            "ok 2 - probe 3"),
             "skip": PASS.replace("# summary", "# SKIP probe\n# summary"),
             "bail": PASS.replace("ok 2 - probe 2", "Bail out! no display"),
             "fail count": PASS.replace("fail=0", "fail=1"),
