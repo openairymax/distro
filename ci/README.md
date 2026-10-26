@@ -1,7 +1,7 @@
 # ci — 组合冒烟矩阵
 
 > 目标：每一次"桌面包组 × 内核 RPM"的冻结点滚动/内核指针推进，
-> 都经过同一套可重复的五项最低验收。
+> 都经过同一套可重复的九项最低验收。
 
 ## 冒烟矩阵
 
@@ -12,6 +12,10 @@
 | T3 | PulseAudio 音频栈 | `pactl info` 握手成功（套接字激活的端到端路径） | 冻结点音频基线（无 PipeWire） |
 | T4 | 桌面隔离 slice | `user@UID.service` 落入 `airymax-desktop.slice`；slice active；CPUWeight=50、IOWeight=50、TasksMax 有限 | R1-04 桌面低干扰 |
 | T5 | 内置壁纸 | `org.mate.background picture-filename` 指向内置路径；图像 sha256 与发行资产一致（图像缺失或 schema 缺失均判失败） | 0.0.3 品牌桌面基线 |
+| T6 | 内核归属 | `uname -r` 带 `-alk` 后缀；`/boot` 的 vmlinuz/config/System.map 齐全；`CONFIG_LOCALVERSION` 与 `CONFIG_SECURITY_AIRY` 一致 | 产品内核不可被上游内核顶替 |
+| T7 | LSM 注册表 | `airy` 在 `/sys/kernel/security/lsm` 中只登记一次；`airy_lockdown` 在位 | 补充钩子不得重复注册 |
+| T8 | 主机名 | `/etc/hostname` 为配方值（workstation 剖面 `airymaxos`），不是安装器缺省名 | 品牌身份随装机落地 |
+| T9 | 发行版品牌 | `/etc/os-release` 的 `NAME=AirymaxOS`、`ID=airymaxos`、`PRETTY_NAME` 前缀与语义化 `VERSION_ID` 同时成立 | 发行版标识 SSoT 生效 |
 | X1 | 内核仓反向门禁 | kernel CI 持续拒绝 Qt/X11/Wayland 头依赖与 KABI 白名单外变更（由 agent-linux CI 承担，此处仅交叉核对报告） | 双向不污染 |
 
 ## 矩阵维度
@@ -95,7 +99,7 @@ ci/run-image-ci.sh --out /out --iso-base /path/netinst.iso \
 关键链只在此处采集：验收安装 `%post` 已 mask `airymax-desktop-ready.service`，
 同一观测点不设第二个判定者，`osaccrt_bootchain` 据此对账 `boot.service`。
 
-判定要求计划为 `1..5`、五条 `ok`、无 `not ok`/`Bail out!`/`# SKIP`、
+判定要求计划为 `1..9`、九条 `ok`、无 `not ok`/`Bail out!`/`# SKIP`、
 `# summary` 的 `fail=0`。会话内 runner 上限 180s，
 report 轮询上限 240s；由于转发先于结论标记，宿主机命中
 `AIRYMAX-SMOKE-PASS` 时 TAP 全文已在串口，`image-ci.yml` 的
