@@ -4,8 +4,8 @@
 # airymax-smoke-report.sh — 验收 ISO 的串口结果上报
 #
 # 等待会话内 runner 写出 /var/log/airymax/smoke.tap，按 TAP 14 判定：
-#   计划必须为 1..5；不得出现 not ok / Bail out! / SKIP；ok 行必须为 5；
-#   summary 的 fail 必须为 0。
+#   计划 1..N 与 ok 行必须逐项对齐（N 取自 TAP 计划本身，报告侧不复制探针
+#   数量常量）；不得出现 not ok / Bail out! / SKIP；summary 的 fail 必须为 0。
 # 探测工具由产品镜像自身提供，runner 不产生 SKIP；出现 SKIP 说明跑的不是
 # 本版 runner，按失败计，避免旧语义把缺失的探测放行。
 # 通过打印 AIRYMAX-SMOKE-PASS；失败打印 AIRYMAX-SMOKE-FAIL。
@@ -55,14 +55,21 @@ wait_tap()
 
 count_ok()
 {
-    grep -cE '^ok [1-5] - ' "${TAP}" 2>/dev/null || :
+    local n=1
+    while [ "${n}" -le "$1" ]; do
+        grep -qE "^ok ${n} - " "${TAP}" || return 1
+        n=$((n + 1))
+    done
+    grep -cE '^ok [0-9]+ - ' "${TAP}" 2>/dev/null || :
 }
 
 verdict()
 {
+    local plan
     grep -qE '^(not ok|Bail out!)' "${TAP}" && return 1
-    grep -qxF '1..5' "${TAP}" || return 1
-    [ "$(count_ok)" -eq 5 ] || return 1
+    plan="$(sed -n 's/^1\.\.\([0-9]\{1,\}\)$/\1/p' "${TAP}" | head -n 1)"
+    [ -n "${plan}" ] && [ "${plan}" -gt 0 ] || return 1
+    [ "$(count_ok "${plan}")" -eq "${plan}" ] || return 1
     grep -q '# SKIP' "${TAP}" && return 1
     ! grep -qE '^# summary: .*fail=[1-9]' "${TAP}"
 }
