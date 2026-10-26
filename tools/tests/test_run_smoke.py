@@ -4,10 +4,10 @@
 # test_run_smoke.py — ci/run-smoke.sh 契约回归测试
 #
 # 冒烟脚本必须在已登录的 UKUI 桌面会话内运行，CI 宿主机不具备该环境。
-# 脚本对外契约是：TAP 14 计划、七项探测的判定，以及“探测工具缺失即失败”
+# 脚本对外契约是：TAP 14 计划、九项探测的判定，以及“探测工具缺失即失败”
 # 的退出码规则。这里用 PATH 沙箱提供伪 loginctl /
 # pgrep / xdpyinfo / fcitx-remote / pactl / systemctl / gsettings /
-# sha256sum / uname，并给 T6/T7 准备一份只读系统视图（AIRYMAX_SMOKE_ROOT），
+# sha256sum / uname，并给 T6–T9 准备一份只读系统视图（AIRYMAX_SMOKE_ROOT），
 # 每个用例只破坏一个前提，从而在无桌面环境下判定真实控制流。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
@@ -32,6 +32,12 @@ LEGACY = ("tauri", "webkitwebprocess", "fcitx5", "pipewire",
 # 用户态可见的发行版内核版本；T6 以 -alk 后缀区分产品内核与上游内核。
 KREL = "6.6.157-alk"
 LSM_LIST = "airy_lockdown,lockdown,capability,yama,airy,selinux"
+HOSTNAME = "airymaxos"
+OS_RELEASE = ('NAME="AirymaxOS"\n'
+              'VERSION="0.0.3 (OpenAirymax)"\n'
+              "ID=airymaxos\n"
+              'VERSION_ID="0.0.3"\n'
+              'PRETTY_NAME="AirymaxOS 0.0.3 (OpenAirymax)"\n')
 
 
 class RunSmokeTest(unittest.TestCase):
@@ -47,7 +53,7 @@ class RunSmokeTest(unittest.TestCase):
         self._tmp.cleanup()
 
     def make_sysroot(self):
-        """构造 T6/T7 读取的只读视图：/boot 三件套与 LSM 注册表。"""
+        """构造 T6–T9 读取的只读视图：/boot 三件套、LSM 注册表、产品标识。"""
         boot = self.sysroot / "boot"
         boot.mkdir(parents=True)
         (boot / f"vmlinuz-{KREL}").write_bytes(b"vmlinuz\n")
@@ -56,6 +62,18 @@ class RunSmokeTest(unittest.TestCase):
         (boot / f"System.map-{KREL}").write_text(
             "ffffffff81000000 T start_kernel\n", encoding="utf-8")
         self.write_lsm(LSM_LIST)
+        self.write_product(HOSTNAME, OS_RELEASE)
+
+    def write_product(self, hostname, os_release):
+        etc = self.sysroot / "etc"
+        etc.mkdir(parents=True, exist_ok=True)
+        (etc / "hostname").write_text(f"{hostname}\n", encoding="utf-8")
+        self.write_osrel(os_release)
+
+    def write_osrel(self, body):
+        path = self.sysroot / "etc" / "os-release"
+        path.write_text(body, encoding="utf-8")
+        return path
 
     def write_boot(self, kind, body):
         path = self.sysroot / "boot" / f"{kind}-{KREL}"
@@ -121,9 +139,9 @@ class RunSmokeTest(unittest.TestCase):
         self.tools()
         res = self.run_smoke()
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res), {"pass": 7, "fail": 0})
+        self.assertEqual(self.summary(res), {"pass": 9, "fail": 0})
         self.assertNotIn("# SKIP", res.stdout)
-        self.assertEqual(len(self.taps(res)), 7)
+        self.assertEqual(len(self.taps(res)), 9)
         for line in self.taps(res):
             self.assertTrue(line.startswith("ok"), line)
 
@@ -131,7 +149,7 @@ class RunSmokeTest(unittest.TestCase):
         self.tools()
         res = self.run_smoke()
         self.assertIn("TAP version 14", res.stdout)
-        self.assertIn("1..7", res.stdout.splitlines())
+        self.assertIn("1..9", res.stdout.splitlines())
         self.assertIn(
             "# AirymaxOS distro smoke: target=airymaxos-0.0.3", res.stdout)
 
@@ -238,7 +256,7 @@ class RunSmokeTest(unittest.TestCase):
         finally:
             timer.cancel()
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res), {"pass": 7, "fail": 0})
+        self.assertEqual(self.summary(res), {"pass": 9, "fail": 0})
 
     def test_slice_wrong(self):
         self.tools()
@@ -298,11 +316,10 @@ class RunSmokeTest(unittest.TestCase):
         self.tools(omit=("loginctl",))
         res = self.run_smoke()
         self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res), {"pass": 6, "fail": 1})
+        self.assertEqual(self.summary(res), {"pass": 8, "fail": 1})
         self.assert_fail(res, 1)
         self.assertIn("loginctl not installed", res.stdout)
         self.assertNotIn("# SKIP", res.stdout)
-
 
     def test_kernel_not_alk(self):
         self.tools()
@@ -348,6 +365,45 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke()
         self.assert_fail(res, 7)
         self.assertIn("lsm registry unreadable", res.stdout)
+
+    def test_hostname_default(self):
+        self.tools()
+        # 安装器缺省名（localhost.localdomain）说明配方没写 hostname。
+        self.write_product("localhost.localdomain", OS_RELEASE)
+        res = self.run_smoke()
+        self.assert_fail(res, 8)
+        self.assertIn("hostname: localhost.localdomain (want airymaxos)",
+                      res.stdout)
+
+    def test_hostname_absent(self):
+        self.tools()
+        (self.sysroot / "etc" / "hostname").unlink()
+        res = self.run_smoke()
+        self.assert_fail(res, 8)
+        self.assertIn("/etc/hostname unreadable", res.stdout)
+
+    def test_brand_name_wrong(self):
+        self.tools()
+        self.write_osrel(OS_RELEASE.replace('NAME="AirymaxOS"',
+                                            'NAME="openEuler"'))
+        res = self.run_smoke()
+        self.assert_fail(res, 9)
+        self.assertIn("os-release NAME: openEuler", res.stdout)
+
+    def test_brand_version_not_semver(self):
+        self.tools()
+        self.write_osrel(OS_RELEASE.replace('VERSION_ID="0.0.3"',
+                                            'VERSION_ID="rolling"'))
+        res = self.run_smoke()
+        self.assert_fail(res, 9)
+        self.assertIn("os-release VERSION_ID: rolling", res.stdout)
+
+    def test_brand_absent(self):
+        self.tools()
+        (self.sysroot / "etc" / "os-release").unlink()
+        res = self.run_smoke()
+        self.assert_fail(res, 9)
+        self.assertIn("/etc/os-release unreadable", res.stdout)
 
 
 if __name__ == "__main__":
