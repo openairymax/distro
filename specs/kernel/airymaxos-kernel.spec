@@ -63,7 +63,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.3
-%global airy_release 5
+%global airy_release 6
 %global kernel_version 6.6.157
 %global kernel_local -alk
 %global kernel_release %{kernel_version}%{kernel_local}
@@ -385,6 +385,14 @@ depmod -a %{kernel_release}
 %endif
 
 %changelog
+* Mon Oct 26 2026 SPHARX <dev@spharx.com> - 0.0.3-6
+- security/airy：AIRY_KUNIT 依赖收紧为 KUNIT=y。该符号是 bool，会把测试
+  目标直接链入 vmlinux；原先 depends on KUNIT 在 KUNIT=m 时仍成立，
+  allmodconfig 遂把测试目标建入 vmlinux 而 KUnit 核心留在 kunit.ko，
+  vmlinux 链接因 kunit_* 未定义引用失败
+- kernel/corekern/memory：删除未被调用且无原型的 airy_mem_tier_of() 及其
+  从未被读取的分层表 airy_mem_tier_shift[]；clang -Werror 下该内部声明
+  不可省略。分配路径走 GFP_KERNEL 从不咨询层级，故连同 Kbuild 项移除
 * Sun Oct 25 2026 SPHARX <dev@spharx.com> - 0.0.3-5
 - security/airy：补充钩子改由 airy_init() 与核心钩子表相邻注册，修复
   /sys/kernel/security/lsm 中 "airy" 被登记两次的问题。security_add_hooks()
