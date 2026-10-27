@@ -48,6 +48,35 @@ sudo ./airy-flash.sh write --iso out/…iso --target /dev/sdb
 `--dry-run` 把校验与守卫跑完就停，不进 `confirm`、不要求 root，适合
 在发布前预演目标机上的判定结果。
 
+### 3.1 输出结构
+
+输出按「段」组织，每段一个判定对象，段内固定两列（`key` 与 `value`，
+键宽 11 列对齐），段末固定一行 `verdict`：
+
+```
+== candidates ==
+  idx  device         size       bus   rm  model
+  #1   /dev/sda       931.51 GiB sata  0   Samsung SSD 870 EVO
+       refused   系统盘（承载 /dev/sda2）
+  #2   /dev/sdb       28.67 GiB  usb   1   Ultra Fit
+       ready     可写入
+  verdict     ok (ready 1 / fixed 0 / refused 1)
+```
+
+约定三条：
+
+- 段名固定为 `image` / `candidates` / `target` / `write` / `verify`，
+  同一个子命令的段落顺序固定，便于 `awk` 取字段与人工扫读对照；
+- 段内其余行只陈述事实、不下结论；只要该段做了判定，最后一行就是
+  `verdict`，取值 `ok …` 或 `fail …`。
+- 整个子命令成功时，末尾再打一行 `airy-flash: pass`；失败一律走
+  `stderr` 并以非 0 退出码结束，不出现「看起来成功但退出码非 0」的
+  组合。
+
+`candidates` 段的 `size` 与其他段一样取 `blockdev --getsize64` 再换算，
+与 `target` 段的 `bytes` 同源；`lsblk` 自带的 `28.7G` 只在 `blockdev`
+不可用时回退使用。
+
 ## 4. 守卫
 
 | 守卫 | 判定依据 | 退出码 |

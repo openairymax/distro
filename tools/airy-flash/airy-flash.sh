@@ -60,6 +60,7 @@ ROOTDEV=""
 WRITE_S=0
 VERIFY="skipped"
 WLOG=""
+KIND=""
 
 usage()
 {
@@ -231,11 +232,13 @@ check_iso()
     fi
     if [ -z "${want}" ]; then
         say expect "未提供（--expect 或同名 .sha256）"
+        say verdict "ok (结构通过，摘要未核对)"
         return 0
     fi
     [ "${want}" = "${ISO_SHA}" ] || die "${E_MISMATCH}" \
         "镜像摘要不符：实际 ${ISO_SHA}，期望 ${want}"
     say expect "${want} (matched)"
+    say verdict "ok (结构与摘要均通过)"
 }
 
 dev_facts()
@@ -293,6 +296,7 @@ guard_target()
         "目标不是 USB 介质，确认后加 --allow-fixed: ${DEV_PATH}"
     [ "${DEV_BYTES}" -ge "${ISO_BYTES}" ] || die "${E_REFUSE}" \
         "目标容量 $(human "${DEV_BYTES}") 小于镜像 $(human "${ISO_BYTES}")"
+    say verdict "ok (未挂载、非系统盘、容量足够)"
 }
 
 confirm()
@@ -325,6 +329,7 @@ do_write()
     WRITE_S=${SECONDS}
     [ "${rc}" -eq 0 ] || die "${E_IO}" "写入失败 rc=${rc}，日志 ${WLOG}"
     say wrote "$(human "${ISO_BYTES}") in ${WRITE_S}s"
+    say verdict "ok (dd rc=0，待回读确认)"
 }
 
 do_verify()
@@ -368,17 +373,25 @@ write_rec()
     say record "${rec}"
 }
 
+plan_head()
+{
+    printf '  %-4s %-14s %-10s %-5s %-3s %s\n' \
+        "idx" "device" "size" "bus" "rm" "model"
+}
+
 plan_line()
 {
-    printf '  #%-2s %-14s %-9s %-4s %-4s %s\n' "$1" "$2" "$3" "$4" "$5" "$6"
-    printf '      %-8s %s\n' "$8" "$7"
+    printf '  #%-3s %-14s %-10s %-5s %-3s %s\n' "$1" "$2" "$3" "$4" "$5" "$6"
+    printf '       %-9s %s\n' "$8" "$7"
 }
 
 plan_one()
 {
-    local n="$1" path="$2" size tran rm model mounts note kind
+    local n="$1" path="$2" raw size tran rm model mounts note kind
 
+    raw="$(blockdev --getsize64 "${path}" 2>/dev/null)"
     size="$(blk_get "${path}" SIZE)"
+    [ -z "${raw}" ] || size="$(human "${raw}")"
     tran="$(blk_get "${path}" TRAN)"
     rm="$(blk_get "${path}" RM)"
     model="$(blk_get "${path}" MODEL)"
@@ -396,26 +409,34 @@ plan_one()
         kind="fixed"
         note="内置介质，需 --allow-fixed"
     fi
+    KIND="${kind}"
     plan_line "${n}" "${path}" "${size}" "${tran:-—}" "${rm:-0}" \
         "${model}" "${note}" "${kind}"
 }
 
 do_plan()
 {
-    local n=0 path
+    local n=0 ready=0 fixed=0 refused=0 path
 
     command -v lsblk >/dev/null 2>&1 ||
         die "${E_ENV}" "缺少 lsblk（util-linux）"
     ROOTDEV="$(findmnt -nro SOURCE / 2>/dev/null)"
     sect "candidates"
+    plan_head
     while read -r path; do
         [ -n "${path}" ] || continue
         n=$((n + 1))
         plan_one "${n}" "${path}"
+        case "${KIND}" in
+        ready) ready=$((ready + 1)) ;;
+        fixed) fixed=$((fixed + 1)) ;;
+        *) refused=$((refused + 1)) ;;
+        esac
     done < <(lsblk -dnrPo PATH,TYPE 2>/dev/null |
         awk -F'"' '$4 == "disk" { print $2 }')
 
     [ "${n}" -gt 0 ] || die "${E_ENV}" "未发现可用磁盘（lsblk 无输出）"
+    say verdict "ok (ready ${ready} / fixed ${fixed} / refused ${refused})"
 }
 
 optarg()
