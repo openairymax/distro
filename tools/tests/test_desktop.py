@@ -55,6 +55,8 @@ ASSETS = (
     ("desktop/user@.service.d/50-airymax-desktop.conf",
      "%{_sysconfdir}/systemd/system/user@.service.d/"
      "50-airymax-desktop.conf"),
+    ("desktop/journald.conf.d/50-airymax-journald.conf",
+     "%{_sysconfdir}/systemd/journald.conf.d/50-airymax-journald.conf"),
     ("desktop/wallpaper/airymaxos-default.xml",
      "%{_datadir}/ukui-background-properties/airymaxos-default.xml"),
     ("desktop/glib-2.0/schemas/99-airymaxos-default.gschema.override",
