@@ -52,6 +52,8 @@ ASSETS = (
      "%{_sysconfdir}/grub.d/01_airymax_display"),
     ("desktop/autostart/airymax-input-method.desktop",
      "%{_sysconfdir}/xdg/autostart/airymax-input-method.desktop"),
+    ("desktop/autostart/airymax-display.desktop",
+     "%{_sysconfdir}/xdg/autostart/airymax-display.desktop"),
     ("desktop/user@.service.d/50-airymax-desktop.conf",
      "%{_sysconfdir}/systemd/system/user@.service.d/"
      "50-airymax-desktop.conf"),

@@ -317,6 +317,9 @@ t10_display() {
         echo "${script} not installed"
         return 1
     }
+    # 会话内的收敛是并发的有界过程（xinitrc.d 钩子 + autostart），本探测
+    # 同样等待到同一个上界再判定，避免把「尚未收敛」误判成「策略失效」。
+    retry "${START_WAIT}" "${script}" --check && return 0
     "${script}" --check
 }
 
