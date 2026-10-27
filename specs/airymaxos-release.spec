@@ -35,7 +35,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.3
-%global airy_release 3
+%global airy_release 4
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 
 Name:           airymaxos-release
@@ -65,6 +65,7 @@ Source15:       boot_state.sh
 Source16:       50-airymax-sshd.conf
 Source17:       display_mode.sh
 Source18:       60-airymax-display.sh
+Source19:       01_airymax_display
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -128,6 +129,10 @@ install -m 0755 %{SOURCE8} \
     %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/70-airymax-im.sh
 install -m 0755 %{SOURCE18} \
     %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/60-airymax-display.sh
+
+install -d -m 0755 %{buildroot}%{_sysconfdir}/grub.d
+install -m 0755 %{SOURCE19} \
+    %{buildroot}%{_sysconfdir}/grub.d/01_airymax_display
 
 install -d -m 0755 %{buildroot}%{_sysconfdir}/xdg/autostart
 install -m 0644 %{SOURCE9} \
@@ -193,6 +198,16 @@ sh -n %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/60-airymax-display.sh
 # awk 解析若随 xrandr 输出格式漂移而失效，这里而不是装机现场暴露。
 airy_plan=$(printf 'Screen 0: minimum 8 x 8, current 3840 x 2160, maximum 32767 x 32767\neDP-1 connected primary 3840x2160+0+0 (normal) 344mm x 194mm\n   3840x2160     60.00*+\n   1920x1080     60.00\n' | %{buildroot}/usr/lib/airymaxos/desktop/display_mode.sh --plan)
 test "${airy_plan}" = 'eDP-1 3840x2160 1920x1080'
+# 引导期分辨率：这段必须无条件落 gfxmode 与 gfxterm。openEuler 的 00_header
+# 把三行塞进 loadfont 成功的分支，字体缺失时整段静默跳过（D-28），所以这里
+# 断言的是「我们输出的内容」，不是 cfg 里存在某条 gfxmode。
+sh -n %{buildroot}%{_sysconfdir}/grub.d/01_airymax_display
+airy_grub=$(%{buildroot}%{_sysconfdir}/grub.d/01_airymax_display)
+printf '%s\n' "${airy_grub}" |
+    grep -qxF '  set gfxmode=1920x1080,1680x1050,1600x900,1280x1024,1024x768,auto'
+printf '%s\n' "${airy_grub}" | grep -qxF '  terminal_output gfxterm'
+printf '%s\n' "${airy_grub}" | grep -qxF '  insmod gfxterm'
+printf '%s\n' "${airy_grub}" | grep -qF 'grub_platform'
 grep -qxF 'Exec=/usr/bin/fcitx' \
     %{buildroot}%{_sysconfdir}/xdg/autostart/airymax-input-method.desktop
 grep -qxF 'Slice=airymax-desktop.slice' \
@@ -229,6 +244,7 @@ fi
 %config(noreplace) %{_sysconfdir}/ssh/sshd_config.d/50-airymax-sshd.conf
 %config(noreplace) %{_sysconfdir}/X11/xinit/xinitrc.d/70-airymax-im.sh
 %config(noreplace) %{_sysconfdir}/X11/xinit/xinitrc.d/60-airymax-display.sh
+%config(noreplace) %{_sysconfdir}/grub.d/01_airymax_display
 %config(noreplace) %{_sysconfdir}/xdg/autostart/airymax-input-method.desktop
 %config(noreplace) %{_sysconfdir}/systemd/system/user@.service.d/50-airymax-desktop.conf
 %{_unitdir}/airymax-desktop.slice
@@ -243,6 +259,17 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Tue Oct 27 2026 SPHARX <dev@spharx.com> - 0.0.3-4
+- Ship /etc/grub.d/01_airymax_display: openEuler's 00_header puts
+  gfxmode, load_video and gfxterm inside the loadfont branch, so a
+  missing unicode.pf2 skips the whole block and the console stays at the
+  firmware default (800x600 on the B50 test unit). The new fragment runs
+  right after 00_header and sets gfxmode and gfxterm unconditionally on
+  EFI; the ladder drops the x32 suffix because some GOP implementations
+  reject every depth-qualified candidate and fall back to auto
+- %check runs the fragment and asserts the exact lines it emits, so a
+  silently skipped block fails the build instead of the installed system
+
 * Tue Oct 27 2026 SPHARX <dev@spharx.com> - 0.0.3-3
 - Ship display_mode.sh and its xinitrc.d hook: each connected output is
   capped at 1920x1200 and falls back to a common-resolution ladder, so a

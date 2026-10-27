@@ -1,0 +1,31 @@
+#!/bin/sh
+# SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
+# ===========================================================================
+# 01_airymax_display — 引导期图形终端与分辨率的无条件落定
+#
+# 部署：airymaxos-release 包安装到 /etc/grub.d/01_airymax_display。
+# 时机：grub2-mkconfig 按文件名顺序拼接 /etc/grub.d/*，本文件紧接
+#       00_header，因此可以覆盖 00_header 写下的 gfxmode 段落。
+#
+# 为什么不能只依赖 GRUB_GFXMODE：openEuler 的 grub2 把
+# feature_default_font_path 置为 y，00_header 于是走 `font=unicode` 分支。
+# loadfont 一旦失败，`set gfxmode`、`load_video`、`insmod gfxterm` 三行
+# 整段被跳过，gfxterm 未加载则后面的 terminal_output gfxterm 也失败，
+# 菜单与 efifb 一起停在固件默认模式。B50 实测该路径下只有 800x600，
+# 而 /etc/default/grub 与 grub.cfg 里的候选列表都是齐的——断言看得见
+# 文本，看不见生效，正是这个盲区。
+#
+# 模式串不写 x32：GOP 对位深的要求因固件而异，带位深的候选在某些固件上
+# 全部匹配失败，反而退到 auto。末尾保留 auto 作为未知固件的兜底。
+# ===========================================================================
+
+exec 2>/dev/null
+
+cat <<'EOF'
+if [ "${grub_platform}" = "efi" ] ; then
+  insmod all_video
+  insmod gfxterm
+  set gfxmode=1920x1080,1680x1050,1600x900,1280x1024,1024x768,auto
+  terminal_output gfxterm
+fi
+EOF
