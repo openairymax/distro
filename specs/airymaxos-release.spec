@@ -40,7 +40,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.3
-%global airy_release 9
+%global airy_release 10
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 
 Name:           airymaxos-release
@@ -76,6 +76,7 @@ Source21:       airymaxos-efi-brand.service
 Source22:       90-airymax-sudoers
 Source23:       00-airymax-screensaver
 Source24:       50-airymax-journald.conf
+Source25:       airymax-display.desktop
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -173,6 +174,8 @@ install -m 0644 %{SOURCE21} \
 install -d -m 0755 %{buildroot}%{_sysconfdir}/xdg/autostart
 install -m 0644 %{SOURCE9} \
     %{buildroot}%{_sysconfdir}/xdg/autostart/airymax-input-method.desktop
+install -m 0644 %{SOURCE25} \
+    %{buildroot}%{_sysconfdir}/xdg/autostart/airymax-display.desktop
 
 install -d -m 0755 %{buildroot}%{_sysconfdir}/systemd/system/user@.service.d
 install -m 0644 %{SOURCE12} \
@@ -254,6 +257,12 @@ grep -qxF 'lock-enabled=false' "${airy_saver}"
 sh -n %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/70-airymax-im.sh
 sh -n %{buildroot}/usr/lib/airymaxos/desktop/display_mode.sh
 sh -n %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/60-airymax-display.sh
+# 收敛入口有两个：早期钩子与会话就绪后的 autostart。任一处丢失都会退回
+# 「一次性写入」，而那正是 T10 在验收基线上失败的形态，因此两处分别断言。
+grep -qF -- '--settle 10' \
+    %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/60-airymax-display.sh
+grep -qxF 'Exec=/usr/lib/airymaxos/desktop/display_mode.sh --settle 30' \
+    %{buildroot}%{_sysconfdir}/xdg/autostart/airymax-display.desktop
 # 分辨率策略在构建期以合成拓扑跑一遍：首选 4K 必须被降到 1920x1080。
 # awk 解析若随 xrandr 输出格式漂移而失效，这里而不是装机现场暴露。
 airy_plan=$(printf 'Screen 0: minimum 8 x 8, current 3840 x 2160, maximum 32767 x 32767\neDP-1 connected primary 3840x2160+0+0 (normal) 344mm x 194mm\n   3840x2160     60.00*+\n   1920x1080     60.00\n' | %{buildroot}/usr/lib/airymaxos/desktop/display_mode.sh --plan)
@@ -338,6 +347,7 @@ fi
 %config(noreplace) %{_sysconfdir}/X11/xinit/xinitrc.d/60-airymax-display.sh
 %config(noreplace) %{_sysconfdir}/grub.d/01_airymax_display
 %config(noreplace) %{_sysconfdir}/xdg/autostart/airymax-input-method.desktop
+%config(noreplace) %{_sysconfdir}/xdg/autostart/airymax-display.desktop
 %config(noreplace) %{_sysconfdir}/systemd/system/user@.service.d/50-airymax-desktop.conf
 %config(noreplace) %{_sysconfdir}/systemd/journald.conf.d/50-airymax-journald.conf
 %{_unitdir}/airymax-desktop.slice
@@ -354,6 +364,15 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Tue Oct 27 2026 SPHARX <dev@spharx.com> - 0.0.3-10
+- Converge the display mode instead of writing it once: the xinitrc.d hook
+  runs before the virtual output publishes a connected topology, and ukui's
+  settings daemon re-applies the panel maximum after the session is up.
+  Acceptance run 40574831975 failed T10 with Virtual-1 at 5120x2160 against
+  a 1280x800 policy for exactly that reason
+- Add --settle with a bounded budget plus journal diagnostics, and an XDG
+  autostart entry that converges again once the session is ready
+
 * Tue Oct 27 2026 SPHARX <dev@spharx.com> - 0.0.3-9
 - Accept the autologin seat in the desktop ready probe: 50-airymax.conf
   enables autologin-user, so lightdm never creates a greeter session and
