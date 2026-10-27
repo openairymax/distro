@@ -6,8 +6,15 @@
 # 安装后的启动验收需要区分「内核起来了」与「桌面能进」。本脚本在
 # graphical.target 达成后做三级校验：先读 systemd 的失败记账，再静态确认
 # UKUI 会话定义存在且其 Exec 可执行（lightdm 的 user-session 指向它），
-# 最后检查 lightdm 单元处于 active 且存在归其所有、Class=greeter、Type=x11
-# 的活动会话。全部成立才向串口打印 AIRYMAX-DESKTOP-READY。
+# 最后检查 lightdm 单元处于 active 且存在归其所有、Type=x11 的活动会话。
+# 全部成立才向串口打印 AIRYMAX-DESKTOP-READY。
+#
+# 会话类别按交付的座位策略取并集，不钉死单一类别：50-airymax.conf 启用
+# autologin（0.0.3 的免密桌面决策），lightdm 因此跳过 greeter，直接以
+# lightdm-autologin 服务拉起 Class=user 的 X11 会话；未启用 autologin 的
+# 机器停在 Class=greeter 的 greeter 会话。两者都表示登录链已到达 X11，
+# 只认 greeter 会让启用 autologin 的镜像永远等不到就绪标记。桌面进程是否
+# 真的活着由会话内冒烟（run-smoke.sh T1）判定，本探针不做第二事实源。
 #
 # 失败记账放在最前：系统是否「正常运行」的判据是 systemd 的单元状态，而
 # 不是串口里有没有某行文本。宿主机按文本判负会与内核日志争抢截断点，
@@ -43,14 +50,16 @@ fi
 
 READY_WAIT="${AIRYMAX_READY_WAIT:-90}"
 POLL="${AIRYMAX_READY_POLL:-2}"
-GREETER_SVC="lightdm"
-GREETER_CLASS="greeter"
-GREETER_TYPE="x11"
+SESS_SVC="lightdm"
+SESS_CLASSES="greeter user"
+SESS_TYPE="x11"
+SESS_STATES="active online"
 SESSION_NAME="ukui"
 XSESSIONS_DIR="${AIRYMAX_XSESSIONS_DIR:-/usr/share/xsessions}"
 UKUI_SESSION="${XSESSIONS_DIR}/${SESSION_NAME}.desktop"
 DIAG_MAX="${AIRYMAX_DIAG_LINES:-20}"
 LDM_LOG_DIR="${AIRYMAX_LIGHTDM_LOG:-/var/log/lightdm}"
+READY_ID=""
 
 session_exec()
 {
@@ -84,23 +93,33 @@ session_key()
         "$(session_field "$1" State)"
 }
 
-# lightdm 的 greeter 走独立 PAM 服务，logind 记为 Service=lightdm-greeter，
-# 只有用户会话才记为 lightdm；判定按服务家族前缀归属，不把服务名钉死成
-# 单一字面量，四元组复用 session_key 与诊断通道保持同一事实源。
-greeter_session()
+# lightdm 的 greeter 与 autologin 走各自独立的 PAM 服务，logind 分别记为
+# Service=lightdm-greeter / lightdm-autologin，只有显式登录才记为 lightdm；
+# 判定按服务家族前缀归属，不把服务名钉死成单一字面量。类别取交付策略的
+# 并集（greeter、user），四元组复用 session_key 与诊断通道保持同一事实源。
+session_ready()
 {
-    local id key
+    local key="$1" svc cls typ state want
+
+    IFS='|' read -r svc cls typ state <<<"${key}"
+    case "${svc}" in "${SESS_SVC}"*) ;; *) return 1 ;; esac
+    [ "${typ}" = "${SESS_TYPE}" ] || return 1
+    case " ${SESS_STATES} " in *" ${state} "*) ;; *) return 1 ;; esac
+    for want in ${SESS_CLASSES}; do
+        [ "${cls}" = "${want}" ] && return 0
+    done
+    return 1
+}
+
+login_session()
+{
+    local id
 
     for id in $(loginctl list-sessions --no-legend 2>/dev/null |
                     awk '{print $1}'); do
-        key="$(session_key "${id}")"
-        case "${key}" in
-        "${GREETER_SVC}"*"|${GREETER_CLASS}|${GREETER_TYPE}|active" | \
-        "${GREETER_SVC}"*"|${GREETER_CLASS}|${GREETER_TYPE}|online")
-            printf '%s\n' "${id}"
-            return 0
-            ;;
-        esac
+        session_ready "$(session_key "${id}")" || continue
+        printf '%s\n' "${id}"
+        return 0
     done
     return 1
 }
@@ -112,8 +131,9 @@ unit_active()
 
 ready_once()
 {
-    unit_active "${GREETER_SVC}" || return 1
-    greeter_session >/dev/null || return 1
+    unit_active "${SESS_SVC}" || return 1
+    READY_ID="$(login_session)" || return 1
+    [ -n "${READY_ID}" ]
 }
 
 wait_ready()
@@ -138,13 +158,13 @@ diag_out()
 diag_unit()
 {
     systemctl show -p ActiveState -p SubState -p Result \
-        -p NRestarts -p MainPID "${GREETER_SVC}.service" 2>/dev/null |
+        -p NRestarts -p MainPID "${SESS_SVC}.service" 2>/dev/null |
         diag_out unit
 }
 
 diag_journal()
 {
-    journalctl -b -u "${GREETER_SVC}.service" -n "${DIAG_MAX}" \
+    journalctl -b -u "${SESS_SVC}.service" -n "${DIAG_MAX}" \
         -o cat --no-pager 2>/dev/null | diag_out journal
 }
 
@@ -170,7 +190,7 @@ diag_wchan()
 {
     local pid path
 
-    pid=$(systemctl show -p MainPID --value "${GREETER_SVC}.service" \
+    pid=$(systemctl show -p MainPID --value "${SESS_SVC}.service" \
         2>/dev/null)
     path="/proc/${pid}/wchan"
     [ -r "${path}" ] || return 0
@@ -199,12 +219,12 @@ main()
     fi
     if wait_ready; then
         printf 'AIRYMAX-DESKTOP-READY unit=%s class=%s type=%s\n' \
-            "${GREETER_SVC}" "${GREETER_CLASS}" "${GREETER_TYPE}"
+            "${SESS_SVC}" "$(session_field "${READY_ID}" Class)" "${SESS_TYPE}"
         return 0
     fi
     diagnose
     printf 'AIRYMAX-DESKTOP-FAIL unit=%s wait=%ss\n' \
-        "${GREETER_SVC}" "${READY_WAIT}"
+        "${SESS_SVC}" "${READY_WAIT}"
     return 1
 }
 

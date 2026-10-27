@@ -40,7 +40,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.3
-%global airy_release 8
+%global airy_release 9
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 
 Name:           airymaxos-release
@@ -227,6 +227,10 @@ grep -qxF 'WantedBy=graphical.target' \
 bash -n %{buildroot}/usr/lib/airymaxos/desktop/desktop_ready.sh
 bash -n %{buildroot}/usr/lib/airymaxos/desktop/boot_state.sh
 test -r %{buildroot}/usr/lib/airymaxos/desktop/boot_state.sh
+# 类别集合必须同时覆盖 greeter 与 autologin：座位策略启用 autologin 时
+# lightdm 不创建 greeter 会话，只认一类会让另一种镜像永远等不到就绪标记。
+grep -qxF 'SESS_CLASSES="greeter user"' \
+    %{buildroot}/usr/lib/airymaxos/desktop/desktop_ready.sh
 bash -n %{buildroot}%{_datadir}/airymaxos/distro/desktop/70-airymax-ukui-policy.sh
 grep -qxF 'user-session=ukui' \
     %{buildroot}%{_sysconfdir}/lightdm/lightdm.conf.d/50-airymax.conf
@@ -350,6 +354,18 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Tue Oct 27 2026 SPHARX <dev@spharx.com> - 0.0.3-9
+- Accept the autologin seat in the desktop ready probe: 50-airymax.conf
+  enables autologin-user, so lightdm never creates a greeter session and
+  the probe waited for a class that cannot exist. Every autologin image
+  therefore reported AIRYMAX-DESKTOP-FAIL, which the host BOOT_FAIL rule
+  treats as a boot failure -- the exact reason both firmwares failed
+  cold-boot acceptance
+- Match the service family (lightdm*), classes {greeter,user}, and
+  states {active,online} instead of pinning greeter; probe only decides
+  whether the session exists, run-smoke.sh T1 keeps deciding whether
+  ukui-session is alive
+
 * Tue Oct 27 2026 SPHARX <dev@spharx.com> - 0.0.3-8
 - Ship /etc/systemd/journald.conf.d/50-airymax-journald.conf with
   Storage=persistent: openEuler ships neither /var/log/journal nor a
