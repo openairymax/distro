@@ -14,10 +14,11 @@
 import shutil
 from pathlib import Path
 
-TOOLS = ("awk", "base64", "basename", "bash", "cat", "cmp", "cp", "date",
-         "dirname", "find", "git", "grep", "head", "mkdir", "mv", "python3",
-         "rm", "sed", "seq", "sha256sum", "sleep", "sort", "tail", "timeout",
-         "tr", "uname", "wc")
+TOOLS = ("awk", "base64", "basename", "bash", "cat", "cmp", "cp", "cut",
+         "date", "dd", "dirname", "find", "git", "grep", "head", "mkdir",
+         "mv", "od", "python3", "readlink", "rm", "sed", "seq", "sha256sum",
+         "sleep", "sort", "stat", "tail", "tee", "timeout", "tr", "uname",
+         "wc")
 
 MKKSISO = """\
 #!/bin/sh
@@ -751,6 +752,163 @@ esac
 """
 
 
+# 块层内省全部走 lsblk/blockdev/findmnt：真机上它们是 sysfs 的读取者，
+# 沙箱里用一张表复刻同一输出面。表由 FAKE_LSBLK_DB 指向，每行八列：
+#   path|type|bytes|rm|tran|serial|model|mounts（挂载点以逗号分隔）
+# 这样「分区不可写」「已挂载不可写」「系统盘不可写」「容量不足」四条
+# 守卫都能在没有 root、没有真实磁盘的机器上被驱动，而被写入的目标仍是
+# 普通文件，dd/head/sha256sum 走真实 I/O，回读比对是真比对。
+LSBLK = """\
+#!/bin/sh
+db=${FAKE_LSBLK_DB:-}
+[ -n "$db" ] && [ -r "$db" ] || {
+    printf 'lsblk: cannot open block database\\n' >&2
+    exit 1
+}
+pairs=0; disks=0; fields=""; dev=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+    --*) ;;
+    -*)
+        rest=${1#-}
+        while [ -n "$rest" ]; do
+            c=${rest%"${rest#?}"}
+            rest=${rest#?}
+            case "$c" in
+            d) disks=1 ;;
+            P) pairs=1 ;;
+            o)
+                if [ -n "$rest" ]; then
+                    fields=$rest; rest=""
+                else
+                    shift; fields=${1:-}
+                fi
+                ;;
+            esac
+        done
+        ;;
+    *) dev=$1 ;;
+    esac
+    shift
+done
+[ -n "$fields" ] || {
+    printf 'lsblk: -o 必填\\n' >&2
+    exit 1
+}
+awk -F'|' -v pairs="$pairs" -v disks="$disks" -v fields="$fields" \\
+    -v dev="$dev" '
+function human(b,   u, i) {
+    split("B K M G T", u, " ")
+    i = 1
+    while (b >= 1024 && i < 5) {
+        b /= 1024
+        i++
+    }
+    return (i == 1 ? sprintf("%d", b) : sprintf("%.1f", b)) u[i]
+}
+function val(k) {
+    if (k == "PATH") return $1
+    if (k == "TYPE") return $2
+    if (k == "SIZE") return human($3)
+    if (k == "RM") return $4
+    if (k == "TRAN") return $5
+    if (k == "SERIAL") return $6
+    if (k == "MODEL") return $7
+    return ""
+}
+function emit(where,   i, s) {
+    s = ""
+    for (i = 1; i <= n; i++)
+        s = s (i > 1 ? " " : "") f[i] "=" q \\
+            (f[i] == "MOUNTPOINT" ? where : val(f[i])) q
+    print s
+}
+BEGIN {
+    q = "\\""
+    n = split(fields, f, ",")
+    for (i = 1; i <= n; i++)
+        if (f[i] == "MOUNTPOINT")
+            hasmp = 1
+}
+$1 == "" { next }
+dev != "" && $1 != dev { next }
+# -d 是「不展开子设备」。显式给了设备时，lsblk 只打印该设备本身，
+# 分区查询（TYPE=part）必须能出结果；未给设备时才收敛到整盘。
+disks == 1 && dev == "" && $2 != "disk" { next }
+{
+    if (!pairs) {
+        line = ""
+        for (i = 1; i <= n; i++) {
+            v = f[i] == "MOUNTPOINT" ? $8 : val(f[i])
+            sub(/,.*/, "", v)
+            line = line (i > 1 ? " " : "") v
+        }
+        print line
+        next
+    }
+    if (!hasmp) {
+        emit("")
+        next
+    }
+    m = split($8, box, ",")
+    if (m == 0) {
+        emit("")
+        next
+    }
+    for (j = 1; j <= m; j++)
+        emit(box[j])
+}' "$db"
+"""
+
+BLOCKDEV = """\
+#!/bin/sh
+[ "${1:-}" = --getsize64 ] || exit 1
+db=${FAKE_LSBLK_DB:-}
+[ -n "$db" ] && [ -r "$db" ] || exit 1
+awk -F'|' -v d="${2:-}" '
+$1 == d { print $3; found = 1; exit }
+END { exit(found ? 0 : 1) }' "$db"
+"""
+
+FINDMNT = """\
+#!/bin/sh
+[ -n "${FAKE_FINDMNT_ROOT:-}" ] || exit 1
+printf '%s\\n' "$FAKE_FINDMNT_ROOT"
+"""
+
+ID = """\
+#!/bin/sh
+printf '%s\\n' "${FAKE_UID:-0}"
+"""
+
+# 只吞写入：把 of=<目标> 改指到临时文件后交给真实 dd。劣质介质返回
+# 成功却没落下数据，回读比对必须独立于 dd 的退出码，否则「写完即证」
+# 会退化成对 dd 的信任。读路径（iso_pvd/iso_mbr 读镜像头）原样透传，
+# 且落点仍是普通文件，conv=fsync 得以照常生效（/dev/null 上 fsync
+# 会返回 EINVAL，反而掩盖了真实路径）。
+DD_SWALLOW = """\
+#!/bin/sh
+real=/usr/bin/dd
+[ -x "$real" ] || real=/bin/dd
+[ -x "$real" ] || exit 127
+sink=""
+n=$#; i=0
+while [ "$i" -lt "$n" ]; do
+    i=$((i + 1))
+    a=$1; shift
+    case "$a" in
+    of=*) sink=1; continue ;;
+    esac
+    set -- "$@" "$a"
+done
+if [ -n "$sink" ]; then
+    sink="${TMPDIR:-${HOME:-/tmp}}/dd-swallowed.bin"
+    set -- "$@" "of=${sink}"
+fi
+exec "$real" "$@"
+"""
+
+
 def link_tools(bin_dir):
     for name in TOOLS:
         src = shutil.which(name)
@@ -800,3 +958,10 @@ def report_tools(bin_dir):
     write(bin_dir, "systemd-analyze", ANALYZE)
     write(bin_dir, "systemctl", SYSTEMCTL)
     write(bin_dir, "journalctl", JOURNALCTL)
+
+
+def flash_tools(bin_dir):
+    write(bin_dir, "lsblk", LSBLK)
+    write(bin_dir, "blockdev", BLOCKDEV)
+    write(bin_dir, "findmnt", FINDMNT)
+    write(bin_dir, "id", ID)
