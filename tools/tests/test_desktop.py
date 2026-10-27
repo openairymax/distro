@@ -47,6 +47,8 @@ ASSETS = (
      "%{_sysconfdir}/X11/xinit/xinitrc.d/70-airymax-im.sh"),
     ("desktop/xinitrc.d/60-airymax-display.sh",
      "%{_sysconfdir}/X11/xinit/xinitrc.d/60-airymax-display.sh"),
+    ("desktop/01_airymax_display",
+     "%{_sysconfdir}/grub.d/01_airymax_display"),
     ("desktop/autostart/airymax-input-method.desktop",
      "%{_sysconfdir}/xdg/autostart/airymax-input-method.desktop"),
     ("desktop/user@.service.d/50-airymax-desktop.conf",
@@ -202,6 +204,22 @@ class DesktopAssetTest(unittest.TestCase):
         self.assertEqual(conf["Slice"]["IOWeight"], "50")
         self.assertNotIn("MemoryMax", conf["Slice"])
         self.assertNotIn("MemoryHigh", conf["Slice"])
+
+    def test_grub_display_unconditional(self):
+        # 00_header 把 gfxmode 与 gfxterm 塞进 loadfont 成功的分支，字体缺失
+        # 时整段消失，控制台停在固件默认（B50 实测 800x600）。本片段的输出
+        # 必须无条件包含三条设置，且候选不带位深。
+        out = run(["sh", str(self.asset("desktop/01_airymax_display"))])
+        self.assertEqual(out.returncode, 0)
+        lines = out.stdout.splitlines()
+        for want in ("  set gfxmode=1920x1080,1680x1050,1600x900,"
+                     "1280x1024,1024x768,auto",
+                     "  insmod gfxterm",
+                     "  terminal_output gfxterm"):
+            self.assertIn(want, lines)
+        self.assertNotIn("loadfont", out.stdout)
+        self.assertNotIn("x32", out.stdout)
+        self.assertIn("grub_platform", out.stdout)
 
     def test_policy_has_no_legacy(self):
         text = self.asset(

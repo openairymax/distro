@@ -229,8 +229,9 @@ done
 # 7) 引导菜单分辨率（真机缺陷 D-07）。grub2-efi-x64 在 openEuler 上是预
 #    编译的 grubx64.efi，装机时不会把 unicode.pf2 放进 ESP；00_header 生成
 #    的 gfxmode 段落以 loadfont 成功为前置条件，字体缺失时整段被跳过，
-#    菜单与 efifb 停在固件默认（B50 实测 800x600）。字体落盘后同一份
-#    grub.cfg 即生效，无需删除或改写上游脚本。
+#    菜单与 efifb 停在固件默认（B50 实测 800x600）。因此同时落两条腿：
+#    字体补进去，且由 01_airymax_display 无条件重设 gfxmode 与 gfxterm，
+#    efifb 继承 grub 设好的 GOP 模式，X 才有可用的 fbdev 分辨率。
 #
 #    本 ks 走 UEFI + BIOS 双栈（见 bootloader 行），两条腿的 grub 配置
 #    目录不同：UEFI 在 ESP，BIOS 在 /boot/grub2。判据只能是 grub.cfg 是否
@@ -253,9 +254,10 @@ fi
 [ -n "${grub_dir}" ] || fail grub-cfg-missing
 
 # 分辨率只做引导期一次选择：1.x 无 KMS，运行期改不了模式，因此把候选
-# 列表写在 /etc/default/grub，以 auto 兜底不认识的固件。
+# 列表写在 /etc/default/grub，以 auto 兜底不认识的固件。候选不写位深：
+# 部分 GOP 实现拒绝全部带位深的候选后退回 auto，反而更低。
 sed -i '/^GRUB_GFXMODE=/d' /etc/default/grub
-printf 'GRUB_GFXMODE=1920x1080x32,1680x1050x32,1600x900x32,1280x1024x32,1024x768x32,auto\n' \
+printf 'GRUB_GFXMODE=1920x1080,1680x1050,1600x900,1280x1024,1024x768,auto\n' \
     >>/etc/default/grub
 
 # 输出终端必须含 gfxterm，否则 00_header 不生成 gfxmode 段落，上面的字体
@@ -274,15 +276,25 @@ if [ -f /usr/share/grub/unicode.pf2 ]; then
     # gfxmode 段落的前置条件，缺字体则整段被跳过。
     install -d -m 0755 "${grub_dir}/fonts"
     install -m 0644 /usr/share/grub/unicode.pf2 "${grub_dir}/fonts/unicode.pf2" ||
-        fail grub-font
-    # chroot 内 os-prober 可能因缺 /dev 而告警；菜单本身由 10_linux 生成，
-    # 因此 grub2-mkconfig 的非零退出只记录，判定交给下面的事实断言。
-    grub2-mkconfig -o "${grub_dir}/grub.cfg" >/dev/null 2>&1 ||
-        mark "AIRYMAX-INSTALL-NOTE grub2-mkconfig rc=$?"
-    grep -q 'set gfxmode=' "${grub_dir}/grub.cfg" || fail grub-gfxmode
+        mark "AIRYMAX-INSTALL-NOTE grub-font-install-failed"
 else
     mark "AIRYMAX-INSTALL-NOTE grub-font-source-missing"
 fi
+
+# 字体只决定菜单文字的字形，不再决定 gfxmode 能否生效：airymaxos-release
+# 的 01_airymax_display 排在 00_header 之后，把 gfxmode 与 gfxterm 从
+# loadfont 分支里解放出来，EFI 上无条件执行。
+[ -x /etc/grub.d/01_airymax_display ] || fail grub-display-fragment
+
+# chroot 内 os-prober 可能因缺 /dev 而告警；菜单本身由 10_linux 生成，
+# 因此 grub2-mkconfig 的非零退出只记录，判定交给下面的事实断言。
+grub2-mkconfig -o "${grub_dir}/grub.cfg" >/dev/null 2>&1 ||
+    mark "AIRYMAX-INSTALL-NOTE grub2-mkconfig rc=$?"
+# 断言我们那段确实进了 cfg，而不是「cfg 里存在某条 gfxmode」：后者可能
+# 只是 00_header 的条件分支，缺字体时整段消失，旧断言于是假绿。
+grep -qxF '  set gfxmode=1920x1080,1680x1050,1600x900,1280x1024,1024x768,auto' \
+    "${grub_dir}/grub.cfg" || fail grub-gfxmode
+grep -qF '  terminal_output gfxterm' "${grub_dir}/grub.cfg" || fail grub-gfxterm
 
 mark "AirymaxOS workstation install complete (baseline $(date -u +%Y%m%d))"
 %end
