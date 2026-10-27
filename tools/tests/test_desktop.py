@@ -65,6 +65,8 @@ ASSETS = (
      "%{_sysconfdir}/ssh/sshd_config.d/50-airymax-sshd.conf"),
     ("login/90-airymax-sudoers",
      "%{_sysconfdir}/sudoers.d/90-airymax"),
+    ("login/00-airymax-screensaver",
+     "%{_sysconfdir}/dconf/db/local.d/00-airymax-screensaver"),
     ("boot/efi_brand.sh",
      "/usr/lib/airymaxos/boot/efi_brand.sh"),
     ("boot/airymaxos-efi-brand.service",
@@ -213,6 +215,25 @@ class DesktopAssetTest(unittest.TestCase):
         self.assertIn(
             "%config(noreplace) %attr(0440, root, root) "
             "%{_sysconfdir}/sudoers.d/90-airymax", spec)
+
+    def test_screensaver_policy_disables_idle_lock(self):
+        # 锁屏策略与 sudo 策略是免密口径的两半：键名拼错或取值回退到 true
+        # 都不会让构建失败，只会在装机后以“每五分钟一次口令框”出现；dconf
+        # 不编译键文件也不生效，因此内容与 %post 的 dconf update 都要断言。
+        text = self.asset("login/00-airymax-screensaver").read_text(
+            encoding="utf-8")
+        keys = {}
+        for line in text.splitlines():
+            line = line.strip()
+            if not line or line.startswith(("#", "[")):
+                continue
+            key, _, value = line.partition("=")
+            keys[key] = value
+        self.assertEqual(keys, {"idle-lock-enabled": "false",
+                                "lock-enabled": "false"})
+        self.assertIn("[org/ukui/screensaver]", text)
+        self.assertIn("Requires:       dconf", self.spec)
+        self.assertIn("dconf update", self.spec)
 
     def test_user_session_slice(self):
         conf = parse_kv(

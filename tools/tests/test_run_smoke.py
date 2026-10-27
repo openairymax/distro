@@ -4,10 +4,10 @@
 # test_run_smoke.py — ci/run-smoke.sh 契约回归测试
 #
 # 冒烟脚本必须在已登录的 UKUI 桌面会话内运行，CI 宿主机不具备该环境。
-# 脚本对外契约是：TAP 14 计划、十二项探测的判定，以及“探测工具缺失即失败”
+# 脚本对外契约是：TAP 14 计划、十三项探测的判定，以及“探测工具缺失即失败”
 # 的退出码规则。这里用 PATH 沙箱提供伪 loginctl /
 # pgrep / xdpyinfo / fcitx-remote / pactl / systemctl / gsettings /
-# sha256sum / uname / xrandr，并给 T6–T11 准备一份只读系统视图
+# sha256sum / uname / xrandr，并给 T6–T13 准备一份只读系统视图
 # （AIRYMAX_SMOKE_ROOT），每个用例只破坏一个前提，从而在无桌面环境下判定
 # 真实控制流。
 #
@@ -69,8 +69,8 @@ class RunSmokeTest(unittest.TestCase):
         self._tmp.cleanup()
 
     def make_sysroot(self):
-        """构造 T6–T12 读取的只读视图：/boot 三件套、LSM、产品标识、ESP、
-        sudo 策略。"""
+        """构造 T6–T13 读取的只读视图：/boot 三件套、LSM、产品标识、ESP、
+        sudo 策略、锁屏策略。"""
         boot = self.sysroot / "boot"
         boot.mkdir(parents=True)
         (boot / f"vmlinuz-{KREL}").write_bytes(b"vmlinuz\n")
@@ -82,12 +82,23 @@ class RunSmokeTest(unittest.TestCase):
         self.write_product(HOSTNAME, OS_RELEASE)
         self.write_esp()
         self.write_sudoers()
+        self.write_screensaver()
 
     def write_sudoers(self):
         """免密提权的落点：与 airymaxos-release 交付的文件同名同内容。"""
         path = self.sysroot / "etc" / "sudoers.d" / "90-airymax"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("airymax ALL=(ALL) NOPASSWD: ALL\n", encoding="utf-8")
+        return path
+
+    def write_screensaver(self):
+        """免密桌面的落点：dconf 键文件，与 airymaxos-release 同名同内容。"""
+        path = (self.sysroot / "etc" / "dconf" / "db" / "local.d" /
+                "00-airymax-screensaver")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("[org/ukui/screensaver]\n"
+                        "idle-lock-enabled=false\n"
+                        "lock-enabled=false\n", encoding="utf-8")
         return path
 
     def write_esp(self):
@@ -192,9 +203,9 @@ class RunSmokeTest(unittest.TestCase):
         self.tools()
         res = self.run_smoke()
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res), {"pass": 12, "fail": 0})
+        self.assertEqual(self.summary(res), {"pass": 13, "fail": 0})
         self.assertNotIn("# SKIP", res.stdout)
-        self.assertEqual(len(self.taps(res)), 12)
+        self.assertEqual(len(self.taps(res)), 13)
         for line in self.taps(res):
             self.assertTrue(line.startswith("ok"), line)
 
@@ -202,7 +213,7 @@ class RunSmokeTest(unittest.TestCase):
         self.tools()
         res = self.run_smoke()
         self.assertIn("TAP version 14", res.stdout)
-        self.assertIn("1..12", res.stdout.splitlines())
+        self.assertIn("1..13", res.stdout.splitlines())
         self.assertIn(
             "# AirymaxOS distro smoke: target=airymaxos-0.0.3", res.stdout)
 
@@ -309,7 +320,7 @@ class RunSmokeTest(unittest.TestCase):
         finally:
             timer.cancel()
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res), {"pass": 12, "fail": 0})
+        self.assertEqual(self.summary(res), {"pass": 13, "fail": 0})
 
     def test_slice_wrong(self):
         self.tools()
@@ -369,7 +380,7 @@ class RunSmokeTest(unittest.TestCase):
         self.tools(omit=("loginctl",))
         res = self.run_smoke()
         self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res), {"pass": 11, "fail": 1})
+        self.assertEqual(self.summary(res), {"pass": 12, "fail": 1})
         self.assert_fail(res, 1)
         self.assertIn("loginctl not installed", res.stdout)
         self.assertNotIn("# SKIP", res.stdout)
@@ -540,6 +551,30 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke()
         self.assert_fail(res, 12)
         self.assertIn("policy line absent", res.stdout)
+
+    def test_screensaver_policy_ok(self):
+        self.tools()
+        res = self.run_smoke()
+        self.assertIn("ok 13 - T13 passwordless desktop", res.stdout)
+        self.assertIn("screensaver policy ok (offline check)", res.stdout)
+
+    def test_screensaver_policy_missing(self):
+        self.tools()
+        self.write_screensaver().unlink()
+        res = self.run_smoke()
+        self.assert_fail(res, 13)
+        self.assertIn("00-airymax-screensaver missing", res.stdout)
+
+    def test_screensaver_lock_enabled(self):
+        # 键文件在但锁屏仍开：空口令账户照样被口令框拦住，必须逐键判定
+        self.tools()
+        self.write_screensaver().write_text(
+            "[org/ukui/screensaver]\n"
+            "idle-lock-enabled=false\n"
+            "lock-enabled=true\n", encoding="utf-8")
+        res = self.run_smoke()
+        self.assert_fail(res, 13)
+        self.assertIn("lock-enabled not disabled", res.stdout)
 
 
 if __name__ == "__main__":
