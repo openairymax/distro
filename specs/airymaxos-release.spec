@@ -259,15 +259,15 @@ printf '%s\n' "${airy_grub}" | grep -qF 'grub_platform'
 # EFI 品牌化：脚本必须自限在 EFI，且只写一条置顶条目。断言落在脚本的
 # 行为要点上（条件、目标路径、BootOrder 重排），而不是"文件存在"。
 sh -n %{buildroot}/usr/lib/airymaxos/boot/efi_brand.sh
-grep -qxF '  ConditionPathExists=/sys/firmware/efi' \
+grep -qxF 'ConditionPathExists=/sys/firmware/efi' \
     %{buildroot}%{_unitdir}/airymaxos-efi-brand.service
-grep -qxF '  ConditionPathExists=!/var/lib/airymaxos/efi-brand' \
+grep -qxF 'ConditionPathExists=!/var/lib/airymaxos/efi-brand' \
     %{buildroot}%{_unitdir}/airymaxos-efi-brand.service
-grep -qxF '  Type=oneshot' \
+grep -qxF 'Type=oneshot' \
     %{buildroot}%{_unitdir}/airymaxos-efi-brand.service
-grep -qxF '  ExecStart=/usr/lib/airymaxos/boot/efi_brand.sh' \
+grep -qxF 'ExecStart=/usr/lib/airymaxos/boot/efi_brand.sh' \
     %{buildroot}%{_unitdir}/airymaxos-efi-brand.service
-grep -qxF '  WantedBy=multi-user.target' \
+grep -qxF 'WantedBy=multi-user.target' \
     %{buildroot}%{_unitdir}/airymaxos-efi-brand.service
 grep -qF 'dst=${esp}/EFI/airymaxos' \
     %{buildroot}/usr/lib/airymaxos/boot/efi_brand.sh

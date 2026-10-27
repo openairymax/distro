@@ -13,6 +13,7 @@
 # ===========================================================================
 
 import configparser
+import re
 import subprocess
 import unittest
 import xml.etree.ElementTree as ET
@@ -275,6 +276,24 @@ class DesktopAssetTest(unittest.TestCase):
                      "ExecStart=/usr/lib/airymaxos/boot/efi_brand.sh",
                      "WantedBy=multi-user.target"):
             self.assertIn(want, unit)
+
+    def test_check_literals_match_assets(self):
+        # %check 的 grep 字面量若与出厂资产漂移（缩进、拼写），要到构建期才
+        # 失败，一轮 CI 几十分钟；这里把同一条断言提前到 lint 阶段。
+        target = {expand(dst): self.asset(rel) for rel, dst in ASSETS}
+        check = self.spec.split("%check", 1)[1].split("\n%files", 1)[0]
+        seen = 0
+        for lit, path in re.findall(
+                r"grep -qxF '([^']*)'[ \t]*\\?\n?[ \t]*(%\{buildroot\}\S+)",
+                check):
+            asset = target.get(expand(path.replace("%{buildroot}", "")))
+            if asset is None:
+                continue
+            lines = asset.read_text(encoding="utf-8").splitlines()
+            self.assertIn(lit, lines,
+                          f"{asset.name} lacks %check literal: {lit}")
+            seen += 1
+        self.assertGreater(seen, 0)
 
     def test_efi_brand_script(self):
         script = self.asset("boot/efi_brand.sh")
