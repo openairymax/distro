@@ -102,7 +102,7 @@ class RunSmokeTest(unittest.TestCase):
         return path
 
     def write_esp(self):
-        """EFI 品牌的落点：完整签名套件 + 首启可见的 efivars 目录。"""
+        """EFI 品牌的落点：完整签名套件 + 安装期可见的 efivars 目录。"""
         esp = self.sysroot / "boot" / "efi" / "EFI" / "airymaxos"
         esp.mkdir(parents=True)
         for name in ("shimx64.efi", "grubx64.efi"):

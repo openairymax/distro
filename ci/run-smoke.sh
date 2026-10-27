@@ -323,7 +323,7 @@ t10_display() {
     "${script}" --check
 }
 
-# T11: EFI 品牌（首启品牌化把 NVRAM 首选项换成 AirymaxOS，ESP 内是一整套
+# T11: EFI 品牌（安装期品牌化把 NVRAM 首选项换成 AirymaxOS，ESP 内是一整套
 # 已签名二级加载器；shim 只从自身目录取 grubx64.efi，缺一即不可引导）
 t11_efi_brand() {
     local esp="${SYSROOT}/boot/efi" out first

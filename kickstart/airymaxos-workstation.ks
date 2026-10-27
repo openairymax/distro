@@ -103,6 +103,69 @@ airymaxos-system
 %end
 
 # ---- 安装后脚本 ----
+# EFI 品牌化必须在安装器环境做完：它要同时写 ESP（dosfs_t）与 NVRAM，而
+# chroot 段两者都不可见；首启 systemd 单元又会被 SELinux 拒绝（init_t 在
+# dosfs_t 上 create，见 distro/boot/efi_brand.sh 头部）。--nochroot 段在
+# 目标根仍挂载、efivarfs 仍可用时执行，且安装器不强制 SELinux。
+#
+# 失败即终止安装（--erroronfail）：品牌与 BootOrder 是可验收的交付项，
+# 静默降级只会把问题推迟到验收现场。脚本按「环境不适用」与「在范围内
+# 失败」分码，BIOS 装机因此不会被误伤。
+%post --nochroot --erroronfail --log=/mnt/sysroot/root/airymax-efi.log
+set -eu
+# 目标根的挂载点是安装器的实现细节（anaconda 各版本在 /mnt/sysroot 与
+# /mnt/sysimage 之间变化），按可执行文件实际位置判定，不猜环境变量。
+root=
+for c in "${ANA_INSTALL_PATH-}" "${INSTALL_ROOT-}" /mnt/sysroot /mnt/sysimage; do
+    [ -n "${c}" ] && [ -d "${c}/etc" ] || continue
+    root=${c}
+    break
+done
+
+mark()
+{
+    printf '%s\n' "$*" >/dev/console 2>/dev/null || :
+}
+
+[ -n "${root}" ] || {
+    mark "AIRYMAX-EFI-FAIL no-install-root"
+    exit 1
+}
+esp=${root}/boot/efi
+brand=${root}/usr/lib/airymaxos/boot/efi_brand.sh
+
+if [ ! -d /sys/firmware/efi ]; then
+    mark "AIRYMAX-EFI-SKIP non-EFI install"
+    exit 0
+fi
+# efivars 与 ESP 都只在 anaconda 的引导装载程序阶段内是挂载的，装包与
+# %post 之间会被卸载；这里各自按需挂回，不依赖安装器的挂载时序。
+mountpoint -q /sys/firmware/efi/efivars ||
+    mount -t efivarfs efivarfs /sys/firmware/efi/efivars 2>/dev/null || :
+owned=
+if ! mountpoint -q "${esp}"; then
+    mkdir -p "${esp}"
+    src=$(awk '$2 == "/boot/efi" { print $1; exit }' \
+        "${root}/etc/fstab" 2>/dev/null) || src=
+    [ -n "${src}" ] && mount "${src}" "${esp}" 2>/dev/null || :
+    owned=1
+fi
+if [ ! -x "${brand}" ] || ! mountpoint -q "${esp}"; then
+    mark "AIRYMAX-EFI-FAIL esp=${esp} brand=${brand}"
+    exit 1
+fi
+
+rc=0
+sh "${brand}" --esp "${esp}" --state "${root}/var/lib/airymaxos/efi-brand" ||
+    rc=$?
+[ -n "${owned}" ] && umount "${esp}" 2>/dev/null || :
+[ "${rc}" -eq 0 ] || {
+    mark "AIRYMAX-EFI-FAIL rc=${rc}"
+    exit 1
+}
+mark "AIRYMAX-EFI-OK"
+%end
+
 %post --log=/root/airymax-post.log
 set -eu
 
@@ -240,8 +303,7 @@ grep -qxF 'autologin-user=airymax' "${seat}" || fail lightdm-autologin
 systemctl --root=/ preset-all >/dev/null 2>&1 ||
     mark "AIRYMAX-INSTALL-NOTE preset-all rc=$?"
 boot_set="lightdm.service airymax-desktop-ready.service
-NetworkManager.service chronyd.service firewalld.service sshd.service
-airymaxos-efi-brand.service"
+NetworkManager.service chronyd.service firewalld.service sshd.service"
 for unit in ${boot_set}; do
     systemctl --root=/ enable "${unit}" >/dev/null 2>&1 || :
     state=$(systemctl --root=/ is-enabled "${unit}" 2>/dev/null || true)
@@ -251,11 +313,11 @@ for unit in ${boot_set}; do
     }
 done
 
-# 6) EFI 品牌化放在首启（airymaxos-efi-brand.service）。anaconda 用
+# 6) EFI 品牌化已在上面 %post --nochroot 段完成：anaconda 用
 #    GRUB_DISTRIBUTOR 命名 NVRAM 条目，装机后菜单与 BootOrder 都是
-#    openEuler；条目标签不可改名，只能新建 AirymaxOS 条目再置顶。安装期
-#    chroot 的 efivarfs 可写性取决于宿主，故不在此处代跑脚本，交给一定有
-#    /sys/firmware/efi 的首启；单元已加入上面的 boot_set。
+#    openEuler，故由 efi_brand.sh 新建 AirymaxOS 条目并置顶。该脚本不进
+#    boot_set：它写 ESP 与 NVRAM，chroot 内不可见，首启又会被 SELinux
+#    拦下，装机段是唯一可行时机。
 
 # 7) agentrt.target 的启用推迟到 daemon 二进制交付版本：
 #    该 target 强依赖 12 个 /usr/sbin/*_d，0.0.3 尚未打包，提前 enable
