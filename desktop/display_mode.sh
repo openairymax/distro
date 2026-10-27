@@ -17,9 +17,13 @@
 # 才判失败，并把最后一次偏差记进 journal（--settle）。
 #
 # 策略（决策 2026-10-27）：逐个 connected 输出独立决策——
-#   1. 首选模式（xrandr 标记 +）在上限内则采用；
-#   2. 否则在常用分辨率阶梯中取该输出确实广播的最大一项；
-#   3. 阶梯全不匹配时回退首选模式，不做无法落地的切换。
+#   1. 候选集 = 上限内的首选模式（xrandr 标记 +）∪ 该输出确实广播的常用
+#      分辨率阶梯项，取其中最大者；尺寸相同则首选优先（隔行原样保留）；
+#   2. 候选集为空时回退首选模式，不做无法落地的切换。
+# 取最大而非「首选优先」的原因：EDID 缺失的虚拟输出（virtio-gpu 等）会
+# 把首选模式报成很小的 1280x800，而当前模式却停在宿主的 5120x2160 上，
+# 此时「首选优先」会把桌面降到 1280x800，与「使用常用分辨率」相悖。
+# 真实面板的首选模式即其最大模式，取最大与首选等价，行为不变。
 # 上限与阶梯是策略的唯一事实来源（SSoT），单测与验收脚本只读本文件。
 #
 # 入口：
@@ -46,15 +50,29 @@ function fits(m,   a) {
     return (a[1] + 0) <= CAP_W && (a[2] + 0) <= CAP_H
 }
 
+# 候选 m 是否优于已选 best：先比宽再比高，同尺寸时首选模式胜出，
+# 这样 1920x1080i 不会被同尺寸的 1920x1080 顶掉。
+function better(m,   a, b) {
+    split(m, a, "x")
+    split(best, b, "x")
+    if ((a[1] + 0) != (b[1] + 0))
+        return (a[1] + 0) > (b[1] + 0)
+    if ((a[2] + 0) != (b[2] + 0))
+        return (a[2] + 0) > (b[2] + 0)
+    return m == pref
+}
+
 function pick(   i, j, nl, L) {
+    best = ""
     if (pref != "" && fits(pref))
-        return pref
+        best = pref
     nl = split(LADDER, L, " ")
     for (i = 1; i <= nl; i++)
         for (j = 1; j <= nm; j++)
-            if (modes[j] == L[i])
-                return L[i]
-    return pref
+            if (modes[j] == L[i] && fits(modes[j]))
+                if (best == "" || better(modes[j]))
+                    best = modes[j]
+    return (best != "" ? best : pref)
 }
 
 function emit(   want) {
@@ -113,6 +131,20 @@ read_topo() {
     plan_out=$(printf '%s\n' "$topo" | plan)
 }
 
+# 把拓扑压成一行，供 --check / --settle 的失败诊断使用：TAP 与 journal
+# 都按行切分，单行才能保证整段拓扑不被截断。
+flat() {
+    printf '%s' "${topo:-}" | tr '\n' ' ' | tr -s ' '
+}
+
+# 应用一次模式切换。xrandr 的 stderr 必须落进 journal：否则「策略选错」
+# 与「驱动拒绝切换」在日志里完全同形，验收只能看到一行偏差值。
+switch() {
+    err=$(xrandr --output "$1" --mode "$2" 2>&1) && return 0
+    log "switch $1 -> $2: $(printf '%s' "$err" | tr '\n' ' ')"
+    return 1
+}
+
 # 逐行比对拓扑与策略：rows 是 connected 输出数，bad 记录偏差。
 # 偏差行同时用于纠正（apply 与 settle 共用同一判定口径，避免两处漂移）。
 scan() {
@@ -134,14 +166,10 @@ apply() {
     rc=0
     set -- ${bad}
     for row in "$@"; do
-        out=${row%%:*}
-        want=${row#*->}
-        xrandr --output "$out" --mode "$want" >/dev/null 2>&1 || {
-            log "apply ${out} -> ${want} failed"
-            rc=1
-        }
+        switch "${row%%:*}" "${row#*->}" || rc=1
     done
     log "apply${bad:- all outputs on policy} rc=${rc}"
+    [ "$rc" -eq 0 ] || printf 'display_mode: 切换失败:%s\n' "$(flat)" >&2
     return "$rc"
 }
 
@@ -149,7 +177,7 @@ check() {
     read_topo
     scan
     [ "$rows" -gt 0 ] || die "无 connected 输出"
-    [ -z "$bad" ] || die "分辨率未达策略:${bad}"
+    [ -z "$bad" ] || die "分辨率未达策略:${bad} topo=$(flat)"
 }
 
 settle() {
@@ -164,15 +192,13 @@ settle() {
         fi
         if [ "$waited" -ge "$budget" ]; then
             log "unsettled after ${budget}s:${bad:- no connected output}"
-            printf 'display_mode: 收敛失败:%s\n' \
-                "${bad:- 无 connected 输出}" >&2
+            printf 'display_mode: 收敛失败:%s topo=%s\n' \
+                "${bad:- 无 connected 输出}" "$(flat)" >&2
             return 1
         fi
         set -- ${bad}
         for row in "$@"; do
-            out=${row%%:*}
-            want=${row#*->}
-            xrandr --output "$out" --mode "$want" >/dev/null 2>&1 || :
+            switch "${row%%:*}" "${row#*->}" || :
         done
         sleep 1
         waited=$((waited + 1))
