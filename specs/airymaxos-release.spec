@@ -40,7 +40,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.3
-%global airy_release 7
+%global airy_release 8
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 
 Name:           airymaxos-release
@@ -75,6 +75,7 @@ Source20:       efi_brand.sh
 Source21:       airymaxos-efi-brand.service
 Source22:       90-airymax-sudoers
 Source23:       00-airymax-screensaver
+Source24:       50-airymax-journald.conf
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -177,6 +178,13 @@ install -d -m 0755 %{buildroot}%{_sysconfdir}/systemd/system/user@.service.d
 install -m 0644 %{SOURCE12} \
     %{buildroot}%{_sysconfdir}/systemd/system/user@.service.d/50-airymax-desktop.conf
 
+# 启动日志默认只活在当前一轮：openEuler 不预建 /var/log/journal，
+# Storage=auto 因此退化为 volatile，重启即丢的证据让「上一次启动为什么
+# 失败」只能靠复现去猜。drop-in 目录由 systemd 包拥有，这里只落策略文件。
+install -d -m 0755 %{buildroot}%{_sysconfdir}/systemd/journald.conf.d
+install -m 0644 %{SOURCE24} \
+    %{buildroot}%{_sysconfdir}/systemd/journald.conf.d/50-airymax-journald.conf
+
 install -d -m 0755 %{buildroot}%{_datadir}/ukui-background-properties
 install -m 0644 %{SOURCE10} \
     %{buildroot}%{_datadir}/ukui-background-properties/airymaxos-default.xml
@@ -277,6 +285,12 @@ grep -qxF 'Exec=/usr/bin/fcitx' \
     %{buildroot}%{_sysconfdir}/xdg/autostart/airymax-input-method.desktop
 grep -qxF 'Slice=airymax-desktop.slice' \
     %{buildroot}%{_sysconfdir}/systemd/system/user@.service.d/50-airymax-desktop.conf
+# 日志留存：取值写错不会让构建失败，只会在重启后表现为「没有上一次启动」，
+# 因此断言的是生效行本身而不是文件存在。
+grep -qxF '[Journal]' \
+    %{buildroot}%{_sysconfdir}/systemd/journald.conf.d/50-airymax-journald.conf
+grep -qxF 'Storage=persistent' \
+    %{buildroot}%{_sysconfdir}/systemd/journald.conf.d/50-airymax-journald.conf
 grep -qF '<!DOCTYPE wallpapers SYSTEM' \
     %{buildroot}%{_datadir}/ukui-background-properties/airymaxos-default.xml
 grep -qF "picture-filename='" \
@@ -321,6 +335,7 @@ fi
 %config(noreplace) %{_sysconfdir}/grub.d/01_airymax_display
 %config(noreplace) %{_sysconfdir}/xdg/autostart/airymax-input-method.desktop
 %config(noreplace) %{_sysconfdir}/systemd/system/user@.service.d/50-airymax-desktop.conf
+%config(noreplace) %{_sysconfdir}/systemd/journald.conf.d/50-airymax-journald.conf
 %{_unitdir}/airymax-desktop.slice
 %{_unitdir}/airymax-desktop-ready.service
 %{_unitdir}/airymaxos-efi-brand.service
@@ -335,6 +350,18 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Tue Oct 27 2026 SPHARX <dev@spharx.com> - 0.0.3-8
+- Ship /etc/systemd/journald.conf.d/50-airymax-journald.conf with
+  Storage=persistent: openEuler ships neither /var/log/journal nor a
+  journald drop-in directory, so Storage=auto degrades to volatile and
+  every reboot erases the only record of what the previous boot did --
+  exactly the evidence needed when a fresh install fails to reach the
+  desktop. journald creates the directory and caps it at SystemMaxUse
+  on its own, so no tmpfiles rule is involved
+- %%check asserts the two effective lines: a mistyped value still
+  produces a file, and only resurfaces after a reboot as "there was no
+  previous boot"
+
 * Tue Oct 27 2026 SPHARX <dev@spharx.com> - 0.0.3-7
 - Ship a dconf system default that turns off idle locking: the delivery
   account is created with an empty password, so the lock screen protects

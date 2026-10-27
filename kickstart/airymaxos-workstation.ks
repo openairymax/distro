@@ -215,6 +215,12 @@ id -nG airymax | tr ' ' '\n' | grep -qxF nopasswdlogin ||
 saver=/etc/dconf/db/local.d/00-airymax-screensaver
 [ -f "${saver}" ] || fail screensaver-policy-missing
 grep -qxF 'lock-enabled=false' "${saver}" || fail screensaver-lock-off
+#    启动日志默认只活在本次启动：openEuler 不预建 /var/log/journal，而
+#    Storage=auto 在目录缺失时退化为 volatile，重启后「上一次启动到底做到
+#    哪一步」再无证据可查。断言生效行而非文件存在，取值写错同样要拦下。
+jconf=/etc/systemd/journald.conf.d/50-airymax-journald.conf
+[ -f "${jconf}" ] || fail journald-persist-missing
+grep -qxF 'Storage=persistent' "${jconf}" || fail journald-persist-value
 
 # 4) 图形目标为默认（UKUI 会话经 lightdm 拉起）
 set_default graphical.target
