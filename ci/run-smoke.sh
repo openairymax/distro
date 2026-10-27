@@ -312,6 +312,7 @@ t9_brand() {
 # T10: 分辨率（会话输出必须处于策略模式，策略单点在 display_mode.sh）
 t10_display() {
     local script="${SYSROOT}/usr/lib/airymaxos/desktop/display_mode.sh"
+    local out rc
     need xrandr || return $?
     [ -x "${script}" ] || {
         echo "${script} not installed"
@@ -320,7 +321,16 @@ t10_display() {
     # 会话内的收敛是并发的有界过程（xinitrc.d 钩子 + autostart），本探测
     # 同样等待到同一个上界再判定，避免把「尚未收敛」误判成「策略失效」。
     retry "${START_WAIT}" "${script}" --check && return 0
-    "${script}" --check
+    out=$("${script}" --check 2>&1)
+    rc=$?
+    # 诊断压成一行：TAP 只有首行带 "#   " 前缀，多行会被判定器丢掉。
+    # 偏差与完整拓扑由 --check 自带，这里再补策略自身的 journal（切换被
+    # 驱动拒绝时会留下 xrandr 原文），两者合起来才能区分「选错」与「切不动」。
+    printf '%s | log=%s\n' \
+        "$(printf '%s' "${out}" | tr '\n' ';')" \
+        "$(journalctl -t airymaxos-display -n 3 --no-pager -o cat 2>/dev/null |
+            tr '\n' ';')"
+    return "${rc}"
 }
 
 # T11: EFI 品牌（安装期品牌化把 NVRAM 首选项换成 AirymaxOS，ESP 内是一整套

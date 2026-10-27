@@ -3,10 +3,10 @@
 # ===========================================================================
 # test_display.py — 分辨率策略（display_mode.sh）行为回归
 #
-# 策略是会话显示的唯一事实来源，这里用合成拓扑把它的三条规则钉死：
-# 首选模式在上限内即采用、否则取常用分辨率阶梯中该输出确实广播的最大项、
-# 阶梯全不匹配时回退首选。--plan 从 stdin 读拓扑，因此策略判定本身不需要
-# X server；--check 与默认入口再经伪 xrandr 验证退出码与调用面。
+# 策略是会话显示的唯一事实来源，这里用合成拓扑把它的两条规则钉死：
+# 在「上限内的首选模式 ∪ 该输出确实广播的常用分辨率」中取最大者（同尺寸
+# 首选优先）、候选为空时回退首选。--plan 从 stdin 读拓扑，因此策略判定本身
+# 不需要 X server；--check 与默认入口再经伪 xrandr 验证退出码与调用面。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
 # Version: 0.0.3
@@ -175,6 +175,27 @@ class DisplayModeTest(unittest.TestCase):
             "   1920x1080     60.00"))
         self.assertEqual(rows, [["DP-1", "1920x1200", "1920x1200"]])
 
+    def test_preferred_below_ladder_upgraded(self):
+        # 无 EDID 的虚拟输出（virtio-gpu）把首选模式报成 1280x800，当前模式却
+        # 停在宿主的 5120x2160 上。此时必须升到广播了的常用分辨率，而不是
+        # 退到首选模式——否则桌面分辨率既不常用也没有可用性收益。
+        rows = self.plan(topo(
+            screen(5120, 2160),
+            "Virtual-1 connected primary 5120x2160+0+0 (normal) 0mm x 0mm",
+            "   5120x2160     60.00*",
+            "   1920x1080     60.00",
+            "   1280x800      60.00+"))
+        self.assertEqual(rows, [["Virtual-1", "5120x2160", "1920x1080"]])
+
+    def test_preferred_kept_when_only_common_mode(self):
+        # 若输出只广播首选模式这一个常用分辨率，则维持首选，不制造越界切换。
+        rows = self.plan(topo(
+            screen(5120, 2160),
+            "Virtual-1 connected primary 5120x2160+0+0 (normal) 0mm x 0mm",
+            "   5120x2160     60.00*",
+            "   1280x800      60.00+"))
+        self.assertEqual(rows, [["Virtual-1", "5120x2160", "1280x800"]])
+
     def test_width_over_cap_uses_ladder(self):
         rows = self.plan(topo(
             screen(2560, 1600),
@@ -251,6 +272,19 @@ class DisplayModeTest(unittest.TestCase):
         res = self.run_policy("--check", path=self.bare)
         self.assertEqual(res.returncode, 1)
         self.assertIn("缺少 xrandr", res.stderr)
+
+    def test_check_reports_topology(self):
+        # 失败诊断必须带完整拓扑：T10 在装机现场只拿得到一行 stderr，
+        # 没有拓扑就无法区分「策略选错」与「驱动拒绝切换」。
+        self.topo.write_text(topo(
+            screen(5120, 2160),
+            "Virtual-1 connected primary 5120x2160+0+0 (normal) 0mm x 0mm",
+            "   5120x2160     60.00*",
+            "   1280x800      60.00+"), encoding="utf-8")
+        res = self.run_policy("--check")
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("topo=", res.stderr)
+        self.assertIn("Virtual-1 connected primary", res.stderr)
 
     def test_apply_only_touches_mismatch(self):
         self.topo.write_text(topo(
