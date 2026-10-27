@@ -11,9 +11,11 @@
 #   4. 部署桌面会话静态资产：lightdm 座位策略、X11 会话输入法环境与分辨率
 #      自适应、输入法自启项、UKUI 壁纸注册表与背景默认值、默认壁纸、桌面
 #      调度 slice、user@.service 挂接及登录链就绪探针；
-#   5. 部署 EFI 品牌化：efi_brand.sh 与首启单元，把 anaconda 留下的
+#   5. 部署登录与提权策略：sshd 允许交付账户的空口令登录，sudo 以
+#      NOPASSWD 放开同一账户的非交互提权；
+#   6. 部署 EFI 品牌化：efi_brand.sh 与首启单元，把 anaconda 留下的
 #      openEuler 引导项替换为置顶的 AirymaxOS 条目；
-#   6. %%post 只执行装配后才能确定的运行期动作：编译 glib schema、屏蔽桌面
+#   7. %%post 只执行装配后才能确定的运行期动作：编译 glib schema、屏蔽桌面
 #      自带 AI 控制面单元、在运行中的系统上重载 systemd。
 #
 # 静态资产一律由 %%install 直接落到最终路径，%%post 不复制文件，同一路径只有
@@ -37,7 +39,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.3
-%global airy_release 5
+%global airy_release 6
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 
 Name:           airymaxos-release
@@ -70,6 +72,7 @@ Source18:       60-airymax-display.sh
 Source19:       01_airymax_display
 Source20:       efi_brand.sh
 Source21:       airymaxos-efi-brand.service
+Source22:       90-airymax-sudoers
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -130,6 +133,13 @@ install -m 0644 %{SOURCE7} \
 install -d -m 0755 %{buildroot}%{_sysconfdir}/ssh/sshd_config.d
 install -m 0644 %{SOURCE16} \
     %{buildroot}%{_sysconfdir}/ssh/sshd_config.d/50-airymax-sshd.conf
+
+# sudo 只接受模式 0440 的 include 文件，其余权限会被静默忽略；因此这里是
+# 权限而不是内容的一部分。改名去掉 -sudoers 后缀，与 /etc/sudoers.d 内
+# 「按文件名排序生效」的惯例一致。
+install -d -m 0750 %{buildroot}%{_sysconfdir}/sudoers.d
+install -m 0440 %{SOURCE22} \
+    %{buildroot}%{_sysconfdir}/sudoers.d/90-airymax
 
 install -d -m 0755 %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d
 install -m 0755 %{SOURCE8} \
@@ -204,6 +214,13 @@ grep -qxF 'autologin-user=airymax' \
     %{buildroot}%{_sysconfdir}/lightdm/lightdm.conf.d/50-airymax.conf
 grep -qxF 'PermitEmptyPasswords yes' \
     %{buildroot}%{_sysconfdir}/ssh/sshd_config.d/50-airymax-sshd.conf
+# 免密提权：sudo 会静默忽略模式不等于 0440 的 include 文件，所以权限与
+# 内容要分别断言。有效规则必须恰好一条且为 airymax 的 NOPASSWD，防止
+# 后续追加规则把「只放开一个账户」的收敛范围悄悄放宽。
+test "$(stat -c %a %{buildroot}%{_sysconfdir}/sudoers.d/90-airymax)" = 440
+airy_rule=$(grep -v '^#' %{buildroot}%{_sysconfdir}/sudoers.d/90-airymax |
+    sed '/^$/d')
+test "${airy_rule}" = 'airymax ALL=(ALL) NOPASSWD: ALL'
 sh -n %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/70-airymax-im.sh
 sh -n %{buildroot}/usr/lib/airymaxos/desktop/display_mode.sh
 sh -n %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/60-airymax-display.sh
@@ -272,6 +289,8 @@ fi
 %config(noreplace) %{_sysconfdir}/rpm/macros.airymax
 %config(noreplace) %{_sysconfdir}/lightdm/lightdm.conf.d/50-airymax.conf
 %config(noreplace) %{_sysconfdir}/ssh/sshd_config.d/50-airymax-sshd.conf
+%dir %attr(0750, root, root) %{_sysconfdir}/sudoers.d
+%config(noreplace) %attr(0440, root, root) %{_sysconfdir}/sudoers.d/90-airymax
 %config(noreplace) %{_sysconfdir}/X11/xinit/xinitrc.d/70-airymax-im.sh
 %config(noreplace) %{_sysconfdir}/X11/xinit/xinitrc.d/60-airymax-display.sh
 %config(noreplace) %{_sysconfdir}/grub.d/01_airymax_display
@@ -291,6 +310,16 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Tue Oct 27 2026 SPHARX <dev@spharx.com> - 0.0.3-6
+- Ship /etc/sudoers.d/90-airymax: the airymax account is delivered with
+  an empty password, and an empty password cannot serve as the interactive
+  credential sudo prompts for, so any non-interactive elevation (systemd
+  units, remote administration) failed on a freshly installed system. The
+  drop-in grants NOPASSWD to that one account only
+- Mode is 0440 because sudo silently ignores include files with any other
+  permission; %%check asserts the mode and that exactly one effective rule
+  exists, so later edits cannot quietly widen the grant
+
 * Tue Oct 27 2026 SPHARX <dev@spharx.com> - 0.0.3-5
 - Ship efi_brand.sh and airymaxos-efi-brand.service: anaconda names the
   NVRAM entry after GRUB_DISTRIBUTOR (openEuler) and an entry label

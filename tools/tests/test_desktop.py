@@ -63,6 +63,8 @@ ASSETS = (
      "%{_datadir}/backgrounds/airymaxos/airymaxos-default.jpg"),
     ("login/50-airymax-sshd.conf",
      "%{_sysconfdir}/ssh/sshd_config.d/50-airymax-sshd.conf"),
+    ("login/90-airymax-sudoers",
+     "%{_sysconfdir}/sudoers.d/90-airymax"),
     ("boot/efi_brand.sh",
      "/usr/lib/airymaxos/boot/efi_brand.sh"),
     ("boot/airymaxos-efi-brand.service",
@@ -195,6 +197,22 @@ class DesktopAssetTest(unittest.TestCase):
             "PermitEmptyPasswords": "yes",
             "KbdInteractiveAuthentication": "no",
         })
+
+    def test_sudoers_policy_is_single_grant(self):
+        # sudo 静默忽略非 0440 的 include 文件，权限与内容同样是契约；
+        # 有效规则必须只有一条，且只放开交付账户
+        text = self.asset("login/90-airymax-sudoers").read_text(
+            encoding="utf-8")
+        rules = [line for line in text.splitlines()
+                 if line.strip() and not line.startswith("#")]
+        self.assertEqual(rules, ["airymax ALL=(ALL) NOPASSWD: ALL"])
+        spec = SPEC.read_text(encoding="utf-8")
+        self.assertIn(
+            "install -m 0440 %{SOURCE22} \\\n"
+            "    %{buildroot}%{_sysconfdir}/sudoers.d/90-airymax", spec)
+        self.assertIn(
+            "%config(noreplace) %attr(0440, root, root) "
+            "%{_sysconfdir}/sudoers.d/90-airymax", spec)
 
     def test_user_session_slice(self):
         conf = parse_kv(

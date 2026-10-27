@@ -4,7 +4,7 @@
 # test_run_smoke.py — ci/run-smoke.sh 契约回归测试
 #
 # 冒烟脚本必须在已登录的 UKUI 桌面会话内运行，CI 宿主机不具备该环境。
-# 脚本对外契约是：TAP 14 计划、十一项探测的判定，以及“探测工具缺失即失败”
+# 脚本对外契约是：TAP 14 计划、十二项探测的判定，以及“探测工具缺失即失败”
 # 的退出码规则。这里用 PATH 沙箱提供伪 loginctl /
 # pgrep / xdpyinfo / fcitx-remote / pactl / systemctl / gsettings /
 # sha256sum / uname / xrandr，并给 T6–T11 准备一份只读系统视图
@@ -69,7 +69,8 @@ class RunSmokeTest(unittest.TestCase):
         self._tmp.cleanup()
 
     def make_sysroot(self):
-        """构造 T6–T11 读取的只读视图：/boot 三件套、LSM、产品标识、ESP。"""
+        """构造 T6–T12 读取的只读视图：/boot 三件套、LSM、产品标识、ESP、
+        sudo 策略。"""
         boot = self.sysroot / "boot"
         boot.mkdir(parents=True)
         (boot / f"vmlinuz-{KREL}").write_bytes(b"vmlinuz\n")
@@ -80,6 +81,14 @@ class RunSmokeTest(unittest.TestCase):
         self.write_lsm(LSM_LIST)
         self.write_product(HOSTNAME, OS_RELEASE)
         self.write_esp()
+        self.write_sudoers()
+
+    def write_sudoers(self):
+        """免密提权的落点：与 airymaxos-release 交付的文件同名同内容。"""
+        path = self.sysroot / "etc" / "sudoers.d" / "90-airymax"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("airymax ALL=(ALL) NOPASSWD: ALL\n", encoding="utf-8")
+        return path
 
     def write_esp(self):
         """EFI 品牌的落点：完整签名套件 + 首启可见的 efivars 目录。"""
@@ -183,9 +192,9 @@ class RunSmokeTest(unittest.TestCase):
         self.tools()
         res = self.run_smoke()
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res), {"pass": 11, "fail": 0})
+        self.assertEqual(self.summary(res), {"pass": 12, "fail": 0})
         self.assertNotIn("# SKIP", res.stdout)
-        self.assertEqual(len(self.taps(res)), 11)
+        self.assertEqual(len(self.taps(res)), 12)
         for line in self.taps(res):
             self.assertTrue(line.startswith("ok"), line)
 
@@ -193,7 +202,7 @@ class RunSmokeTest(unittest.TestCase):
         self.tools()
         res = self.run_smoke()
         self.assertIn("TAP version 14", res.stdout)
-        self.assertIn("1..11", res.stdout.splitlines())
+        self.assertIn("1..12", res.stdout.splitlines())
         self.assertIn(
             "# AirymaxOS distro smoke: target=airymaxos-0.0.3", res.stdout)
 
@@ -300,7 +309,7 @@ class RunSmokeTest(unittest.TestCase):
         finally:
             timer.cancel()
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res), {"pass": 11, "fail": 0})
+        self.assertEqual(self.summary(res), {"pass": 12, "fail": 0})
 
     def test_slice_wrong(self):
         self.tools()
@@ -360,7 +369,7 @@ class RunSmokeTest(unittest.TestCase):
         self.tools(omit=("loginctl",))
         res = self.run_smoke()
         self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res), {"pass": 10, "fail": 1})
+        self.assertEqual(self.summary(res), {"pass": 11, "fail": 1})
         self.assert_fail(res, 1)
         self.assertIn("loginctl not installed", res.stdout)
         self.assertNotIn("# SKIP", res.stdout)
@@ -509,6 +518,28 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke()
         self.assertIn("ok 11 - T11 efi boot brand", res.stdout)
         self.assertIn("non-EFI target", res.stdout)
+
+    def test_sudo_policy_ok(self):
+        self.tools()
+        res = self.run_smoke()
+        self.assertIn("ok 12 - T12 passwordless elevation", res.stdout)
+        self.assertIn("policy file ok (offline check)", res.stdout)
+
+    def test_sudo_policy_missing(self):
+        self.tools()
+        (self.sysroot / "etc" / "sudoers.d" / "90-airymax").unlink()
+        res = self.run_smoke()
+        self.assert_fail(res, 12)
+        self.assertIn("90-airymax missing", res.stdout)
+
+    def test_sudo_policy_line_absent(self):
+        # 文件在但策略被改成要口令：只认有效规则行，不认文件名
+        self.tools()
+        self.write_sudoers().write_text(
+            "airymax ALL=(ALL) ALL\n", encoding="utf-8")
+        res = self.run_smoke()
+        self.assert_fail(res, 12)
+        self.assertIn("policy line absent", res.stdout)
 
 
 if __name__ == "__main__":

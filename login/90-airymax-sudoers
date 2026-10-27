@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
+# ===========================================================================
+# 90-airymax-sudoers — AirymaxOS 免密提权策略
+#
+# 部署：随 airymaxos-release 包安装为 /etc/sudoers.d/90-airymax，模式 0440。
+# 读取顺序：/etc/sudoers 末尾的 #includedir 按目录内文件名排序载入，90- 前缀
+# 排在 sudo 发行包自带的 20- 之后，同名选项以本文件为准。
+#
+# 为什么必须 NOPASSWD（0.0.3 决策）：target 上的 airymax 是安装器创建的
+# 唯一人用账户，且在 kickstart %post 中以 passwd -d 落地为空口令。空口令
+# 能通过 pam_unix 的 nullok 完成「登录」，但不能作为 sudo 的交互凭据：
+# sudo 会先要求输入口令，非交互调用（自动化、systemd 单元、远程运维）在
+# 拿到提示符时就失败。缺了这条策略，装机后的系统没有可用的提权路径，
+# 「本机可运维」不成立。
+#
+# 收敛范围：只放开 airymax 这一个账户，不改 %wheel 的默认口令语义，也不
+# 触碰 openEuler 自带的 sudoers 正文。文件以 %config(noreplace) 交付，
+# 现场改动不会被包升级覆盖。
+# ===========================================================================
+airymax ALL=(ALL) NOPASSWD: ALL
