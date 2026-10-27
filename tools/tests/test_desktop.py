@@ -74,8 +74,6 @@ ASSETS = (
      "%{_sysconfdir}/dconf/db/local.d/00-airymax-screensaver"),
     ("boot/efi_brand.sh",
      "/usr/lib/airymaxos/boot/efi_brand.sh"),
-    ("boot/airymaxos-efi-brand.service",
-     "%{_unitdir}/airymaxos-efi-brand.service"),
 )
 
 
@@ -215,7 +213,7 @@ class DesktopAssetTest(unittest.TestCase):
         self.assertEqual(rules, ["airymax ALL=(ALL) NOPASSWD: ALL"])
         spec = SPEC.read_text(encoding="utf-8")
         self.assertIn(
-            "install -m 0440 %{SOURCE22} \\\n"
+            "install -m 0440 %{SOURCE21} \\\n"
             "    %{buildroot}%{_sysconfdir}/sudoers.d/90-airymax", spec)
         self.assertIn(
             "%config(noreplace) %attr(0440, root, root) "
@@ -269,17 +267,18 @@ class DesktopAssetTest(unittest.TestCase):
         self.assertNotIn("x32", out.stdout)
         self.assertIn("grub_platform", out.stdout)
 
-    def test_efi_brand_unit(self):
-        # 标签不可改，只能首启新建并置顶；状态文件是“只写一次 NVRAM”的闸门，
-        # 两个 ConditionPathExists 缺一就会在非 EFI 机器或每次启动重跑。
-        unit = self.asset("boot/airymaxos-efi-brand.service").read_text(
-            encoding="utf-8")
-        for want in ("ConditionPathExists=/sys/firmware/efi",
-                     "ConditionPathExists=!/var/lib/airymaxos/efi-brand",
-                     "Type=oneshot",
-                     "ExecStart=/usr/lib/airymaxos/boot/efi_brand.sh",
-                     "WantedBy=multi-user.target"):
-            self.assertIn(want, unit)
+    def test_efi_brand_contract(self):
+        # 品牌化只由安装配方调用：脚本必须接受目标根重定向，且把「不在可改写
+        # 范围」与「范围内失败」分成两个退出码，否则 BIOS 装机被误判为失败。
+        text = self.asset("boot/efi_brand.sh").read_text(encoding="utf-8")
+        for want in ("--esp)", "--state)",
+                     '[ -d /sys/firmware/efi ] || skip "no efivarfs (BIOS boot)"'):
+            self.assertIn(want, text)
+        self.assertIn("exit 0", text.split("skip()", 1)[1].split("}", 1)[0])
+        self.assertIn("exit 1", text.split("fail()", 1)[1].split("}", 1)[0])
+        # 首启路径必须不存在：init_t 在 dosfs_t 上建文件被 SELinux 拒绝
+        self.assertFalse(
+            (BASE / "boot" / "airymaxos-efi-brand.service").exists())
 
     def test_check_literals_match_assets(self):
         # %check 的 grep 字面量若与出厂资产漂移（缩进、拼写），要到构建期才

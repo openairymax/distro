@@ -14,7 +14,8 @@
 #   5. 部署登录与提权策略：sshd 允许交付账户的空口令登录，sudo 以
 #      NOPASSWD 放开同一账户的非交互提权，桌面侧关闭空闲锁屏（空口令账户
 #      被锁屏拦住只会制造口令框）；
-#   6. 部署 EFI 品牌化：efi_brand.sh 与首启单元，把 anaconda 留下的
+#   6. 部署 EFI 品牌化脚本 efi_brand.sh：由安装配方的 %%post --nochroot
+#      调用（distro/kickstart/airymaxos-workstation.ks），把 anaconda 留下的
 #      openEuler 引导项替换为置顶的 AirymaxOS 条目；
 #   7. %%post 只执行装配后才能确定的运行期动作：编译 glib schema、屏蔽桌面
 #      自带 AI 控制面单元、在运行中的系统上重载 systemd。
@@ -40,7 +41,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.3
-%global airy_release 10
+%global airy_release 11
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 
 Name:           airymaxos-release
@@ -72,11 +73,10 @@ Source17:       display_mode.sh
 Source18:       60-airymax-display.sh
 Source19:       01_airymax_display
 Source20:       efi_brand.sh
-Source21:       airymaxos-efi-brand.service
-Source22:       90-airymax-sudoers
-Source23:       00-airymax-screensaver
-Source24:       50-airymax-journald.conf
-Source25:       airymax-display.desktop
+Source21:       90-airymax-sudoers
+Source22:       00-airymax-screensaver
+Source23:       50-airymax-journald.conf
+Source24:       airymax-display.desktop
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -86,7 +86,7 @@ Requires:       systemd
 # 仍按上游默认值索要口令。dconf 属桌面闭包，这里显式声明以免闭包调整后
 # 静默失去编译步骤。
 Requires:       dconf
-# 首启品牌化靠 efibootmgr 写 NVRAM；它本就属引导闭包（scripts/lib/
+# 安装期品牌化靠 efibootmgr 写 NVRAM；它本就属引导闭包（scripts/lib/
 # closure.sh CL_BOOT），这里显式声明，免得后续精简闭包时静默丢工具。
 Requires:       efibootmgr
 
@@ -146,13 +146,13 @@ install -m 0644 %{SOURCE16} \
 # 权限而不是内容的一部分。改名去掉 -sudoers 后缀，与 /etc/sudoers.d 内
 # 「按文件名排序生效」的惯例一致。
 install -d -m 0750 %{buildroot}%{_sysconfdir}/sudoers.d
-install -m 0440 %{SOURCE22} \
+install -m 0440 %{SOURCE21} \
     %{buildroot}%{_sysconfdir}/sudoers.d/90-airymax
 
 # 锁屏策略与 sudo 策略是同一口径的两半：交付账户既能免密进桌面，就不能被
 # 空闲锁屏拦住。目录由 dconf 包拥有，这里只落键文件。
 install -d -m 0755 %{buildroot}%{_sysconfdir}/dconf/db/local.d
-install -m 0644 %{SOURCE23} \
+install -m 0644 %{SOURCE22} \
     %{buildroot}%{_sysconfdir}/dconf/db/local.d/00-airymax-screensaver
 
 install -d -m 0755 %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d
@@ -168,13 +168,11 @@ install -m 0755 %{SOURCE19} \
 install -d -m 0755 %{buildroot}/usr/lib/airymaxos/boot
 install -m 0755 %{SOURCE20} \
     %{buildroot}/usr/lib/airymaxos/boot/efi_brand.sh
-install -m 0644 %{SOURCE21} \
-    %{buildroot}%{_unitdir}/airymaxos-efi-brand.service
 
 install -d -m 0755 %{buildroot}%{_sysconfdir}/xdg/autostart
 install -m 0644 %{SOURCE9} \
     %{buildroot}%{_sysconfdir}/xdg/autostart/airymax-input-method.desktop
-install -m 0644 %{SOURCE25} \
+install -m 0644 %{SOURCE24} \
     %{buildroot}%{_sysconfdir}/xdg/autostart/airymax-display.desktop
 
 install -d -m 0755 %{buildroot}%{_sysconfdir}/systemd/system/user@.service.d
@@ -185,7 +183,7 @@ install -m 0644 %{SOURCE12} \
 # Storage=auto 因此退化为 volatile，重启即丢的证据让「上一次启动为什么
 # 失败」只能靠复现去猜。drop-in 目录由 systemd 包拥有，这里只落策略文件。
 install -d -m 0755 %{buildroot}%{_sysconfdir}/systemd/journald.conf.d
-install -m 0644 %{SOURCE24} \
+install -m 0644 %{SOURCE23} \
     %{buildroot}%{_sysconfdir}/systemd/journald.conf.d/50-airymax-journald.conf
 
 install -d -m 0755 %{buildroot}%{_datadir}/ukui-background-properties
@@ -277,20 +275,16 @@ printf '%s\n' "${airy_grub}" |
 printf '%s\n' "${airy_grub}" | grep -qxF '  terminal_output gfxterm'
 printf '%s\n' "${airy_grub}" | grep -qxF '  insmod gfxterm'
 printf '%s\n' "${airy_grub}" | grep -qF 'grub_platform'
-# EFI 品牌化：脚本必须自限在 EFI，且只写一条置顶条目。断言落在脚本的
-# 行为要点上（条件、目标路径、BootOrder 重排），而不是"文件存在"。
+# EFI 品牌化：脚本只由安装配方的 %%post --nochroot 调用（目标根经 --esp /
+# --state 传入），断言落在三项行为契约上——参数入口存在、目标目录在 ESP 内、
+# 非 EFI 装机必须优雅跳过而不是失败。首启单元已被移除：systemd 以 init_t
+# 运行，在 dosfs_t 上建文件被 SELinux 拒绝（验收 run 40574831975 的 AVC）。
 sh -n %{buildroot}/usr/lib/airymaxos/boot/efi_brand.sh
-grep -qxF 'ConditionPathExists=/sys/firmware/efi' \
-    %{buildroot}%{_unitdir}/airymaxos-efi-brand.service
-grep -qxF 'ConditionPathExists=!/var/lib/airymaxos/efi-brand' \
-    %{buildroot}%{_unitdir}/airymaxos-efi-brand.service
-grep -qxF 'Type=oneshot' \
-    %{buildroot}%{_unitdir}/airymaxos-efi-brand.service
-grep -qxF 'ExecStart=/usr/lib/airymaxos/boot/efi_brand.sh' \
-    %{buildroot}%{_unitdir}/airymaxos-efi-brand.service
-grep -qxF 'WantedBy=multi-user.target' \
-    %{buildroot}%{_unitdir}/airymaxos-efi-brand.service
-grep -qF 'dst=${esp}/EFI/airymaxos' \
+grep -qxF '    --esp) esp=${2:?--esp 需要目录}; shift 2 ;;' \
+    %{buildroot}/usr/lib/airymaxos/boot/efi_brand.sh
+grep -qxF 'dst=${esp}/EFI/airymaxos' \
+    %{buildroot}/usr/lib/airymaxos/boot/efi_brand.sh
+grep -qxF '[ -d /sys/firmware/efi ] || skip "no efivarfs (BIOS boot)"' \
     %{buildroot}/usr/lib/airymaxos/boot/efi_brand.sh
 grep -qF 'efibootmgr -o "${order}"' \
     %{buildroot}/usr/lib/airymaxos/boot/efi_brand.sh
@@ -352,7 +346,6 @@ fi
 %config(noreplace) %{_sysconfdir}/systemd/journald.conf.d/50-airymax-journald.conf
 %{_unitdir}/airymax-desktop.slice
 %{_unitdir}/airymax-desktop-ready.service
-%{_unitdir}/airymaxos-efi-brand.service
 /usr/lib/airymaxos/desktop/desktop_ready.sh
 /usr/lib/airymaxos/desktop/boot_state.sh
 /usr/lib/airymaxos/desktop/display_mode.sh
@@ -364,6 +357,16 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Tue Oct 27 2026 SPHARX <dev@spharx.com> - 0.0.3-11
+- Brand the ESP from the installer instead of first boot. The oneshot unit
+  ran as init_t and was denied create on dosfs_t (AVC in acceptance run
+  40574831975), so efi_brand.sh skipped by design and EFI/airymaxos never
+  appeared -- no AirymaxOS entry, BootOrder still headed by openEuler
+- Drop airymaxos-efi-brand.service and call the script from the kickstart
+  %post --nochroot with --esp/--state, which also lets the same script
+  repair a live system; a failed branding now aborts the install with an
+  AIRYMAX-EFI-FAIL console marker instead of a silent skip
+
 * Tue Oct 27 2026 SPHARX <dev@spharx.com> - 0.0.3-10
 - Converge the display mode instead of writing it once: the xinitrc.d hook
   runs before the virtual output publishes a connected topology, and ukui's
