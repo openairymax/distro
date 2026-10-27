@@ -90,6 +90,33 @@ AirymaxOS 系统桌面默认壁纸 = `wallpaper/airymaxos-default.jpg`
    由 ukui-session 的 XDG autostart 拉起 `fcitx`。fcitx 包只提供
    `NoDisplay=true` 的菜单项，不提供自启文件。
 
+## 分辨率自适应（决策 2026-10-27）
+
+4K 面板在 X11 下会以首选模式 3840x2160 起会话，UKUI 面板与字号按物理
+尺寸渲染，出现「字小到不可用」。冻结点不提供自动缩放，本发行版自行收敛
+到「常用分辨率」。
+
+`display_mode.sh` 是策略唯一事实来源，三个入口：
+
+- 无参数：读取 `xrandr --query`，对不一致的输出执行 `--output <名>
+  --mode <目标>`，全部一致时不做任何调用（幂等）；
+- `--check`：只判定不修改，全部输出已符合策略则 0，否则打印
+  `分辨率未达策略: <输出>:<当前>-><目标>` 并返回 1；
+- `--plan`：从 stdin 读拓扑文本、向 stdout 打印 `<输出> <当前> <目标>`，
+  供单测与 `%check` 在无 X 环境下验证解析。
+
+策略三条规则：单输出上限 `1920x1200`（含，1920x1200 面板原样保留）；
+首选模式在 cap 内即采用，否则在阶梯
+`1920x1080 1600x900 1440x900 1366x768 1280x720 1024x768` 中取该输出
+确实广播的最大项；阶梯全不匹配则保持首选模式，不猜。逐 connected 输出
+独立决策，镜像与扩展桌面行为一致；无 connected 输出时 `--check` 判失败
+（说明 X 未起来，不是「已合规」）。
+
+钩子是 `xinitrc.d/60-airymax-display.sh`：同样大于 50（排在 imsettings 的
+`50-xinput.sh` 之后），只调用策略脚本、不复制策略常量；脚本或 xrandr
+缺失时静默返回，不阻断会话。策略脚本以 POSIX sh 编写，因为它会被
+`/bin/sh` source 的会话链间接执行，禁止 bash 专有语法。
+
 ## 登录链就绪探针（决策 2026-10-18）
 
 `airymax-desktop-ready.service`（`WantedBy=graphical.target`）在图形目标
@@ -163,10 +190,14 @@ multi-user.target，不会触发该单元；workstation kickstart 显式 enable�
   （探针实现：UKUI 会话定义与 lightdm/greeter 会话校验）
 - `boot_state.sh` → `/usr/lib/airymaxos/desktop/`
   （共享库：失败单元记账与有界取证，探针与验收上报共用）
+- `display_mode.sh` → `/usr/lib/airymaxos/desktop/`
+  （分辨率策略：`--check` / `--plan` / 默认应用三入口）
 - `70-airymax-ukui-policy.sh` → `/usr/share/airymaxos/distro/desktop/`
   （`%post` 调用：屏蔽 AI 控制面单元）
 - `lightdm/50-airymax.conf` → `/etc/lightdm/lightdm.conf.d/`
 - `xinitrc.d/70-airymax-im.sh` → `/etc/X11/xinit/xinitrc.d/`
+- `xinitrc.d/60-airymax-display.sh` → `/etc/X11/xinit/xinitrc.d/`
+  （会话启动时应用分辨率策略）
 - `autostart/airymax-input-method.desktop` → `/etc/xdg/autostart/`
 - `user@.service.d/50-airymax-desktop.conf` →
   `/etc/systemd/system/user@.service.d/`

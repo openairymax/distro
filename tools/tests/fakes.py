@@ -734,6 +734,22 @@ ANALYZE = """\
 cat "${FAKE_CHAIN_FILE}"
 """
 
+XRANDR = """\
+#!/bin/sh
+case "$1" in
+--query)
+    [ -n "${FAKE_XRANDR_TOPO:-}" ] || exit 1
+    [ -r "${FAKE_XRANDR_TOPO}" ] || exit 1
+    cat "${FAKE_XRANDR_TOPO}"
+    ;;
+--output)
+    [ -n "${FAKE_XRANDR_LOG:-}" ] || exit 1
+    printf '%s\\n' "$*" >> "${FAKE_XRANDR_LOG}"
+    ;;
+*) exit 1 ;;
+esac
+"""
+
 
 def link_tools(bin_dir):
     for name in TOOLS:
@@ -774,7 +790,7 @@ def smoke_tools(bin_dir, omit=()):
              ("xdpyinfo", XDPYINFO), ("fcitx-remote", FCITX_REMOTE),
              ("pactl", PACTL), ("systemctl", SYSTEMCTL),
              ("gsettings", GSETTINGS), ("sha256sum", SHA256SUM),
-             ("uname", UNAME))
+             ("uname", UNAME), ("xrandr", XRANDR))
     for name, body in table:
         if name not in omit:
             write(bin_dir, name, body)

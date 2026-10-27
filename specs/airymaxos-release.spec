@@ -8,9 +8,9 @@
 #      /etc/system-release 符号链接（内容由同一事实源派生，见下）；
 #   2. 提供 /etc/yum.repos.d/airymaxos.repo（仓库列表 SSoT）；
 #   3. 提供 /etc/rpm/macros.airymax（文件系统布局宏 SSoT）；
-#   4. 部署桌面会话静态资产：lightdm 座位策略、X11 会话输入法环境、输入法
-#      自启项、UKUI 壁纸注册表与背景默认值、默认壁纸、桌面调度 slice、
-#      user@.service 挂接及登录链就绪探针；
+#   4. 部署桌面会话静态资产：lightdm 座位策略、X11 会话输入法环境与分辨率
+#      自适应、输入法自启项、UKUI 壁纸注册表与背景默认值、默认壁纸、桌面
+#      调度 slice、user@.service 挂接及登录链就绪探针；
 #   5. %%post 只执行装配后才能确定的运行期动作：编译 glib schema、屏蔽桌面
 #      自带 AI 控制面单元、在运行中的系统上重载 systemd。
 #
@@ -35,7 +35,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.3
-%global airy_release 2
+%global airy_release 3
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 
 Name:           airymaxos-release
@@ -63,6 +63,8 @@ Source13:       airymax-desktop-ready.service
 Source14:       desktop_ready.sh
 Source15:       boot_state.sh
 Source16:       50-airymax-sshd.conf
+Source17:       display_mode.sh
+Source18:       60-airymax-display.sh
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -110,6 +112,8 @@ install -m 0755 %{SOURCE14} \
     %{buildroot}/usr/lib/airymaxos/desktop/desktop_ready.sh
 install -m 0644 %{SOURCE15} \
     %{buildroot}/usr/lib/airymaxos/desktop/boot_state.sh
+install -m 0755 %{SOURCE17} \
+    %{buildroot}/usr/lib/airymaxos/desktop/display_mode.sh
 
 install -d -m 0755 %{buildroot}%{_sysconfdir}/lightdm/lightdm.conf.d
 install -m 0644 %{SOURCE7} \
@@ -122,6 +126,8 @@ install -m 0644 %{SOURCE16} \
 install -d -m 0755 %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d
 install -m 0755 %{SOURCE8} \
     %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/70-airymax-im.sh
+install -m 0755 %{SOURCE18} \
+    %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/60-airymax-display.sh
 
 install -d -m 0755 %{buildroot}%{_sysconfdir}/xdg/autostart
 install -m 0644 %{SOURCE9} \
@@ -181,6 +187,12 @@ grep -qxF 'autologin-user=airymax' \
 grep -qxF 'PermitEmptyPasswords yes' \
     %{buildroot}%{_sysconfdir}/ssh/sshd_config.d/50-airymax-sshd.conf
 sh -n %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/70-airymax-im.sh
+sh -n %{buildroot}/usr/lib/airymaxos/desktop/display_mode.sh
+sh -n %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/60-airymax-display.sh
+# 分辨率策略在构建期以合成拓扑跑一遍：首选 4K 必须被降到 1920x1080。
+# awk 解析若随 xrandr 输出格式漂移而失效，这里而不是装机现场暴露。
+airy_plan=$(printf 'Screen 0: minimum 8 x 8, current 3840 x 2160, maximum 32767 x 32767\neDP-1 connected primary 3840x2160+0+0 (normal) 344mm x 194mm\n   3840x2160     60.00*+\n   1920x1080     60.00\n' | %{buildroot}/usr/lib/airymaxos/desktop/display_mode.sh --plan)
+test "${airy_plan}" = 'eDP-1 3840x2160 1920x1080'
 grep -qxF 'Exec=/usr/bin/fcitx' \
     %{buildroot}%{_sysconfdir}/xdg/autostart/airymax-input-method.desktop
 grep -qxF 'Slice=airymax-desktop.slice' \
@@ -216,12 +228,14 @@ fi
 %config(noreplace) %{_sysconfdir}/lightdm/lightdm.conf.d/50-airymax.conf
 %config(noreplace) %{_sysconfdir}/ssh/sshd_config.d/50-airymax-sshd.conf
 %config(noreplace) %{_sysconfdir}/X11/xinit/xinitrc.d/70-airymax-im.sh
+%config(noreplace) %{_sysconfdir}/X11/xinit/xinitrc.d/60-airymax-display.sh
 %config(noreplace) %{_sysconfdir}/xdg/autostart/airymax-input-method.desktop
 %config(noreplace) %{_sysconfdir}/systemd/system/user@.service.d/50-airymax-desktop.conf
 %{_unitdir}/airymax-desktop.slice
 %{_unitdir}/airymax-desktop-ready.service
 /usr/lib/airymaxos/desktop/desktop_ready.sh
 /usr/lib/airymaxos/desktop/boot_state.sh
+/usr/lib/airymaxos/desktop/display_mode.sh
 %{_datadir}/ukui-background-properties/airymaxos-default.xml
 %{_datadir}/glib-2.0/schemas/99-airymaxos-default.gschema.override
 %{_datadir}/backgrounds/airymaxos/airymaxos-default.jpg
@@ -229,6 +243,13 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Tue Oct 27 2026 SPHARX <dev@spharx.com> - 0.0.3-3
+- Ship display_mode.sh and its xinitrc.d hook: each connected output is
+  capped at 1920x1200 and falls back to a common-resolution ladder, so a
+  4K panel no longer lands in an unusable mode
+- %check runs the policy against a synthetic topology, so xrandr output
+  drift fails the build instead of the installed system
+
 * Sun Oct 25 2026 SPHARX <dev@spharx.com> - 0.0.3-2
 - Ship the 0.0.3 password policy: lightdm autologin for airymax and an
   sshd drop-in that permits empty passwords, so the shipped empty-password

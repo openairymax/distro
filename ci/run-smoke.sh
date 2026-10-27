@@ -10,9 +10,9 @@
 # 环境:
 #   AIRYMAX_SMOKE_WAIT  守护进程就绪等待秒数（默认 30）
 #   AIRYMAX_SMOKE_HOST  期望的主机名（默认 airymaxos，即 workstation 配方值）
-#   AIRYMAX_SMOKE_ROOT  只读系统视图的根前缀（默认空，即真实 /）。T6–T9 读取
-#                       /boot、/sys 与 /etc 下的发行版标识，单测在沙箱里用
-#                       该前缀复核判定，装机现场保持默认值。
+#   AIRYMAX_SMOKE_ROOT  只读系统视图的根前缀（默认空，即真实 /）。T6–T10 读取
+#                       /boot、/sys、/etc 与 /usr/lib 下的发行版标识与资产，
+#                       单测在沙箱里用该前缀复核判定，装机现场保持默认值。
 #
 # 覆盖:
 #   T1  UKUI X11 会话：loginctl 会话属性、ukui-session 进程、X server 可达
@@ -24,6 +24,7 @@
 #   T7  LSM 注册表：airy 只登记一次，配套 lockdown LSM 在位
 #   T8  主机名：/etc/hostname 是产品名，不是安装器缺省名
 #   T9  品牌：/etc/os-release 的 NAME/ID/PRETTY_NAME/VERSION_ID 指向本产品
+#   T10 分辨率：每个 connected 输出处于 display_mode.sh 定义的策略模式
 #
 # 判定语义:
 #   0  — 全部通过
@@ -304,8 +305,19 @@ t9_brand() {
     esac
 }
 
+# T10: 分辨率（会话输出必须处于策略模式，策略单点在 display_mode.sh）
+t10_display() {
+    local script="${SYSROOT}/usr/lib/airymaxos/desktop/display_mode.sh"
+    need xrandr || return $?
+    [ -x "${script}" ] || {
+        echo "${script} not installed"
+        return 1
+    }
+    "${script}" --check
+}
+
 printf 'TAP version 14\n'
-printf '1..9\n'
+printf '1..10\n'
 printf '# AirymaxOS distro smoke: target=%s date=%s\n' \
     "${TARGET}" "$(date -u '+%FT%TZ')"
 
@@ -318,6 +330,7 @@ probe 6 "T6 kernel identity" t6_kernel_identity
 probe 7 "T7 lsm registry" t7_lsm_registry
 probe 8 "T8 product hostname" t8_hostname
 probe 9 "T9 release brand" t9_brand
+probe 10 "T10 display mode policy" t10_display
 
 printf '# summary: pass=%d fail=%d\n' "${PASS}" "${FAIL}"
 [ "${FAIL}" -eq 0 ]
