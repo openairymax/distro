@@ -110,6 +110,7 @@ class FlashTest(unittest.TestCase):
         self.assertIn(hashlib.sha256(self.iso.read_bytes()).hexdigest(),
                       res.stdout)
         self.assertIn("未提供", res.stdout)
+        self.assertIn("verdict", res.stdout)
 
     def test_check_rejects_missing_pvd(self):
         self.write_iso(self.iso, pvd=False)
@@ -171,6 +172,8 @@ class FlashTest(unittest.TestCase):
         self.assertEqual(rows[str(self.root / "sdc")][0], "refused")
         self.assertIn("/media/airymax data", rows[str(self.root / "sdc")][1])
         self.assertEqual(rows[str(self.root / "sdd")][0], "fixed")
+        self.assertIn("idx", res.stdout)
+        self.assertIn("refused 2", res.stdout)
 
     def test_plan_skips_partitions(self):
         part = (f"{self.root}/sdb1|part|{GIB}|1|usb|||")
