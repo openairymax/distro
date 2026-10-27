@@ -10,7 +10,7 @@
 # 环境:
 #   AIRYMAX_SMOKE_WAIT  守护进程就绪等待秒数（默认 30）
 #   AIRYMAX_SMOKE_HOST  期望的主机名（默认 airymaxos，即 workstation 配方值）
-#   AIRYMAX_SMOKE_ROOT  只读系统视图的根前缀（默认空，即真实 /）。T6–T10 读取
+#   AIRYMAX_SMOKE_ROOT  只读系统视图的根前缀（默认空，即真实 /）。T6–T11 读取
 #                       /boot、/sys、/etc 与 /usr/lib 下的发行版标识与资产，
 #                       单测在沙箱里用该前缀复核判定，装机现场保持默认值。
 #
@@ -25,6 +25,7 @@
 #   T8  主机名：/etc/hostname 是产品名，不是安装器缺省名
 #   T9  品牌：/etc/os-release 的 NAME/ID/PRETTY_NAME/VERSION_ID 指向本产品
 #   T10 分辨率：每个 connected 输出处于 display_mode.sh 定义的策略模式
+#   T11 EFI 品牌：ESP 内 airymaxos 目录是完整签名套件，BootOrder 首位为本产品
 #
 # 判定语义:
 #   0  — 全部通过
@@ -68,6 +69,7 @@ probe() { # probe <编号> <名称> <探测函数>
     out="$("$@" 2>&1)"
     rc=$?
     if [ "${rc}" -eq 0 ]; then
+        [ -n "${out}" ] && printf '#   %s\n' "${out}"
         tap_ok "${id}" "${name}"
     else
         tap_fail "${id}" "${name}" "${out:-probe rc=${rc}}"
@@ -316,8 +318,42 @@ t10_display() {
     "${script}" --check
 }
 
+# T11: EFI 品牌（首启品牌化把 NVRAM 首选项换成 AirymaxOS，ESP 内是一整套
+# 已签名二级加载器；shim 只从自身目录取 grubx64.efi，缺一即不可引导）
+t11_efi_brand() {
+    local esp="${SYSROOT}/boot/efi" out first
+    if [ ! -d "${SYSROOT}/sys/firmware/efi" ]; then
+        echo "non-EFI target: no NVRAM entry to brand"
+        return 0
+    fi
+    for f in shimx64.efi grubx64.efi; do
+        [ -f "${esp}/EFI/airymaxos/${f}" ] || {
+            echo "${esp}/EFI/airymaxos/${f} missing"
+            return 1
+        }
+    done
+    [ -s "${esp}/EFI/airymaxos/BOOTX64.CSV" ] || {
+        echo "${esp}/EFI/airymaxos/BOOTX64.CSV missing"
+        return 1
+    }
+    # 只读复核时 NVRAM 属于宿主而非被测系统，到此为止。
+    [ -n "${SYSROOT}" ] && return 0
+    need efibootmgr || return $?
+    out=$(efibootmgr 2>/dev/null) || {
+        echo "efibootmgr failed"
+        return 1
+    }
+    first=$(printf '%s\n' "${out}" | sed -n 's/^BootOrder: *//p' |
+        cut -d, -f1)
+    printf '%s\n' "${out}" | grep -q "^Boot${first}\* AirymaxOS" || {
+        echo "BootOrder head=${first}: $(printf '%s\n' "${out}" |
+            grep "^Boot${first}")"
+        return 1
+    }
+}
+
 printf 'TAP version 14\n'
-printf '1..10\n'
+printf '1..11\n'
 printf '# AirymaxOS distro smoke: target=%s date=%s\n' \
     "${TARGET}" "$(date -u '+%FT%TZ')"
 
@@ -331,6 +367,7 @@ probe 7 "T7 lsm registry" t7_lsm_registry
 probe 8 "T8 product hostname" t8_hostname
 probe 9 "T9 release brand" t9_brand
 probe 10 "T10 display mode policy" t10_display
+probe 11 "T11 efi boot brand" t11_efi_brand
 
 printf '# summary: pass=%d fail=%d\n' "${PASS}" "${FAIL}"
 [ "${FAIL}" -eq 0 ]
