@@ -147,8 +147,15 @@ class DesktopReadyTest(unittest.TestCase):
         self.assertEqual(res.returncode, 1)
         self.assertIn(FAIL, res.stdout)
 
-    def test_not_greeter(self):
-        res = self.run_probe(FAKE_CLASS="user")
+    def test_autologin_session_is_ready(self):
+        res = self.run_probe(FAKE_SERVICE="lightdm-autologin",
+                             FAKE_CLASS="user")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn(f"{READY} unit=lightdm class=user type=x11", res.stdout)
+        self.assertNotIn(DIAG, res.stdout)
+
+    def test_foreign_class_rejected(self):
+        res = self.run_probe(FAKE_CLASS="manager")
         self.assertEqual(res.returncode, 1)
         self.assertIn(FAIL, res.stdout)
 
