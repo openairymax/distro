@@ -3,14 +3,15 @@
 # ===========================================================================
 # efi_brand.sh — 在 ESP 内建立 AirymaxOS 引导项并置顶
 #
-# 调用者：安装配方的 %post --nochroot（airymaxos-workstation.ks），目标根由
-#         --esp / --state 传入。三个时机只有安装器可行：
-#         chroot 段看不到 ESP 与 efivarfs；首启单元被 SELinux 拦下——systemd
-#         以 init_t 运行，在 dosfs_t 上建文件被拒（验收 run 40574831975 的
-#         AVC：denied { create } for comm="efi_brand.sh"
-#         scontext=system_u:system_r:init_t:s0 tcontext=...:dosfs_t
-#         tclass=file permissive=0），脚本按设计跳过，品牌于是落空。
-#         安装器环境不强制 SELinux，且 anaconda 已挂好 efivarfs。
+# 调用者：安装配方的 %post --nochroot（airymaxos-workstation.ks）。该段先把
+#         efivarfs、ESP 与 /dev /proc /sys 挂进目标根，再在 chroot 内调用本
+#         脚本，因此 efibootmgr / findmnt / lsblk 都由被测系统提供——安装器
+#         自带的环境里没有这些工具，早期版本直接调用时走进了 skip 分支。
+#         三个时机只有安装期可行：默认视图的 chroot 段看不到 ESP 与 NVRAM；
+#         首启单元被 SELinux 拦下——systemd 以 init_t 运行，在 dosfs_t 上
+#         建文件被拒（验收 run 40574831975 的 AVC：denied { create } for
+#         comm="efi_brand.sh" scontext=system_u:system_r:init_t:s0
+#         tcontext=...:dosfs_t tclass=file permissive=0）。
 #
 # 为什么需要这一步：anaconda 用 /etc/system-release 派生 GRUB_DISTRIBUTOR，
 # 装机后 NVRAM 条目叫 "openEuler"，固件菜单与 BootOrder 都是上游名字；
@@ -21,9 +22,10 @@
 # 内嵌 prefix 仍指向 /EFI/openEuler，所以真正生效的菜单配置不变；同目录的
 # grub.cfg 只是品牌一致性副本，老化的风险仅限装饰。
 #
-# 退出码：0 = 完成，或本机不在可改写范围（非 EFI 固件、ESP 未挂载、缺
-#         efibootmgr）；1 = 在可改写范围内但失败。调用者据此中止安装：
-#         静默跳过只会把「品牌归属」推迟到验收现场，而那时已无从归因。
+# 退出码：0 = 完成，或本机不在可改写范围（非 EFI 固件、此前已品牌化）；
+#         1 = 在可改写范围内但失败（含 ESP 未挂载、缺 efibootmgr）。调用者
+#         据此中止安装：静默跳过只会把「品牌归属」推迟到验收现场，而那时
+#         已无从归因。
 # ===========================================================================
 
 esp=/boot/efi
@@ -57,10 +59,12 @@ while [ $# -gt 0 ]; do
 done
 dst=${esp}/EFI/airymaxos
 
-# 非 EFI 装机、ESP 未挂载、缺 efibootmgr：都不在本脚本能改写的范围内。
+# 只有非 EFI 装机与重复调用不在本脚本能改写的范围内。ESP 未挂载与缺
+# efibootmgr 属于环境缺陷（配方已把 ESP 挂好，包闭包已声明对 efibootmgr 的
+# 依赖），必须显式失败：跳过只会让「品牌没做」等到验收现场才暴露。
 [ -d /sys/firmware/efi ] || skip "no efivarfs (BIOS boot)"
-[ -d ${esp}/EFI ] || skip "no ESP at ${esp}"
-command -v efibootmgr >/dev/null 2>&1 || skip "efibootmgr unavailable"
+[ -d ${esp}/EFI ] || fail "no ESP at ${esp}"
+command -v efibootmgr >/dev/null 2>&1 || fail "efibootmgr unavailable"
 [ -e ${state} ] && skip "already branded (${state})"
 
 # 按目录找已签名的 shim，排除目标目录自身。

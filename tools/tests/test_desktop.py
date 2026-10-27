@@ -280,6 +280,18 @@ class DesktopAssetTest(unittest.TestCase):
         self.assertFalse(
             (BASE / "boot" / "airymaxos-efi-brand.service").exists())
 
+    def test_ks_brands_inside_root(self):
+        # 品牌脚本必须在目标根内执行：安装器环境没有 efibootmgr，直接调用只会
+        # 走 skip，而配方仍会报 OK（验收 run 40587295652）。状态文件非空是
+        # 「品牌确实落地」的唯一判据，退出码 0 不够。
+        text = (BASE / "kickstart" / "airymaxos-workstation.ks").read_text(
+            encoding="utf-8")
+        for want in ('chroot "${root}" "${brand}"',
+                     "--state /var/lib/airymaxos/efi-brand",
+                     '[ ! -s "${root}/var/lib/airymaxos/efi-brand" ]',
+                     "mount --rbind"):
+            self.assertIn(want, text)
+
     def test_check_literals_match_assets(self):
         # %check 的 grep 字面量若与出厂资产漂移（缩进、拼写），要到构建期才
         # 失败，一轮 CI 几十分钟；这里把同一条断言提前到 lint 阶段。

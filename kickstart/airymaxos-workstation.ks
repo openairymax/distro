@@ -103,10 +103,13 @@ airymaxos-system
 %end
 
 # ---- 安装后脚本 ----
-# EFI 品牌化必须在安装器环境做完：它要同时写 ESP（dosfs_t）与 NVRAM，而
-# chroot 段两者都不可见；首启 systemd 单元又会被 SELinux 拒绝（init_t 在
-# dosfs_t 上 create，见 distro/boot/efi_brand.sh 头部）。--nochroot 段在
-# 目标根仍挂载、efivarfs 仍可用时执行，且安装器不强制 SELinux。
+# EFI 品牌化要同时写 ESP（dosfs_t）与 NVRAM，两者在 chroot 段的默认视图里
+# 都不可见；首启 systemd 单元又会被 SELinux 拒绝（init_t 在 dosfs_t 上
+# create，见 distro/boot/efi_brand.sh 头部）。这里在安装器环境把 efivarfs、
+# ESP 与 /dev /proc /sys 挂进目标根，再在目标根内执行品牌脚本：efibootmgr、
+# findmnt、lsblk 因此都由被测系统提供，与真机环境一致，缺包会在装机时暴露
+# 而不是被 skip 吞掉（验收 run 40587295652：安装器环境没有 efibootmgr，
+# 旧实现走 skip，串口却仍报 OK）。
 #
 # 失败即终止安装（--erroronfail）：品牌与 BootOrder 是可验收的交付项，
 # 静默降级只会把问题推迟到验收现场。脚本按「环境不适用」与「在范围内
@@ -124,45 +127,85 @@ done
 
 mark()
 {
-    printf '%s\n' "$*" >/dev/console 2>/dev/null || :
+    local dev
+    printf '%s\n' "$*"
+    for dev in /dev/console /dev/ttyS0 /dev/ttyAMA0; do
+        [ -w "${dev}" ] || continue
+        if printf '%s\n' "$*" >"${dev}" 2>/dev/null; then
+            break
+        fi
+    done
+    return 0
 }
 
 [ -n "${root}" ] || {
     mark "AIRYMAX-EFI-FAIL no-install-root"
     exit 1
 }
-esp=${root}/boot/efi
-brand=${root}/usr/lib/airymaxos/boot/efi_brand.sh
-
 if [ ! -d /sys/firmware/efi ]; then
     mark "AIRYMAX-EFI-SKIP non-EFI install"
     exit 0
 fi
+
+# 段内挂载的目录在退出时全部还回去；rbind 把宿主的 /dev /proc /sys 视图
+# 覆盖到目标根，目标根原有内容在 umount -R 后自动恢复。
+owned=
+umount_all()
+{
+    local d
+    for d in ${owned}; do
+        umount -R "${d}" 2>/dev/null || :
+    done
+    owned=
+}
+trap umount_all EXIT
+
 # efivars 与 ESP 都只在 anaconda 的引导装载程序阶段内是挂载的，装包与
 # %post 之间会被卸载；这里各自按需挂回，不依赖安装器的挂载时序。
 mountpoint -q /sys/firmware/efi/efivars ||
     mount -t efivarfs efivarfs /sys/firmware/efi/efivars 2>/dev/null || :
-owned=
+esp=${root}/boot/efi
 if ! mountpoint -q "${esp}"; then
     mkdir -p "${esp}"
     src=$(awk '$2 == "/boot/efi" { print $1; exit }' \
         "${root}/etc/fstab" 2>/dev/null) || src=
-    [ -n "${src}" ] && mount "${src}" "${esp}" 2>/dev/null || :
-    owned=1
+    if [ -n "${src}" ] && mount "${src}" "${esp}" 2>/dev/null; then
+        owned="${owned} ${esp}"
+    fi
 fi
-if [ ! -x "${brand}" ] || ! mountpoint -q "${esp}"; then
+for d in /dev /proc /sys; do
+    mountpoint -q "${root}${d}" && continue
+    mount --rbind "${d}" "${root}${d}" || continue
+    owned="${owned} ${root}${d}"
+done
+
+brand=/usr/lib/airymaxos/boot/efi_brand.sh
+if [ ! -x "${root}${brand}" ] || ! mountpoint -q "${esp}"; then
     mark "AIRYMAX-EFI-FAIL esp=${esp} brand=${brand}"
     exit 1
 fi
 
+# 品牌日志落在目标根内：--log 指定的文件在安装器环境，装机结束即随安装器
+# 消失，只有这里才是验收与事后归因都能读到的位置。
+logdir=/var/log/airymax
+log=${root}${logdir}/efi-brand.log
+install -d -m 0755 "${root}${logdir}"
 rc=0
-sh "${brand}" --esp "${esp}" --state "${root}/var/lib/airymaxos/efi-brand" ||
-    rc=$?
-[ -n "${owned}" ] && umount "${esp}" 2>/dev/null || :
-[ "${rc}" -eq 0 ] || {
-    mark "AIRYMAX-EFI-FAIL rc=${rc}"
+chroot "${root}" "${brand}" --esp /boot/efi \
+    --state /var/lib/airymaxos/efi-brand >"${log}" 2>&1 || rc=$?
+while IFS= read -r line; do
+    mark "${line}"
+done <"${log}"
+if [ "${rc}" -ne 0 ]; then
+    mark "AIRYMAX-EFI-FAIL rc=${rc} log=${logdir}/efi-brand.log"
     exit 1
-}
+fi
+# 退出码 0 不足以证明品牌落地：脚本在「already branded」时也返回 0。状态
+# 文件是唯一事实，缺它即视为未完成。
+if [ ! -s "${root}/var/lib/airymaxos/efi-brand" ]; then
+    mark "AIRYMAX-EFI-FAIL state-absent log=${logdir}/efi-brand.log"
+    exit 1
+fi
 mark "AIRYMAX-EFI-OK"
 %end
 
