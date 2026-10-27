@@ -4,11 +4,12 @@
 # test_run_smoke.py — ci/run-smoke.sh 契约回归测试
 #
 # 冒烟脚本必须在已登录的 UKUI 桌面会话内运行，CI 宿主机不具备该环境。
-# 脚本对外契约是：TAP 14 计划、九项探测的判定，以及“探测工具缺失即失败”
+# 脚本对外契约是：TAP 14 计划、十项探测的判定，以及“探测工具缺失即失败”
 # 的退出码规则。这里用 PATH 沙箱提供伪 loginctl /
 # pgrep / xdpyinfo / fcitx-remote / pactl / systemctl / gsettings /
-# sha256sum / uname，并给 T6–T9 准备一份只读系统视图（AIRYMAX_SMOKE_ROOT），
-# 每个用例只破坏一个前提，从而在无桌面环境下判定真实控制流。
+# sha256sum / uname / xrandr，并给 T6–T10 准备一份只读系统视图
+# （AIRYMAX_SMOKE_ROOT），每个用例只破坏一个前提，从而在无桌面环境下判定
+# 真实控制流。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
 # Version: 0.0.3
@@ -24,6 +25,7 @@ from pathlib import Path
 import fakes
 
 SCRIPT = Path(__file__).resolve().parents[2] / "ci" / "run-smoke.sh"
+DISPLAY_MODE = Path(__file__).resolve().parents[2] / "desktop" / "display_mode.sh"
 BASH = shutil.which("bash") or "/bin/bash"
 
 LEGACY = ("tauri", "webkitwebprocess", "fcitx5", "pipewire",
@@ -39,6 +41,19 @@ OS_RELEASE = ('NAME="AirymaxOS"\n'
               'VERSION_ID="0.0.3"\n'
               'PRETTY_NAME="AirymaxOS 0.0.3 (OpenAirymax)"\n')
 
+# T10 的两份 xrandr --query 拓扑：已在策略模式、以及首选 4K 待下调。
+TOPO_OK = ("Screen 0: minimum 8 x 8, current 1920 x 1080,"
+           " maximum 32767 x 32767\n"
+           "eDP-1 connected primary 1920x1080+0+0 (normal) 344mm x 194mm\n"
+           "   1920x1080     60.00*+\n"
+           "   1280x720      60.00\n")
+TOPO_4K = ("Screen 0: minimum 8 x 8, current 3840 x 2160,"
+           " maximum 32767 x 32767\n"
+           "eDP-1 connected primary 3840x2160+0+0 (normal) 344mm x 194mm\n"
+           "   3840x2160     60.00*+\n"
+           "   1920x1080     60.00\n"
+           "   1280x720      60.00\n")
+
 
 class RunSmokeTest(unittest.TestCase):
     def setUp(self):
@@ -48,6 +63,7 @@ class RunSmokeTest(unittest.TestCase):
         self.bin.mkdir()
         self.sysroot = self.root / "sysroot"
         self.make_sysroot()
+        self.install_display()
 
     def tearDown(self):
         self._tmp.cleanup()
@@ -86,6 +102,20 @@ class RunSmokeTest(unittest.TestCase):
         path.write_text(body, encoding="utf-8")
         return path
 
+    def install_display(self):
+        """把策略脚本装进沙箱的 %{_prefix}/lib 路径，并给伪 xrandr 一份拓扑。"""
+        dest = (self.sysroot / "usr" / "lib" / "airymaxos" / "desktop" /
+                "display_mode.sh")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(DISPLAY_MODE, dest)
+        dest.chmod(0o755)
+        self.topo = self.sysroot / "xrandr.topo"
+        self.write_topo(TOPO_OK)
+        return dest
+
+    def write_topo(self, body):
+        self.topo.write_text(body, encoding="utf-8")
+
     def tools(self, omit=()):
         fakes.link_tools(self.bin)
         fakes.smoke_tools(self.bin, omit)
@@ -100,6 +130,7 @@ class RunSmokeTest(unittest.TestCase):
             "QT_IM_MODULE": "fcitx",
             "XMODIFIERS": "@im=fcitx",
             "FAKE_PROCS": "ukui-session-manager fcitx",
+            "FAKE_XRANDR_TOPO": str(self.topo),
             "AIRYMAX_SMOKE_WAIT": "0",
             "AIRYMAX_SMOKE_ROOT": str(self.sysroot),
         }
@@ -139,9 +170,9 @@ class RunSmokeTest(unittest.TestCase):
         self.tools()
         res = self.run_smoke()
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res), {"pass": 9, "fail": 0})
+        self.assertEqual(self.summary(res), {"pass": 10, "fail": 0})
         self.assertNotIn("# SKIP", res.stdout)
-        self.assertEqual(len(self.taps(res)), 9)
+        self.assertEqual(len(self.taps(res)), 10)
         for line in self.taps(res):
             self.assertTrue(line.startswith("ok"), line)
 
@@ -149,7 +180,7 @@ class RunSmokeTest(unittest.TestCase):
         self.tools()
         res = self.run_smoke()
         self.assertIn("TAP version 14", res.stdout)
-        self.assertIn("1..9", res.stdout.splitlines())
+        self.assertIn("1..10", res.stdout.splitlines())
         self.assertIn(
             "# AirymaxOS distro smoke: target=airymaxos-0.0.3", res.stdout)
 
@@ -256,7 +287,7 @@ class RunSmokeTest(unittest.TestCase):
         finally:
             timer.cancel()
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res), {"pass": 9, "fail": 0})
+        self.assertEqual(self.summary(res), {"pass": 10, "fail": 0})
 
     def test_slice_wrong(self):
         self.tools()
@@ -316,7 +347,7 @@ class RunSmokeTest(unittest.TestCase):
         self.tools(omit=("loginctl",))
         res = self.run_smoke()
         self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res), {"pass": 8, "fail": 1})
+        self.assertEqual(self.summary(res), {"pass": 9, "fail": 1})
         self.assert_fail(res, 1)
         self.assertIn("loginctl not installed", res.stdout)
         self.assertNotIn("# SKIP", res.stdout)
@@ -404,6 +435,38 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke()
         self.assert_fail(res, 9)
         self.assertIn("/etc/os-release unreadable", res.stdout)
+
+
+    def test_display_off_policy(self):
+        self.tools()
+        # 首选 4K 已超过 1920x1200 上限，会话停在 3840x2160 即判失败。
+        self.write_topo(TOPO_4K)
+        res = self.run_smoke()
+        self.assert_fail(res, 10)
+        self.assertIn("eDP-1:3840x2160->1920x1080", res.stdout)
+
+    def test_display_tool_absent(self):
+        self.tools(omit=("xrandr",))
+        res = self.run_smoke()
+        self.assert_fail(res, 10)
+        self.assertIn("xrandr not installed", res.stdout)
+
+    def test_display_no_output(self):
+        self.tools()
+        self.write_topo("Screen 0: minimum 8 x 8, current 640 x 480,"
+                        " maximum 32767 x 32767\n"
+                        "DP-1 disconnected (normal) 0mm x 0mm\n")
+        res = self.run_smoke()
+        self.assert_fail(res, 10)
+        self.assertIn("无 connected 输出", res.stdout)
+
+    def test_display_script_absent(self):
+        self.tools()
+        (self.sysroot / "usr" / "lib" / "airymaxos" / "desktop" /
+         "display_mode.sh").unlink()
+        res = self.run_smoke()
+        self.assert_fail(res, 10)
+        self.assertIn("display_mode.sh not installed", res.stdout)
 
 
 if __name__ == "__main__":
