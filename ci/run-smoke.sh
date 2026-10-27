@@ -333,6 +333,18 @@ t10_display() {
     return "${rc}"
 }
 
+# T11 失败时的单行事实。TAP 只保留 probe 输出的第一行，诊断必须压成一行；
+# 状态文件区分「没做」与「做了但没留痕」，品牌日志末行给出直接原因。
+t11_facts() {
+    local st="${SYSROOT}/var/lib/airymaxos/efi-brand"
+    local lg="${SYSROOT}/var/log/airymax/efi-brand.log"
+    local s=absent l=-
+    [ -s "${st}" ] && s=ok
+    [ -s "${lg}" ] && l=$(tail -n 1 "${lg}" | tr -s '[:space:]' ' ' |
+        cut -c1-120)
+    printf ' state=%s log=%s' "${s}" "${l}"
+}
+
 # T11: EFI 品牌（安装期品牌化把 NVRAM 首选项换成 AirymaxOS，ESP 内是一整套
 # 已签名二级加载器；shim 只从自身目录取 grubx64.efi，缺一即不可引导）
 t11_efi_brand() {
@@ -343,26 +355,30 @@ t11_efi_brand() {
     fi
     for f in shimx64.efi grubx64.efi; do
         [ -f "${esp}/EFI/airymaxos/${f}" ] || {
-            echo "${esp}/EFI/airymaxos/${f} missing"
+            echo "${esp}/EFI/airymaxos/${f} missing$(t11_facts)"
             return 1
         }
     done
     [ -s "${esp}/EFI/airymaxos/BOOTX64.CSV" ] || {
-        echo "${esp}/EFI/airymaxos/BOOTX64.CSV missing"
+        echo "${esp}/EFI/airymaxos/BOOTX64.CSV missing$(t11_facts)"
+        return 1
+    }
+    [ -s "${SYSROOT}/var/lib/airymaxos/efi-brand" ] || {
+        echo "efi-brand state missing$(t11_facts)"
         return 1
     }
     # 只读复核时 NVRAM 属于宿主而非被测系统，到此为止。
     [ -n "${SYSROOT}" ] && return 0
     need efibootmgr || return $?
     out=$(efibootmgr 2>/dev/null) || {
-        echo "efibootmgr failed"
+        echo "efibootmgr failed$(t11_facts)"
         return 1
     }
     first=$(printf '%s\n' "${out}" | sed -n 's/^BootOrder: *//p' |
         cut -d, -f1)
     printf '%s\n' "${out}" | grep -q "^Boot${first}\* AirymaxOS" || {
         echo "BootOrder head=${first}: $(printf '%s\n' "${out}" |
-            grep "^Boot${first}")"
+            grep "^Boot${first}")$(t11_facts)"
         return 1
     }
 }

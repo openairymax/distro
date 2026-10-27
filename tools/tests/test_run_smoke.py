@@ -102,16 +102,30 @@ class RunSmokeTest(unittest.TestCase):
         return path
 
     def write_esp(self):
-        """EFI 品牌的落点：完整签名套件 + 安装期可见的 efivars 目录。"""
+        """EFI 品牌的落点：完整签名套件、品牌状态与品牌日志，以及安装期
+        可见的 efivars 目录。状态文件与日志是 efi_brand.sh 真实产物。"""
         esp = self.sysroot / "boot" / "efi" / "EFI" / "airymaxos"
         esp.mkdir(parents=True)
         for name in ("shimx64.efi", "grubx64.efi"):
             (esp / name).write_bytes(b"efi\n")
         (esp / "BOOTX64.CSV").write_text(
             "shimx64.efi,airymaxos,,AirymaxOS\n", encoding="utf-8")
+        state = self.sysroot / "var" / "lib" / "airymaxos" / "efi-brand"
+        state.parent.mkdir(parents=True)
+        state.write_text("entry=0001\nloader=\\EFI\\airymaxos\\shimx64.efi\n",
+                         encoding="utf-8")
+        self.write_brand_log("AIRYMAX-EFI-NOTE entry=0001 disk=/dev/sda"
+                             " part=1 order=0001\n")
         (self.sysroot / "sys" / "firmware" / "efi").mkdir(
             parents=True, exist_ok=True)
         return esp
+
+    def write_brand_log(self, body):
+        """安装期品牌脚本在目标根内留下的日志，验收失败时读其末行归因。"""
+        path = self.sysroot / "var" / "log" / "airymax" / "efi-brand.log"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+        return path
 
     def write_product(self, hostname, os_release):
         etc = self.sysroot / "etc"
@@ -521,6 +535,19 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke()
         self.assert_fail(res, 11)
         self.assertIn("BOOTX64.CSV missing", res.stdout)
+
+    def test_efi_brand_missing_state(self):
+        # 品牌脚本走 skip 时 ESP 里可能一套齐全却没有状态文件：那正是旧实现
+        # 「静默成功」的形态，验收必须失败并给出日志末行
+        self.tools()
+        (self.sysroot / "var" / "lib" / "airymaxos" / "efi-brand").unlink()
+        self.write_brand_log("AIRYMAX-EFI-NOTE fail: efibootmgr unavailable\n")
+        res = self.run_smoke()
+        self.assert_fail(res, 11)
+        self.assertIn("efi-brand state missing", res.stdout)
+        self.assertIn("state=absent", res.stdout)
+        self.assertIn("log=AIRYMAX-EFI-NOTE fail: efibootmgr unavailable",
+                      res.stdout)
 
     def test_efi_brand_non_efi(self):
         # 纯 BIOS 装机没有 NVRAM 条目可写，本项不适用，但仍要留痕
