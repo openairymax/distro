@@ -194,12 +194,25 @@ rpm -q airymaxos-system >/dev/null 2>&1 || fail system-pkg
 
 # 3) 账户自检：没有可登录账户的安装介质不具备「OS 能运行」的前提
 #    root 交付为固定口令（sha512 哈希），airymax 交付为空口令（empty）。
+#    空口令只能完成登录，不能作为 sudo 的交互凭据，因此同一步还要确认
+#    airymaxos-release 的 NOPASSWD 策略确实落盘：策略缺失时装机后没有
+#    任何提权路径，而这一点在图形界面上看不出来。
 passwd -d airymax || fail airymax-unlock
 acct_req root sha512 root-account
 acct_req airymax empty airymax-account
+sudoers=/etc/sudoers.d/90-airymax
+[ -f "${sudoers}" ] || fail sudo-policy-missing
+[ "$(stat -c %a "${sudoers}")" = 440 ] || fail sudo-policy-mode
+grep -qxF 'airymax ALL=(ALL) NOPASSWD: ALL' "${sudoers}" || fail sudo-policy-line
 
 # 4) 图形目标为默认（UKUI 会话经 lightdm 拉起）
 set_default graphical.target
+#    座位策略必须随包落盘：lightdm 在 conf.d 缺全部文件时仍会启动，只是退
+#    回「列出用户 + 要口令」的默认行为，从服务状态上看不出差别，所以这里
+#    按文件内容断言，而不是只认 lightdm.service 起没起。
+seat=/etc/lightdm/lightdm.conf.d/50-airymax.conf
+[ -f "${seat}" ] || fail lightdm-seat-missing
+grep -qxF 'autologin-user=airymax' "${seat}" || fail lightdm-autologin
 
 # 5) 启用边界由本段确定性收口。presets/ 是默认关闭策略：自有单元显式
 #    disable，99-airymax-default-disable.preset 以 `disable *` 兜底，避免

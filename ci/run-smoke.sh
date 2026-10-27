@@ -10,7 +10,7 @@
 # 环境:
 #   AIRYMAX_SMOKE_WAIT  守护进程就绪等待秒数（默认 30）
 #   AIRYMAX_SMOKE_HOST  期望的主机名（默认 airymaxos，即 workstation 配方值）
-#   AIRYMAX_SMOKE_ROOT  只读系统视图的根前缀（默认空，即真实 /）。T6–T11 读取
+#   AIRYMAX_SMOKE_ROOT  只读系统视图的根前缀（默认空，即真实 /）。T6–T12 读取
 #                       /boot、/sys、/etc 与 /usr/lib 下的发行版标识与资产，
 #                       单测在沙箱里用该前缀复核判定，装机现场保持默认值。
 #
@@ -26,6 +26,7 @@
 #   T9  品牌：/etc/os-release 的 NAME/ID/PRETTY_NAME/VERSION_ID 指向本产品
 #   T10 分辨率：每个 connected 输出处于 display_mode.sh 定义的策略模式
 #   T11 EFI 品牌：ESP 内 airymaxos 目录是完整签名套件，BootOrder 首位为本产品
+#   T12 免密提权：交付账户能以 NOPASSWD 完成一次非交互提权
 #
 # 判定语义:
 #   0  — 全部通过
@@ -352,8 +353,33 @@ t11_efi_brand() {
     }
 }
 
+# T12: 免密提权（airymax 交付为空口令，而空口令在 sudo 的 PAM 栈里不是可用
+# 的交互凭据；缺了 NOPASSWD，装机后没有任何非交互提权路径，从桌面上却看不出
+# 异常。这里直接以交付账户身份试一次，不读配置文件）
+t12_passwordless() {
+    local f="${SYSROOT}/etc/sudoers.d/90-airymax"
+    if [ -n "${SYSROOT}" ]; then
+        [ -f "${f}" ] || {
+            echo "${f} missing"
+            return 1
+        }
+        grep -qxF 'airymax ALL=(ALL) NOPASSWD: ALL' "${f}" || {
+            echo "policy line absent in ${f}"
+            return 1
+        }
+        echo "policy file ok (offline check)"
+        return 0
+    fi
+    need sudo || return $?
+    sudo -n true 2>&1 || {
+        echo "sudo -n refused: policy not in effect"
+        return 1
+    }
+    echo "sudo -n ok without password"
+}
+
 printf 'TAP version 14\n'
-printf '1..11\n'
+printf '1..12\n'
 printf '# AirymaxOS distro smoke: target=%s date=%s\n' \
     "${TARGET}" "$(date -u '+%FT%TZ')"
 
@@ -368,6 +394,7 @@ probe 8 "T8 product hostname" t8_hostname
 probe 9 "T9 release brand" t9_brand
 probe 10 "T10 display mode policy" t10_display
 probe 11 "T11 efi boot brand" t11_efi_brand
+probe 12 "T12 passwordless elevation" t12_passwordless
 
 printf '# summary: pass=%d fail=%d\n' "${PASS}" "${FAIL}"
 [ "${FAIL}" -eq 0 ]
