@@ -204,6 +204,17 @@ sudoers=/etc/sudoers.d/90-airymax
 [ -f "${sudoers}" ] || fail sudo-policy-missing
 [ "$(stat -c %a "${sudoers}")" = 440 ] || fail sudo-policy-mode
 grep -qxF 'airymax ALL=(ALL) NOPASSWD: ALL' "${sudoers}" || fail sudo-policy-line
+#    greeter 与锁屏的 PAM 栈第一条都是
+#    pam_succeed_if.so user ingroup nopasswdlogin：账户不在该组时两者都会继续
+#    走到 pam_unix 并弹出对话框。组由基础发行版预置，这里只补成员。
+groupadd -f nopasswdlogin 2>/dev/null || :
+usermod -aG nopasswdlogin airymax || fail airymax-group
+id -nG airymax | tr ' ' '\n' | grep -qxF nopasswdlogin ||
+    fail airymax-group
+#    空口令账户配空闲锁屏只会制造口令框：锁屏策略必须与免密登录同口径落盘。
+saver=/etc/dconf/db/local.d/00-airymax-screensaver
+[ -f "${saver}" ] || fail screensaver-policy-missing
+grep -qxF 'lock-enabled=false' "${saver}" || fail screensaver-lock-off
 
 # 4) 图形目标为默认（UKUI 会话经 lightdm 拉起）
 set_default graphical.target

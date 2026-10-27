@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
+# ===========================================================================
+# 00-airymax-screensaver — AirymaxOS 锁屏策略
+#
+# 部署：随 airymaxos-release 包安装为
+# /etc/dconf/db/local.d/00-airymax-screensaver，由 %post 的 dconf update
+# 编译进 /etc/dconf/db/local。/etc/dconf/profile/user 含 system-db:local，
+# 该库在每个用户会话里先于用户 db 生效，因此对交付账户与其他账户一致。
+#
+# 为什么关掉空闲锁屏（0.0.3 决策）：交付账户 airymax 在 kickstart %post 中
+# 以 passwd -d 落地为空口令。锁屏挡不住任何人，却会在空闲 5 分钟后弹出
+# 口令框，把「开机即桌面」变成「每五分钟输入一次口令」。锁屏与免密登录是
+# 同一口径的两端，不能只做一半。
+#
+# 收敛范围：只关「空闲锁定」与「屏保激活即锁定」两个键。屏保画面本身与
+# DPMS 省电策略不动；需要锁屏时仍可手动执行 ukui-screensaver-command -l。
+# greeter 侧由 lightdm 的 autologin 座位处理，不由本文件覆盖。
+# ===========================================================================
+[org/ukui/screensaver]
+idle-lock-enabled=false
+lock-enabled=false

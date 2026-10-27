@@ -10,7 +10,7 @@
 # 环境:
 #   AIRYMAX_SMOKE_WAIT  守护进程就绪等待秒数（默认 30）
 #   AIRYMAX_SMOKE_HOST  期望的主机名（默认 airymaxos，即 workstation 配方值）
-#   AIRYMAX_SMOKE_ROOT  只读系统视图的根前缀（默认空，即真实 /）。T6–T12 读取
+#   AIRYMAX_SMOKE_ROOT  只读系统视图的根前缀（默认空，即真实 /）。T6–T13 读取
 #                       /boot、/sys、/etc 与 /usr/lib 下的发行版标识与资产，
 #                       单测在沙箱里用该前缀复核判定，装机现场保持默认值。
 #
@@ -27,6 +27,7 @@
 #   T10 分辨率：每个 connected 输出处于 display_mode.sh 定义的策略模式
 #   T11 EFI 品牌：ESP 内 airymaxos 目录是完整签名套件，BootOrder 首位为本产品
 #   T12 免密提权：交付账户能以 NOPASSWD 完成一次非交互提权
+#   T13 免密桌面：空闲锁屏关闭，交付账户在 nopasswdlogin 组内
 #
 # 判定语义:
 #   0  — 全部通过
@@ -378,8 +379,41 @@ t12_passwordless() {
     echo "sudo -n ok without password"
 }
 
+# T13: 免密桌面（空口令账户一旦被空闲锁屏拦住，解锁框就成了口令墙：锁屏挡
+# 不住任何人，只把「开机即桌面」变成「每五分钟输一次口令」。策略以 dconf
+# 系统库交付，键文件在位但未 dconf update 时不会生效，所以这里必须读实际
+# 键值，而不是看文件是否存在）
+t13_passwordless_desktop() {
+    local f="${SYSROOT}/etc/dconf/db/local.d/00-airymax-screensaver"
+    if [ -n "${SYSROOT}" ]; then
+        [ -f "${f}" ] || {
+            echo "${f} missing"
+            return 1
+        }
+        grep -qxF 'idle-lock-enabled=false' "${f}" || {
+            echo "idle-lock-enabled not disabled in ${f}"
+            return 1
+        }
+        grep -qxF 'lock-enabled=false' "${f}" || {
+            echo "lock-enabled not disabled in ${f}"
+            return 1
+        }
+        echo "screensaver policy ok (offline check)"
+        return 0
+    fi
+    need dconf || return $?
+    expect "$(dconf read /org/ukui/screensaver/lock-enabled 2>&1)" false \
+        "lock-enabled" || return 1
+    expect "$(dconf read /org/ukui/screensaver/idle-lock-enabled 2>&1)" false \
+        "idle-lock-enabled" || return 1
+    id -nG airymax 2>/dev/null | tr ' ' '\n' | grep -qxF nopasswdlogin || {
+        echo "airymax not in nopasswdlogin"
+        return 1
+    }
+}
+
 printf 'TAP version 14\n'
-printf '1..12\n'
+printf '1..13\n'
 printf '# AirymaxOS distro smoke: target=%s date=%s\n' \
     "${TARGET}" "$(date -u '+%FT%TZ')"
 
@@ -395,6 +429,7 @@ probe 9 "T9 release brand" t9_brand
 probe 10 "T10 display mode policy" t10_display
 probe 11 "T11 efi boot brand" t11_efi_brand
 probe 12 "T12 passwordless elevation" t12_passwordless
+probe 13 "T13 passwordless desktop" t13_passwordless_desktop
 
 printf '# summary: pass=%d fail=%d\n' "${PASS}" "${FAIL}"
 [ "${FAIL}" -eq 0 ]

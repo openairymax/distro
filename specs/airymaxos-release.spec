@@ -12,7 +12,8 @@
 #      自适应、输入法自启项、UKUI 壁纸注册表与背景默认值、默认壁纸、桌面
 #      调度 slice、user@.service 挂接及登录链就绪探针；
 #   5. 部署登录与提权策略：sshd 允许交付账户的空口令登录，sudo 以
-#      NOPASSWD 放开同一账户的非交互提权；
+#      NOPASSWD 放开同一账户的非交互提权，桌面侧关闭空闲锁屏（空口令账户
+#      被锁屏拦住只会制造口令框）；
 #   6. 部署 EFI 品牌化：efi_brand.sh 与首启单元，把 anaconda 留下的
 #      openEuler 引导项替换为置顶的 AirymaxOS 条目；
 #   7. %%post 只执行装配后才能确定的运行期动作：编译 glib schema、屏蔽桌面
@@ -39,7 +40,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.3
-%global airy_release 6
+%global airy_release 7
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 
 Name:           airymaxos-release
@@ -73,11 +74,16 @@ Source19:       01_airymax_display
 Source20:       efi_brand.sh
 Source21:       airymaxos-efi-brand.service
 Source22:       90-airymax-sudoers
+Source23:       00-airymax-screensaver
 
 Provides:       system-release
 Provides:       system-release(releasever)
 Obsoletes:      openEuler-release < 24.04
 Requires:       systemd
+# 锁屏策略以 dconf 系统库交付：键文件不编译就只是一份不生效的文本，锁屏
+# 仍按上游默认值索要口令。dconf 属桌面闭包，这里显式声明以免闭包调整后
+# 静默失去编译步骤。
+Requires:       dconf
 # 首启品牌化靠 efibootmgr 写 NVRAM；它本就属引导闭包（scripts/lib/
 # closure.sh CL_BOOT），这里显式声明，免得后续精简闭包时静默丢工具。
 Requires:       efibootmgr
@@ -140,6 +146,12 @@ install -m 0644 %{SOURCE16} \
 install -d -m 0750 %{buildroot}%{_sysconfdir}/sudoers.d
 install -m 0440 %{SOURCE22} \
     %{buildroot}%{_sysconfdir}/sudoers.d/90-airymax
+
+# 锁屏策略与 sudo 策略是同一口径的两半：交付账户既能免密进桌面，就不能被
+# 空闲锁屏拦住。目录由 dconf 包拥有，这里只落键文件。
+install -d -m 0755 %{buildroot}%{_sysconfdir}/dconf/db/local.d
+install -m 0644 %{SOURCE23} \
+    %{buildroot}%{_sysconfdir}/dconf/db/local.d/00-airymax-screensaver
 
 install -d -m 0755 %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d
 install -m 0755 %{SOURCE8} \
@@ -221,6 +233,12 @@ test "$(stat -c %a %{buildroot}%{_sysconfdir}/sudoers.d/90-airymax)" = 440
 airy_rule=$(grep -v '^#' %{buildroot}%{_sysconfdir}/sudoers.d/90-airymax |
     sed '/^$/d')
 test "${airy_rule}" = 'airymax ALL=(ALL) NOPASSWD: ALL'
+# 锁屏策略：键名拼错或取值被改回 true 都不会让构建失败，只会在装机后以
+# 「每五分钟一次口令框」的形式出现，所以两个键都要逐字断言。
+airy_saver=%{buildroot}%{_sysconfdir}/dconf/db/local.d/00-airymax-screensaver
+grep -qxF '[org/ukui/screensaver]' "${airy_saver}"
+grep -qxF 'idle-lock-enabled=false' "${airy_saver}"
+grep -qxF 'lock-enabled=false' "${airy_saver}"
 sh -n %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/70-airymax-im.sh
 sh -n %{buildroot}/usr/lib/airymaxos/desktop/display_mode.sh
 sh -n %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/60-airymax-display.sh
@@ -273,6 +291,12 @@ if [ -f %{_datadir}/glib-2.0/schemas/org.mate.background.gschema.xml ] &&
     glib-compile-schemas %{_datadir}/glib-2.0/schemas
 fi
 
+# 键文件要编译进系统库才被 GSettings 读到；缺这一步时文件在位而策略不生效，
+# 锁屏仍按上游默认值弹口令框，且从文件系统上看不出差别。
+if command -v dconf >/dev/null 2>&1; then
+    dconf update >/dev/null 2>&1 || :
+fi
+
 %{_datadir}/airymaxos/distro/desktop/70-airymax-ukui-policy.sh
 
 if [ -d /run/systemd/system ]; then
@@ -291,6 +315,7 @@ fi
 %config(noreplace) %{_sysconfdir}/ssh/sshd_config.d/50-airymax-sshd.conf
 %dir %attr(0750, root, root) %{_sysconfdir}/sudoers.d
 %config(noreplace) %attr(0440, root, root) %{_sysconfdir}/sudoers.d/90-airymax
+%config(noreplace) %{_sysconfdir}/dconf/db/local.d/00-airymax-screensaver
 %config(noreplace) %{_sysconfdir}/X11/xinit/xinitrc.d/70-airymax-im.sh
 %config(noreplace) %{_sysconfdir}/X11/xinit/xinitrc.d/60-airymax-display.sh
 %config(noreplace) %{_sysconfdir}/grub.d/01_airymax_display
@@ -310,6 +335,17 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Tue Oct 27 2026 SPHARX <dev@spharx.com> - 0.0.3-7
+- Ship a dconf system default that turns off idle locking: the delivery
+  account is created with an empty password, so the lock screen protects
+  nothing while popping a password prompt after five idle minutes, which
+  turns "boot to desktop" into "type a password every five minutes".
+  Only the two lock keys change; the screensaver itself and DPMS stay,
+  and manual locking still works
+- Require dconf explicitly: the key file does nothing until %%post
+  compiles it into /etc/dconf/db/local, and %%check asserts both keys so
+  a later edit cannot quietly re-enable locking
+
 * Tue Oct 27 2026 SPHARX <dev@spharx.com> - 0.0.3-6
 - Ship /etc/sudoers.d/90-airymax: the airymax account is delivered with
   an empty password, and an empty password cannot serve as the interactive
