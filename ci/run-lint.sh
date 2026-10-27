@@ -4,7 +4,7 @@
 # run-lint.sh — distro 仓库静态门禁
 #
 # 职责：
-#   1. bash -n 解析 ci/、lockfile/、scripts/、desktop/ 下的 shell 入口，
+#   1. bash -n 解析 ci/、lockfile/、scripts/、desktop/、tools/ 下的 shell 入口，
 #      以及 scripts/lib 下被 source 的 *.env（判负证据集等共用数据）；
 #      desktop/xinitrc.d 额外用 sh -n 校验 POSIX 兼容（该目录被 Xsession
 #      以 /bin/sh source）；
@@ -29,7 +29,7 @@ cd "${ROOT}"
 echo "== shell syntax =="
 while IFS= read -r script; do
     bash -n "${script}"
-done < <(find ci lockfile scripts desktop -type f -name '*.sh' | sort)
+done < <(find ci lockfile scripts desktop tools -type f -name '*.sh' | sort)
 while IFS= read -r env; do
     bash -n "${env}"
 done < <(find scripts/lib -type f -name '*.env' | sort)
