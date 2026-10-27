@@ -63,6 +63,10 @@ ASSETS = (
      "%{_datadir}/backgrounds/airymaxos/airymaxos-default.jpg"),
     ("login/50-airymax-sshd.conf",
      "%{_sysconfdir}/ssh/sshd_config.d/50-airymax-sshd.conf"),
+    ("boot/efi_brand.sh",
+     "/usr/lib/airymaxos/boot/efi_brand.sh"),
+    ("boot/airymaxos-efi-brand.service",
+     "%{_unitdir}/airymaxos-efi-brand.service"),
 )
 
 
@@ -220,6 +224,26 @@ class DesktopAssetTest(unittest.TestCase):
         self.assertNotIn("loadfont", out.stdout)
         self.assertNotIn("x32", out.stdout)
         self.assertIn("grub_platform", out.stdout)
+
+    def test_efi_brand_unit(self):
+        # 标签不可改，只能首启新建并置顶；状态文件是“只写一次 NVRAM”的闸门，
+        # 两个 ConditionPathExists 缺一就会在非 EFI 机器或每次启动重跑。
+        unit = self.asset("boot/airymaxos-efi-brand.service").read_text(
+            encoding="utf-8")
+        for want in ("ConditionPathExists=/sys/firmware/efi",
+                     "ConditionPathExists=!/var/lib/airymaxos/efi-brand",
+                     "Type=oneshot",
+                     "ExecStart=/usr/lib/airymaxos/boot/efi_brand.sh",
+                     "WantedBy=multi-user.target"):
+            self.assertIn(want, unit)
+
+    def test_efi_brand_script(self):
+        script = self.asset("boot/efi_brand.sh")
+        self.assertEqual(run(["sh", "-n", str(script)]).returncode, 0)
+        # 成功路径必须先回读 BootOrder 再落状态文件，否则失败会被固化
+        text = script.read_text(encoding="utf-8")
+        self.assertLess(text.index("efibootmgr -o"),
+                        text.index(">\"${state}\""))
 
     def test_policy_has_no_legacy(self):
         text = self.asset(

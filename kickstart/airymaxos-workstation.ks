@@ -210,7 +210,8 @@ set_default graphical.target
 systemctl --root=/ preset-all >/dev/null 2>&1 ||
     mark "AIRYMAX-INSTALL-NOTE preset-all rc=$?"
 boot_set="lightdm.service airymax-desktop-ready.service
-NetworkManager.service chronyd.service firewalld.service sshd.service"
+NetworkManager.service chronyd.service firewalld.service sshd.service
+airymaxos-efi-brand.service"
 for unit in ${boot_set}; do
     systemctl --root=/ enable "${unit}" >/dev/null 2>&1 || :
     state=$(systemctl --root=/ is-enabled "${unit}" 2>/dev/null || true)
@@ -220,13 +221,19 @@ for unit in ${boot_set}; do
     }
 done
 
-# 6) agentrt.target 的启用推迟到 daemon 二进制交付版本：
+# 6) EFI 品牌化放在首启（airymaxos-efi-brand.service）。anaconda 用
+#    GRUB_DISTRIBUTOR 命名 NVRAM 条目，装机后菜单与 BootOrder 都是
+#    openEuler；条目标签不可改名，只能新建 AirymaxOS 条目再置顶。安装期
+#    chroot 的 efivarfs 可写性取决于宿主，故不在此处代跑脚本，交给一定有
+#    /sys/firmware/efi 的首启；单元已加入上面的 boot_set。
+
+# 7) agentrt.target 的启用推迟到 daemon 二进制交付版本：
 #    该 target 强依赖 12 个 /usr/sbin/*_d，0.0.3 尚未打包，提前 enable
 #    会让每次冷启动进入 degraded，违背「OS 能正常运行」验收口径。
 #    启用项与 airymaxos-services 同版本落地，届时在 boot_set 中补
 #    agentrt.target（OS-OPS-010）。
 
-# 7) 引导菜单分辨率（真机缺陷 D-07）。grub2-efi-x64 在 openEuler 上是预
+# 8) 引导菜单分辨率（真机缺陷 D-07）。grub2-efi-x64 在 openEuler 上是预
 #    编译的 grubx64.efi，装机时不会把 unicode.pf2 放进 ESP；00_header 生成
 #    的 gfxmode 段落以 loadfont 成功为前置条件，字体缺失时整段被跳过，
 #    菜单与 efifb 停在固件默认（B50 实测 800x600）。因此同时落两条腿：

@@ -4,10 +4,10 @@
 # test_run_smoke.py — ci/run-smoke.sh 契约回归测试
 #
 # 冒烟脚本必须在已登录的 UKUI 桌面会话内运行，CI 宿主机不具备该环境。
-# 脚本对外契约是：TAP 14 计划、十项探测的判定，以及“探测工具缺失即失败”
+# 脚本对外契约是：TAP 14 计划、十一项探测的判定，以及“探测工具缺失即失败”
 # 的退出码规则。这里用 PATH 沙箱提供伪 loginctl /
 # pgrep / xdpyinfo / fcitx-remote / pactl / systemctl / gsettings /
-# sha256sum / uname / xrandr，并给 T6–T10 准备一份只读系统视图
+# sha256sum / uname / xrandr，并给 T6–T11 准备一份只读系统视图
 # （AIRYMAX_SMOKE_ROOT），每个用例只破坏一个前提，从而在无桌面环境下判定
 # 真实控制流。
 #
@@ -69,7 +69,7 @@ class RunSmokeTest(unittest.TestCase):
         self._tmp.cleanup()
 
     def make_sysroot(self):
-        """构造 T6–T9 读取的只读视图：/boot 三件套、LSM 注册表、产品标识。"""
+        """构造 T6–T11 读取的只读视图：/boot 三件套、LSM、产品标识、ESP。"""
         boot = self.sysroot / "boot"
         boot.mkdir(parents=True)
         (boot / f"vmlinuz-{KREL}").write_bytes(b"vmlinuz\n")
@@ -79,6 +79,19 @@ class RunSmokeTest(unittest.TestCase):
             "ffffffff81000000 T start_kernel\n", encoding="utf-8")
         self.write_lsm(LSM_LIST)
         self.write_product(HOSTNAME, OS_RELEASE)
+        self.write_esp()
+
+    def write_esp(self):
+        """EFI 品牌的落点：完整签名套件 + 首启可见的 efivars 目录。"""
+        esp = self.sysroot / "boot" / "efi" / "EFI" / "airymaxos"
+        esp.mkdir(parents=True)
+        for name in ("shimx64.efi", "grubx64.efi"):
+            (esp / name).write_bytes(b"efi\n")
+        (esp / "BOOTX64.CSV").write_text(
+            "shimx64.efi,airymaxos,,AirymaxOS\n", encoding="utf-8")
+        (self.sysroot / "sys" / "firmware" / "efi").mkdir(
+            parents=True, exist_ok=True)
+        return esp
 
     def write_product(self, hostname, os_release):
         etc = self.sysroot / "etc"
@@ -170,9 +183,9 @@ class RunSmokeTest(unittest.TestCase):
         self.tools()
         res = self.run_smoke()
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res), {"pass": 10, "fail": 0})
+        self.assertEqual(self.summary(res), {"pass": 11, "fail": 0})
         self.assertNotIn("# SKIP", res.stdout)
-        self.assertEqual(len(self.taps(res)), 10)
+        self.assertEqual(len(self.taps(res)), 11)
         for line in self.taps(res):
             self.assertTrue(line.startswith("ok"), line)
 
@@ -180,7 +193,7 @@ class RunSmokeTest(unittest.TestCase):
         self.tools()
         res = self.run_smoke()
         self.assertIn("TAP version 14", res.stdout)
-        self.assertIn("1..10", res.stdout.splitlines())
+        self.assertIn("1..11", res.stdout.splitlines())
         self.assertIn(
             "# AirymaxOS distro smoke: target=airymaxos-0.0.3", res.stdout)
 
@@ -287,7 +300,7 @@ class RunSmokeTest(unittest.TestCase):
         finally:
             timer.cancel()
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res), {"pass": 10, "fail": 0})
+        self.assertEqual(self.summary(res), {"pass": 11, "fail": 0})
 
     def test_slice_wrong(self):
         self.tools()
@@ -347,7 +360,7 @@ class RunSmokeTest(unittest.TestCase):
         self.tools(omit=("loginctl",))
         res = self.run_smoke()
         self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res), {"pass": 9, "fail": 1})
+        self.assertEqual(self.summary(res), {"pass": 10, "fail": 1})
         self.assert_fail(res, 1)
         self.assertIn("loginctl not installed", res.stdout)
         self.assertNotIn("# SKIP", res.stdout)
@@ -467,6 +480,35 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke()
         self.assert_fail(res, 10)
         self.assertIn("display_mode.sh not installed", res.stdout)
+
+    def test_efi_brand_ok(self):
+        self.tools()
+        res = self.run_smoke()
+        self.assertIn("ok 11 - T11 efi boot brand", res.stdout)
+
+    def test_efi_brand_missing_shim(self):
+        self.tools()
+        (self.sysroot / "boot" / "efi" / "EFI" / "airymaxos" /
+         "shimx64.efi").unlink()
+        res = self.run_smoke()
+        self.assert_fail(res, 11)
+        self.assertIn("shimx64.efi missing", res.stdout)
+
+    def test_efi_brand_missing_csv(self):
+        self.tools()
+        (self.sysroot / "boot" / "efi" / "EFI" / "airymaxos" /
+         "BOOTX64.CSV").unlink()
+        res = self.run_smoke()
+        self.assert_fail(res, 11)
+        self.assertIn("BOOTX64.CSV missing", res.stdout)
+
+    def test_efi_brand_non_efi(self):
+        # 纯 BIOS 装机没有 NVRAM 条目可写，本项不适用，但仍要留痕
+        self.tools()
+        (self.sysroot / "sys" / "firmware" / "efi").rmdir()
+        res = self.run_smoke()
+        self.assertIn("ok 11 - T11 efi boot brand", res.stdout)
+        self.assertIn("non-EFI target", res.stdout)
 
 
 if __name__ == "__main__":

@@ -11,7 +11,9 @@
 #   4. 部署桌面会话静态资产：lightdm 座位策略、X11 会话输入法环境与分辨率
 #      自适应、输入法自启项、UKUI 壁纸注册表与背景默认值、默认壁纸、桌面
 #      调度 slice、user@.service 挂接及登录链就绪探针；
-#   5. %%post 只执行装配后才能确定的运行期动作：编译 glib schema、屏蔽桌面
+#   5. 部署 EFI 品牌化：efi_brand.sh 与首启单元，把 anaconda 留下的
+#      openEuler 引导项替换为置顶的 AirymaxOS 条目；
+#   6. %%post 只执行装配后才能确定的运行期动作：编译 glib schema、屏蔽桌面
 #      自带 AI 控制面单元、在运行中的系统上重载 systemd。
 #
 # 静态资产一律由 %%install 直接落到最终路径，%%post 不复制文件，同一路径只有
@@ -35,7 +37,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.3
-%global airy_release 4
+%global airy_release 5
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 
 Name:           airymaxos-release
@@ -66,11 +68,16 @@ Source16:       50-airymax-sshd.conf
 Source17:       display_mode.sh
 Source18:       60-airymax-display.sh
 Source19:       01_airymax_display
+Source20:       efi_brand.sh
+Source21:       airymaxos-efi-brand.service
 
 Provides:       system-release
 Provides:       system-release(releasever)
 Obsoletes:      openEuler-release < 24.04
 Requires:       systemd
+# 首启品牌化靠 efibootmgr 写 NVRAM；它本就属引导闭包（scripts/lib/
+# closure.sh CL_BOOT），这里显式声明，免得后续精简闭包时静默丢工具。
+Requires:       efibootmgr
 
 %description
 AirymaxOS release identity package. It owns the distribution version
@@ -133,6 +140,12 @@ install -m 0755 %{SOURCE18} \
 install -d -m 0755 %{buildroot}%{_sysconfdir}/grub.d
 install -m 0755 %{SOURCE19} \
     %{buildroot}%{_sysconfdir}/grub.d/01_airymax_display
+
+install -d -m 0755 %{buildroot}/usr/lib/airymaxos/boot
+install -m 0755 %{SOURCE20} \
+    %{buildroot}/usr/lib/airymaxos/boot/efi_brand.sh
+install -m 0644 %{SOURCE21} \
+    %{buildroot}%{_unitdir}/airymaxos-efi-brand.service
 
 install -d -m 0755 %{buildroot}%{_sysconfdir}/xdg/autostart
 install -m 0644 %{SOURCE9} \
@@ -208,6 +221,23 @@ printf '%s\n' "${airy_grub}" |
 printf '%s\n' "${airy_grub}" | grep -qxF '  terminal_output gfxterm'
 printf '%s\n' "${airy_grub}" | grep -qxF '  insmod gfxterm'
 printf '%s\n' "${airy_grub}" | grep -qF 'grub_platform'
+# EFI 品牌化：脚本必须自限在 EFI，且只写一条置顶条目。断言落在脚本的
+# 行为要点上（条件、目标路径、BootOrder 重排），而不是"文件存在"。
+sh -n %{buildroot}/usr/lib/airymaxos/boot/efi_brand.sh
+grep -qxF '  ConditionPathExists=/sys/firmware/efi' \
+    %{buildroot}%{_unitdir}/airymaxos-efi-brand.service
+grep -qxF '  ConditionPathExists=!/var/lib/airymaxos/efi-brand' \
+    %{buildroot}%{_unitdir}/airymaxos-efi-brand.service
+grep -qxF '  Type=oneshot' \
+    %{buildroot}%{_unitdir}/airymaxos-efi-brand.service
+grep -qxF '  ExecStart=/usr/lib/airymaxos/boot/efi_brand.sh' \
+    %{buildroot}%{_unitdir}/airymaxos-efi-brand.service
+grep -qxF '  WantedBy=multi-user.target' \
+    %{buildroot}%{_unitdir}/airymaxos-efi-brand.service
+grep -qF 'dst=${esp}/EFI/airymaxos' \
+    %{buildroot}/usr/lib/airymaxos/boot/efi_brand.sh
+grep -qF 'efibootmgr -o "${order}"' \
+    %{buildroot}/usr/lib/airymaxos/boot/efi_brand.sh
 grep -qxF 'Exec=/usr/bin/fcitx' \
     %{buildroot}%{_sysconfdir}/xdg/autostart/airymax-input-method.desktop
 grep -qxF 'Slice=airymax-desktop.slice' \
@@ -249,9 +279,11 @@ fi
 %config(noreplace) %{_sysconfdir}/systemd/system/user@.service.d/50-airymax-desktop.conf
 %{_unitdir}/airymax-desktop.slice
 %{_unitdir}/airymax-desktop-ready.service
+%{_unitdir}/airymaxos-efi-brand.service
 /usr/lib/airymaxos/desktop/desktop_ready.sh
 /usr/lib/airymaxos/desktop/boot_state.sh
 /usr/lib/airymaxos/desktop/display_mode.sh
+/usr/lib/airymaxos/boot/efi_brand.sh
 %{_datadir}/ukui-background-properties/airymaxos-default.xml
 %{_datadir}/glib-2.0/schemas/99-airymaxos-default.gschema.override
 %{_datadir}/backgrounds/airymaxos/airymaxos-default.jpg
@@ -259,6 +291,17 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Tue Oct 27 2026 SPHARX <dev@spharx.com> - 0.0.3-5
+- Ship efi_brand.sh and airymaxos-efi-brand.service: anaconda names the
+  NVRAM entry after GRUB_DISTRIBUTOR (openEuler) and an entry label
+  cannot be renamed, so first boot copies the signed second stage into
+  EFI/airymaxos, creates an AirymaxOS entry and puts it at the head of
+  BootOrder. Failures are journalled as AIRYMAX-EFI-NOTE and leave the
+  state file unwritten, so the next boot retries instead of leaving a
+  failed unit behind
+- Require efibootmgr explicitly; it is already part of the boot closure,
+  but a future closure trim must not silently drop it
+
 * Tue Oct 27 2026 SPHARX <dev@spharx.com> - 0.0.3-4
 - Ship /etc/grub.d/01_airymax_display: openEuler's 00_header puts
   gfxmode, load_video and gfxterm inside the loadfont branch, so a
