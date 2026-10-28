@@ -35,6 +35,10 @@
 # lightdm 与 greeter 日志、X server 日志、主进程 wchan）有界地带出。
 # 每类证据的行数固定上限，避免串口被日志淹没；证据缺失按正常情况跳过。
 #
+# 观测通道共三条，都只读不判定：等待期每 BEAT 秒一行 AIRYMAX-DESKTOP-WAIT
+# （屏幕不会在最后一个内核行之后长期静止），失败后 AIRYMAX-DESKTOP-DIAG
+# 带出证据，AIRYMAX-DESKTOP-HINT 给出下一步命令。
+#
 # 部署：airymaxos-release 包安装到 /usr/lib/airymaxos/desktop/。
 # 调用：airymax-desktop-ready.service（WantedBy=graphical.target）。
 # ===========================================================================
@@ -50,6 +54,7 @@ fi
 
 READY_WAIT="${AIRYMAX_READY_WAIT:-90}"
 POLL="${AIRYMAX_READY_POLL:-2}"
+BEAT="${AIRYMAX_READY_BEAT:-6}"
 SESS_SVC="lightdm"
 SESS_CLASSES="greeter user"
 SESS_TYPE="x11"
@@ -136,6 +141,15 @@ ready_once()
     [ -n "${READY_ID}" ]
 }
 
+# 等待期必须持续可见：plymouth 缺席（无 rhgb quiet 的机器、串口验收、
+# 图形栈早期失败）时，屏幕在最后一个内核行之后长期静止，现场无法区分
+# 「正在等」与「已经卡死」。心跳每 BEAT 秒一行，只做观测，不参与判定。
+beat_out()
+{
+    printf 'AIRYMAX-DESKTOP-WAIT elapsed=%ss max=%ss unit=%s\n' \
+        "$1" "${READY_WAIT}" "${SESS_SVC}"
+}
+
 wait_ready()
 {
     local waited=0
@@ -143,9 +157,20 @@ wait_ready()
     while :; do
         ready_once && return 0
         [ "${waited}" -ge "${READY_WAIT}" ] && return 1
+        if [ "${waited}" -gt 0 ] && [ $((waited % BEAT)) -eq 0 ]; then
+            beat_out "${waited}"
+        fi
         sleep "${POLL}"
         waited=$((waited + POLL))
     done
+}
+
+# 失败后给出可执行的第一步：屏幕停住时现场最需要的是「去哪儿看」，
+# 而不是再读一遍已经打过的诊断行。
+advise()
+{
+    printf 'AIRYMAX-DESKTOP-HINT console=tty2 cmd="journalctl -b -u %s.service; tail -n 40 %s/x-0.log"\n' \
+        "${SESS_SVC}" "${LDM_LOG_DIR}"
 }
 
 # 诊断通道：每类证据独立取，取不到就跳过，绝不影响返回值。
@@ -213,6 +238,7 @@ main()
     boot_health || return 1
     if ! session_exec; then
         diagnose
+        advise
         printf 'AIRYMAX-DESKTOP-FAIL reason=session path=%s\n' \
             "${UKUI_SESSION}"
         return 1
@@ -223,6 +249,7 @@ main()
         return 0
     fi
     diagnose
+    advise
     printf 'AIRYMAX-DESKTOP-FAIL unit=%s wait=%ss\n' \
         "${SESS_SVC}" "${READY_WAIT}"
     return 1
