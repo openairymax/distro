@@ -143,6 +143,10 @@
       <!-- 音频：UKUI 通过 libpulse 播放提示音与音量控制，不依赖 PipeWire
            守护进程（pipewire 仅存在于 everything 仓库，镜像不启用） -->
       <packagereq type="default">pulseaudio</packagereq>
+      <!-- 蓝牙栈：bluetooth.service 属默认关闭兜底集合，安装配方显式启用
+           它，因此包必须确定性在位；当前由 blueman 经
+           pulseaudio-module-bluetooth 间接带入，此处显式声明以防元包漂移 -->
+      <packagereq type="default">bluez</packagereq>
       <!-- 图形栈：DRI 驱动提供软件渲染与 libgbm，缺省时会话可启动但
            窗口管理器无 GL 后端 -->
       <packagereq type="default">mesa-dri-drivers</packagereq>

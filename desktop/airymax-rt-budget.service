@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
+# ===========================================================================
+# airymax-rt-budget.service — 启动期为 cgroup v1 分配实时调度带宽预算
+#
+# 必须早于 rtkit-daemon 与显示管理器：rtkit-daemon 在自身启动时尝试提升为
+# SCHED_RR，取决于那一刻所在 slice 的 cpu.rt_runtime_us 是否大于 0。顺序
+# 反了，rtkit 会先失败一次并退化为非实时，之后补齐预算也不会重新提升。
+#
+# 失败不阻断启动：RT 带宽是优化项，缺它只降级为普通调度（音频延迟抖动），
+# 而阻断显示管理器会把「体验变差」放大成「进不了桌面」。脚本始终以 0 退出，
+# 并把结论写成一行 AIRYMAX-RT-BUDGET 标记供验收侧判读。
+# ===========================================================================
+[Unit]
+Description=AirymaxOS RT scheduling budget
+Documentation=https://atomgit.com/openairymax/agent-linux
+After=slices.target
+Before=rtkit-daemon.service display-manager.service
+ConditionPathIsDirectory=/sys/fs/cgroup
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/airymaxos/desktop/rt_budget.sh
+StandardOutput=journal+console
+TimeoutStartSec=30
+
+[Install]
+WantedBy=multi-user.target

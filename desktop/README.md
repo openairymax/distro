@@ -37,6 +37,17 @@ TasksMax=40%），挂接点是 `user@.service` 的 drop-in
 MemoryMax/MemoryHigh：桌面自身已有应用级内存管理，双重限额会在内存紧张
 时放大回收冲突。
 
+权重之外还有一条实时带宽（决策 2026-10-28）：内核启用
+`CONFIG_RT_GROUP_SCHED` 后，RT 预算按 cgroup 层级记账，新建组的
+`cpu.rt_runtime_us` 为 0，而 0 表示「禁止」而不是「不限」——组内
+`sched_setscheduler(SCHED_RR)` 一律 EPERM，rtkit-daemon 每次启动都退化为
+非实时（真机 B50 的 `Failed to make ourselves RT`）。预算又不能给单个
+slice 写满：子组之和不得超过父组，`system.slice` 占满后 `user.slice`
+写入直接 EINVAL，会话侧同样拿不到 RT。因此由
+`airymax-rt-budget.service` 在 `rtkit-daemon` 与显示管理器之前按 slice
+均分总预算，缺组静默跳过，失败不阻断启动，结论落一行
+`AIRYMAX-RT-BUDGET` 标记。
+
 ### 4. 图形路径：X11 起步，Wayland 二期
 
 ukui-kwin 以 X11 模式起步（与 Tauri/webkit2gtk 最稳组合），
@@ -206,6 +217,10 @@ multi-user.target，不会触发该单元；workstation kickstart 显式 enable�
 - `airymax-desktop.slice` → `/usr/lib/systemd/system/`
 - `airymax-desktop-ready.service` → `/usr/lib/systemd/system/`
   （`graphical.target` 下拉起登录链探针）
+- `airymax-rt-budget.service` → `/usr/lib/systemd/system/`
+  （`rtkit-daemon` 之前分配 cgroup v1 的 RT 带宽预算）
+- `rt_budget.sh` → `/usr/lib/airymaxos/desktop/`
+  （按 slice 切分 `cpu.rt_runtime_us`，输出 `AIRYMAX-RT-BUDGET`）
 - `desktop_ready.sh` → `/usr/lib/airymaxos/desktop/`
   （探针实现：UKUI 会话定义与 lightdm/greeter 会话校验）
 - `boot_state.sh` → `/usr/lib/airymaxos/desktop/`

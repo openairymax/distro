@@ -49,7 +49,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.3
-%global airy_release 18
+%global airy_release 19
 # 基底版本是显式输入，与 distro/repo/airymax-os.repo 及 kickstart 的
 # url/repo 行是三处同源表达。%%check 以本宏断言客户端配置，版本漂移在
 # 构建期失败，而不是等到装机后 dnf 报「找不到仓库」。
@@ -91,6 +91,8 @@ Source23:       50-airymax-journald.conf
 Source24:       airymax-display.desktop
 Source25:       grub_args.sh
 Source26:       xserver.sh
+Source27:       rt_budget.sh
+Source28:       airymax-rt-budget.service
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -139,6 +141,8 @@ install -d -m 0755 %{buildroot}%{_unitdir}
 install -m 0644 %{SOURCE3} %{buildroot}%{_unitdir}/airymax-desktop.slice
 install -m 0644 %{SOURCE13} \
     %{buildroot}%{_unitdir}/airymax-desktop-ready.service
+install -m 0644 %{SOURCE28} \
+    %{buildroot}%{_unitdir}/airymax-rt-budget.service
 
 install -d -m 0755 %{buildroot}/usr/lib/airymaxos/desktop
 install -m 0755 %{SOURCE14} \
@@ -149,6 +153,8 @@ install -m 0755 %{SOURCE17} \
     %{buildroot}/usr/lib/airymaxos/desktop/display_mode.sh
 install -m 0755 %{SOURCE26} \
     %{buildroot}/usr/lib/airymaxos/desktop/xserver
+install -m 0755 %{SOURCE27} \
+    %{buildroot}/usr/lib/airymaxos/desktop/rt_budget.sh
 
 install -d -m 0755 %{buildroot}%{_sysconfdir}/lightdm/lightdm.conf.d
 install -m 0644 %{SOURCE7} \
@@ -273,6 +279,14 @@ grep -A3 '^\[airymaxos-everything\]$' "${airy_repo}" | grep -qxF 'enabled=0'
 grep -qF 'airymax_libdir' %{buildroot}%{_sysconfdir}/rpm/macros.airymax
 grep -qF '/usr/lib/airymaxos' %{buildroot}%{_sysconfdir}/rpm/macros.airymax
 grep -qxF 'CPUWeight=50' %{buildroot}%{_unitdir}/airymax-desktop.slice
+# RT 带宽预算：不分配预算时 rtkit-daemon 每次启动都退化为非实时，而桌面
+# 仍能进桌面——缺陷只以音频抖动和高负载卡顿出现，不在任何日志的错误级别。
+# 断言两处契约：单元必须早于 rtkit 与显示管理器，脚本必须按 slice 切分。
+sh -n %{buildroot}/usr/lib/airymaxos/desktop/rt_budget.sh
+grep -qxF 'Before=rtkit-daemon.service display-manager.service' \
+    %{buildroot}%{_unitdir}/airymax-rt-budget.service
+grep -qxF 'SLICES="system.slice user.slice airymax.slice airymax-desktop.slice"' \
+    %{buildroot}/usr/lib/airymaxos/desktop/rt_budget.sh
 grep -qxF 'WantedBy=graphical.target' \
     %{buildroot}%{_unitdir}/airymax-desktop-ready.service
 bash -n %{buildroot}/usr/lib/airymaxos/desktop/desktop_ready.sh
@@ -437,9 +451,11 @@ fi
 %config(noreplace) %{_sysconfdir}/systemd/journald.conf.d/50-airymax-journald.conf
 %{_unitdir}/airymax-desktop.slice
 %{_unitdir}/airymax-desktop-ready.service
+%{_unitdir}/airymax-rt-budget.service
 /usr/lib/airymaxos/desktop/desktop_ready.sh
 /usr/lib/airymaxos/desktop/boot_state.sh
 /usr/lib/airymaxos/desktop/display_mode.sh
+/usr/lib/airymaxos/desktop/rt_budget.sh
 /usr/lib/airymaxos/desktop/xserver
 /usr/lib/airymaxos/boot/efi_brand.sh
 /usr/lib/airymaxos/boot/grub_args.sh
@@ -451,6 +467,19 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Wed Oct 28 2026 SPHARX <dev@spharx.com> - 0.0.3-19
+- Allocate RT bandwidth per slice at boot: with CONFIG_RT_GROUP_SCHED a
+  new cgroup gets cpu.rt_runtime_us=0, and 0 means "forbidden" rather
+  than "unlimited", so every sched_setscheduler(SCHED_RR) inside it
+  fails with EPERM and rtkit-daemon logged "Failed to make ourselves
+  RT" on every start while still reporting the daemon as running
+- Split the total budget instead of handing it to one slice: the budget
+  is hierarchical and children may not exceed the parent, so filling
+  system.slice made user.slice writes fail with EINVAL and SSH sessions
+  could never raise RT either (measured on the reference machine)
+- Order the unit before rtkit-daemon and the display manager, and keep
+  it non-fatal: a missing budget degrades audio latency, while failing
+  the boot would turn that into "no desktop"
 * Wed Oct 28 2026 SPHARX <dev@spharx.com> - 0.0.3-18
 - Place unicode.pf2 next to the grub.cfg that is actually loaded: the
   gfxmode stanza only exists when loadfont succeeds, and loadfont reads
