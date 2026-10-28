@@ -16,6 +16,12 @@
 | T7 | LSM 注册表 | `airy` 在 `/sys/kernel/security/lsm` 中只登记一次；`airy_lockdown` 在位 | 补充钩子不得重复注册 |
 | T8 | 主机名 | `/etc/hostname` 为配方值（workstation 剖面 `airymaxos`），不是安装器缺省名 | 品牌身份随装机落地 |
 | T9 | 发行版品牌 | `/etc/os-release` 的 `NAME=AirymaxOS`、`ID=airymaxos`、`PRETTY_NAME` 前缀与语义化 `VERSION_ID` 同时成立 | 发行版标识 SSoT 生效 |
+| T10 | 分辨率策略 | 每个 connected 输出的实际模式等于 `display_mode.sh` 在该拓扑上选定的模式（上限 1920x1200，首选优先） | 0.0.3 分辨率自适应 |
+| T11 | EFI 启动品牌 | ESP 内 `EFI/airymaxos` 的 shim/grub/BOOTX64.CSV 齐全，品牌状态与安装期日志在位，`BootOrder` 首位为本产品（纯 BIOS 目标显式标注 non-EFI） | 品牌归属随装机落地 |
+| T12 | 免密提权 | 交付账户能以 `NOPASSWD` 完成一次非交互提权（离线复核时校验策略行本身） | 空口令账户的提权路径 |
+| T13 | 免密桌面 | 空闲锁屏与锁屏实际关闭，交付账户在 `nopasswdlogin` 组内 | 开机即桌面 |
+| T14 | 运行期软件源 | 每个启用段都指向基底镜像的绝对地址（无 `$releasever`、无明文 http、宿主一致） | 装完之后仍可更新 |
+| T15 | 启动参数 | `/etc/default/grub` 持有 `rhgb quiet`，且 `GRUB_DISABLE_OS_PROBER=true` | 启动观感可持久、菜单只列自有内核 |
 | X1 | 内核仓反向门禁 | kernel CI 持续拒绝 Qt/X11/Wayland 头依赖与 KABI 白名单外变更（由 agent-linux CI 承担，此处仅交叉核对报告） | 双向不污染 |
 
 ## 矩阵维度
@@ -29,7 +35,8 @@ lockfile 冻结点（滚动触发） × 内核 RPM（6.6-airymax.n）
 ## 执行方式
 
 - `run-image-ci.sh` 是镜像主门禁：RPM 构建 → 内核构建 → ISO 组装 →
-  ISO 完整性 → 装机验收五段串联，输出 TAP 14，一条命令给出可重复结论。
+  ISO 完整性 → 装机验收五段串联，输出 `TAP version 14` 与五段计划，一条命令
+  给出可重复结论。
   用法 `ci/run-image-ci.sh --out DIR (--iso PATH | --iso-base PATH)`；
   `--arch` 切换架构，`--profile minimal|desktop` 选择镜像剖面（两剖面都经
   `build-desktop.sh` 组装离线仓库；minimal 产物在 `DIR/iso/` 与
@@ -65,7 +72,7 @@ lockfile 冻结点（滚动触发） × 内核 RPM（6.6-airymax.n）
 - `../scripts/install-test.sh --iso ISO --out DIR` 承担装机验收：QEMU
   跨架构、双固件、可配置轮次，每轮安装后冷启动并校验串口日志与启动墙钟；
   `--boot-marker` 可替换冷启动的判定标记（desktop 剖面用它断言桌面登录链
-  就绪），输出 TAP 14，缺 QEMU 时退出 77；
+  就绪），输出 `TAP version 14`（计划随轮次与固件腿变化），缺 QEMU 时退出 77；
 - `../scripts/build-iso.sh --iso SRC --ks FILE --out DIR` 在发布工作区
   组装被测镜像（`mkksiso` 注入 kickstart，需 root）；产物落在源码区之外，
   构建后自校验 `/ks.cfg` 与引导配置，校验失败即拒绝交付；
@@ -99,7 +106,7 @@ ci/run-image-ci.sh --out /out --iso-base /path/netinst.iso \
 关键链只在此处采集：验收安装 `%post` 已 mask `airymax-desktop-ready.service`，
 同一观测点不设第二个判定者，`osaccrt_bootchain` 据此对账 `boot.service`。
 
-判定要求计划为 `1..9`、九条 `ok`、无 `not ok`/`Bail out!`/`# SKIP`、
+判定要求计划为 `1..15`、十五条 `ok`、无 `not ok`/`Bail out!`/`# SKIP`、
 `# summary` 的 `fail=0`。会话内 runner 上限 180s，
 report 轮询上限 240s；由于转发先于结论标记，宿主机命中
 `AIRYMAX-SMOKE-PASS` 时 TAP 全文已在串口，`image-ci.yml` 的

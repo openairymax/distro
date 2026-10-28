@@ -281,16 +281,22 @@ class DesktopAssetTest(unittest.TestCase):
             (BASE / "boot" / "airymaxos-efi-brand.service").exists())
 
     def test_ks_brands_inside_root(self):
-        # 品牌脚本必须在目标根内执行：安装器环境没有 efibootmgr，直接调用只会
-        # 走 skip，而配方仍会报 OK（验收 run 40587295652）。状态文件非空是
-        # 「品牌确实落地」的唯一判据，退出码 0 不够。
+        # 两个收尾脚本都必须在目标根内执行：安装器环境没有 efibootmgr，直接调用
+        # 只会走 skip，而配方仍会报 OK（验收 run 40587295652）。状态文件非空是
+        # 「确实落地」的唯一判据，退出码 0 不够；品牌副本是 grub.cfg 的拷贝，
+        # 必须拿到启动参数重建后的版本，故排在它之后。
         text = (BASE / "kickstart" / "airymaxos-workstation.ks").read_text(
             encoding="utf-8")
-        for want in ('chroot "${root}" "${brand}"',
-                     "--state /var/lib/airymaxos/efi-brand",
-                     '[ ! -s "${root}/var/lib/airymaxos/efi-brand" ]',
-                     "mount --rbind"):
+        for want in ('chroot "${root}" "${script}"',
+                     '--state "/var/lib/airymaxos/${name}"',
+                     '[ -s "${root}/var/lib/airymaxos/${name}" ]',
+                     "mount --rbind",
+                     "step /usr/lib/airymaxos/boot/grub_args.sh grub-args GRUB",
+                     "step /usr/lib/airymaxos/boot/efi_brand.sh efi-brand EFI"):
             self.assertIn(want, text)
+        self.assertLess(
+            text.index("step /usr/lib/airymaxos/boot/grub_args.sh"),
+            text.index("step /usr/lib/airymaxos/boot/efi_brand.sh"))
 
     def test_check_literals_match_assets(self):
         # %check 的 grep 字面量若与出厂资产漂移（缩进、拼写），要到构建期才
