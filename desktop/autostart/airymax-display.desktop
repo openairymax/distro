@@ -1,14 +1,16 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
 # 部署：airymaxos-release 包安装到 /etc/xdg/autostart/。
-# 由 ukui-session 的 XDG autostart 机制在会话内拉起，晚于 xinitrc.d 钩子，
-# 覆盖 settings-daemon 就绪后重新设置模式的时序。预算 30 秒：收敛即退出，
-# 不占用常驻资源。
+# 由 ukui-session 的 XDG autostart 机制在会话内拉起，晚于 xinitrc.d 钩子。
+# 这里用 --guard 而不是 --settle：settings-daemon 的 xrandr 插件在本条目
+# 之后才回写自己的记录，settle 收敛即退出，窗口末端的验收仍会看到偏差。
+# 窗口 180 秒足以覆盖会话建立与 settings-daemon 首次回写，到期即退出，
+# 不常驻、不占用系统资源。
 # 不写 OnlyShowIn：openEuler 冻结点只有 UKUI 一个会话，写死桌面标识反而
 # 会在标识不一致时静默失效。
 [Desktop Entry]
 Type=Application
 Name=AirymaxOS Display Mode
 Comment=Converge session outputs onto the AirymaxOS display policy
-Exec=/usr/lib/airymaxos/desktop/display_mode.sh --settle 30
+Exec=/usr/lib/airymaxos/desktop/display_mode.sh --guard 180
 Terminal=false
 NoDisplay=true

@@ -15,6 +15,7 @@
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -347,10 +348,51 @@ class DisplayModeTest(unittest.TestCase):
         self.assertIn("eDP-1:3840x2160->1920x1080", res.stderr)
 
     def test_convergence_entries_bounded(self):
-        # 两个收敛入口都必须带预算：无预算的入口在拓扑缺席时会挂死会话。
+        # 两个会话入口都必须带预算：无预算的入口在拓扑缺席时会挂死会话。
+        # 早写者用 --settle 收敛即退，晚写者（settings-daemon）只能用 --guard
+        # 的守护窗口覆盖，二者的语义不可互换。
         self.assertIn("--settle 10", HOOK.read_text(encoding="utf-8"))
         auto = BASE / "desktop" / "autostart" / "airymax-display.desktop"
-        self.assertIn("--settle 30", auto.read_text(encoding="utf-8"))
+        self.assertIn("--guard 180", auto.read_text(encoding="utf-8"))
+
+    def test_guard_corrects_late_writer(self):
+        # settings-daemon 的 xrandr 插件在会话就绪后回写自身记录，晚于
+        # --settle 退出（验收轮实测：settle 1s 收敛，45s 后的 TAP 看到
+        # 5120x2160）。--guard 必须在窗口内持续守护，第三方改写后重新纠正。
+        self.topo.write_text(topo(
+            screen(5120, 2160),
+            "Virtual-1 connected primary 1920x1080+0+0 (normal) 0mm x 0mm",
+            "   5120x2160     60.00",
+            "   1920x1080     60.00*"), encoding="utf-8")
+        env = {
+            "PATH": str(self.bin),
+            "HOME": str(self.root),
+            "FAKE_XRANDR_TOPO": str(self.topo),
+            "FAKE_XRANDR_LOG": str(self.log),
+        }
+        proc = subprocess.Popen([SH, str(POLICY), "--guard", "6", "1"],
+                                env=env, text=True,
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.PIPE)
+        try:
+            time.sleep(2)
+            self.topo.write_text(topo(
+                screen(5120, 2160),
+                "Virtual-1 connected primary 5120x2160+0+0 (normal) 0mm x 0mm",
+                "   5120x2160     60.00*",
+                "   1920x1080     60.00"), encoding="utf-8")
+            deadline = time.time() + 20
+            while time.time() < deadline:
+                if "1920x1080+0+0" in self.topo.read_text(encoding="utf-8"):
+                    break
+                time.sleep(0.2)
+            else:
+                self.fail("--guard 未纠正会话就绪后的回写")
+            self.assertEqual(self.calls(),
+                             ["--output Virtual-1 --mode 1920x1080"])
+        finally:
+            _, err = proc.communicate(timeout=30)
+        self.assertEqual(proc.returncode, 0, err)
 
 
 if __name__ == "__main__":

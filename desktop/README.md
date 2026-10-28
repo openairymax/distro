@@ -96,14 +96,25 @@ AirymaxOS 系统桌面默认壁纸 = `wallpaper/airymaxos-default.jpg`
 尺寸渲染，出现「字小到不可用」。冻结点不提供自动缩放，本发行版自行收敛
 到「常用分辨率」。
 
-`display_mode.sh` 是策略唯一事实来源，三个入口：
+`display_mode.sh` 是策略唯一事实来源，四个入口：
 
 - 无参数：读取 `xrandr --query`，对不一致的输出执行 `--output <名>
   --mode <目标>`，全部一致时不做任何调用（幂等）；
+- `--settle [秒]`：在预算内反复应用并复核，收敛即返回，预算耗尽返回 1；
+- `--guard [秒] [间隔]`：在窗口内持续守护，偏差出现即纠正，窗口结束记录
+  一行 `guard <秒>s drift=<次> fixed=<次> stuck=<次> state=<偏差|ok>`；
 - `--check`：只判定不修改，全部输出已符合策略则 0，否则打印
   `分辨率未达策略: <输出>:<当前>-><目标>` 并返回 1；
 - `--plan`：从 stdin 读拓扑文本、向 stdout 打印 `<输出> <当前> <目标>`，
   供单测与 `%check` 在无 X 环境下验证解析。
+
+两个会话入口分工不同：`xinitrc.d` 钩子在会话早期做 `--settle 10`，只负责
+把已经建立的拓扑拉回策略；autostart 条目做 `--guard 180`，因为
+ukui-settings-daemon 的 xrandr 插件比 autostart 更晚落地，它按自己的记录
+回写的模式出现在 `--settle` 返回之后。收敛即返回只对「先写者」有效，
+桌面配置又没有可预置的系统级单写入点（kscreen 的 `monitors.xml` 按具体
+显示器指纹绑定），所以会话就绪后的入口必须覆盖整个建立窗口。守护只记
+偏差集合的变化，同一偏差反复纠正不会刷屏；窗口到期即退出，不常驻。
 
 策略两条规则：单输出上限 `1920x1200`（含，1920x1200 面板原样保留）；
 候选集 = 上限内的首选模式 ∪ 阶梯
@@ -116,8 +127,9 @@ AirymaxOS 系统桌面默认壁纸 = `wallpaper/airymaxos-default.jpg`
 `--check` 判失败（说明 X 未起来，不是「已合规」）。
 
 失败诊断：`--check`/`--settle` 的偏差行后附 `topo=` 压平的完整拓扑；
-每次 `--output --mode` 的 xrandr stderr 折成一行写进
-`journal -t airymaxos-display`。两者合起来才能区分「策略选错」与「驱动
+`apply`/`settle` 每次 `--output --mode` 失败时把 xrandr stderr 折成一行写进
+`journal -t airymaxos-display`（`--guard` 只在汇总里计 `stuck`，不逐次写，
+否则整个窗口会把 journal 刷满）。两者合起来才能区分「策略选错」与「驱动
 拒绝切换」——只留偏差值时这两种根因在验收日志里完全同形。
 
 钩子是 `xinitrc.d/60-airymax-display.sh`：同样大于 50（排在 imsettings 的
