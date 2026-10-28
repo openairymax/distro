@@ -157,9 +157,15 @@ mark()
     mark "AIRYMAX-EFI-FAIL no-install-root"
     exit 1
 }
-if [ ! -d /sys/firmware/efi ]; then
+# 固件只决定 ESP 品牌化，不决定启动参数：参数落在 /etc/default/grub，两条
+# 腿写法相同。把整段按固件提前退出，非 EFI 装机就永远拿不到 rhgb quiet 与
+# 关闭的 os-prober，装完第一次 grub2-mkconfig 即退回逐行滚日志——BIOS 腿
+# 的冒烟 T15 正是这么失败的。
+uefi=0
+if [ -d /sys/firmware/efi ]; then
+    uefi=1
+else
     mark "AIRYMAX-EFI-SKIP non-EFI install"
-    exit 0
 fi
 
 # 段内挂载的目录在退出时全部还回去；rbind 把宿主的 /dev /proc /sys 视图
@@ -177,15 +183,17 @@ trap umount_all EXIT
 
 # efivars 与 ESP 都只在 anaconda 的引导装载程序阶段内是挂载的，装包与
 # %post 之间会被卸载；这里各自按需挂回，不依赖安装器的挂载时序。
-mountpoint -q /sys/firmware/efi/efivars ||
-    mount -t efivarfs efivarfs /sys/firmware/efi/efivars 2>/dev/null || :
 esp=${root}/boot/efi
-if ! mountpoint -q "${esp}"; then
-    mkdir -p "${esp}"
-    src=$(awk '$2 == "/boot/efi" { print $1; exit }' \
-        "${root}/etc/fstab" 2>/dev/null) || src=
-    if [ -n "${src}" ] && mount "${src}" "${esp}" 2>/dev/null; then
-        owned="${owned} ${esp}"
+if [ "${uefi}" -eq 1 ]; then
+    mountpoint -q /sys/firmware/efi/efivars ||
+        mount -t efivarfs efivarfs /sys/firmware/efi/efivars 2>/dev/null || :
+    if ! mountpoint -q "${esp}"; then
+        mkdir -p "${esp}"
+        src=$(awk '$2 == "/boot/efi" { print $1; exit }' \
+            "${root}/etc/fstab" 2>/dev/null) || src=
+        if [ -n "${src}" ] && mount "${src}" "${esp}" 2>/dev/null; then
+            owned="${owned} ${esp}"
+        fi
     fi
 fi
 for d in /dev /proc /sys; do
@@ -194,7 +202,7 @@ for d in /dev /proc /sys; do
     owned="${owned} ${root}${d}"
 done
 
-mountpoint -q "${esp}" || {
+[ "${uefi}" -eq 0 ] || mountpoint -q "${esp}" || {
     mark "AIRYMAX-EFI-FAIL esp=${esp}"
     exit 1
 }
@@ -235,7 +243,7 @@ step()
 }
 
 step /usr/lib/airymaxos/boot/grub_args.sh grub-args GRUB
-step /usr/lib/airymaxos/boot/efi_brand.sh efi-brand EFI
+[ "${uefi}" -eq 0 ] || step /usr/lib/airymaxos/boot/efi_brand.sh efi-brand EFI
 %end
 
 %post --log=/root/airymax-post.log
