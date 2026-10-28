@@ -27,8 +27,10 @@ src_root()
             top="$parent"
         done
     fi
+    # 未在检出区时只把工具树自身当源码区：退到上两级会把 /var/tmp 这类
+    # 正常产物目录判成源码区，现场用解包后的工具树装机必然被拒。
     if [ -z "$top" ]; then
-        top="$(dirname "$(dirname "${OUTLIB_ROOT}")")"
+        top="${OUTLIB_ROOT}"
     fi
     (cd "$top" && pwd -P)
 }
