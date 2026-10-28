@@ -49,7 +49,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.3
-%global airy_release 17
+%global airy_release 18
 # 基底版本是显式输入，与 distro/repo/airymax-os.repo 及 kickstart 的
 # url/repo 行是三处同源表达。%%check 以本宏断言客户端配置，版本漂移在
 # 构建期失败，而不是等到装机后 dnf 报「找不到仓库」。
@@ -357,6 +357,22 @@ airy_sum=$(sha256sum <"${airy_tmp}/grub")
 "${airy_args}" --defaults "${airy_tmp}/grub" --no-regen >/dev/null
 test "$(sha256sum <"${airy_tmp}/grub")" = "${airy_sum}"
 "${airy_args}" --defaults "${airy_tmp}/grub" --check >/dev/null
+# 字体落位：gfxmode 段落的前提是 $prefix/fonts/unicode.pf2，而 $prefix 由
+# grubx64.efi 内嵌、指向发行版目录，不是品牌副本目录。B50 上字体进了
+# never-loaded 的那份配置旁边，cfg 断言全绿、屏幕仍是 800x600（D-31）。
+# 断言字体落在 --cfg 同目录，缺失时只降级不中止。
+install -d "${airy_tmp}/efi/EFI/vendor"
+printf 'menuentry v {}\n' >"${airy_tmp}/efi/EFI/vendor/grub.cfg"
+printf 'pf2\n' >"${airy_tmp}/font.pf2"
+printf '#!/bin/sh\nprintf "menuentry x {}\\n" >"$2"\n' >"${airy_tmp}/mk"
+chmod 0755 "${airy_tmp}/mk"
+"${airy_args}" --defaults "${airy_tmp}/grub" --state "${airy_tmp}/st/args" \
+    --cfg "${airy_tmp}/efi/EFI/vendor/grub.cfg" \
+    --font "${airy_tmp}/font.pf2" --mkconfig "${airy_tmp}/mk" >/dev/null
+test "$(cat "${airy_tmp}/efi/EFI/vendor/fonts/unicode.pf2")" = pf2
+"${airy_args}" --defaults "${airy_tmp}/grub" --state "${airy_tmp}/st/args" \
+    --cfg "${airy_tmp}/efi/EFI/vendor/grub.cfg" \
+    --font "${airy_tmp}/absent.pf2" --mkconfig "${airy_tmp}/mk" >/dev/null
 rm -rf "${airy_tmp}"
 grep -qxF 'Exec=/usr/bin/fcitx' \
     %{buildroot}%{_sysconfdir}/xdg/autostart/airymax-input-method.desktop
@@ -435,6 +451,18 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Wed Oct 28 2026 SPHARX <dev@spharx.com> - 0.0.3-18
+- Place unicode.pf2 next to the grub.cfg that is actually loaded: the
+  gfxmode stanza only exists when loadfont succeeds, and loadfont reads
+  $prefix/fonts, where $prefix is baked into grubx64.efi and points at
+  the base distribution's ESP directory, not at the branded copy, so the
+  reference machine stayed at 800x600 with a correct-looking config
+- Resolve that path from /etc/grub2-efi.cfg instead of globbing EFI/*,
+  and let the installer read the result from the grub_args.sh state file:
+  the old glob picked a config file grub never loads, so both the font
+  and the regenerated menu landed where they had no effect
+- Degrade with a note when no font source exists: a missing font is a
+  cosmetic and resolution defect, never a reason to abort an install
 * Wed Oct 28 2026 SPHARX <dev@spharx.com> - 0.0.3-17
 - Start the seat through a distribution wrapper and fall back to fbdev
   when the only DRM device is simpledrm: X 1.20 picks vesa when no

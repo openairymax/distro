@@ -261,6 +261,36 @@ class GrubArgsTest(unittest.TestCase):
         self.assertEqual(copy.read_text(encoding="utf-8"),
                          cfg.read_text(encoding="utf-8"))
 
+    def font(self, name="unicode.pf2", body="pf2\n"):
+        path = self.root / name
+        path.write_text(body, encoding="utf-8")
+        return path
+
+    def test_font_lands_beside_cfg(self):
+        # 字体必须落在生效配置同目录——那正是 grubx64.efi 内嵌的 prefix。
+        # 落到品牌副本旁边时 cfg 断言全绿，屏幕仍是固件默认（B50 的 800x600）。
+        res, cfg = self.regen("--mkconfig", str(self.fake_mk()),
+                              "--font", str(self.font()))
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("font placed:", res.stdout)
+        self.assertEqual((cfg.parent / "fonts" / "unicode.pf2").read_text(
+            encoding="utf-8"), "pf2\n")
+
+    def test_font_unchanged_not_rewritten(self):
+        src = self.font()
+        self.regen("--mkconfig", str(self.fake_mk()), "--font", str(src))
+        res, _ = self.regen("--mkconfig", str(self.fake_mk()), "--font", str(src))
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertNotIn("font placed:", res.stdout)
+
+    def test_font_absent_degrades(self):
+        # 缺字体是观感与分辨率问题，不是中止安装的理由
+        res, cfg = self.regen("--mkconfig", str(self.fake_mk()),
+                              "--font", str(self.root / "absent.pf2"))
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("font source absent", res.stdout)
+        self.assertFalse((cfg.parent / "fonts").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

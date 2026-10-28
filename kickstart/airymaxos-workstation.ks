@@ -405,32 +405,24 @@ done
 #    启用项与 airymaxos-services 同版本落地，届时在 boot_set 中补
 #    agentrt.target（OS-OPS-010）。
 
-# 8) 引导菜单分辨率（真机缺陷 D-07）。grub2-efi-x64 在 openEuler 上是预
-#    编译的 grubx64.efi，装机时不会把 unicode.pf2 放进 ESP；00_header 生成
-#    的 gfxmode 段落以 loadfont 成功为前置条件，字体缺失时整段被跳过，
-#    菜单与 efifb 停在固件默认（B50 实测 800x600）。因此同时落两条腿：
-#    字体补进去，且由 01_airymax_display 无条件重设 gfxmode 与 gfxterm，
+# 8) 引导菜单分辨率（真机缺陷 D-07）。openEuler 用预编译的 grubx64.efi，
+#    装机不把 unicode.pf2 放进 ESP；00_header 生成的 gfxmode 段落以
+#    loadfont 成功为前置条件，字体缺失时整段被跳过，菜单与 efifb 停在固件
+#    默认（B50 实测 800x600）。字体落位与无条件 gfxmode 已由上一段的
+#    grub_args.sh 完成：它按生效配置所在目录放字体（那里就是 grubx64.efi
+#    内嵌的 prefix），并由 01_airymax_display 无条件重设 gfxmode 与 gfxterm，
 #    efifb 继承 grub 设好的 GOP 模式，X 才有可用的 fbdev 分辨率。
 #
-#    本 ks 走 UEFI + BIOS 双栈（见 bootloader 行），两条腿的 grub 配置
-#    目录不同：UEFI 在 ESP，BIOS 在 /boot/grub2。判据只能是 grub.cfg 是否
-#    落盘，不能是目录是否存在：双栈声明了 part /boot/efi，BIOS 装机同样会
-#    创建空的 /boot/efi/EFI/<vendor>（实测 openEuler 目录为空，无 grub.cfg），
-#    以目录存在作为 UEFI 判据会让 BIOS 腿误报 efi-grub-dir（D-27）。
-#    两腿的 grub 前缀都落在 /boot/grub2（grub.cfg 里的 prefix 指向该目录），
-#    因此它存在时即唯一落点；仅当它缺失时才退回 ESP 内的配置。
-grub_dir=
-if [ -f /boot/grub2/grub.cfg ]; then
-    grub_dir=/boot/grub2
-else
-    for d in /boot/efi/EFI/*; do
-        if [ -f "${d}/grub.cfg" ]; then
-            grub_dir="${d}"
-            break
-        fi
-    done
-fi
-[ -n "${grub_dir}" ] || fail grub-cfg-missing
+#    生效配置不在这里重新推断，直接读 grub_args.sh 的状态文件：它跟随
+#    /etc/grub2-efi.cfg、/etc/grub2.cfg 找到 grub 真正加载的那份（UEFI 在
+#    ESP 的发行版目录，BIOS 在 /boot/grub2，两腿都由发行版自己声明）。
+#    0.0.3 装机曾按 /boot/grub2 是否存在再 glob EFI/* 取名，字体与重建都
+#    落进从未被加载的品牌副本，而 grubx64.efi 内嵌 prefix 指向别的目录，
+#    串口与 cfg 断言全绿、屏幕仍是 800x600（D-31）。
+grub_args=/var/lib/airymaxos/grub-args
+grub_cfg=$(awk -F= '$1 == "cfg" { print substr($0, 5); exit }' "${grub_args}")
+[ -s "${grub_cfg}" ] || fail grub-cfg-missing
+grub_dir=${grub_cfg%/*}
 
 # 分辨率只做引导期一次选择：1.x 无 KMS，运行期改不了模式，因此把候选
 # 列表写在 /etc/default/grub，以 auto 兜底不认识的固件。候选不写位深：
@@ -450,30 +442,25 @@ printf 'GRUB_GFXMODE=1920x1080,1680x1050,1600x900,1280x1024,1024x768,auto\n' \
 sed -i '/^GRUB_TERMINAL=/d;/^GRUB_TERMINAL_OUTPUT=/d' /etc/default/grub
 printf 'GRUB_TERMINAL="console serial gfxterm"\n' >>/etc/default/grub
 
-if [ -f /usr/share/grub/unicode.pf2 ]; then
-    # 两条腿都把字体放进 ${grub_dir}/fonts：00_header 的 loadfont 是
-    # gfxmode 段落的前置条件，缺字体则整段被跳过。
-    install -d -m 0755 "${grub_dir}/fonts"
-    install -m 0644 /usr/share/grub/unicode.pf2 "${grub_dir}/fonts/unicode.pf2" ||
-        mark "AIRYMAX-INSTALL-NOTE grub-font-install-failed"
-else
-    mark "AIRYMAX-INSTALL-NOTE grub-font-source-missing"
-fi
+# 字体已由 grub_args.sh 放进 ${grub_dir}/fonts。这里只核验事实：缺字体时
+# gfxterm 初始化失败、GOP 模式不会切换，屏幕仍停在固件默认；但它不至于让
+# 装机失败（X 侧还有 fbdev 兜底），故只 note。
+[ -f "${grub_dir}/fonts/unicode.pf2" ] ||
+    mark "AIRYMAX-INSTALL-NOTE grub-font-absent"
 
-# 字体只决定菜单文字的字形，不再决定 gfxmode 能否生效：airymaxos-release
-# 的 01_airymax_display 排在 00_header 之后，把 gfxmode 与 gfxterm 从
-# loadfont 分支里解放出来，EFI 上无条件执行。
+# 01_airymax_display 排在 00_header 之后，负责无条件请求 gfxmode 与 gfxterm，
+# 不依赖 00_header 里那个 loadfont 判定——那段判定在字体缺失时会静默跳过。
 [ -x /etc/grub.d/01_airymax_display ] || fail grub-display-fragment
 
 # chroot 内 os-prober 可能因缺 /dev 而告警；菜单本身由 10_linux 生成，
 # 因此 grub2-mkconfig 的非零退出只记录，判定交给下面的事实断言。
-grub2-mkconfig -o "${grub_dir}/grub.cfg" >/dev/null 2>&1 ||
+grub2-mkconfig -o "${grub_cfg}" >/dev/null 2>&1 ||
     mark "AIRYMAX-INSTALL-NOTE grub2-mkconfig rc=$?"
 # 断言我们那段确实进了 cfg，而不是「cfg 里存在某条 gfxmode」：后者可能
 # 只是 00_header 的条件分支，缺字体时整段消失，旧断言于是假绿。
 grep -qxF '  set gfxmode=1920x1080,1680x1050,1600x900,1280x1024,1024x768,auto' \
-    "${grub_dir}/grub.cfg" || fail grub-gfxmode
-grep -qF '  terminal_output gfxterm' "${grub_dir}/grub.cfg" || fail grub-gfxterm
+    "${grub_cfg}" || fail grub-gfxmode
+grep -qF '  terminal_output gfxterm' "${grub_cfg}" || fail grub-gfxterm
 
 mark "AirymaxOS workstation install complete (baseline $(date -u +%Y%m%d))"
 %end
