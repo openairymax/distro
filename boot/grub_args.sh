@@ -24,6 +24,12 @@
 # /etc/default/grub 取参数生成 menuentry，因此改写该文件即对后续生成生效，
 # /boot/loader/entries 不存在也不需要维护。
 #
+# 为什么同时落字体：引导菜单的 gfxmode 段落以 loadfont 成功为前提，而
+# loadfont 解析 $prefix/fonts/unicode.pf2，$prefix 由 grubx64.efi 内嵌、
+# 指向发行版目录（openEuler），不是品牌副本目录。字体缺失时该段落整段消失，
+# 菜单与 efifb 停在固件默认分辨率（真机 B50 的 800x600）。生效配置由
+# pick_cfg 给出，其所在目录即 $prefix，因此字体只需落在它的 fonts/ 下。
+#
 # 退出码：0 = 已收敛（含无需改动）；1 = 参数未能落地；2 = 用法错误。调用者
 #         据 1 中止安装：静默降级只会把观感问题推迟到验收现场。
 # ===========================================================================
@@ -35,6 +41,7 @@ etc=/etc
 state=/var/lib/airymaxos/grub-args
 args='rhgb quiet'
 mkconfig=grub2-mkconfig
+font=
 mode=apply
 
 note()
@@ -51,7 +58,7 @@ fail()
 usage()
 {
     printf 'usage: %s [--defaults FILE] [--cfg FILE] [--esp DIR]\n' "$0" >&2
-    printf '       [--etc DIR] [--state FILE] [--append ARGS]\n' >&2
+    printf '       [--etc DIR] [--state FILE] [--append ARGS] [--font FILE]\n' >&2
     printf '       [--mkconfig CMD] [--check] [--no-regen]\n' >&2
 }
 
@@ -63,6 +70,7 @@ while [ $# -gt 0 ]; do
     --etc) etc=${2:?--etc 需要目录}; shift 2 ;;
     --state) state=${2:?--state 需要文件}; shift 2 ;;
     --append) args=${2?--append 需要参数}; shift 2 ;;
+    --font) font=${2:?--font 需要文件}; shift 2 ;;
     --mkconfig) mkconfig=${2:?--mkconfig 需要命令}; shift 2 ;;
     --check) mode=check; shift ;;
     --no-regen) mode=edit; shift ;;
@@ -209,6 +217,48 @@ regen()
     note "skip: kept previous ${cfg} (generation failed)"
 }
 
+# 字体是 gfxmode 段落的前提：00_header 的 `loadfont $font` 找的是
+# $prefix/fonts/<name>.pf2，$prefix 由 grubx64.efi 内嵌，指向发行版自己的
+# ESP 目录，与本产品的品牌副本目录不同名。B50 实测：品牌目录里有字体、
+# 真正被加载的目录没有，loadfont 失败后 gfxmode 段落整段消失，菜单与 efifb
+# 一起停在固件默认 800x600，而 cfg 里候选列表一应俱全。因此字体只按生效
+# 配置所在目录落位——那正是 $prefix，不按目录名猜。
+font_src()
+{
+    local f
+    if [ -n "${font}" ]; then
+        [ -r "${font}" ] || return 1
+        printf '%s\n' "${font}"
+        return 0
+    fi
+    for f in /usr/share/grub/unicode.pf2 /boot/grub2/fonts/unicode.pf2; do
+        [ -r "${f}" ] || continue
+        printf '%s\n' "${f}"
+        return 0
+    done
+    return 1
+}
+
+# 字体缺失只降级不中止：菜单字形与分辨率是观感问题，而退出码 1 会中止整个
+# 安装。note 足以在装机日志里留下归因线索。
+sync_font()
+{
+    local dir src
+    dir=$(dirname "${cfg}")/fonts
+    if ! src=$(font_src); then
+        note "font source absent"
+        return 0
+    fi
+    cmp -s "${src}" "${dir}/unicode.pf2" && return 0
+    if install -d -m 0755 "${dir}" &&
+        install -m 0644 "${src}" "${dir}/unicode.pf2"; then
+        note "font placed: ${dir}/unicode.pf2"
+        return 0
+    fi
+    note "font not placed: ${dir}/unicode.pf2"
+    return 0
+}
+
 # ESP 内的 grub.cfg 只是品牌一致性副本（grubx64 内嵌 prefix 指向发行版
 # 目录，真正生效的是上面那份）。生成后同步一次，副本就不会逐次升级老化。
 sync_brand()
@@ -234,6 +284,7 @@ edit
 [ -n "${cfg}" ] || cfg=$(pick_cfg) ||
     fail "no ${etc}/grub2-efi.cfg or ${etc}/grub2.cfg"
 install -d -m 0755 "${state%/*}" || fail "create ${state%/*} failed"
+sync_font
 regen
 sync_brand
 verify || fail "args not present in ${defaults}"
