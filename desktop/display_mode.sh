@@ -136,9 +136,14 @@ die() {
     exit 1
 }
 
+# xrandr 在无 DRM 驱动的输出上会向 stderr 打 "Failed to get size of gamma"：
+# 这是驱动能力缺失，不是查询失败，混进 TAP 与串口只会淹没真正的诊断。
+# 查询成功时丢弃 stderr；失败时重跑一次把 stderr 收进报错（2>&1 在前保证
+# 重定向顺序：先把 stderr 指向当前 stdout，再把 stdout 丢进 /dev/null）。
 read_topo() {
     command -v xrandr >/dev/null 2>&1 || die "缺少 xrandr"
-    topo=$(xrandr --query) || die "xrandr --query 失败"
+    topo=$(xrandr --query 2>/dev/null)
+    [ -n "$topo" ] || die "xrandr --query 失败: $(xrandr --query 2>&1 >/dev/null)"
     plan_out=$(printf '%s\n' "$topo" | plan)
 }
 
