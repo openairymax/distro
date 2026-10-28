@@ -211,6 +211,25 @@ class DesktopReadyTest(unittest.TestCase):
         self.assertLess(elapsed, 10)
         self.assertIn("wait=2s", res.stdout)
 
+    def test_wait_emits_heartbeat(self):
+        res = self.run_probe(AIRYMAX_READY_WAIT="3", AIRYMAX_READY_BEAT="1",
+                             FAKE_LIGHTDM="inactive")
+        self.assertEqual(res.returncode, 1)
+        self.assertIn(
+            "AIRYMAX-DESKTOP-WAIT elapsed=1s max=3s unit=lightdm", res.stdout)
+
+    def test_short_wait_has_no_heartbeat(self):
+        res = self.run_probe(AIRYMAX_READY_WAIT="2", AIRYMAX_READY_BEAT="6",
+                             FAKE_LIGHTDM="inactive")
+        self.assertEqual(res.returncode, 1)
+        self.assertNotIn("AIRYMAX-DESKTOP-WAIT", res.stdout)
+
+    def test_fail_advises_next_step(self):
+        res = self.run_probe(FAKE_LIGHTDM="inactive")
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("AIRYMAX-DESKTOP-HINT console=tty2", res.stdout)
+        self.assertTrue(res.stdout.rstrip().splitlines()[-1].startswith(FAIL))
+
     def test_fail_reports_unit(self):
         res = self.run_probe(FAKE_LIGHTDM="inactive",
                              FAKE_ACTIVE_STATE="activating",
