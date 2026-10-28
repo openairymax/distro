@@ -41,7 +41,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.3
-%global airy_release 11
+%global airy_release 12
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 
 Name:           airymaxos-release
@@ -257,9 +257,11 @@ sh -n %{buildroot}/usr/lib/airymaxos/desktop/display_mode.sh
 sh -n %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/60-airymax-display.sh
 # 收敛入口有两个：早期钩子与会话就绪后的 autostart。任一处丢失都会退回
 # 「一次性写入」，而那正是 T10 在验收基线上失败的形态，因此两处分别断言。
+# autostart 必须是 --guard 而不是 --settle：settings-daemon 的回写晚于收敛
+# 完成时刻，只有守护窗口能覆盖到它（验收轮 40610532780 的 T10 根因）。
 grep -qF -- '--settle 10' \
     %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/60-airymax-display.sh
-grep -qxF 'Exec=/usr/lib/airymaxos/desktop/display_mode.sh --settle 30' \
+grep -qxF 'Exec=/usr/lib/airymaxos/desktop/display_mode.sh --guard 180' \
     %{buildroot}%{_sysconfdir}/xdg/autostart/airymax-display.desktop
 # 分辨率策略在构建期以合成拓扑跑一遍：首选 4K 必须被降到 1920x1080。
 # awk 解析若随 xrandr 输出格式漂移而失效，这里而不是装机现场暴露。
@@ -357,6 +359,16 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Tue Oct 27 2026 SPHARX <dev@spharx.com> - 0.0.3-12
+- Guard the display policy for the whole session-start window instead of
+  converging once: ukui's settings daemon writes its own snapshot back
+  after --settle has already returned, so acceptance run 40610532780 saw
+  "settled after 1s" yet T10 read Virtual-1 at 5120x2160
+- Add --guard <seconds> [interval], which keeps correcting inside the
+  window, logs one drift line per topology change and one summary line on
+  exit; the XDG autostart entry now runs --guard 180 while the xinitrc.d
+  hook keeps --settle 10
+
 * Tue Oct 27 2026 SPHARX <dev@spharx.com> - 0.0.3-11
 - Brand the ESP from the installer instead of first boot. The oneshot unit
   ran as init_t and was denied create on dosfs_t (AVC in acceptance run
