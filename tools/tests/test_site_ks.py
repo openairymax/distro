@@ -16,6 +16,7 @@
 # ===========================================================================
 
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -82,7 +83,21 @@ class SiteIsoTest(unittest.TestCase):
              "console=tty0", str(ks), str(self.root / "no-such-base"),
              str(out)], env=self.env(), text=True, capture_output=True)
         self.assertEqual(res.returncode, 0, res.stderr)
+        self.pad(out, 8)
         return out
+
+    def pad(self, path, blocks):
+        """补出源镜像的尾部填充扇区。
+
+        真实产品镜像重建后比源短 1.98 MB（xorriso 只写内容不写填充），派生
+        流程正是靠这一点判定「先短后补」。伪工具按内容紧凑排布，若不留余量，
+        配方一增长就会撞上「派生比源长」的告警，测的便不是补齐逻辑。
+        """
+        raw = bytearray(path.read_bytes())
+        raw += b"\0" * (blocks * 2048)
+        struct.pack_into("<I", raw, 16 * 2048 + 80, len(raw) // 2048)
+        struct.pack_into(">I", raw, 16 * 2048 + 84, len(raw) // 2048)
+        path.write_bytes(raw)
 
     def site(self, *args, **extra):
         return subprocess.run([BASH, str(SITE), *args], env=self.env(extra),
