@@ -128,6 +128,26 @@ iso_post_hybrid()
     return 1
 }
 
+# iso_post_fix <iso> <work>
+# 重新打包会把 El Torito 条目的逻辑块号前移，而 MBR/GPT 仍是旧扇区号；
+# 派生路径必须先按 El Torito 真值改写分区表，再走一致性判定。
+iso_post_fix()
+{
+    local iso="$1" work="$2" rc=0 log="${work}/logs/isohybrid.log"
+    python3 "${ISO_POST_ROOT}/tools/isohybrid_sync.py" --sync "${iso}" \
+        >"${log}" 2>&1 || rc=$?
+    case "${rc}" in
+    0) return 0 ;;
+    77)
+        iso_post_log "跳过 isohybrid 对齐（非 El Torito 镜像）"
+        return 0
+        ;;
+    esac
+    sed 's/^/  /' "${log}" >&2
+    iso_post_log "isohybrid 对齐失败: ${iso}"
+    return 1
+}
+
 # iso_post_md5 <iso> <work>
 iso_post_md5()
 {
@@ -147,14 +167,23 @@ iso_post_md5()
     return 0
 }
 
-# iso_post <iso> <ks> <volid> <work> [--no-md5]
+# iso_post <iso> <ks> <volid> <work> [--no-md5] [--fix]
 iso_post()
 {
-    local iso="$1" ks="$2" volid="$3" work="$4" opt="${5:-}"
-    local got md5=1
-    if [ "${opt}" = "--no-md5" ]; then
-        md5=0
-    fi
+    local iso="$1" ks="$2" volid="$3" work="$4"
+    shift 4
+    local got opt md5=1 fix=0
+    for opt in "$@"; do
+        case "${opt}" in
+        --no-md5) md5=0 ;;
+        --fix) fix=1 ;;
+        '') ;;
+        *)
+            iso_post_log "未知选项: ${opt}"
+            return 1
+            ;;
+        esac
+    done
     mkdir -p "${work}/logs" "${work}/post"
     got="$(iso_volid "${iso}")" || {
         iso_post_log "无法读取卷标: ${iso}"
@@ -166,6 +195,9 @@ iso_post()
     fi
     iso_post_ks "${iso}" "${ks}" "${work}" || return 1
     iso_post_cfg "${iso}" "${volid}" "${work}" || return 1
+    if [ "${fix}" -eq 1 ]; then
+        iso_post_fix "${iso}" "${work}" || return 1
+    fi
     iso_post_hybrid "${iso}" "${work}" || return 1
     if [ "${md5}" -eq 1 ]; then
         iso_post_md5 "${iso}" "${work}" || return 1

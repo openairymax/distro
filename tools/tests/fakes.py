@@ -17,8 +17,8 @@ from pathlib import Path
 TOOLS = ("awk", "base64", "basename", "bash", "cat", "cmp", "cp", "cut",
          "date", "dd", "dirname", "find", "git", "grep", "head", "mkdir",
          "mv", "od", "python3", "readlink", "rm", "sed", "seq", "sha256sum",
-         "sleep", "sort", "stat", "tail", "tee", "timeout", "tr", "uname",
-         "wc")
+         "sleep", "sort", "stat", "tail", "tee", "timeout", "tr", "truncate",
+         "uname", "wc")
 
 MKKSISO = """\
 #!/bin/sh
@@ -314,33 +314,98 @@ PY
 
 XORRISO = """\
 #!/bin/sh
-indev=""; path=""; dest=""
-while [ $# -gt 0 ]; do
-    case "$1" in
-    -indev) shift; indev=$1 ;;
-    -extract) shift; path=$1; shift; dest=$1 ;;
-    esac
-    shift
-done
-[ -n "$indev" ] && [ -n "$path" ] && [ -n "$dest" ] || exit 2
-body=${TMPDIR:-/tmp}/xorriso.$$
-python3 - "$indev" "$body" <<'PY'
-import struct, sys
-data = open(sys.argv[1], "rb").read()
-vol = struct.unpack("<I", data[16 * 2048 + 80:16 * 2048 + 84])[0]
-with open(sys.argv[2], "wb") as fh:
-    fh.write(data[17 * 2048:vol * 2048])
+[ "${FAKE_XORRISO_MODE:-ok}" = fail ] && exit 1
+exec python3 - "$@" <<'PY'
+import base64, os, re, struct, sys
+from pathlib import Path
+
+BLK = 2048
+PVD = 16 * BLK
+MARK = re.compile(rb"(?m)^=== (/[^\\r\\n]+)\\n")
+B64 = b"@@base64\\n"
+
+
+def load(iso):
+    data = Path(iso).read_bytes()
+    total = struct.unpack("<I", data[PVD + 80:PVD + 84])[0]
+    return data, total
+
+
+def parse(data, total):
+    body = data[17 * BLK:total * BLK].rstrip(b"\\0")
+    parts = MARK.split(body)
+    return [(parts[i].decode(), parts[i + 1])
+            for i in range(1, len(parts), 2)]
+
+
+def dump(items):
+    return b"".join(b"=== " + name.encode() + b"\\n" + blob
+                    for name, blob in items)
+
+
+def plain(blob):
+    return base64.b64decode(blob[len(B64):]) if blob.startswith(B64) else blob
+
+
+args = sys.argv[1:]
+indev = outdev = extract = dest = None
+maps = []
+pos = 0
+while pos < len(args):
+    flag = args[pos]
+    if flag == "-indev":
+        indev = args[pos + 1]
+        pos += 2
+    elif flag == "-outdev":
+        outdev = args[pos + 1]
+        pos += 2
+    elif flag == "-extract":
+        extract, dest = args[pos + 1], args[pos + 2]
+        pos += 3
+    elif flag == "-map":
+        maps.append((args[pos + 1], args[pos + 2]))
+        pos += 3
+    elif flag == "-boot_image":
+        pos += 3
+    elif flag == "-osirrox":
+        pos += 2
+    else:
+        pos += 1
+
+if not indev:
+    sys.exit(2)
+data, total = load(indev)
+if extract:
+    items = dict(parse(data, total))
+    if extract not in items or not dest:
+        sys.exit(1)
+    Path(dest).write_bytes(plain(items[extract]))
+    sys.exit(0)
+if not outdev or not maps:
+    sys.exit(2)
+items = parse(data, total)
+for src, name in maps:
+    blob = Path(src).read_bytes()
+    if not blob.endswith(b"\\n"):
+        blob += b"\\n"
+    items = [pair for pair in items if pair[0] != name]
+    items.append((name, blob))
+img = data[:PVD] + bytes(BLK) + dump(items)
+img += b"\\0" * (-len(img) % BLK)
+# 伪工具模拟「重建后短于源镜像」：只补尾部填充，载荷必须完好，
+# 这样才与真实 xorriso 的行为一致，也才能验证上层补齐逻辑。
+short = int(os.environ.get("FAKE_XORRISO_SHORT", "0"))
+if short:
+    want = len(data) - short * BLK
+    if want > len(img):
+        img += b"\\0" * (want - len(img))
+total = len(img) // BLK
+pvd = bytearray(data[PVD:PVD + BLK])
+struct.pack_into("<I", pvd, 80, total)
+struct.pack_into(">I", pvd, 84, total)
+img = img[:PVD] + bytes(pvd) + img[PVD + BLK:]
+Path(outdev).write_bytes(img)
 PY
-grep -qxF "=== ${path}" "$body" || { rm -f "$body"; exit 1; }
-tr -d '\\000' < "$body" |
-    awk -v p="$path" '$0 == "=== " p { on = 1; next }
-on && /^=== / { exit }
-on { print }' > "$dest" || { rm -f "$body"; exit 3; }
-rm -f "$body"
-if [ "$(head -n 1 "$dest")" = "@@base64" ]; then
-    tail -n +2 "$dest" | base64 -d > "${dest}.raw" || exit 4
-    mv "${dest}.raw" "$dest"
-fi
 """
 
 # isomd5sum 把校验和写在 PVD 应用数据区，而该区域落在被校验的区间内。
