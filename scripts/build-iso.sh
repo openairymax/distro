@@ -11,7 +11,11 @@
 #   - /ks.cfg 与输入 kickstart 逐字节一致；
 #   - BIOS/UEFI 引导配置含 inst.ks= 且引用最终卷标；
 #   - 在主卷描述符应用数据区写入 ISO 校验和（implantisomd5）并以
-#     checkisomd5 复核，支持 dracut 的 rd.live.check。
+#     checkisomd5 复核，支持 dracut 的 rd.live.check；
+#   - isohybrid 三元一致：El Torito 引导目录、MBR 0xEF 分区项与 GPT
+#     ISOHybrid1 条目必须指向同一段扇区，否则 USB 盘方式引导会静默失败
+#     （tools/isohybrid_sync.py）；该校验必须早于校验块注入，否则会把
+#     改写过的扇区算进旧摘要。
 #
 # 退出码（190-distribution/01-rpm-packaging.md §8）：
 #   0 成功；2 AIRY_EEXIST；5 AIRY_EINVAL；6 AIRY_EIO；
@@ -275,6 +279,22 @@ verify()
     verify_cfg
 }
 
+hybrid_check()
+{
+    local rc=0 log="${WORK}/logs/isohybrid.log"
+    python3 "${DISTRO_ROOT}/tools/isohybrid_sync.py" --check "$DEST" \
+        >"$log" 2>&1 || rc=$?
+    case "$rc" in
+    0) return 0 ;;
+    77)
+        printf 'build-iso: 跳过 isohybrid 一致性检查（非 El Torito 镜像）\n' >&2
+        return 0
+        ;;
+    esac
+    sed 's/^/  /' "$log" >&2
+    die "${E_IO}" "isohybrid 三元不一致，USB 盘方式将无法引导: ${DEST}"
+}
+
 md5_tag()
 {
     if [ "$MD5" -ne 1 ]; then
@@ -356,6 +376,7 @@ main()
     printf '构建 ISO: %s（卷标 %s，架构 %s）\n' "$NAME" "$VOLID" "$ARCH"
     build_iso
     verify
+    hybrid_check
     md5_tag
     ISO_SUM="$(sum_of "$DEST")" || die "${E_IO}" "sha256sum 失败: ${DEST}"
     write_sum "$ISO_SUM"
