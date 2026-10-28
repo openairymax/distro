@@ -14,12 +14,16 @@
 #   5. 部署登录与提权策略：sshd 允许交付账户的空口令登录，sudo 以
 #      NOPASSWD 放开同一账户的非交互提权，桌面侧关闭空闲锁屏（空口令账户
 #      被锁屏拦住只会制造口令框）；
-#   6. 部署 EFI 品牌化脚本 efi_brand.sh：由安装配方的 %%post --nochroot
-#      调用（distro/kickstart/airymaxos-workstation.ks），把 anaconda 留下的
-#      openEuler 引导项替换为置顶的 AirymaxOS 条目；
-#   7. %%post 只执行装配后才能确定的运行期动作：编译 glib schema、屏蔽桌面
+#   6. 部署启动参数脚本 grub_args.sh：由安装配方 %%post --nochroot 调用
+#      （distro/kickstart/airymaxos-workstation.ks），把 bootloader --append
+#      的参数与菜单范围写进 /etc/default/grub 并重建 grub.cfg。--append 只
+#      作用于安装器本次生成的那一份，anaconda 不写 /etc/default/grub，此后
+#      每次 grub2-mkconfig 都会丢掉启动参数；
+#   7. 部署 EFI 品牌化脚本 efi_brand.sh：同一安装段在 6 之后调用，把
+#      anaconda 留下的 openEuler 引导项替换为置顶的 AirymaxOS 条目；
+#   8. %%post 只执行装配后才能确定的运行期动作：编译 glib schema、屏蔽桌面
 #      自带 AI 控制面单元、在运行中的系统上重载 systemd。
-#   8. 声明默认启动画面主题：以 /usr/share/plymouth/themes/default.plymouth
+#   9. 声明默认启动画面主题：以 /usr/share/plymouth/themes/default.plymouth
 #      符号链接指向 tribar，kickstart 的 rhgb 因此有画面可显示。不改
 #      /etc/plymouth/plymouthd.conf 与 plymouthd.defaults——两者都归
 #      plymouth 包，同名文件被两个包同时持有会让安装事务整体失败。
@@ -45,7 +49,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.3
-%global airy_release 15
+%global airy_release 16
 # 基底版本是显式输入，与 distro/repo/airymax-os.repo 及 kickstart 的
 # url/repo 行是三处同源表达。%%check 以本宏断言客户端配置，版本漂移在
 # 构建期失败，而不是等到装机后 dnf 报「找不到仓库」。
@@ -85,6 +89,7 @@ Source21:       90-airymax-sudoers
 Source22:       00-airymax-screensaver
 Source23:       50-airymax-journald.conf
 Source24:       airymax-display.desktop
+Source25:       grub_args.sh
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -174,6 +179,8 @@ install -m 0755 %{SOURCE19} \
     %{buildroot}%{_sysconfdir}/grub.d/01_airymax_display
 
 install -d -m 0755 %{buildroot}/usr/lib/airymaxos/boot
+install -m 0755 %{SOURCE25} \
+    %{buildroot}/usr/lib/airymaxos/boot/grub_args.sh
 install -m 0755 %{SOURCE20} \
     %{buildroot}/usr/lib/airymaxos/boot/efi_brand.sh
 
@@ -330,6 +337,24 @@ grep -qxF '[ -d /sys/firmware/efi ] || skip "no efivarfs (BIOS boot)"' \
     %{buildroot}/usr/lib/airymaxos/boot/efi_brand.sh
 grep -qF 'efibootmgr -o "${order}"' \
     %{buildroot}/usr/lib/airymaxos/boot/efi_brand.sh
+# 启动参数持久化：bootloader --append 只进安装器本次生成的 grub.cfg，不进
+# /etc/default/grub，此后每次 grub2-mkconfig 都会把 rhgb quiet 丢掉（真机
+# B50 的 /proc/cmdline 已复现）。这里用 --no-regen 在临时文件上跑一遍改写，
+# 断言「补参数、去重、覆盖注释行、幂等、check 通过」——这五条任一失效都只会
+# 在装完并重启之后表现成「启动又逐行滚日志」。
+sh -n %{buildroot}/usr/lib/airymaxos/boot/grub_args.sh
+airy_args=%{buildroot}/usr/lib/airymaxos/boot/grub_args.sh
+airy_tmp=$(mktemp -d)
+printf 'GRUB_TIMEOUT=3\nGRUB_CMDLINE_LINUX="console=tty0 quiet"\n#GRUB_DISABLE_OS_PROBER=true\n' \
+    >"${airy_tmp}/grub"
+"${airy_args}" --defaults "${airy_tmp}/grub" --no-regen >/dev/null
+grep -qxF 'GRUB_CMDLINE_LINUX="console=tty0 quiet rhgb"' "${airy_tmp}/grub"
+grep -qxF 'GRUB_DISABLE_OS_PROBER=true' "${airy_tmp}/grub"
+airy_sum=$(sha256sum <"${airy_tmp}/grub")
+"${airy_args}" --defaults "${airy_tmp}/grub" --no-regen >/dev/null
+test "$(sha256sum <"${airy_tmp}/grub")" = "${airy_sum}"
+"${airy_args}" --defaults "${airy_tmp}/grub" --check >/dev/null
+rm -rf "${airy_tmp}"
 grep -qxF 'Exec=/usr/bin/fcitx' \
     %{buildroot}%{_sysconfdir}/xdg/autostart/airymax-input-method.desktop
 grep -qxF 'Slice=airymax-desktop.slice' \
@@ -397,6 +422,7 @@ fi
 /usr/lib/airymaxos/desktop/boot_state.sh
 /usr/lib/airymaxos/desktop/display_mode.sh
 /usr/lib/airymaxos/boot/efi_brand.sh
+/usr/lib/airymaxos/boot/grub_args.sh
 %{_datadir}/plymouth/themes/default.plymouth
 %{_datadir}/ukui-background-properties/airymaxos-default.xml
 %{_datadir}/glib-2.0/schemas/99-airymaxos-default.gschema.override
@@ -405,6 +431,19 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Wed Oct 28 2026 SPHARX <dev@spharx.com> - 0.0.3-16
+- Ship grub_args.sh and call it from the installer before efi_brand.sh:
+  bootloader --append only reaches the grub.cfg anaconda writes, never
+  /etc/default/grub, so every later grub2-mkconfig dropped rhgb quiet and
+  the boot went back to scrolling kernel log lines (/proc/cmdline on the
+  reference machine had neither parameter)
+- Set GRUB_DISABLE_OS_PROBER=true there as well: with os-prober enabled
+  the same disk's other distributions land in this product's boot menu
+  (19 entries, two of them foreign kernels); other systems stay reachable
+  through the firmware boot menu
+- Keep the previous grub.cfg when regeneration fails and report it as a
+  skip: being able to boot outranks a tidy menu, and the old config still
+  carries the installer's --append parameters
 * Wed Oct 28 2026 SPHARX <dev@spharx.com> - 0.0.3-15
 - Point the installed system at repositories that exist. Every baseurl
   named repo.airymaxos.org, a host that does not resolve, and the paths

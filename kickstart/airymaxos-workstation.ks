@@ -111,10 +111,17 @@ plymouth
 %end
 
 # ---- 安装后脚本 ----
-# EFI 品牌化要同时写 ESP（dosfs_t）与 NVRAM，两者在 chroot 段的默认视图里
+# 两个收尾步骤都必须在目标根内执行，且顺序固定：
+#   1. grub_args.sh 把 rhgb quiet 与 GRUB_DISABLE_OS_PROBER 写进
+#      /etc/default/grub 并重建 grub.cfg。bootloader --append 只作用于
+#      安装器本次生成的 grub.cfg，anaconda 不写 /etc/default/grub，此后
+#      任何一次 grub2-mkconfig 都会丢掉启动参数（真机 B50 已复现）。
+#   2. efi_brand.sh 把 ESP 复制到 /EFI/airymaxos 并把 NVRAM 首项指向它。
+#      品牌副本是 grub.cfg 的拷贝，必须拿到第 1 步生成的新版本，故排在其后。
+# 两者都要写 ESP（dosfs_t）与 /dev /proc /sys，这些在 chroot 段的默认视图里
 # 都不可见；首启 systemd 单元又会被 SELinux 拒绝（init_t 在 dosfs_t 上
 # create，见 distro/boot/efi_brand.sh 头部）。这里在安装器环境把 efivarfs、
-# ESP 与 /dev /proc /sys 挂进目标根，再在目标根内执行品牌脚本：efibootmgr、
+# ESP 与 /dev /proc /sys 挂进目标根，再在目标根内执行：efibootmgr、
 # findmnt、lsblk 因此都由被测系统提供，与真机环境一致，缺包会在装机时暴露
 # 而不是被 skip 吞掉（验收 run 40587295652：安装器环境没有 efibootmgr，
 # 旧实现走 skip，串口却仍报 OK）。
@@ -187,34 +194,48 @@ for d in /dev /proc /sys; do
     owned="${owned} ${root}${d}"
 done
 
-brand=/usr/lib/airymaxos/boot/efi_brand.sh
-if [ ! -x "${root}${brand}" ] || ! mountpoint -q "${esp}"; then
-    mark "AIRYMAX-EFI-FAIL esp=${esp} brand=${brand}"
+mountpoint -q "${esp}" || {
+    mark "AIRYMAX-EFI-FAIL esp=${esp}"
     exit 1
-fi
+}
 
-# 品牌日志落在目标根内：--log 指定的文件在安装器环境，装机结束即随安装器
-# 消失，只有这里才是验收与事后归因都能读到的位置。
+# 日志落在目标根内：--log 指定的文件在安装器环境，装机结束即随安装器消失，
+# 只有这里才是验收与事后归因都能读到的位置。
 logdir=/var/log/airymax
-log=${root}${logdir}/efi-brand.log
 install -d -m 0755 "${root}${logdir}"
-rc=0
-chroot "${root}" "${brand}" --esp /boot/efi \
-    --state /var/lib/airymaxos/efi-brand >"${log}" 2>&1 || rc=$?
-while IFS= read -r line; do
-    mark "${line}"
-done <"${log}"
-if [ "${rc}" -ne 0 ]; then
-    mark "AIRYMAX-EFI-FAIL rc=${rc} log=${logdir}/efi-brand.log"
-    exit 1
-fi
-# 退出码 0 不足以证明品牌落地：脚本在「already branded」时也返回 0。状态
-# 文件是唯一事实，缺它即视为未完成。
-if [ ! -s "${root}/var/lib/airymaxos/efi-brand" ]; then
-    mark "AIRYMAX-EFI-FAIL state-absent log=${logdir}/efi-brand.log"
-    exit 1
-fi
-mark "AIRYMAX-EFI-OK"
+
+# 两个收尾脚本的调用形状完全一致：chroot 进目标根、同一个 --esp、状态文件
+# 落在 /var/lib/airymaxos/<name>、日志落到 /var/log/airymax/<name>.log、串口
+# 标记 AIRYMAX-<tag>-OK/FAIL。抽成执行器，调用点只描述差异。
+step()
+{
+    local script="$1" name="$2" tag="$3" log rc=0
+
+    log="${root}${logdir}/${name}.log"
+    if [ ! -x "${root}${script}" ]; then
+        mark "AIRYMAX-${tag}-FAIL missing ${script}"
+        exit 1
+    fi
+    chroot "${root}" "${script}" --esp /boot/efi \
+        --state "/var/lib/airymaxos/${name}" >"${log}" 2>&1 || rc=$?
+    while IFS= read -r line; do
+        mark "${line}"
+    done <"${log}"
+    if [ "${rc}" -ne 0 ]; then
+        mark "AIRYMAX-${tag}-FAIL rc=${rc} log=${logdir}/${name}.log"
+        exit 1
+    fi
+    # 退出码 0 不足以证明落地：脚本在「已经是目标状态」时也返回 0，状态
+    # 文件是唯一事实，缺它即视为未完成。
+    [ -s "${root}/var/lib/airymaxos/${name}" ] || {
+        mark "AIRYMAX-${tag}-FAIL state-absent log=${logdir}/${name}.log"
+        exit 1
+    }
+    mark "AIRYMAX-${tag}-OK"
+}
+
+step /usr/lib/airymaxos/boot/grub_args.sh grub-args GRUB
+step /usr/lib/airymaxos/boot/efi_brand.sh efi-brand EFI
 %end
 
 %post --log=/root/airymax-post.log

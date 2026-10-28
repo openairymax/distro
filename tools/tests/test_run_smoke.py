@@ -4,10 +4,10 @@
 # test_run_smoke.py — ci/run-smoke.sh 契约回归测试
 #
 # 冒烟脚本必须在已登录的 UKUI 桌面会话内运行，CI 宿主机不具备该环境。
-# 脚本对外契约是：TAP 14 计划、十四项探测的判定，以及“探测工具缺失即失败”
+# 脚本对外契约是：TAP 15 计划、十五项探测的判定，以及“探测工具缺失即失败”
 # 的退出码规则。这里用 PATH 沙箱提供伪 loginctl /
 # pgrep / xdpyinfo / fcitx-remote / pactl / systemctl / gsettings /
-# sha256sum / uname / xrandr，并给 T6–T14 准备一份只读系统视图
+# sha256sum / uname / xrandr，并给 T6–T15 准备一份只读系统视图
 # （AIRYMAX_SMOKE_ROOT），每个用例只破坏一个前提，从而在无桌面环境下判定
 # 真实控制流。
 #
@@ -62,6 +62,14 @@ enabled=0
 gpgcheck=0
 """
 
+# T15 的引导默认文件形态：安装期由 grub_args.sh 补齐参数并关闭 os-prober。
+GRUB_DEFAULTS = """\
+GRUB_TIMEOUT=3
+GRUB_DEFAULT=saved
+GRUB_CMDLINE_LINUX="console=tty0 console=ttyS0,115200 rhgb quiet"
+GRUB_DISABLE_OS_PROBER=true
+"""
+
 # T10 的两份 xrandr --query 拓扑：已在策略模式、以及首选 4K 待下调。
 TOPO_OK = ("Screen 0: minimum 8 x 8, current 1920 x 1080,"
            " maximum 32767 x 32767\n"
@@ -90,8 +98,8 @@ class RunSmokeTest(unittest.TestCase):
         self._tmp.cleanup()
 
     def make_sysroot(self):
-        """构造 T6–T14 读取的只读视图：/boot 三件套、LSM、产品标识、ESP、
-        sudo 策略、锁屏策略、客户端源文件。"""
+        """构造 T6–T15 读取的只读视图：/boot 三件套、LSM、产品标识、ESP、
+        sudo 策略、锁屏策略、客户端源文件、引导默认文件。"""
         boot = self.sysroot / "boot"
         boot.mkdir(parents=True)
         (boot / f"vmlinuz-{KREL}").write_bytes(b"vmlinuz\n")
@@ -105,6 +113,14 @@ class RunSmokeTest(unittest.TestCase):
         self.write_sudoers()
         self.write_screensaver()
         self.write_repo()
+        self.write_grub()
+
+    def write_grub(self, body=GRUB_DEFAULTS):
+        """引导参数的落点：grub2-mkconfig 的唯一输入文件。"""
+        path = self.sysroot / "etc" / "default" / "grub"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+        return path
 
     def write_repo(self, body=REPO):
         """运行期源的落点：与 airymaxos-release 交付的文件同名。"""
@@ -246,9 +262,9 @@ class RunSmokeTest(unittest.TestCase):
         self.tools()
         res = self.run_smoke()
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res), {"pass": 14, "fail": 0})
+        self.assertEqual(self.summary(res), {"pass": 15, "fail": 0})
         self.assertNotIn("# SKIP", res.stdout)
-        self.assertEqual(len(self.taps(res)), 14)
+        self.assertEqual(len(self.taps(res)), 15)
         for line in self.taps(res):
             self.assertTrue(line.startswith("ok"), line)
 
@@ -256,7 +272,7 @@ class RunSmokeTest(unittest.TestCase):
         self.tools()
         res = self.run_smoke()
         self.assertIn("TAP version 14", res.stdout)
-        self.assertIn("1..14", res.stdout.splitlines())
+        self.assertIn("1..15", res.stdout.splitlines())
         self.assertIn(
             "# AirymaxOS distro smoke: target=airymaxos-0.0.3", res.stdout)
 
@@ -363,7 +379,7 @@ class RunSmokeTest(unittest.TestCase):
         finally:
             timer.cancel()
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res), {"pass": 14, "fail": 0})
+        self.assertEqual(self.summary(res), {"pass": 15, "fail": 0})
 
     def test_slice_wrong(self):
         self.tools()
@@ -423,7 +439,7 @@ class RunSmokeTest(unittest.TestCase):
         self.tools(omit=("loginctl",))
         res = self.run_smoke()
         self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res), {"pass": 13, "fail": 1})
+        self.assertEqual(self.summary(res), {"pass": 14, "fail": 1})
         self.assert_fail(res, 1)
         self.assertIn("loginctl not installed", res.stdout)
         self.assertNotIn("# SKIP", res.stdout)
@@ -680,6 +696,44 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke()
         self.assert_fail(res, 14)
         self.assertIn("no enabled section", res.stdout)
+
+    def test_boot_args_ok(self):
+        self.tools()
+        res = self.run_smoke()
+        self.assertIn("ok 15 - T15 durable boot arguments", res.stdout)
+        self.assertIn('args="console=tty0 console=ttyS0,115200 rhgb quiet"',
+                      res.stdout)
+
+    def test_boot_args_no_rhgb(self):
+        # 参数缺失的现场：图形启动画面消失，开机逐行滚日志
+        self.tools()
+        self.write_grub(GRUB_DEFAULTS.replace(" rhgb", ""))
+        res = self.run_smoke()
+        self.assert_fail(res, 15)
+        self.assertIn("GRUB_CMDLINE_LINUX lacks rhgb", res.stdout)
+
+    def test_boot_args_no_quiet(self):
+        self.tools()
+        self.write_grub(GRUB_DEFAULTS.replace(" quiet", ""))
+        res = self.run_smoke()
+        self.assert_fail(res, 15)
+        self.assertIn("GRUB_CMDLINE_LINUX lacks quiet", res.stdout)
+
+    def test_boot_args_prober_enabled(self):
+        # os-prober 未关：同盘其他发行版的内核会并进本产品启动菜单
+        self.tools()
+        self.write_grub(GRUB_DEFAULTS.replace("GRUB_DISABLE_OS_PROBER=true",
+                                              "#GRUB_DISABLE_OS_PROBER=true"))
+        res = self.run_smoke()
+        self.assert_fail(res, 15)
+        self.assertIn("os-prober not disabled", res.stdout)
+
+    def test_boot_args_file_absent(self):
+        self.tools()
+        self.write_grub().unlink()
+        res = self.run_smoke()
+        self.assert_fail(res, 15)
+        self.assertIn("/etc/default/grub unreadable", res.stdout)
 
 
 if __name__ == "__main__":

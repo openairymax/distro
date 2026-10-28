@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
 # ===========================================================================
-# run-smoke.sh — distro 组合冒烟（TAP 14）
+# run-smoke.sh — distro 组合冒烟（TAP 15）
 #
 # 用法:
 #   ./run-smoke.sh <被测镜像/系统标识>
@@ -10,7 +10,7 @@
 # 环境:
 #   AIRYMAX_SMOKE_WAIT  守护进程就绪等待秒数（默认 30）
 #   AIRYMAX_SMOKE_HOST  期望的主机名（默认 airymaxos，即 workstation 配方值）
-#   AIRYMAX_SMOKE_ROOT  只读系统视图的根前缀（默认空，即真实 /）。T6–T14 读取
+#   AIRYMAX_SMOKE_ROOT  只读系统视图的根前缀（默认空，即真实 /）。T6–T15 读取
 #                       /boot、/sys、/etc 与 /usr/lib 下的发行版标识与资产，
 #                       单测在沙箱里用该前缀复核判定，装机现场保持默认值。
 #
@@ -29,6 +29,7 @@
 #   T12 免密提权：交付账户能以 NOPASSWD 完成一次非交互提权
 #   T13 免密桌面：空闲锁屏关闭，交付账户在 nopasswdlogin 组内
 #   T14 运行期软件源：已安装系统的每个启用段都指向可解析的基底镜像
+#   T15 启动参数：/etc/default/grub 持有 rhgb quiet，os-prober 已关闭
 #
 # 判定语义:
 #   0  — 全部通过
@@ -553,8 +554,34 @@ t14_repos() {
     printf '%s enabled section(s) on %s\n' "${use}" "${host0}"
 }
 
+# T15 启动参数：bootloader --append 只进安装器写的那份 grub.cfg，
+# /etc/default/grub 才是此后每次 grub2-mkconfig 的输入。缺参数的表现是
+# 「装完有启动画面、升级一次又逐行滚日志」，所以在默认文件上判定；同时
+# 断言 os-prober 已关闭，否则同盘其他发行版的内核会并进本产品菜单。
+t15_boot_args() {
+    local file="${SYSROOT}/etc/default/grub" line tok
+    [ -r "${file}" ] || {
+        echo "${file} unreadable"
+        return 1
+    }
+    line=$(sed -n 's/^GRUB_CMDLINE_LINUX="\(.*\)"$/\1/p' "${file}" |
+        head -n 1)
+    for tok in rhgb quiet; do
+        case " ${line} " in
+        *" ${tok} "*) continue ;;
+        esac
+        printf '%s: GRUB_CMDLINE_LINUX lacks %s\n' "${file}" "${tok}"
+        return 1
+    done
+    grep -qxF 'GRUB_DISABLE_OS_PROBER=true' "${file}" || {
+        echo "${file}: os-prober not disabled"
+        return 1
+    }
+    printf 'args="%s"\n' "${line}"
+}
+
 printf 'TAP version 14\n'
-printf '1..14\n'
+printf '1..15\n'
 printf '# AirymaxOS distro smoke: target=%s date=%s\n' \
     "${TARGET}" "$(date -u '+%FT%TZ')"
 
@@ -572,6 +599,7 @@ probe 11 "T11 efi boot brand" t11_efi_brand
 probe 12 "T12 passwordless elevation" t12_passwordless
 probe 13 "T13 passwordless desktop" t13_passwordless_desktop
 probe 14 "T14 installed dnf sources" t14_repos
+probe 15 "T15 durable boot arguments" t15_boot_args
 
 printf '# summary: pass=%d fail=%d\n' "${PASS}" "${FAIL}"
 [ "${FAIL}" -eq 0 ]
