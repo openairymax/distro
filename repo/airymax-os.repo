@@ -1,51 +1,65 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
 # ===========================================================================
-# airymaxos.repo — 本项目 RPM 仓库客户端配置
+# airymaxos.repo — 已装系统的 dnf 客户端配置
 #
 # 安装位置：/etc/yum.repos.d/airymaxos.repo（由 airymaxos-release 包提供）
 # 设计口径：docs-linux/190-distribution/01-rpm-packaging.md §5.2
-# 目录布局：docs-linux/190-distribution/01-rpm-packaging.md §5.1
 #
-# 该文件只面向已装系统的 dnf 客户端；安装期闭包与冻结集由
-# lockfile/rpms.in.yaml 声明，二者分属两层，互不复用。
+# 两层错位就是装得进去、装完装不了：装机期的仓库闭包由 kickstart 的
+# url/repo 行声明，装完之后的 dnf 只认这个文件。二者的仓库集合与版本串
+# 必须逐项对齐，否则安装器能装完、系统起来却没有任何可解析的源。
+#
+# 基底版本是显式输入：改下面的版本串必须同时改 kickstart 的 url/repo 行。
+# specs/airymaxos-release.spec 的 %check 断言本文件的段集与版本串，版本
+# 漂移在构建期失败，而不是等到装机后 dnf 报「找不到仓库」。
+#
+# 信任边界：openEuler 24.03 LTS SP2 的软件包不带 PGP 签名
+# （rpm -q --qf '%{SIGPGP:pgpsig}' 为 (none)），仓库元数据同样未签名，
+# 故 gpgcheck 与 repo_gpgcheck 关闭，链路完整性只由 HTTPS 保证。
+# 签名密钥与自有仓库随 0.1.x 自有基底引入，届时本文件整体重写。
 # ===========================================================================
 
 [airymaxos-base]
-name=AirymaxOS BaseOS $releasever - $basearch
-baseurl=https://repo.airymaxos.org/$releasever/BaseOS/$basearch/
+name=AirymaxOS Base (openEuler 24.03 LTS SP2) - $basearch
+baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/OS/$basearch/ https://mirrors.tuna.tsinghua.edu.cn/openeuler/openEuler-24.03-LTS-SP2/OS/$basearch/ https://mirrors.huaweicloud.com/openeuler/openEuler-24.03-LTS-SP2/OS/$basearch/
 enabled=1
-gpgcheck=1
-gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-airymaxos
-repo_gpgcheck=1
-metadata_expire=6h
-skip_if_unavailable=True
-
-[airymaxos-appstream]
-name=AirymaxOS AppStream $releasever - $basearch
-baseurl=https://repo.airymaxos.org/$releasever/AppStream/$basearch/
-enabled=1
-gpgcheck=1
-gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-airymaxos
-repo_gpgcheck=1
+gpgcheck=0
+repo_gpgcheck=0
 metadata_expire=6h
 skip_if_unavailable=True
 
 [airymaxos-updates]
-name=AirymaxOS Updates $releasever - $basearch
-baseurl=https://repo.airymaxos.org/$releasever/updates/$basearch/
+name=AirymaxOS Updates (openEuler 24.03 LTS SP2) - $basearch
+baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/update/$basearch/ https://mirrors.tuna.tsinghua.edu.cn/openeuler/openEuler-24.03-LTS-SP2/update/$basearch/ https://mirrors.huaweicloud.com/openeuler/openEuler-24.03-LTS-SP2/update/$basearch/
 enabled=1
-gpgcheck=1
-gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-airymaxos
-repo_gpgcheck=1
+gpgcheck=0
+repo_gpgcheck=0
 metadata_expire=1h
 skip_if_unavailable=True
 
-[airymaxos-testing]
-name=AirymaxOS Testing - $basearch
-baseurl=https://repo.airymaxos.org/testing/$basearch/
-enabled=0
-gpgcheck=1
-gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-airymaxos-testing
-repo_gpgcheck=1
+[airymaxos-epol]
+name=AirymaxOS EPOL (openEuler 24.03 LTS SP2) - $basearch
+baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/EPOL/main/$basearch/ https://mirrors.tuna.tsinghua.edu.cn/openeuler/openEuler-24.03-LTS-SP2/EPOL/main/$basearch/ https://mirrors.huaweicloud.com/openeuler/openEuler-24.03-LTS-SP2/EPOL/main/$basearch/
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+metadata_expire=6h
+skip_if_unavailable=True
+
+[airymaxos-epol-updates]
+name=AirymaxOS EPOL Updates (openEuler 24.03 LTS SP2) - $basearch
+baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/EPOL/update/main/$basearch/ https://mirrors.tuna.tsinghua.edu.cn/openeuler/openEuler-24.03-LTS-SP2/EPOL/update/main/$basearch/ https://mirrors.huaweicloud.com/openeuler/openEuler-24.03-LTS-SP2/EPOL/update/main/$basearch/
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
 metadata_expire=1h
+skip_if_unavailable=True
+
+[airymaxos-everything]
+name=AirymaxOS Everything (openEuler 24.03 LTS SP2) - $basearch
+baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/everything/$basearch/ https://mirrors.tuna.tsinghua.edu.cn/openeuler/openEuler-24.03-LTS-SP2/everything/$basearch/ https://mirrors.huaweicloud.com/openeuler/openEuler-24.03-LTS-SP2/everything/$basearch/
+enabled=0
+gpgcheck=0
+repo_gpgcheck=0
+metadata_expire=6h
 skip_if_unavailable=True

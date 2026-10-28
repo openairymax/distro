@@ -45,7 +45,11 @@
 # ===========================================================================
 
 %global airy_version 0.0.3
-%global airy_release 14
+%global airy_release 15
+# 基底版本是显式输入，与 distro/repo/airymax-os.repo 及 kickstart 的
+# url/repo 行是三处同源表达。%%check 以本宏断言客户端配置，版本漂移在
+# 构建期失败，而不是等到装机后 dnf 报「找不到仓库」。
+%global oe_base openEuler-24.03-LTS-SP2
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 
 Name:           airymaxos-release
@@ -232,7 +236,30 @@ test "$(readlink %{buildroot}%{_sysconfdir}/system-release)" = airymaxos-release
 test "$(wc -l < %{buildroot}%{_sysconfdir}/airymaxos-release)" -eq 1
 test "$(sed 's, release .*$,,g' \
     %{buildroot}%{_sysconfdir}/system-release)" = "${want}"
-grep -qxF '[airymaxos-base]' %{buildroot}%{_sysconfdir}/yum.repos.d/airymaxos.repo
+# 客户端源配置：装机期的仓库闭包由 kickstart 的 url/repo 行声明，装完之后
+# 的 dnf 只认本文件。0.0.3 发布前这里指向 repo.airymaxos.org（不存在的主
+# 机）与 $releasever（展开为产品版本 0.0.3），于是安装器能装完、系统起来
+# 却没有任何可解析的源。段集、版本串、镜像集三者都在构建期断言。
+airy_repo=%{buildroot}%{_sysconfdir}/yum.repos.d/airymaxos.repo
+for airy_sec in base updates epol epol-updates everything; do
+    grep -qxF "[airymaxos-${airy_sec}]" "${airy_repo}"
+done
+if grep -qF '$releasever' "${airy_repo}"; then
+    exit 1
+fi
+test "$(grep -cF "baseurl=https://repo.openeuler.org/%{oe_base}/" "${airy_repo}")" \
+    -eq 5
+test "$(grep -cF "https://mirrors.tuna.tsinghua.edu.cn/openeuler/%{oe_base}/" \
+    "${airy_repo}")" -eq 5
+test "$(grep -cF "https://mirrors.huaweicloud.com/openeuler/%{oe_base}/" \
+    "${airy_repo}")" -eq 5
+# SP2 的软件包与仓库元数据均无 PGP 签名，gpgcheck 若为 1 则 dnf 直接拒绝
+# 每一个包；两者的取值必须与信任边界一致，而不是留待装机现场发现。
+test "$(grep -c '^gpgcheck=0$' "${airy_repo}")" -eq 5
+test "$(grep -c '^repo_gpgcheck=0$' "${airy_repo}")" -eq 5
+test "$(grep -c '^enabled=1$' "${airy_repo}")" -eq 4
+# everything 是可选扩展集合，默认关闭：日常升级只走与安装期同源的四段。
+grep -A3 '^\[airymaxos-everything\]$' "${airy_repo}" | grep -qxF 'enabled=0'
 grep -qF 'airymax_libdir' %{buildroot}%{_sysconfdir}/rpm/macros.airymax
 grep -qF '/usr/lib/airymaxos' %{buildroot}%{_sysconfdir}/rpm/macros.airymax
 grep -qxF 'CPUWeight=50' %{buildroot}%{_unitdir}/airymax-desktop.slice
@@ -378,6 +405,24 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Wed Oct 28 2026 SPHARX <dev@spharx.com> - 0.0.3-15
+- Point the installed system at repositories that exist. Every baseurl
+  named repo.airymaxos.org, a host that does not resolve, and the paths
+  were built from $releasever, which expands to the product version
+  0.0.3 rather than the base release: the installer completed, then dnf
+  had no repository it could reach
+- Mirror the kickstart repository set one to one (base, updates, epol,
+  epol-updates, everything) and list three mirrors per section, since a
+  single upstream host going down must not leave the system unable to
+  upgrade. everything stays disabled by default
+- Drop gpgcheck and repo_gpgcheck to 0: openEuler 24.03 LTS SP2 ships
+  packages and metadata without a PGP signature (SIGPGP reads (none)),
+  so a nonzero check rejects every package. Integrity rests on HTTPS
+  until the own base and keyring land in 0.1.x
+- Make the base release an explicit input (%oe_base) and assert the
+  section set, the version string, the three mirrors and the flag values
+  in %check, so drift fails the build instead of the install
+
 * Wed Oct 28 2026 SPHARX <dev@spharx.com> - 0.0.3-14
 - Stop owning /etc/plymouth/plymouthd.conf. The plymouth package ships
   that path, and one file in two packages fails the whole install
