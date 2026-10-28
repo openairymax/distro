@@ -48,7 +48,11 @@ repo --name=airymaxos-offline --baseurl=file:///run/install/repo/airymax/Package
 # tty0 在前，本地屏幕保留内核与 systemd 日志；串口留给无头验收与故障
 # 恢复（install-test.sh 依赖 login: 哨兵）。只给串口时真机故障即黑屏，
 # 现场无从取证。
-bootloader --timeout=3 --append="console=tty0 console=ttyS0,115200 console=ttyAMA0,115200"
+# rhgb quiet 把本地屏幕交给 plymouth 启动画面，不再逐行滚动内核日志。
+# quiet 只压到 loglevel 4：告警以上仍打印，全部消息照样进 journal 与
+# ttyS0（安装验收依赖的 login: 哨兵来自 agetty，不受影响）。按 Esc 或
+# 删掉这两个参数即可回到逐行日志，现场排障不需要重装。
+bootloader --timeout=3 --append="console=tty0 console=ttyS0,115200 console=ttyAMA0,115200 rhgb quiet"
 clearpart --all --initlabel
 autopart --type=plain --fstype=ext4
 
@@ -86,6 +90,10 @@ airymaxos-kernel-devel
 # 系统编排单元与首启脚本（airymaxos-system）：随镜像落盘但不在此启用，
 # 启用边界见 %post 注释
 airymaxos-system
+# 启动画面（bootloader 行的 rhgb）：plymouth 只被桌面闭包间接依赖，
+# 闭包一调整就会静默消失，rhgb 随即退化为黑屏。显式列出，让「有画面」
+# 成为配方自身可判定的性质。
+plymouth
 
 # 内核与发行版标识唯一：上游包组（@core 及其派生）携带 kernel、
 # kernel-tools、openEuler-release 与 openEuler-latest-release，这些包与

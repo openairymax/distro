@@ -19,6 +19,8 @@
 #      openEuler 引导项替换为置顶的 AirymaxOS 条目；
 #   7. %%post 只执行装配后才能确定的运行期动作：编译 glib schema、屏蔽桌面
 #      自带 AI 控制面单元、在运行中的系统上重载 systemd。
+#   8. 提供 /etc/plymouth/plymouthd.conf：kickstart 的 rhgb 由它决定观感，
+#      主题缺失时 plymouth 自行回落 text，不阻断启动。
 #
 # 静态资产一律由 %%install 直接落到最终路径，%%post 不复制文件，同一路径只有
 # 一处事实来源。
@@ -41,7 +43,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.3
-%global airy_release 12
+%global airy_release 13
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 
 Name:           airymaxos-release
@@ -77,6 +79,7 @@ Source21:       90-airymax-sudoers
 Source22:       00-airymax-screensaver
 Source23:       50-airymax-journald.conf
 Source24:       airymax-display.desktop
+Source25:       plymouthd.conf
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -185,6 +188,12 @@ install -m 0644 %{SOURCE12} \
 install -d -m 0755 %{buildroot}%{_sysconfdir}/systemd/journald.conf.d
 install -m 0644 %{SOURCE23} \
     %{buildroot}%{_sysconfdir}/systemd/journald.conf.d/50-airymax-journald.conf
+
+# 启动画面：目录归 plymouth 包所有，最小安装没有该包时由本包创建并持有
+# （文件清单里同时声明该目录），配置因此在两种变体上都不悬空。
+install -d -m 0755 %{buildroot}%{_sysconfdir}/plymouth
+install -m 0644 %{SOURCE25} \
+    %{buildroot}%{_sysconfdir}/plymouth/plymouthd.conf
 
 install -d -m 0755 %{buildroot}%{_datadir}/ukui-background-properties
 install -m 0644 %{SOURCE10} \
@@ -300,6 +309,10 @@ grep -qxF '[Journal]' \
     %{buildroot}%{_sysconfdir}/systemd/journald.conf.d/50-airymax-journald.conf
 grep -qxF 'Storage=persistent' \
     %{buildroot}%{_sysconfdir}/systemd/journald.conf.d/50-airymax-journald.conf
+# 启动画面同理：主题取自这里而不是 bootloader 行，取值写错只会退回 text，
+# 构建期不拦住就只剩「观感没变」这一条线索。
+grep -qxF '[Daemon]' %{buildroot}%{_sysconfdir}/plymouth/plymouthd.conf
+grep -qxF 'Theme=tribar' %{buildroot}%{_sysconfdir}/plymouth/plymouthd.conf
 grep -qF '<!DOCTYPE wallpapers SYSTEM' \
     %{buildroot}%{_datadir}/ukui-background-properties/airymaxos-default.xml
 grep -qF "picture-filename='" \
@@ -346,6 +359,8 @@ fi
 %config(noreplace) %{_sysconfdir}/xdg/autostart/airymax-display.desktop
 %config(noreplace) %{_sysconfdir}/systemd/system/user@.service.d/50-airymax-desktop.conf
 %config(noreplace) %{_sysconfdir}/systemd/journald.conf.d/50-airymax-journald.conf
+%dir %{_sysconfdir}/plymouth
+%config(noreplace) %{_sysconfdir}/plymouth/plymouthd.conf
 %{_unitdir}/airymax-desktop.slice
 %{_unitdir}/airymax-desktop-ready.service
 /usr/lib/airymaxos/desktop/desktop_ready.sh
@@ -359,6 +374,15 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Wed Oct 28 2026 SPHARX <dev@spharx.com> - 0.0.3-13
+- Boot behind a splash instead of scrolling kernel log: the kickstart
+  bootloader line gains rhgb quiet, the workstation package list pins
+  plymouth (it only arrived as a transitive dependency), and this package
+  ships /etc/plymouth/plymouthd.conf with Theme=tribar and ShowDelay=0
+- quiet only lowers console loglevel to 4, so warnings still print and
+  every record still reaches journal and ttyS0; the login: sentinel the
+  installer test waits for comes from agetty and is unaffected
+
 * Tue Oct 27 2026 SPHARX <dev@spharx.com> - 0.0.3-12
 - Guard the display policy for the whole session-start window instead of
   converging once: ukui's settings daemon writes its own snapshot back
