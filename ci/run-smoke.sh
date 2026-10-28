@@ -318,52 +318,85 @@ t10_display() {
         echo "${script} not installed"
         return 1
     }
-    # 会话内的收敛是并发的有界过程（xinitrc.d 钩子 + autostart），本探测
-    # 同样等待到同一个上界再判定，避免把「尚未收敛」误判成「策略失效」。
+    # 会话内的收敛是并发的有界过程（xinitrc.d 钩子 + autostart 守护），本
+    # 探测同样等待到同一个上界再判定，避免把「尚未收敛」误判成「策略失效」。
     retry "${START_WAIT}" "${script}" --check && return 0
     out=$("${script}" --check 2>&1)
     rc=$?
     # 诊断压成一行：TAP 只有首行带 "#   " 前缀，多行会被判定器丢掉。
-    # 偏差与完整拓扑由 --check 自带，这里再补策略自身的 journal（切换被
-    # 驱动拒绝时会留下 xrandr 原文），两者合起来才能区分「选错」与「切不动」。
-    printf '%s | log=%s\n' \
+    # 偏差与完整拓扑由 --check 自带；journal 补策略自身的切换结果，guard
+    # 计数回答「守护进程是否还在窗口内」——三者合起来才能区分「选错」、
+    # 「切不动」与「根本没人在守」。
+    printf '%s | guard=%s log=%s\n' \
         "$(printf '%s' "${out}" | tr '\n' ';')" \
-        "$(journalctl -t airymaxos-display -n 3 --no-pager -o cat 2>/dev/null |
-            tr '\n' ';')"
+        "$(pgrep -fc 'display_mode\.sh --guard' 2>/dev/null || echo 0)" \
+        "$(journalctl -t airymaxos-display -n 6 --no-pager -o short-iso \
+            2>/dev/null | tr '\n' ';')"
     return "${rc}"
 }
 
+# ESP 以 fstab 的 umask=077 挂载为 drwx------ root root：交付账户读不到目录
+# 项，`[ -f ]` 随之以 EACCES 静默为假，把权限问题报成「文件缺失」。探测因此
+# 先看父目录是否可读，读不到就经 sudo -n 复核（T12 已证该路径可用）。
+esp_ok() { # esp_ok <绝对路径> — 存在且非空
+    if [ -r "$(dirname "$1")" ]; then
+        [ -s "$1" ]
+        return
+    fi
+    sudo -n test -s "$1" 2>/dev/null
+}
+
+# ESP 品牌目录对交付账户的可达方式，是 T11 归因的关键：readable 说明文件
+# 真缺，sudo 说明只是权限，denied 说明连提权都不可用。
+esp_state() {
+    local dir="${SYSROOT}/boot/efi/EFI/airymaxos"
+    [ -r "${dir}" ] && {
+        printf 'readable'
+        return 0
+    }
+    if sudo -n test -r "${dir}" 2>/dev/null; then
+        printf 'sudo'
+        return 0
+    fi
+    printf 'denied'
+}
+
+# 只读复核时 NVRAM 属于宿主，BootCurrent 无意义；在线时它与 BootOrder 首位
+# 合起来才能区分「条目没置顶」与「置顶了但固件没选它」。
+t11_boot() {
+    [ -n "${SYSROOT}" ] && return 0
+    efibootmgr 2>/dev/null | sed -n 's/^BootCurrent: *//p' | tr -d ' \n'
+}
+
 # T11 失败时的单行事实。TAP 只保留 probe 输出的第一行，诊断必须压成一行；
-# 状态文件区分「没做」与「做了但没留痕」，品牌日志末行给出直接原因。
+# 状态文件区分「没做」与「做了但没留痕」，品牌日志末行给出直接原因，esp
+# 给出探测方式的归因，boot 给出固件实际选中的条目。
 t11_facts() {
     local st="${SYSROOT}/var/lib/airymaxos/efi-brand"
     local lg="${SYSROOT}/var/log/airymax/efi-brand.log"
-    local s=absent l=-
+    local s=absent l=- b
     [ -s "${st}" ] && s=ok
     [ -s "${lg}" ] && l=$(tail -n 1 "${lg}" | tr -s '[:space:]' ' ' |
-        cut -c1-120)
-    printf ' state=%s log=%s' "${s}" "${l}"
+        cut -c1-96)
+    b=$(t11_boot)
+    printf ' state=%s log=%s esp=%s boot=%s' "${s}" "${l}" "$(esp_state)" \
+        "${b:--}"
 }
 
 # T11: EFI 品牌（安装期品牌化把 NVRAM 首选项换成 AirymaxOS，ESP 内是一整套
 # 已签名二级加载器；shim 只从自身目录取 grubx64.efi，缺一即不可引导）
 t11_efi_brand() {
-    local esp="${SYSROOT}/boot/efi" out first
+    local esp="${SYSROOT}/boot/efi/EFI/airymaxos" f out first
     if [ ! -d "${SYSROOT}/sys/firmware/efi" ]; then
         echo "non-EFI target: no NVRAM entry to brand"
         return 0
     fi
-    for f in shimx64.efi grubx64.efi; do
-        [ -f "${esp}/EFI/airymaxos/${f}" ] || {
-            echo "${esp}/EFI/airymaxos/${f} missing$(t11_facts)"
-            return 1
-        }
-    done
-    [ -s "${esp}/EFI/airymaxos/BOOTX64.CSV" ] || {
-        echo "${esp}/EFI/airymaxos/BOOTX64.CSV missing$(t11_facts)"
+    for f in shimx64.efi grubx64.efi BOOTX64.CSV; do
+        esp_ok "${esp}/${f}" && continue
+        echo "${esp}/${f} missing$(t11_facts)"
         return 1
-    }
-    [ -s "${SYSROOT}/var/lib/airymaxos/efi-brand" ] || {
+    done
+    esp_ok "${SYSROOT}/var/lib/airymaxos/efi-brand" || {
         echo "efi-brand state missing$(t11_facts)"
         return 1
     }
