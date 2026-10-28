@@ -230,6 +230,15 @@ class DesktopReadyTest(unittest.TestCase):
         self.assertIn("AIRYMAX-DESKTOP-HINT console=tty2", res.stdout)
         self.assertTrue(res.stdout.rstrip().splitlines()[-1].startswith(FAIL))
 
+    def test_boot_degraded_advises_next_step(self):
+        res = self.run_probe(FAKE_FAILED_UNITS="upower.service")
+        self.assertEqual(res.returncode, 1)
+        self.assertIn(
+            'AIRYMAX-DESKTOP-HINT console=tty2 cmd="systemctl --failed',
+            res.stdout)
+        self.assertEqual(res.stdout.rstrip().splitlines()[-1],
+                         f"{FAIL} reason=boot")
+
     def test_fail_reports_unit(self):
         res = self.run_probe(FAKE_LIGHTDM="inactive",
                              FAKE_ACTIVE_STATE="activating",

@@ -64,6 +64,8 @@ XSESSIONS_DIR="${AIRYMAX_XSESSIONS_DIR:-/usr/share/xsessions}"
 UKUI_SESSION="${XSESSIONS_DIR}/${SESSION_NAME}.desktop"
 DIAG_MAX="${AIRYMAX_DIAG_LINES:-20}"
 LDM_LOG_DIR="${AIRYMAX_LIGHTDM_LOG:-/var/log/lightdm}"
+BOOT_HINT="systemctl --failed; journalctl -b -n 40"
+DESK_HINT="journalctl -b -u ${SESS_SVC}.service; tail -n 40 ${LDM_LOG_DIR}/x-0.log"
 READY_ID=""
 
 session_exec()
@@ -166,11 +168,11 @@ wait_ready()
 }
 
 # 失败后给出可执行的第一步：屏幕停住时现场最需要的是「去哪儿看」，
-# 而不是再读一遍已经打过的诊断行。
+# 而不是再读一遍已经打过的诊断行。指引按失败种类区分：桌面链没起来查
+# lightdm 与会话日志，启动记账降级先看还有哪些单元没起来。
 advise()
 {
-    printf 'AIRYMAX-DESKTOP-HINT console=tty2 cmd="journalctl -b -u %s.service; tail -n 40 %s/x-0.log"\n' \
-        "${SESS_SVC}" "${LDM_LOG_DIR}"
+    printf 'AIRYMAX-DESKTOP-HINT console=tty2 cmd="%s"\n' "$1"
 }
 
 # 诊断通道：每类证据独立取，取不到就跳过，绝不影响返回值。
@@ -235,10 +237,14 @@ diagnose()
 
 main()
 {
-    boot_health || return 1
+    if ! boot_health; then
+        advise "${BOOT_HINT}"
+        printf 'AIRYMAX-DESKTOP-FAIL reason=boot\n'
+        return 1
+    fi
     if ! session_exec; then
         diagnose
-        advise
+        advise "${DESK_HINT}"
         printf 'AIRYMAX-DESKTOP-FAIL reason=session path=%s\n' \
             "${UKUI_SESSION}"
         return 1
@@ -249,7 +255,7 @@ main()
         return 0
     fi
     diagnose
-    advise
+    advise "${DESK_HINT}"
     printf 'AIRYMAX-DESKTOP-FAIL unit=%s wait=%ss\n' \
         "${SESS_SVC}" "${READY_WAIT}"
     return 1
