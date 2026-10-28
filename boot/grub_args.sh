@@ -31,8 +31,10 @@
 defaults=/etc/default/grub
 esp=
 cfg=
+etc=/etc
 state=/var/lib/airymaxos/grub-args
 args='rhgb quiet'
+mkconfig=grub2-mkconfig
 mode=apply
 
 note()
@@ -49,7 +51,8 @@ fail()
 usage()
 {
     printf 'usage: %s [--defaults FILE] [--cfg FILE] [--esp DIR]\n' "$0" >&2
-    printf '       [--state FILE] [--append ARGS] [--check] [--no-regen]\n' >&2
+    printf '       [--etc DIR] [--state FILE] [--append ARGS]\n' >&2
+    printf '       [--mkconfig CMD] [--check] [--no-regen]\n' >&2
 }
 
 while [ $# -gt 0 ]; do
@@ -57,8 +60,10 @@ while [ $# -gt 0 ]; do
     --defaults) defaults=${2:?--defaults 需要文件}; shift 2 ;;
     --cfg) cfg=${2:?--cfg 需要文件}; shift 2 ;;
     --esp) esp=${2:?--esp 需要目录}; shift 2 ;;
+    --etc) etc=${2:?--etc 需要目录}; shift 2 ;;
     --state) state=${2:?--state 需要文件}; shift 2 ;;
     --append) args=${2?--append 需要参数}; shift 2 ;;
+    --mkconfig) mkconfig=${2:?--mkconfig 需要命令}; shift 2 ;;
     --check) mode=check; shift ;;
     --no-regen) mode=edit; shift ;;
     *) usage; exit 2 ;;
@@ -169,13 +174,17 @@ edit()
 
 # 生效配置由发行版自己决定（EFI 是 /etc/grub2-efi.cfg，BIOS 是
 # /etc/grub2.cfg），这里跟随符号链接，不猜路径。
+#
+# 只打印不赋值：调用方用命令替换取结果，命令替换在子 shell 里执行，函数
+# 内对全局变量的赋值出了子 shell 就没了。0.0.3 的 UEFI 装机正是栽在这里——
+# cfg 拿到空串，真正的生成步骤无文件可写，安装器在最后的 %post 中止。
 pick_cfg()
 {
     local f
-    for f in /etc/grub2-efi.cfg /etc/grub2.cfg; do
+    for f in "${etc}/grub2-efi.cfg" "${etc}/grub2.cfg"; do
         [ -e "${f}" ] || continue
-        cfg=$(readlink -f "${f}")
-        [ -n "${cfg}" ] && return 0
+        readlink -f "${f}" || return 1
+        return 0
     done
     return 1
 }
@@ -185,11 +194,11 @@ pick_cfg()
 regen()
 {
     local bak="${state%/*}/grub.cfg.prev"
-    command -v grub2-mkconfig >/dev/null 2>&1 ||
-        fail "grub2-mkconfig unavailable"
-    [ -s "${cfg}" ] || fail "no grub config at ${cfg} (ESP unmounted?)"
+    command -v "${mkconfig}" >/dev/null 2>&1 ||
+        fail "${mkconfig} unavailable"
+    [ -s "${cfg}" ] || fail "grub config '${cfg}' missing or empty"
     cp -f "${cfg}" "${bak}" || fail "backup ${cfg} failed"
-    if grub2-mkconfig -o "${cfg}" >/dev/null 2>&1 && [ -s "${cfg}" ] &&
+    if "${mkconfig}" -o "${cfg}" >/dev/null 2>&1 && [ -s "${cfg}" ] &&
         grep -q 'menuentry' "${cfg}"; then
         rm -f "${bak}"
         note "regenerated: ${cfg}"
@@ -223,7 +232,7 @@ edit
 [ "${mode}" = edit ] && exit 0
 
 [ -n "${cfg}" ] || cfg=$(pick_cfg) ||
-    fail "no /etc/grub2-efi.cfg or /etc/grub2.cfg"
+    fail "no ${etc}/grub2-efi.cfg or ${etc}/grub2.cfg"
 install -d -m 0755 "${state%/*}" || fail "create ${state%/*} failed"
 regen
 sync_brand
