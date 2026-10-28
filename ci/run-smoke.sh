@@ -10,7 +10,7 @@
 # 环境:
 #   AIRYMAX_SMOKE_WAIT  守护进程就绪等待秒数（默认 30）
 #   AIRYMAX_SMOKE_HOST  期望的主机名（默认 airymaxos，即 workstation 配方值）
-#   AIRYMAX_SMOKE_ROOT  只读系统视图的根前缀（默认空，即真实 /）。T6–T13 读取
+#   AIRYMAX_SMOKE_ROOT  只读系统视图的根前缀（默认空，即真实 /）。T6–T14 读取
 #                       /boot、/sys、/etc 与 /usr/lib 下的发行版标识与资产，
 #                       单测在沙箱里用该前缀复核判定，装机现场保持默认值。
 #
@@ -28,6 +28,7 @@
 #   T11 EFI 品牌：ESP 内 airymaxos 目录是完整签名套件，BootOrder 首位为本产品
 #   T12 免密提权：交付账户能以 NOPASSWD 完成一次非交互提权
 #   T13 免密桌面：空闲锁屏关闭，交付账户在 nopasswdlogin 组内
+#   T14 运行期软件源：已安装系统的每个启用段都指向可解析的基底镜像
 #
 # 判定语义:
 #   0  — 全部通过
@@ -474,8 +475,86 @@ t13_passwordless_desktop() {
     }
 }
 
+# T14: 运行期软件源（安装期的仓库闭包写在 kickstart 里，装完之后 dnf 只认
+# /etc/yum.repos.d：地址若带 $releasever，dnf 会把它展开成产品版本而不是基底
+# 版本，路径不存在，系统装完就再没有可用的源。冷启动腿没有网络，镜像可达性
+# 已由安装腿的 url 行证明，这里只断结构：有启用段、地址是基底镜像的绝对形式
+# 而不是版本变量、各段落在同一台镜像上）
+repo_rows() { # repo_rows <repo 文件> — 每个 baseurl 一行：段 <TAB> 启用 <TAB> 主址
+    # 键次序在 ini 里无约束（enabled 通常写在 baseurl 之后），因此先按段收集，
+    # 到 END 再按出现次序输出；缺 enabled 的段按 dnf 缺省为启用。
+    awk '
+        /^[[:space:]]*\[/ {
+            sec = $0
+            gsub(/[][[:space:]]/, "", sec)
+            order[++n] = sec
+            next
+        }
+        /^[[:space:]]*enabled[[:space:]]*=/ {
+            sub(/^[^=]*=[[:space:]]*/, "")
+            en[sec] = $0
+            next
+        }
+        /^[[:space:]]*baseurl[[:space:]]*=/ {
+            sub(/^[^=]*=[[:space:]]*/, "")
+            split($0, url, /[[:space:]]+/)
+            if (!(sec in addr))
+                addr[sec] = url[1]
+        }
+        END {
+            for (i = 1; i <= n; i++) {
+                s = order[i]
+                if (s in addr)
+                    print s "\t" (s in en ? en[s] : 1) "\t" addr[s]
+            }
+        }
+    ' "$1"
+}
+
+t14_repos() {
+    local file="${SYSROOT}/etc/yum.repos.d/airymaxos.repo" rows
+    local sec en url use=0 host0="" host
+    [ -r "${file}" ] || {
+        echo "${file} unreadable"
+        return 1
+    }
+    grep -qF '$releasever' "${file}" && {
+        echo "${file}: \$releasever does not name the base release"
+        return 1
+    }
+    rows="$(repo_rows "${file}")" || {
+        echo "${file}: unparsable"
+        return 1
+    }
+    while IFS=$'\t' read -r sec en url; do
+        [ "${en}" = 1 ] || continue
+        use=$((use + 1))
+        case "${url}" in
+        https://*/openEuler-[0-9]*/*) : ;;
+        *)
+            printf 'section %s baseurl: %s\n' "${sec}" "${url:--}"
+            return 1
+            ;;
+        esac
+        host="${url#https://}"
+        host="${host%%/*}"
+        if [ -z "${host0}" ]; then
+            host0="${host}"
+        elif [ "${host}" != "${host0}" ]; then
+            printf 'section %s host: %s (want %s)\n' "${sec}" "${host}" \
+                "${host0}"
+            return 1
+        fi
+    done <<<"${rows}"
+    [ "${use}" -gt 0 ] || {
+        echo "no enabled section in ${file}"
+        return 1
+    }
+    printf '%s enabled section(s) on %s\n' "${use}" "${host0}"
+}
+
 printf 'TAP version 14\n'
-printf '1..13\n'
+printf '1..14\n'
 printf '# AirymaxOS distro smoke: target=%s date=%s\n' \
     "${TARGET}" "$(date -u '+%FT%TZ')"
 
@@ -492,6 +571,7 @@ probe 10 "T10 display mode policy" t10_display
 probe 11 "T11 efi boot brand" t11_efi_brand
 probe 12 "T12 passwordless elevation" t12_passwordless
 probe 13 "T13 passwordless desktop" t13_passwordless_desktop
+probe 14 "T14 installed dnf sources" t14_repos
 
 printf '# summary: pass=%d fail=%d\n' "${PASS}" "${FAIL}"
 [ "${FAIL}" -eq 0 ]
