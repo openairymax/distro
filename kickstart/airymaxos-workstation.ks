@@ -380,9 +380,12 @@ grep -qxF 'autologin-user=airymax' "${seat}" || fail lightdm-autologin
 #    开机要跑的单元必须在这里显式启用，且以 is-enabled 落盘状态为唯一
 #    事实（--root 离线语义，chroot 内无总线）。preset-all 先于 enable
 #    执行：它把 90-airymax.preset 的策略投影到现有单元，再叠加本清单。
+#    bluetooth 与 rt-budget 属同一类缺口：包已装、单元存在，但被兜底策略
+#    关掉，表现为「蓝牙不可用」「音频爆音」而不是启动失败，只能靠这里收口。
 systemctl --root=/ preset-all >/dev/null 2>&1 ||
     mark "AIRYMAX-INSTALL-NOTE preset-all rc=$?"
 boot_set="lightdm.service airymax-desktop-ready.service
+airymax-rt-budget.service bluetooth.service
 NetworkManager.service chronyd.service firewalld.service sshd.service"
 for unit in ${boot_set}; do
     systemctl --root=/ enable "${unit}" >/dev/null 2>&1 || :
