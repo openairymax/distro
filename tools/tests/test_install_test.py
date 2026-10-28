@@ -98,6 +98,35 @@ class InstallTestTest(unittest.TestCase):
         self.tools()
         self.assertEqual(self.install("--firmware", "coreboot").returncode, 5)
 
+    def test_bad_media(self):
+        self.tools()
+        self.assertEqual(self.install("--media", "floppy").returncode, 5)
+
+    def test_usb_media(self):
+        # U 盘形态必须把镜像挂成裸盘并让固件走硬盘类引导通路；
+        # 若仍按 order=d 只枚举光驱，SeaBIOS 会整类跳过 U 盘。
+        self.tools()
+        res = self.install("--runs", "1", "--media", "usb")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        args = self.qlog.read_text(encoding="utf-8").splitlines()
+        self.assertIn("qemu-xhci,id=xhci", args)
+        usb = [a for a in args if a.startswith("usb-storage,")]
+        self.assertEqual(len(usb), 1)
+        self.assertIn("bootindex=1", usb[0])
+        self.assertIn("readonly=on", " ".join(args))
+        self.assertNotIn("-cdrom", args)
+        self.assertIn("order=cd", args)
+        self.assertIn("media=usb", self.manifest())
+
+    def test_cdrom_media_default(self):
+        self.tools()
+        res = self.install("--runs", "1")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        args = self.qlog.read_text(encoding="utf-8").splitlines()
+        self.assertIn("-cdrom", args)
+        self.assertNotIn("order=cd", args)
+        self.assertIn("media=cdrom", self.manifest())
+
     def test_aarch64_bios(self):
         self.tools("aarch64")
         res = self.install("--arch", "aarch64", "--firmware", "bios")

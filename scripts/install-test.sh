@@ -22,6 +22,12 @@
 #   携带 inst.ks=hd:LABEL=<卷标>:/ks.cfg，安装内核命令行含串口控制台；
 #   本脚本只做黑盒观测，不向镜像注入任何参数。
 #
+# 介质形态（--media）：
+#   cdrom 让 QEMU 以 CD-ROM 挂载，固件走 El Torito 引导目录，不读分区表；
+#   usb 把同一份 ISO 以裸盘形态挂在 XHCI 后面，固件必须先解析 MBR/GPT
+#   找到 ESP。两者覆盖的引导通路不同：isohybrid 三元（El Torito、MBR 0xEF
+#   分区项、GPT 条目）只有 usb 形态能证伪，这也是真机 U 盘装机的实际路径。
+#
 # 退出码：0 全部通过；1 存在失败；5 参数或环境不满足；
 #         6 产物目录不可用；77 缺少 QEMU 工具链（跳过）。
 # ===========================================================================
@@ -59,6 +65,7 @@ OUT="${TMPDIR:-/tmp}/airymaxos-install-test"
 RUNS=3
 ARCH="$(uname -m)"
 FIRMWARE="bios"
+MEDIA="cdrom"
 INSTALL_TIMEOUT=3600
 BOOT_TIMEOUT=300
 MAX_BOOT=30
@@ -91,6 +98,8 @@ usage()
   --runs N             每种固件的连续安装轮次，缺省 3
   --arch ARCH          x86_64 或 aarch64，缺省宿主架构
   --firmware FW        bios、uefi 或 both，缺省 bios
+  --media KIND         cdrom 或 usb，缺省 cdrom；usb 以裸盘挂载镜像，
+                       固件按 MBR/GPT 定位 ESP，与真机 U 盘装机同路径
   --install-timeout S  单轮安装超时秒数，缺省 3600
   --boot-timeout S     单轮启动硬超时秒数，缺省 300
   --max-boot S         启动墙钟上限秒数，缺省 30；仅 login: 腿生效，
@@ -112,6 +121,8 @@ usage()
 每轮开始前会删除本轮 install.log/boot.log，判读只看本轮内容。
 
 OUT 必须位于源码区之外；缺失 qemu-system-$ARCH / qemu-img 时以 77 跳过。
+同一个 --out 只承载一种 --media：cdrom 与 usb 的轮次目录同名，混用会
+互相覆盖，两种形态要分目录存放。
 aarch64 仅支持 uefi 固件；UEFI 固件按 OVMF/AAVMF 常见路径探测。
 x86_64 装机盘按腿区分：uefi 腿为 NVMe（与目标机交付形态一致），
 bios 腿为 SATA（QEMU 的 NVMe 没有 SeaBIOS 可用的选件 ROM，BIOS 看不到）。
@@ -158,6 +169,7 @@ parse_args()
         --runs) optarg "$1" "$#"; need_num "$1" "$2"; RUNS="$2"; shift 2 ;;
         --arch) optarg "$1" "$#"; ARCH="$2"; shift 2 ;;
         --firmware) optarg "$1" "$#"; FIRMWARE="$2"; shift 2 ;;
+        --media) optarg "$1" "$#"; MEDIA="$2"; shift 2 ;;
         --install-timeout)
             optarg "$1" "$#"; need_num "$1" "$2"; INSTALL_TIMEOUT="$2"; shift 2 ;;
         --boot-timeout)
@@ -224,6 +236,10 @@ check_env()
     case "${FIRMWARE}" in
     bios|uefi|both) ;;
     *) die "不支持的固件: ${FIRMWARE}" ;;
+    esac
+    case "${MEDIA}" in
+    cdrom|usb) ;;
+    *) die "不支持的介质形态: ${MEDIA}" ;;
     esac
     if [ "${ARCH}" = aarch64 ] && [ "${FIRMWARE}" != uefi ]; then
         die "aarch64 仅支持 uefi 固件"
@@ -318,8 +334,18 @@ dev_disk()
     fi
 }
 
-dev_cdrom()
+dev_media()
 {
+    local iso="$1"
+    if [ "${MEDIA}" = usb ]; then
+        # 裸盘形态：固件按 MBR/GPT 找 ESP。真机 U 盘装机走的就是这条路，
+        # 站点派生后若漏掉 MBR 0xEF 分区项与 GPT 条目的对齐，这里装不上，
+        # 而 -cdrom 腿仍然全绿。bootindex 让固件优先选它，不依赖型号排序。
+        QARGS+=(-device qemu-xhci,id=xhci
+                -drive "file=${iso},if=none,id=usb0,format=raw,readonly=on"
+                -device "usb-storage,drive=usb0,bus=xhci.0,removable=on,bootindex=1")
+        return 0
+    fi
     if [ "${ARCH}" = aarch64 ]; then
         QARGS+=(-device virtio-scsi-pci,id=scsi0
                 -drive "file=$1,if=none,id=cd0,media=cdrom,readonly=on"
@@ -394,8 +420,15 @@ install_run()
     qemu_base
     fw_args "${fw}" "${dir}" || return 1
     dev_disk "${disk}" "${fw}"
-    dev_cdrom "${ISO}"
-    QARGS+=(-boot order=d -netdev user,id=n0 -device virtio-net-pci,netdev=n0
+    dev_media "${ISO}"
+    # USB 形态下 U 盘属于硬盘类设备，SeaBIOS 只按 boot order 枚举被点名的
+    # 类别；仍写 order=d 时整类硬盘被跳过，U 盘根本没有被尝试的机会。
+    if [ "${MEDIA}" = usb ]; then
+        QARGS+=(-boot order=cd)
+    else
+        QARGS+=(-boot order=d)
+    fi
+    QARGS+=(-netdev user,id=n0 -device virtio-net-pci,netdev=n0
             -serial "file:${log}")
     start=$(date +%s)
     PROG_AT=${PROGRESS_EVERY}
@@ -548,6 +581,7 @@ manifest()
         printf 'iso %s %s\n' "$(iso_sum)" "$(basename "${ISO}")"
         printf 'arch=%s\nfirmware=%s\nruns=%s\nmax_boot=%s\n' \
             "${ARCH}" "${FIRMWARE}" "${RUNS}" "${MAX_BOOT:-auto}"
+        printf 'media=%s\n' "${MEDIA}"
         printf 'disk=%s\n' "$(disk_map)"
         printf 'accel=%s\ninstall_timeout=%s\nboot_timeout=%s\n' \
             "${ACCEL}" "${INSTALL_TIMEOUT}" "${BOOT_TIMEOUT}"
@@ -618,8 +652,8 @@ main()
     accel_set
     legs_build
     printf 'TAP version 14\n1..%d\n' "$((RUNS * 2 * ${#LEGS[@]}))"
-    printf '# AirymaxOS install test: iso=%s arch=%s firmware=%s runs=%s accel=%s\n' \
-        "$(basename "${ISO}")" "${ARCH}" "${FIRMWARE}" "${RUNS}" "${ACCEL}"
+    printf '# AirymaxOS install test: iso=%s arch=%s firmware=%s media=%s runs=%s accel=%s\n' \
+        "$(basename "${ISO}")" "${ARCH}" "${FIRMWARE}" "${MEDIA}" "${RUNS}" "${ACCEL}"
     for fw in "${LEGS[@]}"; do
         run_leg "${fw}"
     done
