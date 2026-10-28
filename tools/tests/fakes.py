@@ -84,7 +84,7 @@ with open(sys.argv[2], "ab") as out:
             out.write(b"@@base64\\n" + base64.encodebytes(raw))
 PY
 done
-python3 - "$out" "$body" "$p2" <<'PY' || exit 5
+python3 - "$out" "$body" "$p2" "$vol" <<'PY' || exit 5
 import struct, sys
 from pathlib import Path
 body = Path(sys.argv[2]).read_bytes()
@@ -93,6 +93,7 @@ pvd = bytearray(2048)
 pvd[0] = 1
 pvd[1:6] = b"CD001"
 pvd[6] = 1
+pvd[40:72] = sys.argv[4].encode()[:32].ljust(32, b" ")
 pvd[80:84] = struct.pack("<I", total)
 pvd[84:88] = struct.pack(">I", total)
 src = Path(sys.argv[3])

@@ -34,6 +34,8 @@ readonly DISTRO_ROOT
 
 # shellcheck source=lib/outdir.sh
 . "${DISTRO_ROOT}/scripts/lib/outdir.sh"
+# shellcheck source=lib/iso_post.sh
+. "${DISTRO_ROOT}/scripts/lib/iso_post.sh"
 # shellcheck source=lib/arch.sh
 . "${DISTRO_ROOT}/scripts/lib/arch.sh"
 
@@ -226,91 +228,14 @@ build_iso()
     mv -f "$PART" "$DEST"
 }
 
-extract()
+post_iso()
 {
-    local path="$1" dest="$2"
-    rm -f "$dest"
-    xorriso -osirrox on -indev "$DEST" -extract "$path" "$dest" \
-        >>"${WORK}/logs/xorriso.log" 2>&1
-}
-
-check_cfg()
-{
-    local cfg="$1" name="$2" arg
-    grep -Eq 'inst[.]ks=[^[:space:]]+' "$cfg" ||
-        die "${E_IO}" "引导配置 ${name} 未注入 inst.ks"
-    grep -Eq "(^|[^A-Za-z0-9_.-])LABEL=${VOLID}([^A-Za-z0-9_.-]|$)" \
-        "$cfg" ||
-        die "${E_IO}" "引导配置 ${name} 未引用卷标 ${VOLID}"
-    while IFS= read -r arg; do
-        case "$arg" in
-        *"LABEL=${VOLID}"*) ;;
-        *)
-            die "${E_IO}" \
-                "引导配置 ${name} 的 ${arg} 与卷标 ${VOLID} 不一致"
-            ;;
-        esac
-    done < <(grep -Eo 'inst[.]stage2=[^[:space:]]+' "$cfg" || true)
-}
-
-verify_cfg()
-{
-    local cfg path dest found=0
-    for cfg in isolinux/isolinux.cfg EFI/BOOT/grub.cfg; do
-        path="/${cfg}"
-        dest="${WORK}/cfg.$(basename "$cfg")"
-        if extract "$path" "$dest"; then
-            found=1
-            check_cfg "$dest" "$cfg"
-        fi
-    done
-    [ "$found" -eq 1 ] ||
-        die "${E_IO}" "ISO 内未找到 BIOS/UEFI 引导配置"
-}
-
-verify()
-{
-    local got="${WORK}/ks.cfg"
-    if ! extract /ks.cfg "$got"; then
-        die "${E_IO}" "ISO 内缺少 /ks.cfg"
-    fi
-    cmp -s "$KS" "$got" ||
-        die "${E_IO}" "ISO 内 kickstart 与源文件不一致"
-    verify_cfg
-}
-
-hybrid_check()
-{
-    local rc=0 log="${WORK}/logs/isohybrid.log"
-    python3 "${DISTRO_ROOT}/tools/isohybrid_sync.py" --check "$DEST" \
-        >"$log" 2>&1 || rc=$?
-    case "$rc" in
-    0) return 0 ;;
-    77)
-        printf 'build-iso: 跳过 isohybrid 一致性检查（非 El Torito 镜像）\n' >&2
-        return 0
-        ;;
-    esac
-    sed 's/^/  /' "$log" >&2
-    die "${E_IO}" "isohybrid 三元不一致，USB 盘方式将无法引导: ${DEST}"
-}
-
-md5_tag()
-{
+    local flag=""
     if [ "$MD5" -ne 1 ]; then
-        return 0
+        flag="--no-md5"
     fi
-    # mkksiso 沿用基础介质的 PVD，其应用数据区仍留有底座镜像的校验记录；
-    # 该记录对新镜像已失效，必须覆盖，否则 implantisomd5 拒绝写入。
-    if ! implantisomd5 --force "$DEST" \
-        >"${WORK}/logs/implantisomd5.log" 2>&1; then
-        die "${E_IO}" "implantisomd5 失败" \
-            "（日志 ${WORK}/logs/implantisomd5.log）"
-    fi
-    if ! checkisomd5 --md5sumonly "$DEST" \
-        >"${WORK}/logs/checkisomd5.log" 2>&1; then
-        die "${E_IO}" "checkisomd5 复核失败" \
-            "（日志 ${WORK}/logs/checkisomd5.log）"
+    if ! iso_post "$DEST" "$KS" "$VOLID" "$WORK" "$flag"; then
+        die "${E_IO}" "ISO 后处理失败（日志 ${WORK}/logs）"
     fi
 }
 
@@ -375,9 +300,7 @@ main()
     lint_ks
     printf '构建 ISO: %s（卷标 %s，架构 %s）\n' "$NAME" "$VOLID" "$ARCH"
     build_iso
-    verify
-    hybrid_check
-    md5_tag
+    post_iso
     ISO_SUM="$(sum_of "$DEST")" || die "${E_IO}" "sha256sum 失败: ${DEST}"
     write_sum "$ISO_SUM"
     if [ -n "$GPG_KEY" ]; then
