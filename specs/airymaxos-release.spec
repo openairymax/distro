@@ -8,9 +8,9 @@
 #      /etc/system-release 符号链接（内容由同一事实源派生，见下）；
 #   2. 提供 /etc/yum.repos.d/airymaxos.repo（仓库列表 SSoT）；
 #   3. 提供 /etc/rpm/macros.airymax（文件系统布局宏 SSoT）；
-#   4. 部署桌面会话静态资产：lightdm 座位策略、X11 会话输入法环境与分辨率
-#      自适应、输入法自启项、UKUI 壁纸注册表与背景默认值、默认壁纸、桌面
-#      调度 slice、user@.service 挂接及登录链就绪探针；
+#   4. 部署桌面会话静态资产：lightdm 座位策略、座位 X server 启动封装、X11
+#      会话输入法环境与分辨率自适应、输入法自启项、UKUI 壁纸注册表与背景
+#      默认值、默认壁纸、桌面调度 slice、user@.service 挂接及登录链就绪探针；
 #   5. 部署登录与提权策略：sshd 允许交付账户的空口令登录，sudo 以
 #      NOPASSWD 放开同一账户的非交互提权，桌面侧关闭空闲锁屏（空口令账户
 #      被锁屏拦住只会制造口令框）；
@@ -49,7 +49,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.3
-%global airy_release 16
+%global airy_release 17
 # 基底版本是显式输入，与 distro/repo/airymax-os.repo 及 kickstart 的
 # url/repo 行是三处同源表达。%%check 以本宏断言客户端配置，版本漂移在
 # 构建期失败，而不是等到装机后 dnf 报「找不到仓库」。
@@ -90,6 +90,7 @@ Source22:       00-airymax-screensaver
 Source23:       50-airymax-journald.conf
 Source24:       airymax-display.desktop
 Source25:       grub_args.sh
+Source26:       xserver.sh
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -146,6 +147,8 @@ install -m 0644 %{SOURCE15} \
     %{buildroot}/usr/lib/airymaxos/desktop/boot_state.sh
 install -m 0755 %{SOURCE17} \
     %{buildroot}/usr/lib/airymaxos/desktop/display_mode.sh
+install -m 0755 %{SOURCE26} \
+    %{buildroot}/usr/lib/airymaxos/desktop/xserver
 
 install -d -m 0755 %{buildroot}%{_sysconfdir}/lightdm/lightdm.conf.d
 install -m 0644 %{SOURCE7} \
@@ -421,6 +424,7 @@ fi
 /usr/lib/airymaxos/desktop/desktop_ready.sh
 /usr/lib/airymaxos/desktop/boot_state.sh
 /usr/lib/airymaxos/desktop/display_mode.sh
+/usr/lib/airymaxos/desktop/xserver
 /usr/lib/airymaxos/boot/efi_brand.sh
 /usr/lib/airymaxos/boot/grub_args.sh
 %{_datadir}/plymouth/themes/default.plymouth
@@ -431,6 +435,19 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Wed Oct 28 2026 SPHARX <dev@spharx.com> - 0.0.3-17
+- Start the seat through a distribution wrapper and fall back to fbdev
+  when the only DRM device is simpledrm: X 1.20 picks vesa when no
+  driver claims the card, vesa refuses to run next to a synthetic
+  framebuffer, and modesetting does not take simpledrm over either, so
+  lightdm died on every start on the reference machine and the desktop
+  never appeared
+- Decide by driver name in sysfs rather than by hardware, so machines
+  with a real KMS driver (i915, amdgpu, virtio_gpu, nouveau) keep X's
+  automatic choice and need no per-machine tuning
+- Log one AIRYMAX-XSERVER line with the chosen path: without it the only
+  evidence of the decision is an X log nobody reads until the desktop
+  fails
 * Wed Oct 28 2026 SPHARX <dev@spharx.com> - 0.0.3-16
 - Ship grub_args.sh and call it from the installer before efi_brand.sh:
   bootloader --append only reaches the grub.cfg anaconda writes, never

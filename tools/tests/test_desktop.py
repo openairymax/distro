@@ -40,6 +40,8 @@ ASSETS = (
      "/usr/lib/airymaxos/desktop/boot_state.sh"),
     ("desktop/display_mode.sh",
      "/usr/lib/airymaxos/desktop/display_mode.sh"),
+    ("desktop/xserver.sh",
+     "/usr/lib/airymaxos/desktop/xserver"),
     ("desktop/70-airymax-ukui-policy.sh",
      "%{_datadir}/airymaxos/distro/desktop/70-airymax-ukui-policy.sh"),
     ("desktop/lightdm/50-airymax.conf",
