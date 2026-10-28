@@ -26,6 +26,35 @@
 
 UNIT_LOG_MAX="${AIRYMAX_UNIT_LOG:-12}"
 UNIT_LIST_MAX="${AIRYMAX_UNIT_LIST:-8}"
+CONSOLE_ACTIVE="${AIRYMAX_CONSOLE_ACTIVE:-/sys/class/tty/console/active}"
+VT_ACTIVE="${AIRYMAX_VT_ACTIVE:-/sys/class/tty/tty0/active}"
+VT_DIR="${AIRYMAX_VT_DIR:-/dev}"
+
+# 本地屏镜像：kernel cmdline 里最后一个 console= 决定 /dev/console 的去向，
+# 带串口的机器（验收机）上它是 ttyS0，单元用 journal+console 时标记行只到
+# journal 与串口，本地屏在最后一个内核行之后静止。标记行另写一份到当前
+# 活动 VT；活动 VT 本身就是被选中的 console 时跳过，避免同一行打两遍。
+vt_dev()
+{
+    local active vt
+
+    [ -r "${CONSOLE_ACTIVE}" ] && [ -r "${VT_ACTIVE}" ] || return 1
+    active=$(<"${CONSOLE_ACTIVE}")
+    vt=$(<"${VT_ACTIVE}")
+    [ -n "${vt}" ] || return 1
+    [ "${active##* }" = "${vt}" ] && return 1
+    [ -w "${VT_DIR}/${vt}" ] || return 1
+    printf '%s/%s\n' "${VT_DIR}" "${vt}"
+}
+
+say()
+{
+    local dev
+
+    printf "$@"
+    dev=$(vt_dev) || return 0
+    printf "$@" >>"${dev}" 2>/dev/null
+}
 
 failed_units()
 {
@@ -70,17 +99,17 @@ boot_health()
     local list total shown
 
     if ! list=$(failed_units); then
-        printf 'AIRYMAX-BOOT-DEGRADED failed=unknown units=none\n'
+        say 'AIRYMAX-BOOT-DEGRADED failed=unknown units=none\n'
         return 1
     fi
     if [ -z "${list}" ]; then
-        printf 'AIRYMAX-BOOT-HEALTH failed=0\n'
+        say 'AIRYMAX-BOOT-HEALTH failed=0\n'
         return 0
     fi
     total=$(printf '%s\n' "${list}" | awk 'END { print NR }')
     shown=$(printf '%s\n' "${list}" |
         awk -v max="${UNIT_LIST_MAX}" 'NR <= max')
-    printf 'AIRYMAX-BOOT-DEGRADED failed=%s units=%s\n' \
+    say 'AIRYMAX-BOOT-DEGRADED failed=%s units=%s\n' \
         "${total}" "${shown//$'\n'/,}"
     printf '%s\n' "${shown}" | unit_evidence
     return 1

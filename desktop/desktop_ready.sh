@@ -37,7 +37,9 @@
 #
 # 观测通道共三条，都只读不判定：等待期每 BEAT 秒一行 AIRYMAX-DESKTOP-WAIT
 # （屏幕不会在最后一个内核行之后长期静止），失败后 AIRYMAX-DESKTOP-DIAG
-# 带出证据，AIRYMAX-DESKTOP-HINT 给出下一步命令。
+# 带出证据，AIRYMAX-DESKTOP-HINT 给出下一步命令。标记行经 say 输出，除
+# journal 与 console 外再镜像到当前活动 VT：带串口的机器上 /dev/console
+# 被 cmdline 里最后一个 console= 拿走，本地屏收不到单元的用户态输出。
 #
 # 部署：airymaxos-release 包安装到 /usr/lib/airymaxos/desktop/。
 # 调用：airymax-desktop-ready.service（WantedBy=graphical.target）。
@@ -148,7 +150,7 @@ ready_once()
 # 「正在等」与「已经卡死」。心跳每 BEAT 秒一行，只做观测，不参与判定。
 beat_out()
 {
-    printf 'AIRYMAX-DESKTOP-WAIT elapsed=%ss max=%ss unit=%s\n' \
+    say 'AIRYMAX-DESKTOP-WAIT elapsed=%ss max=%ss unit=%s\n' \
         "$1" "${READY_WAIT}" "${SESS_SVC}"
 }
 
@@ -172,7 +174,7 @@ wait_ready()
 # lightdm 与会话日志，启动记账降级先看还有哪些单元没起来。
 advise()
 {
-    printf 'AIRYMAX-DESKTOP-HINT console=tty2 cmd="%s"\n' "$1"
+    say 'AIRYMAX-DESKTOP-HINT console=tty2 cmd="%s"\n' "$1"
 }
 
 # 诊断通道：每类证据独立取，取不到就跳过，绝不影响返回值。
@@ -239,24 +241,23 @@ main()
 {
     if ! boot_health; then
         advise "${BOOT_HINT}"
-        printf 'AIRYMAX-DESKTOP-FAIL reason=boot\n'
+        say 'AIRYMAX-DESKTOP-FAIL reason=boot\n'
         return 1
     fi
     if ! session_exec; then
         diagnose
         advise "${DESK_HINT}"
-        printf 'AIRYMAX-DESKTOP-FAIL reason=session path=%s\n' \
-            "${UKUI_SESSION}"
+        say 'AIRYMAX-DESKTOP-FAIL reason=session path=%s\n' "${UKUI_SESSION}"
         return 1
     fi
     if wait_ready; then
-        printf 'AIRYMAX-DESKTOP-READY unit=%s class=%s type=%s\n' \
+        say 'AIRYMAX-DESKTOP-READY unit=%s class=%s type=%s\n' \
             "${SESS_SVC}" "$(session_field "${READY_ID}" Class)" "${SESS_TYPE}"
         return 0
     fi
     diagnose
     advise "${DESK_HINT}"
-    printf 'AIRYMAX-DESKTOP-FAIL unit=%s wait=%ss\n' \
+    say 'AIRYMAX-DESKTOP-FAIL unit=%s wait=%ss\n' \
         "${SESS_SVC}" "${READY_WAIT}"
     return 1
 }

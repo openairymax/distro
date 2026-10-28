@@ -53,6 +53,19 @@ class DesktopReadyTest(unittest.TestCase):
         fakes.write(self.bin, "journalctl", fakes.JOURNALCTL)
         fakes.write(self.bin, "ukui-session", "#!/bin/sh\nexit 0\n")
         self.write_session(SESSION)
+        self.setup_screen()
+
+    def setup_screen(self, active="tty0 ttyS0", vt="tty1"):
+        self.vt_dir = self.root / "dev"
+        self.vt_dir.mkdir(exist_ok=True)
+        self.console_active = self.root / "console-active"
+        self.console_active.write_text(f"{active}\n", encoding="utf-8")
+        self.vt_active = self.root / "vt-active"
+        self.vt_active.write_text(f"{vt}\n", encoding="utf-8")
+        (self.vt_dir / vt).write_text("", encoding="utf-8")
+
+    def screen(self, vt="tty1"):
+        return (self.vt_dir / vt).read_text(encoding="utf-8")
 
     def tearDown(self):
         self._tmp.cleanup()
@@ -71,7 +84,10 @@ class DesktopReadyTest(unittest.TestCase):
         env = {"PATH": str(self.bin), "HOME": str(self.root),
                "AIRYMAX_READY_WAIT": "0", "AIRYMAX_READY_POLL": "1",
                "AIRYMAX_XSESSIONS_DIR": str(self.xs),
-               "AIRYMAX_LIGHTDM_LOG": str(self.logs)}
+               "AIRYMAX_LIGHTDM_LOG": str(self.logs),
+               "AIRYMAX_CONSOLE_ACTIVE": str(self.console_active),
+               "AIRYMAX_VT_ACTIVE": str(self.vt_active),
+               "AIRYMAX_VT_DIR": str(self.vt_dir)}
         env.update(extra)
         return subprocess.run([BASH, str(SCRIPT), *args], env=env,
                               text=True, capture_output=True)
@@ -238,6 +254,23 @@ class DesktopReadyTest(unittest.TestCase):
             res.stdout)
         self.assertEqual(res.stdout.rstrip().splitlines()[-1],
                          f"{FAIL} reason=boot")
+
+    def test_markers_mirror_to_screen(self):
+        res = self.run_probe(FAKE_LIGHTDM="inactive")
+        self.assertEqual(res.returncode, 1)
+        screen = self.screen()
+        for marker in ("AIRYMAX-BOOT-HEALTH failed=0",
+                       "AIRYMAX-DESKTOP-HINT console=tty2",
+                       f"{FAIL} unit=lightdm"):
+            self.assertIn(marker, screen)
+        self.assertNotIn(DIAG, screen)
+
+    def test_mirror_skipped_when_console_is_screen(self):
+        self.setup_screen(active="ttyS0 tty1")
+        res = self.run_probe(FAKE_LIGHTDM="inactive")
+        self.assertEqual(res.returncode, 1)
+        self.assertIn(f"{FAIL} unit=lightdm", res.stdout)
+        self.assertEqual(self.screen(), "")
 
     def test_fail_reports_unit(self):
         res = self.run_probe(FAKE_LIGHTDM="inactive",
