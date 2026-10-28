@@ -451,18 +451,28 @@ printf 'signature\\n' > "$out"
 
 QEMU = """\
 #!/bin/sh
-log=""; boot=""; nv=""
+log=""; boot=""; nv=""; media=0
+# 参数值（-boot 的 order、-serial 的路径等）由 case 分支的 shift 消费，
+# 逐 token 记录只会留下开关名而丢掉取值。整份 argv 先落盘，测试才能断言
+# 「固件按哪一类设备引导」这种取值级事实。
+if [ -n "${FAKE_QEMU_LOG:-}" ]; then
+    for a in "$@"; do printf '%s\\n' "$a" >> "$FAKE_QEMU_LOG"; done
+fi
 while [ $# -gt 0 ]; do
-    [ -n "${FAKE_QEMU_LOG:-}" ] && printf '%s\\n' "$1" >> "$FAKE_QEMU_LOG"
     case "$1" in
     -serial) shift; log=${1#file:} ;;
     -boot) shift; boot=$1 ;;
+    # 安装腿与启动腿的分界是「有没有安装介质」，不是 -boot 的取值：
+    # cdrom 形态是 order=d，usb 形态是 order=cd，后者同样属于安装腿。
+    # aarch64 无 El Torito 直通，介质是挂在 virtio-scsi 上的 scsi-cd，
+    # 同样属于安装腿，漏判会让该架构的用例落进启动腿分支。
+    -cdrom|*usb-storage,*|*scsi-cd,*) media=1 ;;
     *vars.fd) nv=${1#*file=} ;;
     esac
     shift
 done
 [ -n "$log" ] || exit 0
-if [ "$boot" = "order=d" ]; then
+if [ "$media" -eq 1 ]; then
     case "${FAKE_QEMU_INSTALL_MODE:-ok}" in
     fail) exit 1 ;;
     nomarker) printf 'installing\\n' > "$log"; exit 0 ;;
