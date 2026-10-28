@@ -4,10 +4,10 @@
 # test_run_smoke.py — ci/run-smoke.sh 契约回归测试
 #
 # 冒烟脚本必须在已登录的 UKUI 桌面会话内运行，CI 宿主机不具备该环境。
-# 脚本对外契约是：TAP 14 计划、十三项探测的判定，以及“探测工具缺失即失败”
+# 脚本对外契约是：TAP 14 计划、十四项探测的判定，以及“探测工具缺失即失败”
 # 的退出码规则。这里用 PATH 沙箱提供伪 loginctl /
 # pgrep / xdpyinfo / fcitx-remote / pactl / systemctl / gsettings /
-# sha256sum / uname / xrandr，并给 T6–T13 准备一份只读系统视图
+# sha256sum / uname / xrandr，并给 T6–T14 准备一份只读系统视图
 # （AIRYMAX_SMOKE_ROOT），每个用例只破坏一个前提，从而在无桌面环境下判定
 # 真实控制流。
 #
@@ -41,6 +41,27 @@ OS_RELEASE = ('NAME="AirymaxOS"\n'
               'VERSION_ID="0.0.3"\n'
               'PRETTY_NAME="AirymaxOS 0.0.3 (OpenAirymax)"\n')
 
+# T14 的客户端源文件形态：多段、三镜像并列、末段关闭。
+REPO = """\
+[airymaxos-base]
+name=AirymaxOS Base - $basearch
+baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/OS/$basearch/ https://mirrors.tuna.tsinghua.edu.cn/openeuler/openEuler-24.03-LTS-SP2/OS/$basearch/
+enabled=1
+gpgcheck=0
+
+[airymaxos-updates]
+name=AirymaxOS Updates - $basearch
+baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/update/$basearch/ https://mirrors.tuna.tsinghua.edu.cn/openeuler/openEuler-24.03-LTS-SP2/update/$basearch/
+enabled=1
+gpgcheck=0
+
+[airymaxos-everything]
+name=AirymaxOS Everything - $basearch
+baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/everything/$basearch/
+enabled=0
+gpgcheck=0
+"""
+
 # T10 的两份 xrandr --query 拓扑：已在策略模式、以及首选 4K 待下调。
 TOPO_OK = ("Screen 0: minimum 8 x 8, current 1920 x 1080,"
            " maximum 32767 x 32767\n"
@@ -69,8 +90,8 @@ class RunSmokeTest(unittest.TestCase):
         self._tmp.cleanup()
 
     def make_sysroot(self):
-        """构造 T6–T13 读取的只读视图：/boot 三件套、LSM、产品标识、ESP、
-        sudo 策略、锁屏策略。"""
+        """构造 T6–T14 读取的只读视图：/boot 三件套、LSM、产品标识、ESP、
+        sudo 策略、锁屏策略、客户端源文件。"""
         boot = self.sysroot / "boot"
         boot.mkdir(parents=True)
         (boot / f"vmlinuz-{KREL}").write_bytes(b"vmlinuz\n")
@@ -83,6 +104,14 @@ class RunSmokeTest(unittest.TestCase):
         self.write_esp()
         self.write_sudoers()
         self.write_screensaver()
+        self.write_repo()
+
+    def write_repo(self, body=REPO):
+        """运行期源的落点：与 airymaxos-release 交付的文件同名。"""
+        path = self.sysroot / "etc" / "yum.repos.d" / "airymaxos.repo"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+        return path
 
     def write_sudoers(self):
         """免密提权的落点：与 airymaxos-release 交付的文件同名同内容。"""
@@ -217,9 +246,9 @@ class RunSmokeTest(unittest.TestCase):
         self.tools()
         res = self.run_smoke()
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res), {"pass": 13, "fail": 0})
+        self.assertEqual(self.summary(res), {"pass": 14, "fail": 0})
         self.assertNotIn("# SKIP", res.stdout)
-        self.assertEqual(len(self.taps(res)), 13)
+        self.assertEqual(len(self.taps(res)), 14)
         for line in self.taps(res):
             self.assertTrue(line.startswith("ok"), line)
 
@@ -227,7 +256,7 @@ class RunSmokeTest(unittest.TestCase):
         self.tools()
         res = self.run_smoke()
         self.assertIn("TAP version 14", res.stdout)
-        self.assertIn("1..13", res.stdout.splitlines())
+        self.assertIn("1..14", res.stdout.splitlines())
         self.assertIn(
             "# AirymaxOS distro smoke: target=airymaxos-0.0.3", res.stdout)
 
@@ -334,7 +363,7 @@ class RunSmokeTest(unittest.TestCase):
         finally:
             timer.cancel()
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res), {"pass": 13, "fail": 0})
+        self.assertEqual(self.summary(res), {"pass": 14, "fail": 0})
 
     def test_slice_wrong(self):
         self.tools()
@@ -394,7 +423,7 @@ class RunSmokeTest(unittest.TestCase):
         self.tools(omit=("loginctl",))
         res = self.run_smoke()
         self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res), {"pass": 12, "fail": 1})
+        self.assertEqual(self.summary(res), {"pass": 13, "fail": 1})
         self.assert_fail(res, 1)
         self.assertIn("loginctl not installed", res.stdout)
         self.assertNotIn("# SKIP", res.stdout)
@@ -602,6 +631,55 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke()
         self.assert_fail(res, 13)
         self.assertIn("lock-enabled not disabled", res.stdout)
+
+    def test_repo_sources_ok(self):
+        self.tools()
+        res = self.run_smoke()
+        self.assertIn("ok 14 - T14 installed dnf sources", res.stdout)
+        self.assertIn("2 enabled section(s) on repo.openeuler.org", res.stdout)
+
+    def test_repo_file_missing(self):
+        # 只有 kickstart 的 url/repo 行、没有客户端文件：装得进去，装完无源
+        self.tools()
+        self.write_repo().unlink()
+        res = self.run_smoke()
+        self.assert_fail(res, 14)
+        self.assertIn("airymaxos.repo unreadable", res.stdout)
+
+    def test_repo_releasever(self):
+        # $releasever 在产品系统里展开为 0.0.3，基底镜像路径随之失效
+        self.tools()
+        self.write_repo(REPO.replace("openEuler-24.03-LTS-SP2",
+                                     "openEuler-$releasever"))
+        res = self.run_smoke()
+        self.assert_fail(res, 14)
+        self.assertIn("$releasever does not name the base release", res.stdout)
+
+    def test_repo_plain_http(self):
+        self.tools()
+        self.write_repo(REPO.replace("baseurl=https://",
+                                     "baseurl=http://"))
+        res = self.run_smoke()
+        self.assert_fail(res, 14)
+        self.assertIn("section airymaxos-base baseurl: http://", res.stdout)
+
+    def test_repo_host_mixed(self):
+        # 各段落在不同镜像上，说明基址被逐段手改过，必然有一段落伍
+        self.tools()
+        self.write_repo(REPO.replace(
+            "baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/update/",
+            "baseurl=https://mirror.example.net/openEuler-24.03-LTS-SP2/update/"))
+        res = self.run_smoke()
+        self.assert_fail(res, 14)
+        self.assertIn("section airymaxos-updates host: mirror.example.net"
+                      " (want repo.openeuler.org)", res.stdout)
+
+    def test_repo_no_enabled(self):
+        self.tools()
+        self.write_repo(REPO.replace("enabled=1", "enabled=0"))
+        res = self.run_smoke()
+        self.assert_fail(res, 14)
+        self.assertIn("no enabled section", res.stdout)
 
 
 if __name__ == "__main__":
