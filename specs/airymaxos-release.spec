@@ -19,8 +19,10 @@
 #      openEuler 引导项替换为置顶的 AirymaxOS 条目；
 #   7. %%post 只执行装配后才能确定的运行期动作：编译 glib schema、屏蔽桌面
 #      自带 AI 控制面单元、在运行中的系统上重载 systemd。
-#   8. 提供 /etc/plymouth/plymouthd.conf：kickstart 的 rhgb 由它决定观感，
-#      主题缺失时 plymouth 自行回落 text，不阻断启动。
+#   8. 声明默认启动画面主题：以 /usr/share/plymouth/themes/default.plymouth
+#      符号链接指向 tribar，kickstart 的 rhgb 因此有画面可显示。不改
+#      /etc/plymouth/plymouthd.conf 与 plymouthd.defaults——两者都归
+#      plymouth 包，同名文件被两个包同时持有会让安装事务整体失败。
 #
 # 静态资产一律由 %%install 直接落到最终路径，%%post 不复制文件，同一路径只有
 # 一处事实来源。
@@ -43,7 +45,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.3
-%global airy_release 13
+%global airy_release 14
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 
 Name:           airymaxos-release
@@ -79,7 +81,6 @@ Source21:       90-airymax-sudoers
 Source22:       00-airymax-screensaver
 Source23:       50-airymax-journald.conf
 Source24:       airymax-display.desktop
-Source25:       plymouthd.conf
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -189,11 +190,14 @@ install -d -m 0755 %{buildroot}%{_sysconfdir}/systemd/journald.conf.d
 install -m 0644 %{SOURCE23} \
     %{buildroot}%{_sysconfdir}/systemd/journald.conf.d/50-airymax-journald.conf
 
-# 启动画面：目录归 plymouth 包所有，最小安装没有该包时由本包创建并持有
-# （文件清单里同时声明该目录），配置因此在两种变体上都不悬空。
-install -d -m 0755 %{buildroot}%{_sysconfdir}/plymouth
-install -m 0644 %{SOURCE25} \
-    %{buildroot}%{_sysconfdir}/plymouth/plymouthd.conf
+# 启动画面：默认主题以 plymouth 自己的「default.plymouth 符号链接」声明。
+# plymouthd 依次读 plymouthd.conf、plymouthd.defaults，主题不可用时才读这条
+# 链接，最后回落 text；openEuler 的 defaults 指向 spinner，而它的包里没有
+# spinner，链接因此是实际生效的那一处。dracut 的 plymouth-populate-initrd
+# 走同一条链，主题随之进入 initramfs。父目录归 plymouth 包，这里只放链接。
+install -d -m 0755 %{buildroot}%{_datadir}/plymouth/themes
+ln -s tribar/tribar.plymouth \
+    %{buildroot}%{_datadir}/plymouth/themes/default.plymouth
 
 install -d -m 0755 %{buildroot}%{_datadir}/ukui-background-properties
 install -m 0644 %{SOURCE10} \
@@ -309,10 +313,11 @@ grep -qxF '[Journal]' \
     %{buildroot}%{_sysconfdir}/systemd/journald.conf.d/50-airymax-journald.conf
 grep -qxF 'Storage=persistent' \
     %{buildroot}%{_sysconfdir}/systemd/journald.conf.d/50-airymax-journald.conf
-# 启动画面同理：主题取自这里而不是 bootloader 行，取值写错只会退回 text，
-# 构建期不拦住就只剩「观感没变」这一条线索。
-grep -qxF '[Daemon]' %{buildroot}%{_sysconfdir}/plymouth/plymouthd.conf
-grep -qxF 'Theme=tribar' %{buildroot}%{_sysconfdir}/plymouth/plymouthd.conf
+# 启动画面：链接名对但目标名拼错时链接悬空，plymouthd 静默回落 text，
+# 观感问题不会出现在任何日志里，所以构建期断言链接本身与目标两段。
+test -L %{buildroot}%{_datadir}/plymouth/themes/default.plymouth
+test "$(readlink %{buildroot}%{_datadir}/plymouth/themes/default.plymouth)" = \
+    'tribar/tribar.plymouth'
 grep -qF '<!DOCTYPE wallpapers SYSTEM' \
     %{buildroot}%{_datadir}/ukui-background-properties/airymaxos-default.xml
 grep -qF "picture-filename='" \
@@ -359,14 +364,13 @@ fi
 %config(noreplace) %{_sysconfdir}/xdg/autostart/airymax-display.desktop
 %config(noreplace) %{_sysconfdir}/systemd/system/user@.service.d/50-airymax-desktop.conf
 %config(noreplace) %{_sysconfdir}/systemd/journald.conf.d/50-airymax-journald.conf
-%dir %{_sysconfdir}/plymouth
-%config(noreplace) %{_sysconfdir}/plymouth/plymouthd.conf
 %{_unitdir}/airymax-desktop.slice
 %{_unitdir}/airymax-desktop-ready.service
 /usr/lib/airymaxos/desktop/desktop_ready.sh
 /usr/lib/airymaxos/desktop/boot_state.sh
 /usr/lib/airymaxos/desktop/display_mode.sh
 /usr/lib/airymaxos/boot/efi_brand.sh
+%{_datadir}/plymouth/themes/default.plymouth
 %{_datadir}/ukui-background-properties/airymaxos-default.xml
 %{_datadir}/glib-2.0/schemas/99-airymaxos-default.gschema.override
 %{_datadir}/backgrounds/airymaxos/airymaxos-default.jpg
@@ -374,6 +378,18 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Wed Oct 28 2026 SPHARX <dev@spharx.com> - 0.0.3-14
+- Stop owning /etc/plymouth/plymouthd.conf. The plymouth package ships
+  that path, and one file in two packages fails the whole install
+  transaction with "conflicts between attempted installs" -- acceptance
+  run 40639862403 lost both firmware legs to exactly that
+- Declare the default theme the way plymouth itself expects, through the
+  /usr/share/plymouth/themes/default.plymouth link. plymouthd reads
+  plymouthd.conf, then plymouthd.defaults, then that link, then text;
+  openEuler's defaults name spinner, which its package does not ship, so
+  the link is what decides. plymouth-populate-initrd follows the same
+  chain, so the theme also reaches the initramfs
+
 * Wed Oct 28 2026 SPHARX <dev@spharx.com> - 0.0.3-13
 - Boot behind a splash instead of scrolling kernel log: the kickstart
   bootloader line gains rhgb quiet, the workstation package list pins
