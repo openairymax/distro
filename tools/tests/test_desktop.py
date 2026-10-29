@@ -53,6 +53,8 @@ ASSETS = (
      "/usr/lib/airymaxos/desktop/airy_record.sh"),
     ("desktop/airy_observe.sh",
      "/usr/lib/airymaxos/desktop/airy_observe.sh"),
+    ("desktop/airy_bench.py",
+     "/usr/lib/airymaxos/desktop/airy_bench.py"),
     ("desktop/xserver.sh",
      "/usr/lib/airymaxos/desktop/xserver"),
     ("desktop/70-airymax-ukui-policy.sh",
@@ -387,7 +389,7 @@ class DesktopAssetTest(unittest.TestCase):
                 "99-airymaxos-default.gschema.override": "",
             }
             for name in ("desktop_ready.sh", "airy_record.sh",
-                         "airy_observe.sh"):
+                         "airy_observe.sh", "airy_bench.py"):
                 files[f"usr/lib/airymaxos/desktop/{name}"] = ""
             for rel, body in files.items():
                 path = root / rel
@@ -407,8 +409,9 @@ class DesktopAssetTest(unittest.TestCase):
                     "AIRYMAX-OBSERVE asset.desktop=present",
                     "AIRYMAX-OBSERVE asset.record=present",
                     "AIRYMAX-OBSERVE asset.observe=present",
+                    "AIRYMAX-OBSERVE asset.bench=present",
                     "AIRYMAX-OBSERVE host.name=airymaxos",
-                    "AIRYMAX-OBSERVE mode=static fields=10"):
+                    "AIRYMAX-OBSERVE mode=static fields=11"):
                 self.assertIn(want, lines)
             self.assertEqual(lines[-1], "AIRYMAX-OBSERVE status=ok")
 
@@ -422,9 +425,10 @@ class DesktopAssetTest(unittest.TestCase):
             lines = out.stdout.splitlines()
             for key in ("os.id", "os.version", "os.pretty", "brand.grub",
                         "brand.wallpaper", "brand.schema", "asset.desktop",
-                        "asset.record", "asset.observe", "host.name"):
+                        "asset.record", "asset.observe", "asset.bench",
+                        "host.name"):
                 self.assertIn(f"AIRYMAX-OBSERVE {key}=absent", lines)
-            self.assertIn("AIRYMAX-OBSERVE mode=static fields=10", lines)
+            self.assertIn("AIRYMAX-OBSERVE mode=static fields=11", lines)
             self.assertEqual(lines[-1], "AIRYMAX-OBSERVE status=partial")
 
     def test_record_check_reports_degraded(self):
@@ -455,13 +459,14 @@ class DesktopAssetTest(unittest.TestCase):
             self.assertGreaterEqual(
                 len([line for line in lines if " check " in line]), 5)
 
-    def test_record_packaging_is_weak_dependency(self):
+    def test_tool_packaging_is_weak_dependency(self):
         # ffmpeg 在 EPOL 而非基线仓库：硬 Require 会让一次元数据缺口中止
         # 装机；入口必须是相对符号链接，升级时不会出现两份实现。
         self.assertIn("Recommends:     ffmpeg", self.spec)
         self.assertNotRegex(self.spec, r"(?m)^Requires:.*\bffmpeg\b")
         for entry, impl in (("airy-record", "airy_record.sh"),
-                            ("airy-observe", "airy_observe.sh")):
+                            ("airy-observe", "airy_observe.sh"),
+                            ("airy-bench", "airy_bench.py")):
             self.assertIn(
                 f"ln -s ../lib/airymaxos/desktop/{impl} "
                 f"%{{buildroot}}%{{_bindir}}/{entry}", self.spec)

@@ -49,7 +49,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.3
-%global airy_release 21
+%global airy_release 22
 # 基底版本是显式输入，与 distro/repo/airymax-os.repo 及 kickstart 的
 # url/repo 行是三处同源表达。%%check 以本宏断言客户端配置，版本漂移在
 # 构建期失败，而不是等到装机后 dnf 报「找不到仓库」。
@@ -96,6 +96,7 @@ Source28:       airymax-rt-budget.service
 Source29:       session_env.sh
 Source30:       airy_record.sh
 Source31:       airy_observe.sh
+Source32:       airy_bench.py
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -168,12 +169,15 @@ install -m 0755 %{SOURCE30} \
     %{buildroot}/usr/lib/airymaxos/desktop/airy_record.sh
 install -m 0755 %{SOURCE31} \
     %{buildroot}/usr/lib/airymaxos/desktop/airy_observe.sh
+install -m 0755 %{SOURCE32} \
+    %{buildroot}/usr/lib/airymaxos/desktop/airy_bench.py
 
 # 录屏与观察点以子命令形式对外：实现留在库目录，入口只是符号链接，升级时
 # 不需要在多处同步文件名，也不会出现 /usr/bin 与库目录两份实现。
 install -d -m 0755 %{buildroot}%{_bindir}
 ln -s ../lib/airymaxos/desktop/airy_record.sh %{buildroot}%{_bindir}/airy-record
 ln -s ../lib/airymaxos/desktop/airy_observe.sh %{buildroot}%{_bindir}/airy-observe
+ln -s ../lib/airymaxos/desktop/airy_bench.py %{buildroot}%{_bindir}/airy-bench
 
 install -d -m 0755 %{buildroot}%{_sysconfdir}/lightdm/lightdm.conf.d
 install -m 0644 %{SOURCE7} \
@@ -329,6 +333,14 @@ grep -qxF 'MARK=AIRYMAX-OBSERVE' \
     --root %{buildroot} --static | grep -qxF 'AIRYMAX-OBSERVE os.id=airymaxos'
 test -L %{buildroot}%{_bindir}/airy-record
 test -L %{buildroot}%{_bindir}/airy-observe
+# 基准脚本是 python3 而非 sh，语法断言改用 ast 解析（不产生 __pycache__），
+# 再在 buildroot 上真跑一次 --check：管道与 socketpair 建不起来时这里失败，
+# 而不是等到用户在机器上看到一串 traceback。
+python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' \
+    %{buildroot}/usr/lib/airymaxos/desktop/airy_bench.py
+%{buildroot}/usr/lib/airymaxos/desktop/airy_bench.py --check |
+    grep -qxF 'AIRYMAX-BENCH status=ok'
+test -L %{buildroot}%{_bindir}/airy-bench
 # 类别集合必须同时覆盖 greeter 与 autologin：座位策略启用 autologin 时
 # lightdm 不创建 greeter 会话，只认一类会让另一种镜像永远等不到就绪标记。
 grep -qxF 'SESS_CLASSES="greeter user"' \
@@ -497,8 +509,10 @@ fi
 /usr/lib/airymaxos/desktop/session_env.sh
 /usr/lib/airymaxos/desktop/airy_record.sh
 /usr/lib/airymaxos/desktop/airy_observe.sh
+/usr/lib/airymaxos/desktop/airy_bench.py
 %{_bindir}/airy-record
 %{_bindir}/airy-observe
+%{_bindir}/airy-bench
 /usr/lib/airymaxos/boot/efi_brand.sh
 /usr/lib/airymaxos/boot/grub_args.sh
 %{_datadir}/plymouth/themes/default.plymouth
@@ -509,6 +523,22 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Thu Oct 29 2026 SPHARX <dev@spharx.com> - 0.0.3-22
+- Ship airy-bench: three kernel IPC primitives (pipe, AF_UNIX stream,
+  AF_UNIX datagram) measured as warm-up-discarded round-trip latency
+  percentiles, plus 64 KiB bulk pipe throughput and a multi-process
+  concurrency scale factor. Every claim about IPC speed now carries a
+  number produced on the same machine by the same code, and the tool
+  can be replayed by a third party
+- Report lang=python3 on the host line: the interpreter adds a GIL
+  hand-off and an object allocation per round trip, so the p50 is the
+  application-visible cost rather than the bare system call cost;
+  cross-machine comparison is only valid with that line in context
+- Percentiles come from a sorted per-sample array, rates from the
+  measured span, no extrapolation and no smoothing. --check exercises
+  each primitive 200 times without timing and is asserted at build
+  time, so a container without socketpair support fails the package
+  build instead of the user's first run
 * Thu Oct 29 2026 SPHARX <dev@spharx.com> - 0.0.3-21
 - Ship two first-party observation tools: airy-record captures the X11
   session with x11grab and the default sink monitor, prints a progress
