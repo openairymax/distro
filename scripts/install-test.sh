@@ -48,8 +48,10 @@ readonly INST_FAIL
 # rpm 事务级错误（依赖解析失败、文件冲突）会让 anaconda 停在「按 ENTER
 # 退出:」等待输入而不退出进程，必须与安装失败标记同等判负。
 readonly RPM_FAIL
-# scriptlet 非零退出只作诊断：anaconda 记一行警告就继续装下一个包（判负
-# 理由见 verdict.env）。自有包的脚本失败例外——那是本发行版的缺陷，必须判负。
+# scriptlet 非零退出同样是事务级失败：anaconda 先继续装下一个包，事务结束
+# 时仍以「An error occurred during the transaction」中止（判负理由见
+# verdict.env）。按该行判负能在第一个坏 scriptlet 处收尾，而不是继续空转
+# 几千个包、等 RPM_FAIL 在事务末尾才命中。
 readonly SCRIPT_FAIL
 # 取包失败（仓库不可达、单一镜像重试耗尽）在 anaconda 里是致命错误，随后
 # 停在「按 ENTER 退出:」等待输入；无头安装没有 stdin，进程既不自退也不打
@@ -59,7 +61,7 @@ readonly PAY_FAIL
 # 配置失败即属此类），无头安装没有 stdin，进程不会退出也不会打印失败标记，
 # 只能等到 --install-timeout。问句本身即失败证据，命中就判负。
 readonly ASK_FAIL
-readonly INST_ERR="${INST_FAIL}|${RPM_FAIL}|${PAY_FAIL}|${ASK_FAIL}"
+readonly INST_ERR="${INST_FAIL}|${SCRIPT_FAIL}|${RPM_FAIL}|${PAY_FAIL}|${ASK_FAIL}"
 
 . "${DISTRO_ROOT}/scripts/lib/outdir.sh"
 
@@ -392,30 +394,6 @@ fail_hit()
     grep -oE "${INST_ERR}" "$1" 2>/dev/null | head -n 1
 }
 
-scriptlet_hits()
-{
-    grep -aoE "${SCRIPT_FAIL}" "$1" 2>/dev/null |
-        sed -E 's/.*rpm package //' | awk '!seen[$0]++'
-}
-
-# scriptlet 失败按包归属分流：上游包记诊断行，自有包判负。anaconda 不会
-# 因 scriptlet 失败停下，所以这里没有第二个事实源可依赖，只能按包名前缀
-# 区分「上游瑕疵」与「我们的缺陷」。
-scriptlet_report()
-{
-    local pkg bad=0
-    while IFS= read -r pkg; do
-        [ -n "${pkg}" ] || continue
-        case "${pkg}" in
-        airymaxos-*|airy-*)
-            printf 'scriptlet failed in own package: %s\n' "${pkg}" >&2
-            bad=1 ;;
-        *)  printf '# scriptlet failed (upstream): %s\n' "${pkg}" >&2 ;;
-        esac
-    done < <(scriptlet_hits "$1")
-    return "${bad}"
-}
-
 wait_inst()
 {
     local log="$1" pid="$2" deadline="$3" start="$4" now
@@ -464,7 +442,6 @@ install_run()
     wait_inst "${log}" "${pid}" "$((start + INSTALL_TIMEOUT))" "${start}"
     rc=$?
     stop_qemu "${pid}"
-    scriptlet_report "${log}" || rc=1
     if [ "${rc}" -ne 0 ]; then
         case "${rc}" in
         2) printf 'install failure pattern in run-%s-%s/install.log: %.110s\n' \
