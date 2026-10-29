@@ -216,10 +216,24 @@ class InstallTestTest(unittest.TestCase):
         self.assertIn("install failure pattern", res.stderr)
         self.assertLess(elapsed, 30)
 
-    def test_install_scriptlet_fast(self):
-        # scriptlet 失败在事务结束时被 anaconda 判成致命错误，所以最早出现
-        # 的那一行就是失败证据；断言它而不是随后的「按 ENTER 退出」，才能
-        # 证明装机腿是按第一个坏 scriptlet 收尾、而不是等事务末尾。
+    def test_install_scriptlet_not_fatal(self):
+        # scriptlet 非零退出只是事务告警：rpm 记一行，anaconda 继续装下一个
+        # 包。曾把它当判负证据（b0415d2），结果宿主机一见该行就杀掉 QEMU，
+        # 日志停在 428/1278，被判成「安装中止」——中止是判据自己造成的
+        # （run 40917625246）。这条腿钉住新语义：装机通过，告警只做归因。
+        self.tools()
+        res = self.install("--runs", "1", "--install-timeout", "60",
+                           FAKE_QEMU_INSTALL_MODE="scriptletonly")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("ok 1", res.stdout)
+        self.assertIn("scriptlet warnings (not fatal)", res.stderr)
+        warn = self.out / "run-bios-1" / "scriptlet-warn.txt"
+        self.assertIn("sound-theme-freedesktop", warn.read_text(encoding="utf-8"))
+
+    def test_install_scriptlet_menu_fatal(self):
+        # 带致命菜单的轮次：判负依据是「按 ENTER 退出」这类等待输入的提示，
+        # 不是它前面那行 scriptlet 告警。hits 里出现 scriptlet 文本即说明判据
+        # 又退回到错误的事实源。
         self.tools()
         start = time.monotonic()
         res = self.install("--runs", "1", "--install-timeout", "60",
@@ -227,9 +241,8 @@ class InstallTestTest(unittest.TestCase):
         elapsed = time.monotonic() - start
         self.assertEqual(res.returncode, 1)
         self.assertIn("not ok 1", res.stdout)
-        self.assertIn("install failure pattern", res.stderr)
-        self.assertIn("Error in POSTTRANS scriptlet in rpm package firewalld",
-                      res.stderr)
+        self.assertIn("按 ENTER 退出", res.stderr)
+        self.assertNotIn("Error in POSTTRANS scriptlet", res.stderr)
         self.assertLess(elapsed, 30)
 
     def test_install_bootloader_fast(self):
