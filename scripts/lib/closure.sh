@@ -26,13 +26,23 @@
 # dnf 会跳过 --downloaddir 里已完成的包，重试只补拉残缺部分，把链路
 # 抖动从「整份镜像失败」降为「多花一轮时间」。
 #
-# 仓库地址来自配方，配方只能写一个源（anaconda 的 repo 行不接多值），
-# 因此构建环境另给一组等价的镜像根：默认取自 repo/mirrors.list（与装机
-# 镜像、介质下载共用同一份声明），CLOSURE_MIRRORS 以空格分隔可覆盖，顺序
-# 即优先级，首项就是配方里那个源的根。命中前缀的 baseurl 被改写为「同一
-# 相对路径 × 全部镜像根」，dnf 于是把国内镜像当成同一仓库的备用地址，
-# 主源停滞或 HTTP/2 报错时自动换址，而不是整段求解挂在单一主机上；未命中
-# 前缀的地址（离线 file:// 与第三方仓库）原样保留，不做任何猜测。
+# 仓库地址来自配方，配方只能写一个源（anaconda 的 repo 行不接多值）。
+# 构建环境另给一组同源的镜像根：默认取自 repo/mirrors.list（与装机镜像、
+# 介质下载共用同一份声明），CLOSURE_MIRRORS 以空格分隔可覆盖，首项就是
+# 配方里那个源的根。
+#
+# 镜像根之间是「换一个快照重试」的关系，不是同一个仓库的多个备用地址。
+# 把两台主机的元数据挂在同一个 repo 段下当 failover，dnf 会各取一部分包，
+# 解出的 NEVRA 组合没有任何一台主机保证过；于是同一份源码每次构建可能
+# 解出不同的包集合，rpm 事务的拓扑序随之漂移，装机现场表现为依赖看似
+# 齐全却事务失败（run 40896202774：coreutils 未进事务，glibc/bash 被压到
+# 末尾，sound-theme-freedesktop 的 %post 报错后判死）。
+#
+# 因此每次求解只用单一镜像根：命中配方根的 baseurl 按同一相对路径改写到
+# 该根，未命中前缀的地址（离线 file:// 与第三方仓库）原样保留，不做猜测；
+# 某个根上的求解失败，整段事务换下一个根重来，上一个根已下的包一并丢弃，
+# 避免两个快照的 NEVRA 混进同一份载荷。实际使用的根写入工作目录，使
+# 「这份载荷来自哪个快照」事后可查。
 #
 # 拉取全程必须可见：2.5 GB 的传输一旦只写进日志文件，外部看到的就是
 # 数十分钟静默，无法区分「在慢慢下」与「已经挂死」（run 40839355885 与
@@ -42,7 +52,8 @@
 # 调用约定：
 #   closure_fetch KS ARCH PKGDIR WORK LOG
 #                    新增包数写入 CL_NEW；收割到的文件名追加到调用方的
-#                    NAMES 数组（与 collect_rpms 共用同一份载荷清单）。
+#                    NAMES 数组（与 collect_rpms 共用同一份载荷清单）；
+#                    实际求解成功的镜像根留在 WORK/mirror-root.txt。
 #   closure_specs    从配方填充 CL_SPECS/CL_EXCL，供测试单独调用。
 #
 # 退出码：0 表示事务内全部 RPM 已落盘并通过审计；非 0 时调用方据此
@@ -75,9 +86,9 @@ CL_ARGS=()
 CL_BOOT=()
 CL_NEW=0
 CL_MIRRORS=()
+CL_ROOTS=()
 
-# 镜像根表：每行一个根，# 起注释，空行跳过，行序即优先级。表缺失时退化为
-# 只用配方里那一个源——宁可比预期慢，也不猜地址。
+# 镜像根表：每行一个根，# 起注释，空行跳过，行序即尝试顺序。
 cl_mirrors()
 {
     local line
@@ -101,27 +112,38 @@ cl_init_mirrors()
     fi
 }
 
-cl_urls()
+# 把配方里的源改写到指定镜像根：只有命中首根前缀的地址才换根，其余
+# （离线 file:// 与第三方仓库）原样返回。空根表示不做改写。
+cl_base()
 {
-    local base="$1" root out=("$base")
-    [ "${#CL_MIRRORS[@]}" -gt 1 ] || { printf '%s' "$base"; return 0; }
-    for root in "${CL_MIRRORS[@]:1}"; do
-        case "$base" in
-        "${CL_MIRRORS[0]}"/*) out+=("${root}/${base#"${CL_MIRRORS[0]}"/}") ;;
-        esac
-    done
-    printf '%s' "${out[*]}"
+    local base="$1" root="$2"
+    if [ -z "$root" ] || [ "${#CL_MIRRORS[@]}" -eq 0 ]; then
+        printf '%s' "$base"
+        return 0
+    fi
+    case "$base" in
+    "${CL_MIRRORS[0]}"/*) printf '%s/%s' "$root" "${base#"${CL_MIRRORS[0]}"/}" ;;
+    *) printf '%s' "$base" ;;
+    esac
+}
+
+# 待尝试的快照序列。镜像表缺失时退化为只用配方里那一个源——宁可比预期
+# 慢，也不猜地址；空串在这里代表「不改写」。
+cl_roots()
+{
+    CL_ROOTS=("${CL_MIRRORS[@]}")
+    [ "${#CL_ROOTS[@]}" -gt 0 ] || CL_ROOTS=("")
 }
 
 cl_repos()
 {
-    local ks="$1" cfg="$2" name base cost
+    local ks="$1" cfg="$2" root="$3" name base cost
     : >"$cfg"
     while IFS=$'\t' read -r name base cost; do
         {
             printf '[%s]\n' "$name"
             printf 'name=%s\n' "$name"
-            printf 'baseurl=%s\n' "$(cl_urls "$base")"
+            printf 'baseurl=%s\n' "$(cl_base "$base" "$root")"
             printf 'cost=%s\n' "$cost"
             printf 'enabled=1\n'
             printf 'gpgcheck=0\n'
@@ -212,24 +234,38 @@ cl_watch()
     done
 }
 
+# 按镜像根逐个求解，每个根内最多 CL_TRY 次事务级重试（重试复用已下的包，
+# 只补残缺部分）。换根即换快照，上轮残留的包必须先清掉：不同快照的 NEVRA
+# 一起留在沙箱里会被当作本轮载荷收割，等于把两个快照混进同一份镜像。
 cl_try()
 {
-    local work="$1" arch="$2" pkg="$3" log="$4" n=1 rc t0 pid
+    local ks="$1" arch="$2" pkg="$3" work="$4" log="$5"
+    local root label n rc t0 pid
     : >"$log"
-    while :; do
-        printf '\n## 求解尝试 %d\n' "$n" >>"$log"
-        t0="$(date +%s)"
-        mkdir -p "${work}/dl"
-        cl_run "$work" "$arch" "$pkg" "$log" &
-        pid=$!
-        cl_watch "${work}/dl" "$pid" "$t0"
-        wait "$pid" && rc=0 || rc=$?
-        [ "$rc" -eq 0 ] && return 0
-        [ "$n" -lt "$CL_TRY" ] || return 1
-        printf 'closure: 第 %d 次求解未完成，%d 秒后重试\n' "$n" "$CL_WAIT" >&2
-        n=$((n + 1))
-        sleep "$CL_WAIT"
+    for root in "${CL_ROOTS[@]}"; do
+        label="${root:-<配方原址>}"
+        cl_repos "$ks" "${work}/repos/closure.repo" "$root" || return 1
+        printf '%s\n' "$label" >"${work}/mirror-root.txt"
+        rm -rf "${work}/dl"
+        n=1
+        while :; do
+            printf '\n## 求解尝试 %d 镜像根=%s\n' "$n" "$label" >>"$log"
+            t0="$(date +%s)"
+            mkdir -p "${work}/dl"
+            cl_run "$work" "$arch" "$pkg" "$log" &
+            pid=$!
+            cl_watch "${work}/dl" "$pid" "$t0"
+            wait "$pid" && rc=0 || rc=$?
+            [ "$rc" -eq 0 ] && return 0
+            [ "$n" -lt "$CL_TRY" ] || break
+            printf 'closure: 镜像根 %s 第 %d 次求解未完成，%d 秒后重试\n' \
+                "$label" "$n" "$CL_WAIT" >&2
+            n=$((n + 1))
+            sleep "$CL_WAIT"
+        done
+        printf 'closure: 镜像根 %s 求解失败，换下一个根\n' "$label" >&2
     done
+    return 1
 }
 
 cl_harvest()
@@ -268,10 +304,10 @@ closure_fetch()
     mkdir -p "${work}/repos"
     cl_arch "$arch" || return 1
     cl_init_mirrors
-    cl_repos "$ks" "${work}/repos/closure.repo" || return 1
+    cl_roots
     closure_specs "$ks" || return 1
     cl_args "$arch" || return 1
-    cl_try "$work" "$arch" "$pkg" "$log" || return 1
+    cl_try "$ks" "$arch" "$pkg" "$work" "$log" || return 1
     cl_harvest "${work}/dl" "$pkg" || return 1
     cl_audit "${work}/dl" "$pkg" || return 1
     rm -rf "${work}/root" "${work}/dl"
