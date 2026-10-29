@@ -206,13 +206,33 @@ class DisplayModeTest(unittest.TestCase):
             "   1600x900      60.00"))
         self.assertEqual(rows, [["DP-2", "2560x1600", "1920x1080"]])
 
-    def test_ladder_absent_keeps_preferred(self):
+    def test_16x10_ladder_honored(self):
+        # 2560x1600 面板广播 1920x1200 与 1680x1050，两档都是 16:10 常用分辨率。
+        # 阶梯只列 16:9 时无候选，会回退到超过上限的首选模式，上限形同虚设。
+        rows = self.plan(topo(
+            screen(2560, 1600),
+            "DP-2 connected 2560x1600+0+0 (normal) 0mm x 0mm",
+            "   2560x1600     59.97*+",
+            "   1920x1200     60.00",
+            "   1680x1050     60.00"))
+        self.assertEqual(rows, [["DP-2", "2560x1600", "1920x1200"]])
+
+    def test_4x3_ladder_honored(self):
+        rows = self.plan(topo(
+            screen(2048, 1536),
+            "VGA-1 connected 2048x1536+0+0 (normal) 0mm x 0mm",
+            "   2048x1536     75.00*+",
+            "   1600x1200     75.00",
+            "   1024x768      75.00"))
+        self.assertEqual(rows, [["VGA-1", "2048x1536", "1600x1200"]])
+
+    def test_non_ladder_mode_keeps_preferred(self):
         rows = self.plan(topo(
             screen(2880, 1800),
             "DP-2 connected 2880x1800+0+0 (normal) 0mm x 0mm",
             "   2880x1800     59.99*+",
-            "   1680x1050     60.00",
-            "   1280x800      60.00"))
+            "   1728x1080     60.00",
+            "   1152x864      60.00"))
         self.assertEqual(rows, [["DP-2", "2880x1800", "2880x1800"]])
 
     def test_interlaced_counts_as_height(self):
