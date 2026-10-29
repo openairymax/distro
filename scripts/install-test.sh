@@ -48,11 +48,12 @@ readonly INST_FAIL
 # rpm 事务级错误（依赖解析失败、文件冲突）会让 anaconda 停在「按 ENTER
 # 退出:」等待输入而不退出进程，必须与安装失败标记同等判负。
 readonly RPM_FAIL
-# scriptlet 非零退出同样是事务级失败：anaconda 先继续装下一个包，事务结束
-# 时仍以「An error occurred during the transaction」中止（判负理由见
-# verdict.env）。按该行判负能在第一个坏 scriptlet 处收尾，而不是继续空转
-# 几千个包、等 RPM_FAIL 在事务末尾才命中。
-readonly SCRIPT_FAIL
+# scriptlet 非零退出不是事务级失败：rpm 只把它记进事务告警，anaconda 继续
+# 装下一个包。它曾被当作中止证据（0.0.3 的 b0415d2），实测证伪：run
+# 40917625246 在 428/1278 处命中该行，宿主当场杀掉 QEMU，日志也就停在
+# 428——「安装中止」是判据自己造成的，不是 anaconda 的行为。真正的中止由
+# RPM_FAIL / ASK_FAIL 的致命菜单兜住。故该行只做归因，见 warn_scriptlets()。
+readonly SCRIPT_HIT
 # 取包失败（仓库不可达、单一镜像重试耗尽）在 anaconda 里是致命错误，随后
 # 停在「按 ENTER 退出:」等待输入；无头安装没有 stdin，进程既不自退也不打
 # 失败标记，只能空耗 --install-timeout。取包致命提示本身即失败证据。
@@ -61,7 +62,7 @@ readonly PAY_FAIL
 # 配置失败即属此类），无头安装没有 stdin，进程不会退出也不会打印失败标记，
 # 只能等到 --install-timeout。问句本身即失败证据，命中就判负。
 readonly ASK_FAIL
-readonly INST_ERR="${INST_FAIL}|${SCRIPT_FAIL}|${RPM_FAIL}|${PAY_FAIL}|${ASK_FAIL}"
+readonly INST_ERR="${INST_FAIL}|${RPM_FAIL}|${PAY_FAIL}|${ASK_FAIL}"
 
 . "${DISTRO_ROOT}/scripts/lib/outdir.sh"
 
@@ -462,6 +463,22 @@ install_run()
         { printf 'marker missing in run-%s-%s/install.log\n' "${fw}" "${n}" >&2
           printf '#   serial tail: %.200s\n' "$(log_tail "${log}")" >&2
           return 1; }
+    warn_scriptlets "${log}" "${dir}"
+}
+
+# 归因用，不参与判定：%packages --nocore 的事务里没有「基础包先落盘」的
+# 顺序保证，某个包的 %post 调用尚未安装的外部命令会以 127 退出。run
+# 40917625246 的前 428 个包里没有 coreutils，正是 sound-theme-freedesktop
+# 的 %post 执行 touch 时 command not found，与单元/桌面功能无关。命中清单
+# 落在 run 目录，重启归因不必再翻串口日志。
+warn_scriptlets()
+{
+    local log="$1" hits
+    hits=$(grep -oE "${SCRIPT_HIT}" "${log}" 2>/dev/null | sort -u)
+    [ -n "${hits}" ] || return 0
+    printf '%s\n' "${hits}" >"${2}/scriptlet-warn.txt"
+    printf '#   scriptlet warnings (not fatal): %s\n' \
+        "$(printf '%s' "${hits}" | awk '{ print $NF }' | tr '\n' ' ')" >&2
 }
 
 probe_log()
