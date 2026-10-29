@@ -556,16 +556,15 @@ if [ "$media" -eq 1 ]; then
     nomarker) printf 'installing\\n' > "$log"; exit 0 ;;
     postfail) printf 'AIRYMAX-INSTALL-FAIL rc=1\\n' > "$log"; exec sleep 60 ;;
     panic) printf 'Kernel panic - not syncing\\n' > "$log"; exec sleep 60 ;;
-    scriptlet) printf '正在配置 firewalld.noarch\\n' > "$log"
-        printf 'Error in POSTTRANS scriptlet in rpm package firewalld\\n' \\
+    # scriptlet 失败在 anaconda 里上升为事务错误：先报 scriptlet 行，随后
+    # 打事务错误与致命菜单（run 40939234612）。判负应在第一行即成立。
+    scriptlet) printf '正在配置 sound-theme-freedesktop.noarch\\n' > "$log"
+        printf 'Error in POSTIN scriptlet in rpm package sound-theme-freedesktop\\n' \\
             >> "$log"
+        printf 'An error occurred during the transaction: Error in POSTIN ' \\
+            >> "$log"
+        printf 'scriptlet in rpm package sound-theme-freedesktop\\n' >> "$log"
         printf '按 ENTER 退出:\\n' >> "$log"; exec sleep 60 ;;
-    # 只有 scriptlet 告警、事务照常走完：rpm 把非零退出记进事务告警而不中止
-    # 安装。这条腿用来证明该行不再参与判负（见 scripts/lib/verdict.env）。
-    scriptletonly) printf '正在配置 sound-theme-freedesktop.noarch\\n' > "$log"
-        printf 'Error in POSTTRANS scriptlet in rpm package sound-theme-freedesktop\\n' \\
-            >> "$log"
-        printf 'install complete\\n' >> "$log"; exit 0 ;;
     bootloader) printf '安装引导装载程序时发生以下错误。系统将无法引导。\\n' \\
             > "$log"
         printf 'failed to write boot loader configuration\\n' >> "$log"
