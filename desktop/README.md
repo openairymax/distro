@@ -220,7 +220,11 @@ multi-user.target，不会触发该单元；workstation kickstart 显式 enable�
   为无声录制，不静默生成空文件。libx264 的 yuv420p 拒绝奇数宽高，统一过
   一次 `pad=ceil(iw/2)*2:ceil(ih/2)*2`。`-progress` 写文件、主进程每 2 秒
   解析并输出 `progress` 行，录制期间屏幕不静止；结束行带
-  `path/frames/size/seconds/sha256`，可与宿主机对账。
+  `path/frames/size/seconds/sha256`，可与宿主机对账。`--tty [-- 命令...]`
+  改走 util-linux `script(1)`，留下 timing 与终端文本两份可 `scriptreplay`
+  原速回放的证据：画面证明「看到了什么」，终端证明「跑了什么」，两者不互
+  相替代。长选项 `--log-timing/--log-out` 是刻意的——`-t` 在 util-linux
+  2.41 起是废弃别名，不再接受分离参数。
 - `airy_observe.sh`（`/usr/bin/airy-observe`）：把既有事实按固定
   `key=value` 逐行摊开，每个字段只读一个权威来源（os-release、rpm 数据库、
   systemd、procfs、xrandr），不推断不缓存。字段缺失写 `absent` 而不省略该
@@ -236,8 +240,14 @@ multi-user.target，不会触发该单元；workstation kickstart 显式 enable�
   开销，`host` 行以 `lang=python3` 显式标明，跨机器比较必须带上该行。
   `--check` 只自检原语可用性不测速，作为打包期断言；`scale` 显著低于核数
   说明瓶颈在调度或缓存行，这正是要观测的东西。
+- `airy_demo.py`（`/usr/bin/airy-demo`）：终端内的能力总览，纯渲染层——
+  身份字段来自 `airy-observe`，延迟与标度来自 `airy-bench`，自己不产生任何
+  新数字，屏幕上每一行都能被那两条命令单独复算。段标题先于数据打印，数字
+  随到达即出现；并发段另按 1/2/4/8 逐级三次取中位画条，避免单次调度抖动
+  被读成能力。非 TTY 或 `NO_COLOR` 时去色，`--check` 只清点对端与终端，
+  不重复度量，末行固定 `status=ok|degraded`。
 
-三个入口在 `/usr/bin` 下是到 `/usr/lib/airymaxos/desktop/` 的相对符号链接，
+四个入口在 `/usr/bin` 下是到 `/usr/lib/airymaxos/desktop/` 的相对符号链接，
 升级时不会出现两份实现。ffmpeg 在 EPOL 而非基线仓库，故声明为
 `Recommends: ffmpeg` 而不是硬 `Requires`：有它就装，没有也不阻断装机，
 此时 `airy-record --check` 给出 `check status=degraded` 并以非零退出，而不是
@@ -282,6 +292,8 @@ multi-user.target，不会触发该单元；workstation kickstart 显式 enable�
   `/usr/bin/airy-observe` 为相对符号链接（固定 `key=value` 观察点报告）
 - `airy_bench.py` → `/usr/lib/airymaxos/desktop/`，
   `/usr/bin/airy-bench` 为相对符号链接（IPC 延迟分位与并发标度实测）
+- `airy_demo.py` → `/usr/lib/airymaxos/desktop/`，
+  `/usr/bin/airy-demo` 为相对符号链接（终端能力总览，只渲染不度量）
 - `70-airymax-ukui-policy.sh` → `/usr/share/airymaxos/distro/desktop/`
   （`%post` 调用：屏蔽 AI 控制面单元）
 - `lightdm/50-airymax.conf` → `/etc/lightdm/lightdm.conf.d/`
