@@ -22,6 +22,7 @@
 | T13 | 免密桌面 | 空闲锁屏与锁屏实际关闭，交付账户在 `nopasswdlogin` 组内 | 开机即桌面 |
 | T14 | 运行期软件源 | 每个启用段都指向基底镜像的绝对地址（无 `$releasever`、无明文 http、宿主一致） | 装完之后仍可更新 |
 | T15 | 启动参数 | `/etc/default/grub` 持有 `rhgb quiet`，且 `GRUB_DISABLE_OS_PROBER=true` | 启动观感可持久、菜单只列自有内核 |
+| T16 | 观测工具 | `airy-bench --check` 完成一轮 IPC 往返自检、`airy-observe --static` 的资产与品牌字段齐全（两者 status 均为 ok） | 装机后即可现场观测与演示 |
 | X1 | 内核仓反向门禁 | kernel CI 持续拒绝 Qt/X11/Wayland 头依赖与 KABI 白名单外变更（由 agent-linux CI 承担，此处仅交叉核对报告） | 双向不污染 |
 
 ## 矩阵维度
@@ -106,7 +107,7 @@ ci/run-image-ci.sh --out /out --iso-base /path/netinst.iso \
 关键链只在此处采集：验收安装 `%post` 已 mask `airymax-desktop-ready.service`，
 同一观测点不设第二个判定者，`osaccrt_bootchain` 据此对账 `boot.service`。
 
-判定要求计划为 `1..15`、十五条 `ok`、无 `not ok`/`Bail out!`/`# SKIP`、
+判定要求计划为 `1..16`、十六条 `ok`、无 `not ok`/`Bail out!`/`# SKIP`、
 `# summary` 的 `fail=0`。会话内 runner 上限 180s，
 report 轮询上限 240s；由于转发先于结论标记，宿主机命中
 `AIRYMAX-SMOKE-PASS` 时 TAP 全文已在串口，`image-ci.yml` 的

@@ -4,10 +4,10 @@
 # test_run_smoke.py — ci/run-smoke.sh 契约回归测试
 #
 # 冒烟脚本必须在已登录的 UKUI 桌面会话内运行，CI 宿主机不具备该环境。
-# 脚本对外契约是：TAP 15 计划、十五项探测的判定，以及“探测工具缺失即失败”
+# 脚本对外契约是：TAP 16 计划、十六项探测的判定，以及“探测工具缺失即失败”
 # 的退出码规则。这里用 PATH 沙箱提供伪 loginctl /
 # pgrep / xdpyinfo / fcitx-remote / pactl / systemctl / gsettings /
-# sha256sum / uname / xrandr，并给 T6–T15 准备一份只读系统视图
+# sha256sum / uname / xrandr，并给 T6–T16 准备一份只读系统视图
 # （AIRYMAX_SMOKE_ROOT），每个用例只破坏一个前提，从而在无桌面环境下判定
 # 真实控制流。
 #
@@ -25,7 +25,8 @@ from pathlib import Path
 import fakes
 
 SCRIPT = Path(__file__).resolve().parents[2] / "ci" / "run-smoke.sh"
-DISPLAY_MODE = Path(__file__).resolve().parents[2] / "desktop" / "display_mode.sh"
+DESKTOP = Path(__file__).resolve().parents[2] / "desktop"
+DISPLAY_MODE = DESKTOP / "display_mode.sh"
 BASH = shutil.which("bash") or "/bin/bash"
 
 LEGACY = ("tauri", "webkitwebprocess", "fcitx5", "pipewire",
@@ -98,8 +99,8 @@ class RunSmokeTest(unittest.TestCase):
         self._tmp.cleanup()
 
     def make_sysroot(self):
-        """构造 T6–T15 读取的只读视图：/boot 三件套、LSM、产品标识、ESP、
-        sudo 策略、锁屏策略、客户端源文件、引导默认文件。"""
+        """构造 T6–T16 读取的只读视图：/boot 三件套、LSM、产品标识、ESP、
+        sudo 策略、锁屏策略、客户端源文件、引导默认文件、观测工具资产。"""
         boot = self.sysroot / "boot"
         boot.mkdir(parents=True)
         (boot / f"vmlinuz-{KREL}").write_bytes(b"vmlinuz\n")
@@ -114,6 +115,7 @@ class RunSmokeTest(unittest.TestCase):
         self.write_screensaver()
         self.write_repo()
         self.write_grub()
+        self.write_assets()
 
     def write_grub(self, body=GRUB_DEFAULTS):
         """引导参数的落点：grub2-mkconfig 的唯一输入文件。"""
@@ -121,6 +123,19 @@ class RunSmokeTest(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(body, encoding="utf-8")
         return path
+
+    def write_assets(self):
+        """T16 静态自检读取的发行资产：只有存在性判定，内容不参与。"""
+        for rel in ("usr/share/backgrounds/airymaxos/airymaxos-default.jpg",
+                    "usr/share/glib-2.0/schemas/"
+                    "99-airymaxos-default.gschema.override",
+                    "usr/lib/airymaxos/desktop/desktop_ready.sh",
+                    "usr/lib/airymaxos/desktop/airy_record.sh",
+                    "usr/lib/airymaxos/desktop/airy_observe.sh",
+                    "usr/lib/airymaxos/desktop/airy_bench.py"):
+            path = self.sysroot / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("", encoding="utf-8")
 
     def write_repo(self, body=REPO):
         """运行期源的落点：与 airymaxos-release 交付的文件同名。"""
@@ -211,6 +226,18 @@ class RunSmokeTest(unittest.TestCase):
     def tools(self, omit=()):
         fakes.link_tools(self.bin)
         fakes.smoke_tools(self.bin, omit)
+        self.contest(omit)
+
+    def contest(self, omit=()):
+        """把真实的 airy-bench / airy-observe 放进 PATH：T16 判定的是这两个
+        脚本自身的行为，用伪实现会掩盖自检逻辑的回归。"""
+        for name, src in (("airy-bench", "airy_bench.py"),
+                          ("airy-observe", "airy_observe.sh")):
+            if name in omit:
+                continue
+            dest = self.bin / name
+            shutil.copy2(DESKTOP / src, dest)
+            dest.chmod(0o755)
 
     def run_script(self, *args, **extra):
         env = {
@@ -262,9 +289,9 @@ class RunSmokeTest(unittest.TestCase):
         self.tools()
         res = self.run_smoke()
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res), {"pass": 15, "fail": 0})
+        self.assertEqual(self.summary(res), {"pass": 16, "fail": 0})
         self.assertNotIn("# SKIP", res.stdout)
-        self.assertEqual(len(self.taps(res)), 15)
+        self.assertEqual(len(self.taps(res)), 16)
         for line in self.taps(res):
             self.assertTrue(line.startswith("ok"), line)
 
@@ -272,7 +299,7 @@ class RunSmokeTest(unittest.TestCase):
         self.tools()
         res = self.run_smoke()
         self.assertIn("TAP version 14", res.stdout)
-        self.assertIn("1..15", res.stdout.splitlines())
+        self.assertIn("1..16", res.stdout.splitlines())
         self.assertIn(
             "# AirymaxOS distro smoke: target=airymaxos-0.0.3", res.stdout)
 
@@ -379,7 +406,7 @@ class RunSmokeTest(unittest.TestCase):
         finally:
             timer.cancel()
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res), {"pass": 15, "fail": 0})
+        self.assertEqual(self.summary(res), {"pass": 16, "fail": 0})
 
     def test_slice_wrong(self):
         self.tools()
@@ -439,7 +466,7 @@ class RunSmokeTest(unittest.TestCase):
         self.tools(omit=("loginctl",))
         res = self.run_smoke()
         self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res), {"pass": 14, "fail": 1})
+        self.assertEqual(self.summary(res), {"pass": 15, "fail": 1})
         self.assert_fail(res, 1)
         self.assertIn("loginctl not installed", res.stdout)
         self.assertNotIn("# SKIP", res.stdout)
@@ -734,6 +761,28 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke()
         self.assert_fail(res, 15)
         self.assertIn("/etc/default/grub unreadable", res.stdout)
+
+    def test_obs_tools_ok(self):
+        self.tools()
+        res = self.run_smoke()
+        self.assertIn("ok 16 - T16 observer tools selfcheck", res.stdout)
+        self.assertIn("bench=ok observe=ok", res.stdout)
+
+    def test_obs_bench_absent(self):
+        # 观测工具没装进镜像：现场演示与故障定位都无从下手
+        self.tools(omit=("airy-bench",))
+        res = self.run_smoke()
+        self.assert_fail(res, 16)
+        self.assertIn("airy-bench not installed", res.stdout)
+
+    def test_obs_asset_absent(self):
+        # 工具在、资产不在：observe 的静态自检必须给出 partial 而不是静默通过
+        self.tools()
+        (self.sysroot / "usr" / "lib" / "airymaxos" / "desktop" /
+         "airy_bench.py").unlink()
+        res = self.run_smoke()
+        self.assert_fail(res, 16)
+        self.assertIn("status=partial", res.stdout)
 
 
 if __name__ == "__main__":
