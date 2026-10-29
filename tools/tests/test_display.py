@@ -287,6 +287,53 @@ class DisplayModeTest(unittest.TestCase):
         self.assertIn("topo=", res.stderr)
         self.assertIn("Virtual-1 connected primary", res.stderr)
 
+    def test_report_classifies_single_mode(self):
+        # B50 实机：03:00.0 是 8086:e212（Xe2 独显），6.6 基线无 Xe 驱动，
+        # Xorg 走 fbdev/simpledrm，xrandr 只报 1920x1080 唯一模式。--check
+        # 通过是对的（已是唯一可达分辨率），但结论必须是 single-mode 而非
+        # policy，否则「自适应生效」会被读成事实。
+        self.topo.write_text(topo(
+            screen(),
+            "default connected primary 1920x1080+0+0 (normal) 0mm x 0mm",
+            "   1920x1080     60.00*"), encoding="utf-8")
+        res = self.run_policy("--report")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(res.stdout.split(),
+                         ["default", "1920x1080", "1920x1080", "single-mode"])
+
+    def test_report_classifies_policy(self):
+        self.topo.write_text(topo(
+            screen(),
+            "eDP-1 connected primary 1920x1080+0+0 (normal) 0mm x 0mm",
+            "   1920x1080     60.00*+",
+            "   1280x720      60.00"), encoding="utf-8")
+        res = self.run_policy("--report")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(res.stdout.split(),
+                         ["eDP-1", "1920x1080", "1920x1080", "policy"])
+
+    def test_report_classifies_drift(self):
+        self.topo.write_text(topo(
+            screen(3840, 2160),
+            "eDP-1 connected primary 3840x2160+0+0 (normal) 0mm x 0mm",
+            "   3840x2160     60.00*+",
+            "   1920x1080     60.00"), encoding="utf-8")
+        res = self.run_policy("--report")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(res.stdout.split(),
+                         ["eDP-1", "3840x2160", "1920x1080", "drift"])
+
+    def test_check_single_mode_is_degraded_not_failed(self):
+        self.topo.write_text(topo(
+            screen(),
+            "default connected primary 1920x1080+0+0 (normal) 0mm x 0mm",
+            "   1920x1080     60.00*"), encoding="utf-8")
+        res = self.run_policy("--check")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(res.stdout, "")
+        self.assertIn("single-mode", res.stderr)
+        self.assertIn("default:1920x1080", res.stderr)
+
     def test_apply_only_touches_mismatch(self):
         self.topo.write_text(topo(
             screen(3840, 1080),

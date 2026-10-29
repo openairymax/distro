@@ -7,7 +7,7 @@
 # 调用面：
 #   /etc/X11/xinit/xinitrc.d/60-airymax-display.sh  会话早期收敛一轮
 #   /etc/xdg/autostart/airymax-display.desktop      会话就绪后守护整个窗口
-#   ci/run-smoke.sh 的 T10、RPM %check               只读 --check / --plan
+#   ci/run-smoke.sh 的 T10、RPM %check   只读 --check / --report / --plan
 #
 # 为什么是「有界收敛」而不是「一次性写入」：Xsession 载入 xinitrc.d 时，
 # 虚拟输出的 connected 拓扑常常尚未建立（xrandr 只有 Screen 行），此刻
@@ -39,6 +39,9 @@
 #   --settle [秒]  在预算内反复应用并复核，收敛返回 0，预算耗尽返回 1
 #   --guard [秒] [间隔]  在窗口内持续守护，偏差出现即纠正，窗口结束记一行汇总
 #   --check    校验所有 connected 输出已处于策略模式；不符或拓扑为空即失败
+#   --report   逐输出输出 "<输出> <当前> <策略> <结论>"，结论为 policy /
+#              single-mode / drift：唯一模式的输出策略无从生效，必须与
+#              「策略生效」分开记账，否则 --check 通过会被读成自适应生效
 #   --plan     从 stdin 读取 xrandr --query 文本，输出 "<输出> <当前> <策略>"
 #
 # 本文件由 POSIX sh 解释执行，禁止 bash 专有语法。
@@ -94,7 +97,7 @@ function emit(   want) {
         want = cur
     if (want == "")
         return
-    printf "%s %s %s\n", out, (cur == "" ? "none" : cur), want
+    printf "%s %s %s %d\n", out, (cur == "" ? "none" : cur), want, nm
 }
 
 /^Screen/ { next }
@@ -121,8 +124,18 @@ conn && $1 ~ /^[0-9]+x[0-9]+[a-zA-Z]*$/ {
 END { emit() }
 '
 
+# 策略输出带第四列「该输出广播的模式数」：它是区分「策略生效」与「唯此一模、
+# 策略无从生效」的唯一依据，必须从 awk 一路带到判定点。
 plan() {
     awk -v CAP_W="$CAP_W" -v CAP_H="$CAP_H" -v LADDER="$LADDER" "$POLICY"
+}
+
+# --plan 的对外契约是三个字段（验收脚本与单测按列比对）；模式数只在内部
+# 分类时使用，不进入对外接口。
+plan3() {
+    plan | while read -r out cur want _; do
+        printf '%s %s %s\n' "$out" "$cur" "$want"
+    done
 }
 
 log() {
@@ -166,16 +179,21 @@ brief() {
     printf '%s' "${bad# }"
 }
 
-# 逐行比对拓扑与策略：rows 是 connected 输出数，bad 记录偏差。
+# 逐行比对拓扑与策略：rows 是 connected 输出数，bad 记录需要纠正的偏差，
+# deg 记录只有唯一模式、策略无从生效的输出（降级，不是失败）。
 # 偏差行同时用于纠正（apply 与 settle 共用同一判定口径，避免两处漂移）。
 scan() {
     rows=0
     bad=""
-    while IFS=' ' read -r out cur want; do
+    deg=""
+    while IFS=' ' read -r out cur want nm; do
         [ -n "$out" ] || continue
         rows=$((rows + 1))
-        [ "$cur" = "$want" ] && continue
-        bad="${bad} ${out}:${cur}->${want}"
+        if [ "$cur" != "$want" ]; then
+            bad="${bad} ${out}:${cur}->${want}"
+        elif [ "${nm:-0}" -le 1 ]; then
+            deg="${deg} ${out}:${want}"
+        fi
     done <<EOF
 ${plan_out}
 EOF
@@ -196,11 +214,44 @@ apply() {
     return "$rc"
 }
 
+# 唯一模式的输出无法被策略改写：拓扑由驱动（simpledrm、缺 EDID 的虚拟输出
+# 等）固定成单一模式，xrandr 没有任何可切换的候选。这不是失败——当前模式
+# 已是该机可达的唯一分辨率——但「--check 通过」不能读作「自适应生效」，
+# 因此如实降级记账：journal 一行 + stderr 一行 + --report 的 single-mode。
+degrade() {
+    log "single-mode:${deg}"
+    printf 'display_mode: 单模式降级(single-mode):%s topo=%s\n' \
+        "${deg# }" "$(flat)" >&2
+}
+
 check() {
     read_topo
     scan
     [ "$rows" -gt 0 ] || die "无 connected 输出"
     [ -z "$bad" ] || die "分辨率未达策略:${bad} topo=$(flat)"
+    [ -z "$deg" ] || degrade
+}
+
+# 逐输出的分类结论，供验收把「自适应生效」与「硬件只给一个模式」分开记账：
+# policy = 已达策略且有多个候选；single-mode = 唯一模式、策略无从生效；
+# drift = 当前模式偏离策略（apply / settle / guard 会纠正）。
+report() {
+    read_topo
+    scan
+    [ "$rows" -gt 0 ] || die "无 connected 输出"
+    while IFS=' ' read -r out cur want nm; do
+        [ -n "$out" ] || continue
+        if [ "$cur" != "$want" ]; then
+            state=drift
+        elif [ "${nm:-0}" -le 1 ]; then
+            state=single-mode
+        else
+            state=policy
+        fi
+        printf '%s %s %s %s\n' "$out" "$cur" "$want" "$state"
+    done <<EOF
+${plan_out}
+EOF
 }
 
 settle() {
@@ -281,6 +332,7 @@ case "${1:-}" in
 --settle) settle "${2:-$BUDGET}" ;;
 --guard) guard "${2:-$GUARD}" "${3:-$GAP}" ;;
 --check) check ;;
---plan) plan ;;
-*) die "未知参数: $1（可用: --settle --guard --check --plan）" ;;
+--report) report ;;
+--plan) plan3 ;;
+*) die "未知参数: $1（可用: --settle --guard --check --report --plan）" ;;
 esac
