@@ -322,7 +322,13 @@ t10_display() {
     }
     # 会话内的收敛是并发的有界过程（xinitrc.d 钩子 + autostart 守护），本
     # 探测同样等待到同一个上界再判定，避免把「尚未收敛」误判成「策略失效」。
-    retry "${START_WAIT}" "${script}" --check && return 0
+    if retry "${START_WAIT}" "${script}" --check; then
+        # 通过不等于自适应生效：唯一模式的输出由驱动固定成单一模式，策略
+        # 无从切换。--report 把每个输出的结论（policy / single-mode / drift）
+        # 摊平进 TAP，验收才能区分「策略选对了」与「硬件只给一个模式」。
+        printf 'report=%s\n' "$("${script}" --report 2>&1 | tr '\n' ';')"
+        return 0
+    fi
     out=$("${script}" --check 2>&1)
     rc=$?
     # 诊断压成一行：TAP 只有首行带 "#   " 前缀，多行会被判定器丢掉。

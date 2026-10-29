@@ -109,7 +109,7 @@ AirymaxOS 系统桌面默认壁纸 = `wallpaper/airymaxos-default.jpg`
 尺寸渲染，出现「字小到不可用」。冻结点不提供自动缩放，本发行版自行收敛
 到「常用分辨率」。
 
-`display_mode.sh` 是策略唯一事实来源，四个入口：
+`display_mode.sh` 是策略唯一事实来源，六个入口：
 
 - 无参数：读取 `xrandr --query`，对不一致的输出执行 `--output <名>
   --mode <目标>`，全部一致时不做任何调用（幂等）；
@@ -117,7 +117,12 @@ AirymaxOS 系统桌面默认壁纸 = `wallpaper/airymaxos-default.jpg`
 - `--guard [秒] [间隔]`：在窗口内持续守护，偏差出现即纠正，窗口结束记录
   一行 `guard <秒>s drift=<次> fixed=<次> stuck=<次> state=<偏差|ok>`；
 - `--check`：只判定不修改，全部输出已符合策略则 0，否则打印
-  `分辨率未达策略: <输出>:<当前>-><目标>` 并返回 1；
+  `分辨率未达策略: <输出>:<当前>-><目标>` 并返回 1；通过但存在唯一模式
+  输出时按降级记账（journal + stderr 的 `单模式降级(single-mode)`），
+  不把「拓扑无从切换」当成「自适应生效」；
+- `--report`：逐输出打印 `<输出> <当前> <目标> <结论>`，结论为 `policy` /
+  `single-mode` / `drift`，T10 用它把「策略选对了」与「硬件只给一个模式」
+  分开写进 TAP；
 - `--plan`：从 stdin 读拓扑文本、向 stdout 打印 `<输出> <当前> <目标>`，
   供单测与 `%check` 在无 X 环境下验证解析。
 
@@ -260,7 +265,7 @@ multi-user.target，不会触发该单元；workstation kickstart 显式 enable�
 - `boot_state.sh` → `/usr/lib/airymaxos/desktop/`
   （共享库：失败单元记账与有界取证，探针与验收上报共用）
 - `display_mode.sh` → `/usr/lib/airymaxos/desktop/`
-  （分辨率策略：`--check` / `--plan` / 默认应用三入口）
+  （分辨率策略：`--check` / `--report` / `--plan` / 默认应用）
 - `session_env.sh` → `/usr/lib/airymaxos/desktop/`
   （共享库：X11 会话的 `DISPLAY` / `XAUTHORITY` 发现）
 - `airy_record.sh` → `/usr/lib/airymaxos/desktop/`，
