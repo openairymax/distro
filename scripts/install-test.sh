@@ -202,8 +202,10 @@ fw_probe()
     else
         case "${ARCH}" in
         x86_64)
-            cand=(/usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd
-                  /usr/share/edk2/ovmf/OVMF_CODE.fd /usr/share/qemu/OVMF.fd)
+            # 与 ci/lib/host.sh 的 uefi_fw_paths 逐字一致：Ubuntu 24.04 起
+            # 只有 4M 形态，Debian 另有合并镜像 OVMF.fd，故用 glob 覆盖命名变化。
+            cand=(/usr/share/OVMF/OVMF_CODE*.fd /usr/share/ovmf/OVMF.fd
+                  /usr/share/edk2/ovmf/OVMF_CODE*.fd /usr/share/qemu/OVMF.fd)
             ;;
         aarch64)
             cand=(/usr/share/AAVMF/AAVMF_CODE.fd /usr/share/edk2/aarch64/QEMU_EFI.fd
