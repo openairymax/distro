@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
 # ===========================================================================
-# run-smoke.sh — distro 组合冒烟（TAP 15）
+# run-smoke.sh — distro 组合冒烟（TAP 16）
 #
 # 用法:
 #   ./run-smoke.sh <被测镜像/系统标识>
@@ -10,7 +10,7 @@
 # 环境:
 #   AIRYMAX_SMOKE_WAIT  守护进程就绪等待秒数（默认 30）
 #   AIRYMAX_SMOKE_HOST  期望的主机名（默认 airymaxos，即 workstation 配方值）
-#   AIRYMAX_SMOKE_ROOT  只读系统视图的根前缀（默认空，即真实 /）。T6–T15 读取
+#   AIRYMAX_SMOKE_ROOT  只读系统视图的根前缀（默认空，即真实 /）。T6–T16 读取
 #                       /boot、/sys、/etc 与 /usr/lib 下的发行版标识与资产，
 #                       单测在沙箱里用该前缀复核判定，装机现场保持默认值。
 #
@@ -30,6 +30,7 @@
 #   T13 免密桌面：空闲锁屏关闭，交付账户在 nopasswdlogin 组内
 #   T14 运行期软件源：已安装系统的每个启用段都指向可解析的基底镜像
 #   T15 启动参数：/etc/default/grub 持有 rhgb quiet，os-prober 已关闭
+#   T16 观测工具：airy-bench / airy-observe 随镜像交付，静态自检为 ok
 #
 # 判定语义:
 #   0  — 全部通过
@@ -586,8 +587,35 @@ t15_boot_args() {
     printf 'args="%s"\n' "${line}"
 }
 
+# T16 观测工具：airy-bench 与 airy-observe 随发行包装进 /usr/bin。两者都是
+# 现场演示与故障定位的入口，装机后跑不起来等于没装。这里只断言它们在装机
+# 系统内可直接执行且自检为 ok：bench 取 --check（真实量一轮 IPC 往返，不测
+# 吞吐），observe 取 --static --root（只读文件，不依赖活动会话）。观测数值
+# 随机器的负载波动，不进判定；判定只看工具自身给出的 status。
+t16_obs_tools() {
+    local out
+    need airy-bench || return 1
+    need airy-observe || return 1
+    out=$(airy-bench --check 2>&1) || {
+        printf '%s\n' "${out}"
+        return 1
+    }
+    case " ${out} " in
+    *" status=ok "*) ;;
+    *)
+        printf 'airy-bench status!=ok\n'
+        return 1
+        ;;
+    esac
+    out=$(airy-observe --static --root "${SYSROOT:-/}" 2>&1) || {
+        printf '%s\n' "${out}"
+        return 1
+    }
+    printf 'bench=ok observe=ok\n'
+}
+
 printf 'TAP version 14\n'
-printf '1..15\n'
+printf '1..16\n'
 printf '# AirymaxOS distro smoke: target=%s date=%s\n' \
     "${TARGET}" "$(date -u '+%FT%TZ')"
 
@@ -606,6 +634,7 @@ probe 12 "T12 passwordless elevation" t12_passwordless
 probe 13 "T13 passwordless desktop" t13_passwordless_desktop
 probe 14 "T14 installed dnf sources" t14_repos
 probe 15 "T15 durable boot arguments" t15_boot_args
+probe 16 "T16 observer tools selfcheck" t16_obs_tools
 
 printf '# summary: pass=%d fail=%d\n' "${PASS}" "${FAIL}"
 [ "${FAIL}" -eq 0 ]
