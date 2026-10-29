@@ -203,11 +203,11 @@ multi-user.target，不会触发该单元；workstation kickstart 显式 enable�
 已是唯一事实源，再写状态文件只会制造第二个事实源。库缺失按硬失败处理
 （`reason=boot-state`），不回退到无取证的路径。
 
-## 观测与录屏（决策 2026-10-29）
+## 观测、录屏与基准（决策 2026-10-29）
 
 此前验收证据只有串口标记与 journal：能证明「单元起来了」，证明不了「画面
 动起来了」；而要临时装录屏工具、手抄 `DISPLAY` 的做法既不可复现也不可
-审计。三个资产把这两件事收进发行版自身：
+审计。四个资产把观测、取证与量化收进发行版自身：
 
 - `session_env.sh`：会话发现共享库，只被 source，加载期不做任何探测。
   发现顺序为「现成 `DISPLAY` + 可读 `XAUTHORITY`」→「logind 中 `Type=x11`
@@ -228,8 +228,16 @@ multi-user.target，不会触发该单元；workstation kickstart 显式 enable�
   末三行固定 `mode`、`fields`、`status` 并以 `status=ok` 作为退出码，CI 与
   人工读同一份报告。`--static --root` 只读文件，供打包自检在 buildroot 上
   核对品牌与资产，不要求构建机有 X server 或 systemd。
+- `airy_bench.py`（`/usr/bin/airy-bench`）：把「IPC 快、并发强」变成可复算
+  的数字。三段原语（pipe、AF_UNIX stream、AF_UNIX dgram）各做一次丢弃前
+  1000 次预热采样的往返，报 `rtt_p50_us` / `rtt_p99_us` / `rate`；另有
+  64 KiB 管道搬运吞吐与 N 进程各自往返的聚合速率及相对单进程的 `scale`。
+  分位取自逐次采样排序、速率取自实测总耗时，不外推不取整。数字含解释器
+  开销，`host` 行以 `lang=python3` 显式标明，跨机器比较必须带上该行。
+  `--check` 只自检原语可用性不测速，作为打包期断言；`scale` 显著低于核数
+  说明瓶颈在调度或缓存行，这正是要观测的东西。
 
-两个入口在 `/usr/bin` 下是到 `/usr/lib/airymaxos/desktop/` 的相对符号链接，
+三个入口在 `/usr/bin` 下是到 `/usr/lib/airymaxos/desktop/` 的相对符号链接，
 升级时不会出现两份实现。ffmpeg 在 EPOL 而非基线仓库，故声明为
 `Recommends: ffmpeg` 而不是硬 `Requires`：有它就装，没有也不阻断装机，
 此时 `airy-record --check` 给出 `check status=degraded` 并以非零退出，而不是
@@ -272,6 +280,8 @@ multi-user.target，不会触发该单元；workstation kickstart 显式 enable�
   `/usr/bin/airy-record` 为相对符号链接（x11grab 录屏，输出可对账成片）
 - `airy_observe.sh` → `/usr/lib/airymaxos/desktop/`，
   `/usr/bin/airy-observe` 为相对符号链接（固定 `key=value` 观察点报告）
+- `airy_bench.py` → `/usr/lib/airymaxos/desktop/`，
+  `/usr/bin/airy-bench` 为相对符号链接（IPC 延迟分位与并发标度实测）
 - `70-airymax-ukui-policy.sh` → `/usr/share/airymaxos/distro/desktop/`
   （`%post` 调用：屏蔽 AI 控制面单元）
 - `lightdm/50-airymax.conf` → `/etc/lightdm/lightdm.conf.d/`

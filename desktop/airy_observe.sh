@@ -134,10 +134,12 @@ static_report() {
     emit asset.record "$recorder"
     observer=$(have /usr/lib/airymaxos/desktop/airy_observe.sh)
     emit asset.observe "$observer"
+    bencher=$(have /usr/lib/airymaxos/desktop/airy_bench.py)
+    emit asset.bench "$bencher"
     host=$(cat "${ROOT}/etc/hostname" 2>/dev/null) || host=
     emit host.name "${host:-absent}"
     [ "$os_id" = "$WANT_ID" ] || status=partial
-    for v in "$wallpaper" "$schema" "$desktop" "$recorder" "$observer"; do
+    for v in "$wallpaper" "$schema" "$desktop" "$recorder" "$observer" "$bencher"; do
         [ "$v" = present ] || status=partial
     done
 }
