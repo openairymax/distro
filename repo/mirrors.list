@@ -1,9 +1,12 @@
-# openEuler 基底仓库镜像根，顺序即优先级。
+# openEuler 基底仓库镜像根，行序即尝试顺序。
 #
 # 唯一声明处：装机镜像（repo/airymax-os.repo）、构建期闭包收割
 # （scripts/lib/closure.sh）与介质下载（ci/gates/media-fetch.sh）都读
 # 本表，三处不再各写一份地址。首个根必须与 kickstart 的 repo --baseurl
 # 同源——anaconda 的 repo 行不接多值，安装期只能挂一个源。
+#
+# 收割端每次求解只用一个根，失败才换下一个（不同主机的元数据不能当成
+# 同一仓库的备用地址，否则解出的 NEVRA 组合没有主机保证过）。
 https://repo.openeuler.org/openEuler-24.03-LTS-SP2
 https://mirrors.tuna.tsinghua.edu.cn/openeuler/openEuler-24.03-LTS-SP2
 https://mirrors.huaweicloud.com/openeuler/openEuler-24.03-LTS-SP2
