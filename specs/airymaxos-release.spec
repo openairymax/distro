@@ -49,7 +49,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.3
-%global airy_release 20
+%global airy_release 21
 # 基底版本是显式输入，与 distro/repo/airymax-os.repo 及 kickstart 的
 # url/repo 行是三处同源表达。%%check 以本宏断言客户端配置，版本漂移在
 # 构建期失败，而不是等到装机后 dnf 报「找不到仓库」。
@@ -93,6 +93,9 @@ Source25:       grub_args.sh
 Source26:       xserver.sh
 Source27:       rt_budget.sh
 Source28:       airymax-rt-budget.service
+Source29:       session_env.sh
+Source30:       airy_record.sh
+Source31:       airy_observe.sh
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -105,6 +108,10 @@ Requires:       dconf
 # 安装期品牌化靠 efibootmgr 写 NVRAM；它本就属引导闭包（scripts/lib/
 # closure.sh CL_BOOT），这里显式声明，免得后续精简闭包时静默丢工具。
 Requires:       efibootmgr
+# 录屏工具的执行依赖：ffmpeg 提供 x11grab 与 libx264，缺它 airy-record 只能
+# 自检报 degraded。这里用弱依赖而不是 Requires——ffmpeg 在 EPOL 而非基线
+# 仓库，硬依赖会让一次元数据缺失直接中止装机；有它就装上，没有也不阻断。
+Recommends:     ffmpeg
 
 %description
 AirymaxOS release identity package. It owns the distribution version
@@ -155,6 +162,18 @@ install -m 0755 %{SOURCE26} \
     %{buildroot}/usr/lib/airymaxos/desktop/xserver
 install -m 0755 %{SOURCE27} \
     %{buildroot}/usr/lib/airymaxos/desktop/rt_budget.sh
+install -m 0644 %{SOURCE29} \
+    %{buildroot}/usr/lib/airymaxos/desktop/session_env.sh
+install -m 0755 %{SOURCE30} \
+    %{buildroot}/usr/lib/airymaxos/desktop/airy_record.sh
+install -m 0755 %{SOURCE31} \
+    %{buildroot}/usr/lib/airymaxos/desktop/airy_observe.sh
+
+# 录屏与观察点以子命令形式对外：实现留在库目录，入口只是符号链接，升级时
+# 不需要在多处同步文件名，也不会出现 /usr/bin 与库目录两份实现。
+install -d -m 0755 %{buildroot}%{_bindir}
+ln -s ../lib/airymaxos/desktop/airy_record.sh %{buildroot}%{_bindir}/airy-record
+ln -s ../lib/airymaxos/desktop/airy_observe.sh %{buildroot}%{_bindir}/airy-observe
 
 install -d -m 0755 %{buildroot}%{_sysconfdir}/lightdm/lightdm.conf.d
 install -m 0644 %{SOURCE7} \
@@ -292,6 +311,24 @@ grep -qxF 'WantedBy=graphical.target' \
 bash -n %{buildroot}/usr/lib/airymaxos/desktop/desktop_ready.sh
 bash -n %{buildroot}/usr/lib/airymaxos/desktop/boot_state.sh
 test -r %{buildroot}/usr/lib/airymaxos/desktop/boot_state.sh
+# 录屏与观察点：实现是 POSIX sh，用 sh -n 断言而不是 bash -n，否则一份
+# dash 下不可执行的脚本会被构建期放过。
+sh -n %{buildroot}/usr/lib/airymaxos/desktop/session_env.sh
+sh -n %{buildroot}/usr/lib/airymaxos/desktop/airy_record.sh
+sh -n %{buildroot}/usr/lib/airymaxos/desktop/airy_observe.sh
+# 两个标记前缀与偶数尺寸滤镜是验收侧解析的契约，改动即破坏对账。
+grep -qxF 'MARK=AIRYMAX-RECORD' \
+    %{buildroot}/usr/lib/airymaxos/desktop/airy_record.sh
+grep -qxF "PAD='pad=ceil(iw/2)*2:ceil(ih/2)*2'" \
+    %{buildroot}/usr/lib/airymaxos/desktop/airy_record.sh
+grep -qxF 'MARK=AIRYMAX-OBSERVE' \
+    %{buildroot}/usr/lib/airymaxos/desktop/airy_observe.sh
+# 静态报告在 buildroot 上真跑一次：资产路径、os-release 解析与 key=value
+# 输出三者任何一处漂移都会让 os.id 行消失。
+%{buildroot}/usr/lib/airymaxos/desktop/airy_observe.sh \
+    --root %{buildroot} --static | grep -qxF 'AIRYMAX-OBSERVE os.id=airymaxos'
+test -L %{buildroot}%{_bindir}/airy-record
+test -L %{buildroot}%{_bindir}/airy-observe
 # 类别集合必须同时覆盖 greeter 与 autologin：座位策略启用 autologin 时
 # lightdm 不创建 greeter 会话，只认一类会让另一种镜像永远等不到就绪标记。
 grep -qxF 'SESS_CLASSES="greeter user"' \
@@ -457,6 +494,11 @@ fi
 /usr/lib/airymaxos/desktop/display_mode.sh
 /usr/lib/airymaxos/desktop/rt_budget.sh
 /usr/lib/airymaxos/desktop/xserver
+/usr/lib/airymaxos/desktop/session_env.sh
+/usr/lib/airymaxos/desktop/airy_record.sh
+/usr/lib/airymaxos/desktop/airy_observe.sh
+%{_bindir}/airy-record
+%{_bindir}/airy-observe
 /usr/lib/airymaxos/boot/efi_brand.sh
 /usr/lib/airymaxos/boot/grub_args.sh
 %{_datadir}/plymouth/themes/default.plymouth
@@ -467,6 +509,20 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Thu Oct 29 2026 SPHARX <dev@spharx.com> - 0.0.3-21
+- Ship two first-party observation tools: airy-record captures the X11
+  session with x11grab and the default sink monitor, prints a progress
+  line every two seconds while recording and ends with path, frames,
+  size and sha256; airy-observe reports the release identity, brand
+  assets, kernel package ownership and desktop chain as key=value lines
+- Resolve DISPLAY and XAUTHORITY through logind in a shared library
+  instead of asking the caller to supply them: over SSH or from a unit
+  there is no DISPLAY, and a stale XAUTHORITY only shows up as an
+  unrelated "cannot open display" from every consumer
+- Both tools are POSIX sh and self-check without a session (--check,
+  --static), so packaging asserts them at build time instead of on the
+  installed machine; ffmpeg stays a weak dependency because it lives in
+  EPOL and a hard Requires would abort an install on a metadata gap
 * Thu Oct 29 2026 SPHARX <dev@spharx.com> - 0.0.3-20
 - Create the slice cgroups before writing the RT budget: systemd on
   cgroup v1 creates unit cgroups per controller on demand, so a slice

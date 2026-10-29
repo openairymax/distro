@@ -15,6 +15,7 @@
 import configparser
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -46,6 +47,12 @@ ASSETS = (
      "/usr/lib/airymaxos/desktop/display_mode.sh"),
     ("desktop/rt_budget.sh",
      "/usr/lib/airymaxos/desktop/rt_budget.sh"),
+    ("desktop/session_env.sh",
+     "/usr/lib/airymaxos/desktop/session_env.sh"),
+    ("desktop/airy_record.sh",
+     "/usr/lib/airymaxos/desktop/airy_record.sh"),
+    ("desktop/airy_observe.sh",
+     "/usr/lib/airymaxos/desktop/airy_observe.sh"),
     ("desktop/xserver.sh",
      "/usr/lib/airymaxos/desktop/xserver"),
     ("desktop/70-airymax-ukui-policy.sh",
@@ -351,6 +358,115 @@ class DesktopAssetTest(unittest.TestCase):
                           f"{asset.name} lacks %check literal: {lit}")
             seen += 1
         self.assertGreater(seen, 0)
+
+    def test_session_lib_is_passive(self):
+        # 库被 source 时不得探测会话，也不得设置 set -u：调用方来自 sshd、
+        # systemd 或桌面终端，加载期任何一次探测失败都会把「没有会话」变成
+        # 「调用方脚本意外退出」。
+        path = self.asset("desktop/session_env.sh")
+        self.assertEqual(run(["sh", "-n", str(path)]).returncode, 0)
+        self.assertNotIn("set -u",
+                         path.read_text(encoding="utf-8").splitlines())
+        out = run(["sh", "-c", f'. "{path}"; printf ok'])
+        self.assertEqual((out.returncode, out.stdout), (0, "ok"))
+
+    def test_observe_static_report(self):
+        # 静态报告是打包自检的另一半：%check 只断言 os.id 一行，这里钉住
+        # 完整字段集，避免资产改名后「少一行」被读成「没有这一项」。
+        script = self.asset("desktop/airy_observe.sh")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            files = {
+                "usr/lib/os-release":
+                    'ID=airymaxos\nVERSION_ID="0.0.3"\n'
+                    'PRETTY_NAME="AirymaxOS 0.0.3 (OpenAirymax)"\n',
+                "etc/default/grub": 'GRUB_DISTRIBUTOR="AirymaxOS"\n',
+                "etc/hostname": "airymaxos\n",
+                "usr/share/backgrounds/airymaxos/airymaxos-default.jpg": "",
+                "usr/share/glib-2.0/schemas/"
+                "99-airymaxos-default.gschema.override": "",
+            }
+            for name in ("desktop_ready.sh", "airy_record.sh",
+                         "airy_observe.sh"):
+                files[f"usr/lib/airymaxos/desktop/{name}"] = ""
+            for rel, body in files.items():
+                path = root / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(body, encoding="utf-8")
+            out = run(["sh", str(script), "--root", str(root), "--static"])
+            self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+            lines = out.stdout.splitlines()
+            for want in (
+                    "AIRYMAX-OBSERVE os.id=airymaxos",
+                    "AIRYMAX-OBSERVE os.version=0.0.3",
+                    'AIRYMAX-OBSERVE os.pretty='
+                    '"AirymaxOS 0.0.3 (OpenAirymax)"',
+                    "AIRYMAX-OBSERVE brand.grub=AirymaxOS",
+                    "AIRYMAX-OBSERVE brand.wallpaper=present",
+                    "AIRYMAX-OBSERVE brand.schema=present",
+                    "AIRYMAX-OBSERVE asset.desktop=present",
+                    "AIRYMAX-OBSERVE asset.record=present",
+                    "AIRYMAX-OBSERVE asset.observe=present",
+                    "AIRYMAX-OBSERVE host.name=airymaxos",
+                    "AIRYMAX-OBSERVE mode=static fields=10"):
+                self.assertIn(want, lines)
+            self.assertEqual(lines[-1], "AIRYMAX-OBSERVE status=ok")
+
+    def test_observe_missing_root_stays_readable(self):
+        # 空根下每个字段都要显式写 absent；省略行会让「没采到」与「没有这
+        # 一项」长得一样，结论只能由末行 status 与非零退出码给出。
+        script = self.asset("desktop/airy_observe.sh")
+        with tempfile.TemporaryDirectory() as tmp:
+            out = run(["sh", str(script), "--root", tmp, "--static"])
+            self.assertNotEqual(out.returncode, 0)
+            lines = out.stdout.splitlines()
+            for key in ("os.id", "os.version", "os.pretty", "brand.grub",
+                        "brand.wallpaper", "brand.schema", "asset.desktop",
+                        "asset.record", "asset.observe", "host.name"):
+                self.assertIn(f"AIRYMAX-OBSERVE {key}=absent", lines)
+            self.assertIn("AIRYMAX-OBSERVE mode=static fields=10", lines)
+            self.assertEqual(lines[-1], "AIRYMAX-OBSERVE status=partial")
+
+    def test_record_check_reports_degraded(self):
+        # 自检必须先给出证据再下结论：缺 ffmpeg 时提前退出，自动化只会
+        # 拿到一个没有行的失败。这里用去掉 ffmpeg 的 PATH 固定这三条语义。
+        script = self.asset("desktop/airy_record.sh")
+        shell = shutil.which("sh")
+        self.assertIsNotNone(shell)
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            for tool in ("readlink", "sed", "tail", "head", "tr", "awk",
+                         "cat", "cut", "wc", "sleep"):
+                src = shutil.which(tool)
+                if src:
+                    (bin_dir / tool).symlink_to(src)
+            env = dict(os.environ, PATH=str(bin_dir), HOME=str(Path(tmp)))
+            env.pop("DISPLAY", None)
+            env.pop("XAUTHORITY", None)
+            out = subprocess.run([shell, str(script), "--check"],
+                                 capture_output=True, text=True, env=env,
+                                 check=False)
+            self.assertNotEqual(out.returncode, 0)
+            lines = out.stdout.splitlines()
+            self.assertIn("AIRYMAX-RECORD check ffmpeg=absent", lines)
+            self.assertIn("AIRYMAX-RECORD check x11grab=absent", lines)
+            self.assertIn("AIRYMAX-RECORD check status=degraded", lines)
+            self.assertGreaterEqual(
+                len([line for line in lines if " check " in line]), 5)
+
+    def test_record_packaging_is_weak_dependency(self):
+        # ffmpeg 在 EPOL 而非基线仓库：硬 Require 会让一次元数据缺口中止
+        # 装机；入口必须是相对符号链接，升级时不会出现两份实现。
+        self.assertIn("Recommends:     ffmpeg", self.spec)
+        self.assertNotRegex(self.spec, r"(?m)^Requires:.*\bffmpeg\b")
+        for entry, impl in (("airy-record", "airy_record.sh"),
+                            ("airy-observe", "airy_observe.sh")):
+            self.assertIn(
+                f"ln -s ../lib/airymaxos/desktop/{impl} "
+                f"%{{buildroot}}%{{_bindir}}/{entry}", self.spec)
+            self.assertIn(f"%{{_bindir}}/{entry}",
+                          self.spec.split("%files", 1)[1])
 
     def test_efi_brand_script(self):
         script = self.asset("boot/efi_brand.sh")
