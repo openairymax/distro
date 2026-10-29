@@ -74,7 +74,7 @@ def rpm_name(name):
 
 
 def mirrors():
-    """repo/mirrors.list 的镜像根，行序即优先级（与 bash 侧解析一致）。"""
+    """repo/mirrors.list 的镜像根，行序即尝试顺序（与 bash 侧解析一致）。"""
     out = []
     for raw in MIRROR_LIST.read_text(encoding="utf-8").splitlines():
         root = raw.split("#")[0].strip()
@@ -90,14 +90,6 @@ def ks_repos():
          "--skip-file", str(KS)],
         capture_output=True, text=True, check=True)
     return [line.split("\t") for line in res.stdout.splitlines() if line.strip()]
-
-
-def expected_urls(base, roots):
-    """baseurl 展开：命中首项镜像根才补备用地址，否则原样保留。"""
-    if not base.startswith(roots[0] + "/"):
-        return [base]
-    rel = base[len(roots[0]) + 1:]
-    return [base] + [f"{root}/{rel}" for root in roots[1:]]
 
 
 def repo_baseurls(path):
@@ -163,6 +155,11 @@ class BuildDesktopTest(unittest.TestCase):
 
     def iso(self):
         return self.out / "iso" / "airymaxos-0.0.3-x86_64.iso"
+
+    def witness_root(self):
+        """收割端留档的实际镜像根：载荷出自哪个快照，事后必须可查。"""
+        return (self.out / "closure" / "mirror-root.txt").read_text(
+            encoding="utf-8").strip()
 
     def test_help(self):
         self.tools()
@@ -330,9 +327,10 @@ class BuildDesktopTest(unittest.TestCase):
                          FAKE_DNF_MODE="empty")
         self.assertEqual(res.returncode, 6)
 
-    def test_closure_repo_expands_mirrors(self):
-        # 2.5 GB 的载荷不得挂在单一主机上：配方每段仓库都要带上镜像根表
-        # 里的等价备用地址，主源停滞时 dnf 才能自动换址。
+    def test_closure_repo_single_root(self):
+        # 每次求解只挂一个快照：把多台主机写进同一段 repo 当 failover，
+        # dnf 会各取一部分包，解出没有任何一台主机保证过的 NEVRA 组合，
+        # 事务排序随之漂移，装机现场才以 scriptlet 失败收场。
         self.tools()
         self.stock()
         cfg = self.root / "closure.repo"
@@ -341,8 +339,25 @@ class BuildDesktopTest(unittest.TestCase):
         self.assertEqual(res.returncode, 0, res.stderr)
         roots = mirrors()
         self.assertGreater(len(roots), 1)
-        want = [expected_urls(base, roots) for _, base, _ in ks_repos()]
+        self.assertEqual(repo_baseurls(cfg),
+                         [[base] for _, base, _ in ks_repos()])
+        self.assertEqual(self.witness_root(), roots[0])
+
+    def test_closure_repo_falls_back(self):
+        # 首根不可用时整段事务换下一个快照重来，并把实际用到的根留档。
+        self.tools()
+        self.stock()
+        cfg = self.root / "closure.repo"
+        roots = mirrors()
+        res = self.build("--arch", "x86_64", "--closure",
+                         FAKE_DNF_CFG=str(cfg), CLOSURE_TRY="1",
+                         CLOSURE_WAIT="0", FAKE_DNF_REJECT=roots[0])
+        self.assertEqual(res.returncode, 0, res.stderr)
+        want = [[f"{roots[1]}/{base[len(roots[0]) + 1:]}" if
+                 base.startswith(roots[0] + "/") else base]
+                for _, base, _ in ks_repos()]
         self.assertEqual(repo_baseurls(cfg), want)
+        self.assertEqual(self.witness_root(), roots[1])
 
     def test_closure_repo_no_guess(self):
         # 镜像根首项与配方源不同根时前缀不命中，地址必须原样保留：猜出来的

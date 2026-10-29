@@ -261,6 +261,14 @@ case "$excl" in
 *kylin-ai*) ;;
 *) printf 'dnf: 缺 kylin-ai 排除项\\n' >&2; exit 13 ;;
 esac
+# FAKE_DNF_REJECT 让伪 dnf 拒绝地址里含指定子串的快照：收割端每个镜像根
+# 单独求解一次，本钩子用来驱动「首根失败即换下一个根」这条路径。
+if [ -n "${FAKE_DNF_REJECT:-}" ]; then
+    case "$cfg" in
+    *"${FAKE_DNF_REJECT}"*)
+        printf 'dnf: 快照不可用: %s\\n' "${FAKE_DNF_REJECT}" >&2; exit 1 ;;
+    esac
+fi
 case "${FAKE_DNF_MODE:-ok}" in
 fail) printf 'dnf: 依赖解析失败\\n' >&2; exit 1 ;;
 empty) exit 0 ;;
