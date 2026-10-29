@@ -132,7 +132,8 @@ class RunSmokeTest(unittest.TestCase):
                     "usr/lib/airymaxos/desktop/desktop_ready.sh",
                     "usr/lib/airymaxos/desktop/airy_record.sh",
                     "usr/lib/airymaxos/desktop/airy_observe.sh",
-                    "usr/lib/airymaxos/desktop/airy_bench.py"):
+                    "usr/lib/airymaxos/desktop/airy_bench.py",
+                    "usr/lib/airymaxos/desktop/airy_demo.py"):
             path = self.sysroot / rel
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("", encoding="utf-8")
@@ -229,10 +230,11 @@ class RunSmokeTest(unittest.TestCase):
         self.contest(omit)
 
     def contest(self, omit=()):
-        """把真实的 airy-bench / airy-observe 放进 PATH：T16 判定的是这两个
-        脚本自身的行为，用伪实现会掩盖自检逻辑的回归。"""
+        """把真实的 airy-bench / airy-observe / airy-demo 放进 PATH：T16 判定
+        的是这三个脚本自身的行为，用伪实现会掩盖自检逻辑的回归。"""
         for name, src in (("airy-bench", "airy_bench.py"),
-                          ("airy-observe", "airy_observe.sh")):
+                          ("airy-observe", "airy_observe.sh"),
+                          ("airy-demo", "airy_demo.py")):
             if name in omit:
                 continue
             dest = self.bin / name
@@ -766,7 +768,7 @@ class RunSmokeTest(unittest.TestCase):
         self.tools()
         res = self.run_smoke()
         self.assertIn("ok 16 - T16 observer tools selfcheck", res.stdout)
-        self.assertIn("bench=ok observe=ok", res.stdout)
+        self.assertIn("bench=ok demo=ok observe=ok", res.stdout)
 
     def test_obs_bench_absent(self):
         # 观测工具没装进镜像：现场演示与故障定位都无从下手
@@ -774,6 +776,13 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke()
         self.assert_fail(res, 16)
         self.assertIn("airy-bench not installed", res.stdout)
+
+    def test_obs_demo_absent(self):
+        # 渲染层缺失时 bench 与 observe 仍可用，但演示入口不可用
+        self.tools(omit=("airy-demo",))
+        res = self.run_smoke()
+        self.assert_fail(res, 16)
+        self.assertIn("airy-demo not installed", res.stdout)
 
     def test_obs_asset_absent(self):
         # 工具在、资产不在：observe 的静态自检必须给出 partial 而不是静默通过

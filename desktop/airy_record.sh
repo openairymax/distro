@@ -24,7 +24,13 @@
 # 当前分辨率与音频源，任一项缺失即 status=degraded 并以非零退出，避免
 # 在自动化里把「装不了」误当成「录好了」。
 #
-# 依赖：ffmpeg、xrandr、pactl（可选）、loginctl。
+# 另一条通道是 --tty：不采画面，用 util-linux 的 script(1) 录终端的字节
+# 流与时间戳，产出「.log + .timing」两个文本文件，用 scriptreplay(1) 原速
+# 回放。它不需要 X server、不需要 ffmpeg、码率恒为几 KB/s，适合录一条可
+# 被 grep 与 diff 的命令行演示：画面录屏证明「看到了什么」，终端录制证明
+# 「跑了什么、输出了什么」，两者的证据类型不同，互不替代。
+#
+# 依赖：ffmpeg、xrandr、pactl（可选）、loginctl；--tty 只依赖 util-linux。
 # ===========================================================================
 
 set -u
@@ -39,6 +45,8 @@ OUT=
 CHECK=0
 frames=0
 pid=
+MODE=screen
+TTYCMD=
 self=$(readlink -f "$0" 2>/dev/null) || self=$0
 case $self in
 */*) ;;
@@ -64,8 +72,12 @@ usage() {
   --audio        强制录系统声音，找不到音频源即失败
   --no-audio     只录画面
   --out PATH     输出文件（默认 ~/airymaxos-record-<时间>.mkv）
+  --tty          录终端文本（script 原生，产出 PATH 与 PATH.timing）
+                 不带命令时录当前 shell，`-- 命令...` 时只录该命令
   --check        只做能力自检，不录制
   -h, --help     显示本帮助
+
+回放终端录制：scriptreplay <PATH>.timing <PATH>
 EOF
 }
 
@@ -131,6 +143,12 @@ check_report() {
     fi
     src=$(audio_sink) || src=none
     say "check audio=${src}"
+    if command -v script >/dev/null 2>&1 &&
+        command -v scriptreplay >/dev/null 2>&1; then
+        say 'check tty=present'
+    else
+        say 'check tty=absent'
+    fi
     say "check status=${status}"
     [ "$status" = ok ]
 }
@@ -185,6 +203,41 @@ record() {
     say "stop path=${OUT} frames=${frames} size=${bytes} seconds=${DUR} sha256=${sum}"
 }
 
+# script -c 只接受一条命令字符串，参数必须重新加引号；直接拼 $* 会把带
+# 空格的路径拆成两个参数，录下来的就是另一条命令。
+quote_args() {
+    out=
+    for arg in "$@"; do
+        esc=$(printf '%s' "$arg" | sed "s/'/'\\\\''/g")
+        out="$out '$esc'"
+    done
+    printf '%s' "$out"
+}
+
+# 终端录制只搬字节流：script 把 master 侧的原始输出与时间戳分别写盘，
+# 回放由 scriptreplay 按时间戳重放。子进程的输出同时透传到当前终端，
+# 所以录制过程中屏幕照常滚动，不存在「录完才知道录到了什么」。
+record_tty() {
+    command -v script >/dev/null 2>&1 || fail no-script
+    [ -n "$TTYCMD" ] || TTYCMD=${SHELL:-/bin/sh}
+    [ -n "$OUT" ] || OUT=${HOME}/airymaxos-term-$(date +%Y%m%d-%H%M%S).log
+    say "start mode=tty path=${OUT} timing=${OUT}.timing"
+    # 长选项 --log-timing/--log-out 而不是 -t：util-linux 2.41 起 -t 是
+    # --timing 的废弃别名且不再接受分离的参数，`-t file` 会被解析成
+    # 「-t 无参 + 一个位置参数」，直接报 unexpected number of arguments。
+    script -q -e --log-timing "${OUT}.timing" --log-out "$OUT" -c "$TTYCMD"
+    rc=$?
+    bytes=0
+    [ -f "$OUT" ] && bytes=$(wc -c <"$OUT")
+    sum=$(sha256sum "$OUT" 2>/dev/null | cut -d' ' -f1)
+    [ -n "$sum" ] || sum=absent
+    tsum=$(sha256sum "${OUT}.timing" 2>/dev/null | cut -d' ' -f1)
+    say "stop mode=tty path=${OUT} timing=${OUT}.timing bytes=${bytes}" \
+        "sha256=${sum} tsha256=${tsum:-absent} rc=${rc}"
+    say "replay scriptreplay ${OUT}.timing ${OUT}"
+    [ "$rc" -eq 0 ] || fail "recorded-rc=${rc}"
+}
+
 main() {
     [ -r "$LIB" ] || fail no-session-lib
     # shellcheck source=session_env.sh
@@ -193,6 +246,10 @@ main() {
     # 在进入报告前就退出会让调用方拿不到任何一行证据。
     if [ "$CHECK" -eq 1 ]; then
         check_report
+        return
+    fi
+    if [ "$MODE" = tty ]; then
+        record_tty
         return
     fi
     need_ffmpeg
@@ -238,6 +295,16 @@ while [ $# -gt 0 ]; do
     --check)
         CHECK=1
         shift
+        ;;
+    --tty)
+        MODE=tty
+        shift
+        ;;
+    --)
+        shift
+        MODE=tty
+        TTYCMD=$(quote_args "$@")
+        break
         ;;
     -h | --help)
         usage

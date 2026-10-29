@@ -30,7 +30,7 @@
 #   T13 免密桌面：空闲锁屏关闭，交付账户在 nopasswdlogin 组内
 #   T14 运行期软件源：已安装系统的每个启用段都指向可解析的基底镜像
 #   T15 启动参数：/etc/default/grub 持有 rhgb quiet，os-prober 已关闭
-#   T16 观测工具：airy-bench / airy-observe 随镜像交付，静态自检为 ok
+#   T16 观测工具：airy-bench / airy-observe / airy-demo 随镜像交付且自检为 ok
 #
 # 判定语义:
 #   0  — 全部通过
@@ -587,15 +587,16 @@ t15_boot_args() {
     printf 'args="%s"\n' "${line}"
 }
 
-# T16 观测工具：airy-bench 与 airy-observe 随发行包装进 /usr/bin。两者都是
-# 现场演示与故障定位的入口，装机后跑不起来等于没装。这里只断言它们在装机
-# 系统内可直接执行且自检为 ok：bench 取 --check（真实量一轮 IPC 往返，不测
-# 吞吐），observe 取 --static --root（只读文件，不依赖活动会话）。观测数值
-# 随机器的负载波动，不进判定；判定只看工具自身给出的 status。
+# T16 观测工具：airy-bench、airy-observe 与 airy-demo 随发行包装进 /usr/bin。
+# 三者都是现场演示与故障定位的入口，装机后跑不起来等于没装。这里只断言它们
+# 在装机系统内可直接执行且自检为 ok：bench 与 demo 取 --check（demo 只清点
+# 对端与终端，不重复度量），observe 取 --static --root（只读文件，不依赖活动
+# 会话）。观测数值随机器的负载波动，不进判定；判定只看工具自身给的 status。
 t16_obs_tools() {
     local out
     need airy-bench || return 1
     need airy-observe || return 1
+    need airy-demo || return 1
     out=$(airy-bench --check 2>&1) || {
         printf '%s\n' "${out}"
         return 1
@@ -607,11 +608,22 @@ t16_obs_tools() {
         return 1
         ;;
     esac
+    out=$(airy-demo --check 2>&1) || {
+        printf '%s\n' "${out}"
+        return 1
+    }
+    case " ${out} " in
+    *" status=ok "*) ;;
+    *)
+        printf 'airy-demo status!=ok\n'
+        return 1
+        ;;
+    esac
     out=$(airy-observe --static --root "${SYSROOT:-/}" 2>&1) || {
         printf '%s\n' "${out}"
         return 1
     }
-    printf 'bench=ok observe=ok\n'
+    printf 'bench=ok demo=ok observe=ok\n'
 }
 
 printf 'TAP version 14\n'

@@ -49,7 +49,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.3
-%global airy_release 22
+%global airy_release 23
 # 基底版本是显式输入，与 distro/repo/airymax-os.repo 及 kickstart 的
 # url/repo 行是三处同源表达。%%check 以本宏断言客户端配置，版本漂移在
 # 构建期失败，而不是等到装机后 dnf 报「找不到仓库」。
@@ -97,6 +97,7 @@ Source29:       session_env.sh
 Source30:       airy_record.sh
 Source31:       airy_observe.sh
 Source32:       airy_bench.py
+Source33:       airy_demo.py
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -171,6 +172,8 @@ install -m 0755 %{SOURCE31} \
     %{buildroot}/usr/lib/airymaxos/desktop/airy_observe.sh
 install -m 0755 %{SOURCE32} \
     %{buildroot}/usr/lib/airymaxos/desktop/airy_bench.py
+install -m 0755 %{SOURCE33} \
+    %{buildroot}/usr/lib/airymaxos/desktop/airy_demo.py
 
 # 录屏与观察点以子命令形式对外：实现留在库目录，入口只是符号链接，升级时
 # 不需要在多处同步文件名，也不会出现 /usr/bin 与库目录两份实现。
@@ -178,6 +181,7 @@ install -d -m 0755 %{buildroot}%{_bindir}
 ln -s ../lib/airymaxos/desktop/airy_record.sh %{buildroot}%{_bindir}/airy-record
 ln -s ../lib/airymaxos/desktop/airy_observe.sh %{buildroot}%{_bindir}/airy-observe
 ln -s ../lib/airymaxos/desktop/airy_bench.py %{buildroot}%{_bindir}/airy-bench
+ln -s ../lib/airymaxos/desktop/airy_demo.py %{buildroot}%{_bindir}/airy-demo
 
 install -d -m 0755 %{buildroot}%{_sysconfdir}/lightdm/lightdm.conf.d
 install -m 0644 %{SOURCE7} \
@@ -341,6 +345,13 @@ python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' \
 %{buildroot}/usr/lib/airymaxos/desktop/airy_bench.py --check |
     grep -qxF 'AIRYMAX-BENCH status=ok'
 test -L %{buildroot}%{_bindir}/airy-bench
+# 展示入口只是渲染层：它必须能在 buildroot 上找到同目录的两个生产者并自检
+# 通过，否则装机后 --check 会先在演示前失败。
+python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' \
+    %{buildroot}/usr/lib/airymaxos/desktop/airy_demo.py
+%{buildroot}/usr/lib/airymaxos/desktop/airy_demo.py --check |
+    grep -qxF 'AIRYMAX-DEMO status=ok'
+test -L %{buildroot}%{_bindir}/airy-demo
 # 类别集合必须同时覆盖 greeter 与 autologin：座位策略启用 autologin 时
 # lightdm 不创建 greeter 会话，只认一类会让另一种镜像永远等不到就绪标记。
 grep -qxF 'SESS_CLASSES="greeter user"' \
@@ -510,9 +521,11 @@ fi
 /usr/lib/airymaxos/desktop/airy_record.sh
 /usr/lib/airymaxos/desktop/airy_observe.sh
 /usr/lib/airymaxos/desktop/airy_bench.py
+/usr/lib/airymaxos/desktop/airy_demo.py
 %{_bindir}/airy-record
 %{_bindir}/airy-observe
 %{_bindir}/airy-bench
+%{_bindir}/airy-demo
 /usr/lib/airymaxos/boot/efi_brand.sh
 /usr/lib/airymaxos/boot/grub_args.sh
 %{_datadir}/plymouth/themes/default.plymouth
@@ -523,6 +536,18 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Thu Oct 29 2026 SPHARX <dev@spharx.com> - 0.0.3-23
+- Ship airy-demo, a terminal-only overview that renders identity and IPC
+  capability from airy-observe and airy-bench. It computes nothing itself:
+  every number on screen is recomputable by those two commands, so the
+  report does not depend on the renderer being trusted
+- Draw the three round-trip primitives against a shared baseline and add
+  a 1/2/4/8-process sweep (median of three runs per level) so scaling is
+  visible as a curve rather than a single point
+- airy-record grows --tty: util-linux script(1) captures the terminal
+  byte stream plus timings into .log and .timing, replayable with
+  scriptreplay. No X server and no ffmpeg required; uses --log-timing
+  because -t no longer accepts a separate argument on util-linux 2.41
 * Thu Oct 29 2026 SPHARX <dev@spharx.com> - 0.0.3-22
 - Ship airy-bench: three kernel IPC primitives (pipe, AF_UNIX stream,
   AF_UNIX datagram) measured as warm-up-discarded round-trip latency
