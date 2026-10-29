@@ -43,6 +43,8 @@ readonly DISTRO_ROOT
 . "${DISTRO_ROOT}/scripts/lib/iso.sh"
 # shellcheck source=lib/closure.sh
 . "${DISTRO_ROOT}/scripts/lib/closure.sh"
+# shellcheck source=lib/guard.sh
+. "${DISTRO_ROOT}/scripts/lib/guard.sh"
 
 BASE=""
 KS=""
@@ -393,6 +395,8 @@ main()
     closure_default
     make_repo
     run_closure
+    guard_payload "$PKGDIR" "$OUT_ABS" ||
+        die "${E_IO}" "载荷兜底重打包失败"
     make_repo
     check_comps
     check_closure
