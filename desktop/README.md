@@ -45,8 +45,10 @@ MemoryMax/MemoryHigh：桌面自身已有应用级内存管理，双重限额会
 slice 写满：子组之和不得超过父组，`system.slice` 占满后 `user.slice`
 写入直接 EINVAL，会话侧同样拿不到 RT。因此由
 `airymax-rt-budget.service` 在 `rtkit-daemon` 与显示管理器之前按 slice
-均分总预算，缺组静默跳过，失败不阻断启动，结论落一行
-`AIRYMAX-RT-BUDGET` 标记。
+均分总预算。systemd 在 cgroup v1 上按控制器按需建立单元 cgroup，cpu
+层级里常常尚无 slice 目录，脚本因此先建目录再写入，并在每次写入后回读：
+未生效的组计入 `missing`、`status` 从 `ok` 降级为 `partial`/`failed`，
+不阻断启动，结论落一行 `AIRYMAX-RT-BUDGET` 标记。
 
 ### 4. 图形路径：X11 起步，Wayland 二期
 

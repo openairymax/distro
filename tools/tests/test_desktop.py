@@ -13,8 +13,10 @@
 # ===========================================================================
 
 import configparser
+import os
 import re
 import subprocess
+import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -256,6 +258,34 @@ class DesktopAssetTest(unittest.TestCase):
         self.assertEqual(conf["Slice"]["IOWeight"], "50")
         self.assertNotIn("MemoryMax", conf["Slice"])
         self.assertNotIn("MemoryHigh", conf["Slice"])
+
+    def test_rt_budget_reports_what_it_applied(self):
+        # 新装机实测：systemd 按控制器按需建立单元 cgroup，cpu 层级里还没有
+        # slice 目录时，只写「已存在且可写」的组会一个都写不进，旧脚本却仍
+        # 打印 status=ok。这里用假层级固定三条语义：缺目录先建、写入后回读、
+        # 未生效的组必须让 status 降级。
+        script = self.asset("desktop/rt_budget.sh")
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            cpu = base / "cgroup" / "cpu,cpuacct"
+            cpu.mkdir(parents=True)
+            (cpu / "cpu.rt_runtime_us").write_text("950000\n")
+            (base / "proc").write_text("950000\n")
+            (cpu / "system.slice").mkdir()
+            (cpu / "system.slice" / "cpu.rt_runtime_us").write_text("0\n")
+            env = dict(os.environ,
+                       AIRYMAX_RT_PROC=str(base / "proc"),
+                       AIRYMAX_RT_CGROOT=str(base / "cgroup"))
+            out = subprocess.run(["sh", str(script)], capture_output=True,
+                                 text=True, env=env, check=False)
+            self.assertEqual(out.returncode, 0)
+            self.assertIn("status=partial", out.stdout)
+            self.assertIn("applied=1 wanted=4", out.stdout)
+            self.assertIn("missing=[user.slice", out.stdout)
+            self.assertEqual(
+                (cpu / "system.slice" /
+                 "cpu.rt_runtime_us").read_text().strip(), "190000")
+            self.assertTrue((cpu / "user.slice").is_dir())
 
     def test_grub_display_unconditional(self):
         # 00_header 把 gfxmode 与 gfxterm 塞进 loadfont 成功的分支，字体缺失
