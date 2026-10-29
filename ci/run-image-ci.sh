@@ -435,7 +435,10 @@ stage_iso()
     else
         dir="${OUT}/iso"
     fi
-    if iso_build >"${log}" 2>&1 && iso_locate "${dir}"; then
+    # tee 而不是只重定向：闭包拉取的进度行必须实时出现在流水线输出里。
+    # 此前这一段只写文件，80 分钟的静默与「已经挂死」在 CI 控制台完全同形
+    # （run 40839355885）。pipefail 已开启，管道退出码即组装段的退出码。
+    if iso_build 2>&1 | tee "${log}" && iso_locate "${dir}"; then
         tap_ok 3 "iso assembly"
         ROWS+=("iso=pass")
     else

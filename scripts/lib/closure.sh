@@ -26,6 +26,19 @@
 # dnf 会跳过 --downloaddir 里已完成的包，重试只补拉残缺部分，把链路
 # 抖动从「整份镜像失败」降为「多花一轮时间」。
 #
+# 仓库地址来自配方，配方只能写一个源（anaconda 的 repo 行不接多值），
+# 因此构建环境另给一组等价的镜像根：默认取自 repo/mirrors.list（与装机
+# 镜像、介质下载共用同一份声明），CLOSURE_MIRRORS 以空格分隔可覆盖，顺序
+# 即优先级，首项就是配方里那个源的根。命中前缀的 baseurl 被改写为「同一
+# 相对路径 × 全部镜像根」，dnf 于是把国内镜像当成同一仓库的备用地址，
+# 主源停滞或 HTTP/2 报错时自动换址，而不是整段求解挂在单一主机上；未命中
+# 前缀的地址（离线 file:// 与第三方仓库）原样保留，不做任何猜测。
+#
+# 拉取全程必须可见：2.5 GB 的传输一旦只写进日志文件，外部看到的就是
+# 数十分钟静默，无法区分「在慢慢下」与「已经挂死」（run 40839355885 与
+# 40850633573 都在这一段沉默 80 分钟后被人工取消）。因此求解期间按
+# CLOSURE_BEAT 秒打印一行落盘进度，父进程据此判断这一段是否仍在推进。
+#
 # 调用约定：
 #   closure_fetch KS ARCH PKGDIR WORK LOG
 #                    新增包数写入 CL_NEW；收割到的文件名追加到调用方的
@@ -46,6 +59,8 @@ readonly CL_COMPS="${CL_ROOT}/comps/airymaxos-comps.xml"
 readonly CL_VER="${CLOSURE_VER:-24.03}"
 readonly CL_TRY="${CLOSURE_TRY:-3}"
 readonly CL_WAIT="${CLOSURE_WAIT:-10}"
+readonly CL_BEAT="${CLOSURE_BEAT:-30}"
+readonly CL_MIRROR_LIST="${CL_ROOT}/repo/mirrors.list"
 readonly -a CL_DNF_OPTS=(
     --setopt=strict=1
     --setopt=max_parallel_downloads=4
@@ -59,6 +74,44 @@ CL_EXCL=()
 CL_ARGS=()
 CL_BOOT=()
 CL_NEW=0
+CL_MIRRORS=()
+
+# 镜像根表：每行一个根，# 起注释，空行跳过，行序即优先级。表缺失时退化为
+# 只用配方里那一个源——宁可比预期慢，也不猜地址。
+cl_mirrors()
+{
+    local line
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%%#*}"
+        line="${line//[[:space:]]/}"
+        if [ -n "$line" ]; then
+            CL_MIRRORS+=("$line")
+        fi
+    done <"$1"
+    return 0
+}
+
+cl_init_mirrors()
+{
+    if [ -n "${CLOSURE_MIRRORS:-}" ]; then
+        # shellcheck disable=SC2206  # 镜像根不含空格，按空白切分即为预期语义
+        CL_MIRRORS=(${CLOSURE_MIRRORS})
+    elif [ -f "$CL_MIRROR_LIST" ]; then
+        cl_mirrors "$CL_MIRROR_LIST"
+    fi
+}
+
+cl_urls()
+{
+    local base="$1" root out=("$base")
+    [ "${#CL_MIRRORS[@]}" -gt 1 ] || { printf '%s' "$base"; return 0; }
+    for root in "${CL_MIRRORS[@]:1}"; do
+        case "$base" in
+        "${CL_MIRRORS[0]}"/*) out+=("${root}/${base#"${CL_MIRRORS[0]}"/}") ;;
+        esac
+    done
+    printf '%s' "${out[*]}"
+}
 
 cl_repos()
 {
@@ -68,7 +121,7 @@ cl_repos()
         {
             printf '[%s]\n' "$name"
             printf 'name=%s\n' "$name"
-            printf 'baseurl=%s\n' "$base"
+            printf 'baseurl=%s\n' "$(cl_urls "$base")"
             printf 'cost=%s\n' "$cost"
             printf 'enabled=1\n'
             printf 'gpgcheck=0\n'
@@ -136,13 +189,42 @@ cl_run()
         "${CL_ARGS[@]}" >>"$log" 2>&1
 }
 
+cl_dlstat()
+{
+    local dl="$1" size
+    size="$(du -sm "${dl}" 2>/dev/null | cut -f1)"
+    printf '%s %s' "$(find "${dl}" -maxdepth 1 -type f -name '*.rpm' \
+        2>/dev/null | wc -l)" "${size:-0}"
+}
+
+# 子进程存活期间每 CL_BEAT 秒报一行落盘量：父进程据此把「还在传」与
+# 「已经挂死」分开。轮询粒度固定 1 秒，子进程退出后不会多等一个节拍。
+cl_watch()
+{
+    local dl="$1" pid="$2" t0="$3" next=0 el n s
+    while kill -0 "$pid" 2>/dev/null; do
+        sleep 1
+        el=$(( $(date +%s) - t0 ))
+        [ "$el" -ge "$next" ] || continue
+        read -r n s <<<"$(cl_dlstat "$dl")"
+        printf 'closure: 拉取中 files=%s size=%sMiB elapsed=%ss\n' "$n" "$s" "$el"
+        next=$(( el + CL_BEAT ))
+    done
+}
+
 cl_try()
 {
-    local work="$1" arch="$2" pkg="$3" log="$4" n=1
+    local work="$1" arch="$2" pkg="$3" log="$4" n=1 rc t0 pid
     : >"$log"
     while :; do
         printf '\n## 求解尝试 %d\n' "$n" >>"$log"
-        cl_run "$work" "$arch" "$pkg" "$log" && return 0
+        t0="$(date +%s)"
+        mkdir -p "${work}/dl"
+        cl_run "$work" "$arch" "$pkg" "$log" &
+        pid=$!
+        cl_watch "${work}/dl" "$pid" "$t0"
+        wait "$pid" && rc=0 || rc=$?
+        [ "$rc" -eq 0 ] && return 0
         [ "$n" -lt "$CL_TRY" ] || return 1
         printf 'closure: 第 %d 次求解未完成，%d 秒后重试\n' "$n" "$CL_WAIT" >&2
         n=$((n + 1))
@@ -185,6 +267,7 @@ closure_fetch()
     rm -rf "$work"
     mkdir -p "${work}/repos"
     cl_arch "$arch" || return 1
+    cl_init_mirrors
     cl_repos "$ks" "${work}/repos/closure.repo" || return 1
     closure_specs "$ks" || return 1
     cl_args "$arch" || return 1

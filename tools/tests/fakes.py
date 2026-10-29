@@ -220,6 +220,9 @@ for f in "$repos"/*.repo; do
     [ -f "$f" ] || continue
     cfg="$cfg$(cat "$f")"
 done
+if [ -n "${FAKE_DNF_CFG:-}" ]; then
+    printf '%s\\n' "$cfg" > "$FAKE_DNF_CFG"
+fi
 case "$cfg" in
 *airymaxos-offline*)
     printf 'dnf: 离线自引用仓库未剔除\\n' >&2; exit 8 ;;
@@ -261,6 +264,7 @@ esac
 case "${FAKE_DNF_MODE:-ok}" in
 fail) printf 'dnf: 依赖解析失败\\n' >&2; exit 1 ;;
 empty) exit 0 ;;
+slow) sleep "${FAKE_DNF_SLEEP:-2}" ;;
 flaky)
     # 链路抖动：前 FAKE_DNF_FAILS 轮失败且不落任何 RPM，之后成功。
     # 用于验证收割的事务级重试，而不是每次失败都重启整份构建。

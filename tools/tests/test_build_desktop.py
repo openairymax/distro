@@ -16,6 +16,7 @@ import gzip
 import hashlib
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
@@ -28,6 +29,7 @@ DISTRO = SCRIPT.parent.parent
 BASH = shutil.which("bash") or "/bin/bash"
 KS = DISTRO / "kickstart" / "airymaxos-workstation.ks"
 COMPS = DISTRO / "comps" / "airymaxos-comps.xml"
+MIRROR_LIST = DISTRO / "repo" / "mirrors.list"
 APP_OFF = 16 * 2048 + 883
 
 CLOSURE = (
@@ -69,6 +71,39 @@ def ks_pkgs():
 def rpm_name(name):
     bits = name[:-4].rsplit(".", 1)[0].split("-")
     return "-".join(bits[:-2]) if len(bits) >= 3 else name[:-4]
+
+
+def mirrors():
+    """repo/mirrors.list 的镜像根，行序即优先级（与 bash 侧解析一致）。"""
+    out = []
+    for raw in MIRROR_LIST.read_text(encoding="utf-8").splitlines():
+        root = raw.split("#")[0].strip()
+        if root:
+            out.append(root)
+    return out
+
+
+def ks_repos():
+    """配方里的安装期仓库三元组 (name, baseurl, cost)，与收割端同源。"""
+    res = subprocess.run(
+        [sys.executable, str(DISTRO / "tools" / "ks_spec.py"), "repos",
+         "--skip-file", str(KS)],
+        capture_output=True, text=True, check=True)
+    return [line.split("\t") for line in res.stdout.splitlines() if line.strip()]
+
+
+def expected_urls(base, roots):
+    """baseurl 展开：命中首项镜像根才补备用地址，否则原样保留。"""
+    if not base.startswith(roots[0] + "/"):
+        return [base]
+    rel = base[len(roots[0]) + 1:]
+    return [base] + [f"{root}/{rel}" for root in roots[1:]]
+
+
+def repo_baseurls(path):
+    return [line.split("=", 1)[1].split() for line in
+            path.read_text(encoding="utf-8").splitlines()
+            if line.startswith("baseurl=")]
 
 
 # 伪 dnf 的事务是「comps 全量成员 + 配方显式包 + 架构引导包」；本地仓库
@@ -294,6 +329,44 @@ class BuildDesktopTest(unittest.TestCase):
         res = self.build("--arch", "x86_64", "--closure",
                          FAKE_DNF_MODE="empty")
         self.assertEqual(res.returncode, 6)
+
+    def test_closure_repo_expands_mirrors(self):
+        # 2.5 GB 的载荷不得挂在单一主机上：配方每段仓库都要带上镜像根表
+        # 里的等价备用地址，主源停滞时 dnf 才能自动换址。
+        self.tools()
+        self.stock()
+        cfg = self.root / "closure.repo"
+        res = self.build("--arch", "x86_64", "--closure",
+                         FAKE_DNF_CFG=str(cfg))
+        self.assertEqual(res.returncode, 0, res.stderr)
+        roots = mirrors()
+        self.assertGreater(len(roots), 1)
+        want = [expected_urls(base, roots) for _, base, _ in ks_repos()]
+        self.assertEqual(repo_baseurls(cfg), want)
+
+    def test_closure_repo_no_guess(self):
+        # 镜像根首项与配方源不同根时前缀不命中，地址必须原样保留：猜出来的
+        # 相对路径会让 dnf 取到 404，比慢更糟。
+        self.tools()
+        self.stock()
+        cfg = self.root / "closure.repo"
+        res = self.build("--arch", "x86_64", "--closure",
+                         CLOSURE_MIRRORS="https://mirror.invalid/a "
+                         "https://mirror.invalid/b", FAKE_DNF_CFG=str(cfg))
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(repo_baseurls(cfg),
+                         [[base] for _, base, _ in ks_repos()])
+
+    def test_closure_reports_progress(self):
+        # 静默的长传输与挂死在 CI 控制台完全同形（run 40839355885 沉默 80
+        # 分钟后被人工取消）：收割期间必须按节拍报落盘量。
+        self.tools()
+        self.stock()
+        res = self.build("--arch", "x86_64", "--closure",
+                         FAKE_DNF_MODE="slow", FAKE_DNF_SLEEP="2",
+                         CLOSURE_BEAT="1")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("closure: 拉取中 files=", res.stdout)
 
     def test_mkksiso_fail(self):
         self.tools()
