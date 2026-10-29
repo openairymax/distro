@@ -49,7 +49,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.3
-%global airy_release 19
+%global airy_release 20
 # 基底版本是显式输入，与 distro/repo/airymax-os.repo 及 kickstart 的
 # url/repo 行是三处同源表达。%%check 以本宏断言客户端配置，版本漂移在
 # 构建期失败，而不是等到装机后 dnf 报「找不到仓库」。
@@ -467,6 +467,22 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Thu Oct 29 2026 SPHARX <dev@spharx.com> - 0.0.3-20
+- Create the slice cgroups before writing the RT budget: systemd on
+  cgroup v1 creates unit cgroups per controller on demand, so a slice
+  whose units never enabled the cpu controller has no directory in the
+  cpu hierarchy yet. The previous run skipped every group that did not
+  exist, finished successfully and reported ok with applied=0 — the
+  reference machine therefore still logged "Failed to make ourselves
+  RT" on every boot after the 0.0.3-19 fix, while the same script run
+  by hand on the live system applied three of four groups
+- Read every value back and stop reporting a run as success: a group
+  that cannot be created, written or accepted by the kernel now counts
+  as missing, and status degrades from ok to partial (some groups) or
+  failed (none). A budget that silently did nothing is worse than a
+  budget that admits it did nothing
+- Print wanted= and missing=[...] alongside applied= so the boot log
+  says which slices were left out instead of only how many worked
 * Wed Oct 28 2026 SPHARX <dev@spharx.com> - 0.0.3-19
 - Allocate RT bandwidth per slice at boot: with CONFIG_RT_GROUP_SCHED a
   new cgroup gets cpu.rt_runtime_us=0, and 0 means "forbidden" rather
