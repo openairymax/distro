@@ -198,6 +198,38 @@ multi-user.target，不会触发该单元；workstation kickstart 显式 enable�
 已是唯一事实源，再写状态文件只会制造第二个事实源。库缺失按硬失败处理
 （`reason=boot-state`），不回退到无取证的路径。
 
+## 观测与录屏（决策 2026-10-29）
+
+此前验收证据只有串口标记与 journal：能证明「单元起来了」，证明不了「画面
+动起来了」；而要临时装录屏工具、手抄 `DISPLAY` 的做法既不可复现也不可
+审计。三个资产把这两件事收进发行版自身：
+
+- `session_env.sh`：会话发现共享库，只被 source，加载期不做任何探测。
+  发现顺序为「现成 `DISPLAY` + 可读 `XAUTHORITY`」→「logind 中 `Type=x11`
+  且有 `Display` 的会话，从其 Leader 进程 `/proc/<pid>/environ` 取会话真实
+  `XAUTHORITY`」→「`/tmp/.X11-unix/X*` 配可读 xauthority」。失败时不修改
+  环境变量，由调用方决定降级还是放弃——半配置的 `DISPLAY` 只会把
+  「没有会话」变成 `Cannot open display` 的假象。
+- `airy_record.sh`（`/usr/bin/airy-record`）：x11grab 直读 X server，音频取
+  默认 sink 的 `monitor`（录系统在放什么，不是麦克风）；sink 不存在时降级
+  为无声录制，不静默生成空文件。libx264 的 yuv420p 拒绝奇数宽高，统一过
+  一次 `pad=ceil(iw/2)*2:ceil(ih/2)*2`。`-progress` 写文件、主进程每 2 秒
+  解析并输出 `progress` 行，录制期间屏幕不静止；结束行带
+  `path/frames/size/seconds/sha256`，可与宿主机对账。
+- `airy_observe.sh`（`/usr/bin/airy-observe`）：把既有事实按固定
+  `key=value` 逐行摊开，每个字段只读一个权威来源（os-release、rpm 数据库、
+  systemd、procfs、xrandr），不推断不缓存。字段缺失写 `absent` 而不省略该
+  行，取值含空格时整体加双引号（`os.pretty="AirymaxOS 0.0.3 (OpenAirymax)"`）；
+  末三行固定 `mode`、`fields`、`status` 并以 `status=ok` 作为退出码，CI 与
+  人工读同一份报告。`--static --root` 只读文件，供打包自检在 buildroot 上
+  核对品牌与资产，不要求构建机有 X server 或 systemd。
+
+两个入口在 `/usr/bin` 下是到 `/usr/lib/airymaxos/desktop/` 的相对符号链接，
+升级时不会出现两份实现。ffmpeg 在 EPOL 而非基线仓库，故声明为
+`Recommends: ffmpeg` 而不是硬 `Requires`：有它就装，没有也不阻断装机，
+此时 `airy-record --check` 给出 `check status=degraded` 并以非零退出，而不是
+把「装不了」误当「录好了」。
+
 ## 冻结点核对结论（openEuler 24.03 LTS-SP2）
 
 | 项 | 模板假设 | 实际结论 | 状态 |
@@ -229,6 +261,12 @@ multi-user.target，不会触发该单元；workstation kickstart 显式 enable�
   （共享库：失败单元记账与有界取证，探针与验收上报共用）
 - `display_mode.sh` → `/usr/lib/airymaxos/desktop/`
   （分辨率策略：`--check` / `--plan` / 默认应用三入口）
+- `session_env.sh` → `/usr/lib/airymaxos/desktop/`
+  （共享库：X11 会话的 `DISPLAY` / `XAUTHORITY` 发现）
+- `airy_record.sh` → `/usr/lib/airymaxos/desktop/`，
+  `/usr/bin/airy-record` 为相对符号链接（x11grab 录屏，输出可对账成片）
+- `airy_observe.sh` → `/usr/lib/airymaxos/desktop/`，
+  `/usr/bin/airy-observe` 为相对符号链接（固定 `key=value` 观察点报告）
 - `70-airymax-ukui-policy.sh` → `/usr/share/airymaxos/distro/desktop/`
   （`%post` 调用：屏蔽 AI 控制面单元）
 - `lightdm/50-airymax.conf` → `/etc/lightdm/lightdm.conf.d/`
