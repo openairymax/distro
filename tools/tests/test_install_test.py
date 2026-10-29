@@ -217,6 +217,9 @@ class InstallTestTest(unittest.TestCase):
         self.assertLess(elapsed, 30)
 
     def test_install_scriptlet_fast(self):
+        # scriptlet 失败在事务结束时被 anaconda 判成致命错误，所以最早出现
+        # 的那一行就是失败证据；断言它而不是随后的「按 ENTER 退出」，才能
+        # 证明装机腿是按第一个坏 scriptlet 收尾、而不是等事务末尾。
         self.tools()
         start = time.monotonic()
         res = self.install("--runs", "1", "--install-timeout", "60",
@@ -225,7 +228,8 @@ class InstallTestTest(unittest.TestCase):
         self.assertEqual(res.returncode, 1)
         self.assertIn("not ok 1", res.stdout)
         self.assertIn("install failure pattern", res.stderr)
-        self.assertIn("按 ENTER 退出", res.stderr)
+        self.assertIn("Error in POSTTRANS scriptlet in rpm package firewalld",
+                      res.stderr)
         self.assertLess(elapsed, 30)
 
     def test_install_bootloader_fast(self):
