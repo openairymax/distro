@@ -230,6 +230,25 @@ class InspectMissingTest(unittest.TestCase):
             for key, value in got:
                 self.assertEqual(value, "absent", "%s %s" % (name, key))
 
+    @unittest.skipUnless(os.geteuid() != 0, "root 无视文件权限")
+    def test_unreadable_image_reports_absent(self):
+        # 非 root 读不到 /boot/vmlinuz-* 是常态：镜像摘要是 absent，
+        # 其余字段照常出自，命令仍以 0 退出
+        root = Path(self.tmp.name) / "locked"
+        image = root / "boot" / ("vmlinuz-%s" % REL)
+        image.parent.mkdir(parents=True)
+        image.write_bytes(IMAGE)
+        (root / "proc/sys/kernel").mkdir(parents=True)
+        (root / "proc/sys/kernel/osrelease").write_text(REL + "\n",
+                                                        encoding="utf-8")
+        image.chmod(0)
+        self.addCleanup(image.chmod, 0o644)
+        out = invoke(self.bin, "airy-kernel", "--root", str(root))
+        self.assertEqual(out.returncode, 0, out.stderr)
+        lines = out.stdout.splitlines()
+        self.assertIn("AIRYMAX-KERNEL image.path=%s" % image, lines)
+        self.assertIn("AIRYMAX-KERNEL image.sha256=absent", lines)
+
     def test_missing_root_is_static_too(self):
         # 路径不存在与路径为空是同一种事实，不能靠退出码区分
         out = invoke(self.bin, "airy-kernel",
