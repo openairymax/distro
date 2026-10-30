@@ -4,10 +4,11 @@
 # test_cfg_brand.py — tools/cfg_brand.py 品牌化回归测试
 #
 # 底座引导菜单保留 openEuler 原文且缺省项停在「Test this media」，是 0.0.3
-# 实测的装机缺陷根因。这里用与 netinst 同形的 grub/isolinux 配置驱动四个
+# 实测的装机缺陷根因。这里用与 netinst 同形的 grub/isolinux 配置驱动五个
 # 判定：标题按产品名改写、default 指向含 inst.ks 且不含 rd.live.check 的
-# 安装项、Troubleshooting/Rescue 类条目不误改、重复执行幂等。内核行与
-# inst.ks=/LABEL= 必须逐字节保留，否则 kickstart 与 stage2 定位会失效。
+# 安装项、Troubleshooting/Rescue 类条目不误改、重复执行幂等，以及
+# isolinux 的 append 行补齐串口控制台。内核行与 inst.ks=/LABEL= 必须逐字节
+# 保留，否则 kickstart 与 stage2 定位会失效。
 # 另外覆盖 .treeinfo 的品牌键改写与 boot.msg 的品牌串替换，二者同样要求
 # 其余内容逐字节不变、二次运行退出 3。
 #
@@ -64,6 +65,21 @@ set default="0"
 menuentry 'Install openEuler 24.03-LTS-SP2' {
     linuxefi /vmlinuz inst.stage2=hd:LABEL=AIRYMAXOS
 }
+"""
+
+SERIAL = """\
+default=0
+timeout 600
+
+label 0
+  menu label ^Install AirymaxOS 0.0.3
+  append inst.ks=hd:LABEL=AIRYMAXOS:/ks.cfg inst.stage2=hd:LABEL=AIRYMAXOS quiet console=tty0 console=ttyS0,115200
+label 1
+  menu label Test this media & install AirymaxOS 0.0.3
+  append inst.ks=hd:LABEL=AIRYMAXOS:/ks.cfg inst.stage2=hd:LABEL=AIRYMAXOS rd.live.check quiet console=tty0 console=ttyS0,115200
+label 2
+  menu label ^Troubleshooting -->
+  append inst.stage2=hd:LABEL=AIRYMAXOS rd.debug console=tty0 console=ttyS0,115200
 """
 
 TREEINFO = """\
@@ -150,6 +166,24 @@ class CfgBrandTest(unittest.TestCase):
         self.assertIn("^Troubleshooting -->", text)
         self.assertNotIn("Troubleshooting AirymaxOS", text)
         self.assertIn("append inst.ks=hd:LABEL=AIRYMAXOS:/ks.cfg", text)
+
+    def test_isolinux_serial_console(self):
+        path = self.make(ISOLINUX, "isolinux.cfg")
+        res = self.brand(path)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        text = path.read_text(encoding="utf-8")
+        self.assertEqual(text.count("console=ttyS0,115200"), 3)
+        self.assertIn("inst.stage2=hd:LABEL=AIRYMAXOS quiet "
+                      "console=tty0 console=ttyS0,115200", text)
+        self.assertIn("append -> console=tty0 console=ttyS0,115200",
+                      res.stderr)
+
+    def test_isolinux_serial_idempotent(self):
+        path = self.make(SERIAL, "isolinux.cfg")
+        res = self.brand(path)
+        self.assertEqual(res.returncode, 3, res.stderr)
+        self.assertEqual(res.stderr, "")
+        self.assertEqual(path.read_text(encoding="utf-8"), SERIAL)
 
     def test_idempotent(self):
         path = self.make(GRUB)

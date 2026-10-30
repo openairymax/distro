@@ -10,10 +10,17 @@
 # rd.live.check 把整份 3.7 GB 介质从 U 盘读一遍才开始装，既拖慢装机又让
 # 用户看到别家产品名。
 #
-# 本工具只改两样东西：菜单标题文字与 default 行。内核行/append 行逐字节
-# 不动，inst.ks= 与 LABEL= 必须原样保留——它们决定 kickstart 与 stage2 的
-# 定位，改坏即装机失败。改写前后整文件比对，只有真的变化才写回，同一文
-# 件重复执行幂等（第二次退出 3）。
+# 本工具只改三样东西：菜单标题文字、default 行，以及 append 行缺失的串口
+# 控制台参数。inst.ks= 与 LABEL= 必须原样保留——它们决定 kickstart 与
+# stage2 的定位，改坏即装机失败；append 行只在末尾追加 console=，已有
+# console=ttyS0 的行逐字节不动。改写前后整文件比对，只有真的变化才写回，
+# 同一文件重复执行幂等（第二次退出 3）。
+#
+# 串口控制台是引导契约而非品牌问题：UEFI 腿的 grub.cfg 由底座带
+# console=tty0 console=ttyS0,115200，BIOS 腿的 isolinux.cfg 却只有 quiet，
+# 于是同一次装机在 UEFI 下串口有完整记录、在 BIOS 下一个字节都没有（run
+# 41090215913：run-bios-1/install.log 全程 0 字节，门禁只能等到超时）。
+# 两条固件腿必须给出同样的可观测性，否则 BIOS 装机现场卡住时无从定位。
 #
 # 介质还有两处底座暴露，按文件名分派到同一入口：ISO 根目录的 .treeinfo
 # 是 anaconda 填写安装源产品名的来源（[general] 的 family/name/version），
@@ -48,6 +55,8 @@ MENU_RE = re.compile(r"^(\s*menu (?:label|title)\s+)(\^?)(.*)$")
 LABEL_RE = re.compile(r"^label\s+(\S+)")
 ISOLINUX_HINT = re.compile(r"^\s*(label|append|menu (?:label|title))\b")
 APPEND_RE = re.compile(r"^\s*append\s")
+SERIAL_RE = re.compile(r"console=ttyS0")
+SERIAL_ARG = "console=tty0 console=ttyS0,115200"
 DEF_RE = re.compile(r"^default=(\S+)")
 SECT_RE = re.compile(r"^\[([^\]]+)\]")
 TREE_KEY = re.compile(r"^(\s*)([A-Za-z0-9_.-]+)(\s*=\s*)(.*)$")
@@ -215,6 +224,30 @@ def i_retitle(lines, product):
     return out, changes
 
 
+def i_serial(line):
+    """给一条 append 行补齐串口控制台；已有 console=ttyS0 时返回 None。
+
+    只在行尾追加，原有参数顺序与字节不动：inst.ks=/inst.stage2= 的位置
+    由底座与 mkksiso 共同决定，重排会让 stage2 定位失效。
+    """
+    text = line.rstrip("\r\n")
+    if not APPEND_RE.match(text) or SERIAL_RE.search(text):
+        return None
+    return text + " " + SERIAL_ARG + eol(line), ("append", SERIAL_ARG)
+
+
+def i_serial_all(lines):
+    """返回 (新行列表, [变化])；逐条覆盖所有 append 行。"""
+    out = list(lines)
+    changes = []
+    for pos, line in enumerate(lines):
+        hit = i_serial(line)
+        if hit:
+            out[pos] = hit[0]
+            changes.append(hit[1])
+    return out, changes
+
+
 def i_title(lines, blk, product):
     """取安装项块的菜单标题（品牌化后的文字）；没有则退回 label 名。"""
     for line in lines[blk[0] + 1:blk[1]]:
@@ -240,6 +273,8 @@ def isolinux(lines, product):
     if blk is None:
         return None
     out, changes = i_retitle(lines, product)
+    out, serial = i_serial_all(out)
+    changes += serial
     title = i_title(lines, blk, product)
     out, old = i_default(out, blk[2])
     return out, changes, dmove(old, f"default={blk[2]}", title)
