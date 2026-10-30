@@ -42,7 +42,13 @@
 # 该根，未命中前缀的地址（离线 file:// 与第三方仓库）原样保留，不做猜测；
 # 某个根上的求解失败，整段事务换下一个根重来，上一个根已下的包一并丢弃，
 # 避免两个快照的 NEVRA 混进同一份载荷。实际使用的根写入工作目录，使
-# 「这份载荷来自哪个快照」事后可查。
+# 「这份载荷来自哪个快照」事后可查。换根不只在失败时发生：镜像站限速而
+# 传输仍在推进时，静默判据永远不会触发，因此另设窗口速率下限，低于下限
+# 同样换根（CLOSURE_FLOOR，见 cl_watch）。
+#
+# 跨轮复用走缓存池（CLOSURE_POOL 指向的目录）：池内 RPM 由本地仓库以
+# cost=1 参与同一次求解，远端只补差异；未完成的轮次也会把已校验的包留进
+# 池里。于是「链路慢」只决定第一轮要多久，不决定每一轮都从零再走一遍。
 #
 # 拉取全程必须可见：2.5 GB 的传输一旦只写进日志文件，外部看到的就是
 # 数十分钟静默，无法区分「在慢慢下」与「已经挂死」（run 40839355885 与
@@ -72,6 +78,10 @@ readonly CL_TRY="${CLOSURE_TRY:-3}"
 readonly CL_WAIT="${CLOSURE_WAIT:-10}"
 readonly CL_BEAT="${CLOSURE_BEAT:-30}"
 readonly CL_STALL="${CLOSURE_STALL:-600}"
+readonly CL_FLOOR="${CLOSURE_FLOOR:-524288}"
+readonly CL_WARM="${CLOSURE_WARMUP:-180}"
+readonly CL_SAMPLE="${CLOSURE_SAMPLE:-120}"
+readonly CL_POOL="${CLOSURE_POOL:-}"
 readonly CL_MIRROR_LIST="${CL_ROOT}/repo/mirrors.list"
 readonly -a CL_DNF_OPTS=(
     --setopt=strict=1
@@ -89,6 +99,7 @@ CL_NEW=0
 CL_MIRRORS=()
 CL_ROOTS=()
 CL_STALLED=0
+CL_SLOW=0
 
 # 镜像根表：每行一个根，# 起注释，空行跳过，行序即尝试顺序。
 cl_mirrors()
@@ -254,17 +265,26 @@ cl_kill()
 # 落盘量以「下载目录 + installroot 的 dnf 缓存」合计：求解前期的元数据抓取
 # 只写缓存，只盯 .rpm 个数会把正常的元数据阶段误判成挂死。轮询粒度固定
 # 1 秒，子进程退出后不会多等一个节拍。
+#
+# 除了「没有落盘」，这里还设速率下限：镜像限速时传输仍在推进，静默判据
+# 永远不会触发，整段却要跑几十小时（run 41023530128：2.5 GB 闭包以
+# 29 KiB/s 爬了 30 分钟只到 53 MiB，最后撞上 step 时限）。预热 CL_WARM 秒
+# 后，每 CL_SAMPLE 秒重算一次窗口速率，低于 CL_FLOOR 即换下一个镜像根——
+# 快照之间是等价关系，慢根没有坚持的理由。
 cl_watch()
 {
     local work="$1" pid="$2" t0="$3"
     local dl="${work}/dl" cache="${work}/root/var/cache/dnf"
     local next=0 el n=0 s=0 mark prev="" quiet=0
+    local sbase=0 tbase=0 rate=0 floor
+    floor=$(( CL_FLOOR / 1024 ))
     while kill -0 "$pid" 2>/dev/null; do
         sleep 1
         el=$(( $(date +%s) - t0 ))
         if [ "$el" -ge "$next" ]; then
             read -r n s <<<"$(cl_dlstat "$dl")"
-            printf 'closure: 拉取中 files=%s size=%sMiB elapsed=%ss\n' "$n" "$s" "$el"
+            printf 'closure: 拉取中 files=%s size=%sMiB elapsed=%ss rate=%sKiB/s\n' \
+                "$n" "$s" "$el" "$rate"
             next=$(( el + CL_BEAT ))
         fi
         mark="$(cl_bytes "$dl" "$cache")"
@@ -273,6 +293,23 @@ cl_watch()
         else
             prev="$mark"
             quiet=0
+        fi
+        if [ "$tbase" -eq 0 ] && [ "$el" -ge "$CL_WARM" ]; then
+            tbase=$el
+            sbase=$mark
+        fi
+        if [ "$tbase" -gt 0 ] &&
+            [ $(( el - tbase )) -ge "$CL_SAMPLE" ]; then
+            rate=$(( (mark - sbase) / 1024 / (el - tbase) ))
+            if [ "$rate" -lt "$floor" ]; then
+                printf 'closure: 镜像根速率 %sKiB/s 低于下限 %sKiB/s（观测 %ss），换根\n' \
+                    "$rate" "$floor" "$(( el - tbase ))" >&2
+                cl_kill "$pid"
+                CL_SLOW=1
+                return 0
+            fi
+            tbase=$el
+            sbase=$mark
         fi
         [ "$quiet" -lt "$CL_STALL" ] && continue
         printf 'closure: 静默 %s 秒无落盘（files=%s size=%sMiB），判定挂死，终止本次求解\n' \
@@ -306,7 +343,18 @@ cl_try()
             pid=$!
             cl_watch "$work" "$pid" "$t0"
             wait "$pid" && rc=0 || rc=$?
+            if [ "$rc" -ne 0 ]; then
+                # 未完成也把已校验的包收进缓存池：下一轮只在池外补缺，
+                # 失败的次数不再等价于从零重来。
+                cl_pool_keep "${work}/dl"
+            fi
             [ "$rc" -eq 0 ] && return 0
+            if [ "$CL_SLOW" -eq 1 ]; then
+                CL_SLOW=0
+                printf 'closure: 镜像根 %s 速率低于下限，跳过重试换下一个根\n' \
+                    "$label" >&2
+                break
+            fi
             if [ "$CL_STALLED" -eq 1 ]; then
                 # 挂死是快照侧的确定性故障，同一根上重试只会再静默一轮，
                 # 把 3 次重试的等待压成一次，直接换快照。
@@ -326,10 +374,59 @@ cl_try()
     return 1
 }
 
+# 缓存池：跨轮复用的 RPM 池，只由文件名（NEVRA）认身份。池里已有的包不再
+# 从公网取，未完成的轮次也把已校验的包留在池内，于是「跨洋链路慢」只决定
+# 第一轮要多久，不决定每一轮都要重来（run 41023530128 的 2.5 GB 闭包以
+# 29 KiB/s 爬满 step 时限，正是每轮从零开始的结果）。
+#
+# 池本身作为 cost=1 的本地仓库参与同一次求解：EVRA 相同的包由本地提供，
+# 远端只需补齐差异，且最终下载目录 dl 里只有本轮事务的包——旧快照的包
+# 留在池里但不会进入载荷，NEVRA 混合的问题因此不因缓存而回归。
+cl_pool_init()
+{
+    local cfg="$1" n
+    [ -n "$CL_POOL" ] || return 0
+    mkdir -p "$CL_POOL" || return 1
+    n="$(find "$CL_POOL" -maxdepth 1 -type f -name '*.rpm' 2>/dev/null |
+        wc -l)"
+    [ "$n" -gt 0 ] || return 0
+    if ! createrepo_c --quiet --general-compress-type gz "$CL_POOL" \
+        >/dev/null 2>&1; then
+        printf 'closure: 缓存池索引失败，本轮不使用（%s）\n' "$CL_POOL" >&2
+        return 0
+    fi
+    {
+        printf '[airymax-pool]\nname=airymax-pool\n'
+        printf 'baseurl=file://%s\ncost=1\nenabled=1\ngpgcheck=0\n' "$CL_POOL"
+        printf 'metadata_expire=0\n'
+    } >"$cfg"
+    printf 'closure: 缓存池 %s 个 RPM 参与求解（%s）\n' "$n" "$CL_POOL"
+    return 0
+}
+
+cl_pool_keep()
+{
+    local dir="$1" rpm base kept=0
+    [ -n "$CL_POOL" ] || return 0
+    [ -d "$dir" ] || return 0
+    while IFS= read -r rpm; do
+        base="$(basename "$rpm")"
+        [ -f "${CL_POOL}/${base}" ] && continue
+        # 被 KILL 的 dnf 可能留下写了一半的包；摘要不符的包一旦进池，下一轮
+        # 会以「本地已有」为由跳过下载，把损坏带进载荷。
+        rpm -K --nosignature "$rpm" >/dev/null 2>&1 || continue
+        cp -p "$rpm" "${CL_POOL}/${base}" || continue
+        kept=$(( kept + 1 ))
+    done < <(find "$dir" -maxdepth 1 -type f -name '*.rpm' 2>/dev/null)
+    if [ "$kept" -gt 0 ]; then
+        printf 'closure: 缓存池新增 %d 个 RPM（共 %s）\n' "$kept" "$CL_POOL"
+    fi
+    return 0
+}
+
 cl_harvest()
 {
     local dl="$1" pkg="$2" rpm base
-    CL_NEW=0
     while IFS= read -r rpm; do
         base="$(basename "$rpm")"
         if [ -f "${pkg}/${base}" ]; then
@@ -365,8 +462,14 @@ closure_fetch()
     cl_roots
     closure_specs "$ks" || return 1
     cl_args "$arch" || return 1
+    # 池必须在求解前建好索引：reposdir 里所有 *.repo 都参与同一次求解，
+    # 池以 cost=1 优先提供已有 NEVRA，远端只补差异。
+    cl_pool_init "${work}/repos/pool.repo"
     cl_try "$ks" "$arch" "$pkg" "$work" "$log" || return 1
     cl_harvest "${work}/dl" "$pkg" || return 1
     cl_audit "${work}/dl" "$pkg" || return 1
+    # 本轮完整下完的包也入池：下一轮（换版本、换架构、重跑）不必再走
+    # 公网。放在审计之后，只有通过审计的事务才扩大池的可信集合。
+    cl_pool_keep "${work}/dl"
     rm -rf "${work}/root" "${work}/dl"
 }
