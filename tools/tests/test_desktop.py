@@ -17,6 +17,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
@@ -111,6 +112,84 @@ def parse_kv(path):
 
 def run(cmd):
     return subprocess.run(cmd, capture_output=True, text=True, check=False)
+
+
+# 运行段字段集是活体独有的部分；身份段与静态报告逐键相同，因此两模式的
+# 差集必须恰好等于这一组（D-35 的契约）。
+RUN_KEYS = {
+    "kernel.release", "kernel.owner", "session.type", "session.display",
+    "display.outputs", "desktop.ready", "boot.health", "rt.budget",
+    "mem.total_kb", "mem.avail_kb", "cpu.count", "root.used", "net.ipv4",
+}
+
+
+def identity_root(root):
+    """铺一份最小的身份文件树，供两份报告共用。"""
+    files = {
+        "usr/lib/os-release":
+            'ID=airymaxos\nVERSION_ID="0.0.3"\n'
+            'PRETTY_NAME="AirymaxOS 0.0.3 (OpenAirymax)"\n',
+        "etc/default/grub": 'GRUB_DISTRIBUTOR="AirymaxOS"\n',
+        "etc/hostname": "airymaxos\n",
+        "usr/share/backgrounds/airymaxos/airymaxos-default.jpg": "",
+        "usr/share/glib-2.0/schemas/"
+        "99-airymaxos-default.gschema.override": "",
+    }
+    for name in ("desktop_ready.sh", "airy_record.sh", "airy_observe.sh",
+                 "airy_bench.py", "airy_demo.py"):
+        files[f"usr/lib/airymaxos/desktop/{name}"] = ""
+    for rel, body in files.items():
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+    return root
+
+
+def keys_of(stdout):
+    found = set()
+    for line in stdout.splitlines():
+        head, _, rest = line.partition(" ")
+        if head != "AIRYMAX-OBSERVE":
+            continue
+        key, sep, _val = rest.partition("=")
+        if sep and key not in ("mode", "status"):
+            found.add(key)
+    return found
+
+
+# 观察点与测量的替身只用于验证 demo 的判据，不冒充真实实现：身份正确、
+# 展示项故意缺一项（net.ipv4），用来证明缺字段不会把结论拉成 degraded。
+OBSERVE_STUB = """\
+#!/bin/sh
+M=AIRYMAX-OBSERVE
+printf '%s os.id=airymaxos\\n' "$M"
+printf '%s os.pretty="AirymaxOS 0.0.3 (OpenAirymax)"\\n' "$M"
+printf '%s host.name=airymaxos\\n' "$M"
+printf '%s kernel.release=6.6.157-alk\\n' "$M"
+printf '%s kernel.owner=airymaxos-kernel\\n' "$M"
+printf '%s cpu.count=8\\n' "$M"
+printf '%s mem.total_kb=16000000\\n' "$M"
+printf '%s display.outputs=eDP-1\\n' "$M"
+printf '%s desktop.ready=active\\n' "$M"
+printf '%s boot.health=0\\n' "$M"
+printf '%s rt.budget=ok\\n' "$M"
+printf '%s mode=live fields=11\\n' "$M"
+printf '%s status=ok\\n' "$M"
+"""
+
+BENCH_STUB = """\
+import sys
+M = "AIRYMAX-BENCH"
+print(f"{M} host kernel=6.6.157-alk cpu=8 ops=2000")
+print(f"{M} pipe rtt_p50_us=2.8 rtt_p99_us=5.3 rate=338000")
+print(f"{M} stream rtt_p50_us=4.7 rtt_p99_us=8.1 rate=210000")
+print(f"{M} dgram rtt_p50_us=4.5 rtt_p99_us=7.9 rate=220000")
+print(f"{M} msgs kind=pipe count=400000 size=64 rate=470000")
+print(f"{M} bulk bytes=67108864 mib_s=6280")
+print(f"{M} fork procs=8 ops_per_proc=2000 rate=1130000 scale=3.36")
+print(f"{M} status=ok")
+sys.exit(0)
+"""
 
 
 class DesktopAssetTest(unittest.TestCase):
@@ -379,25 +458,7 @@ class DesktopAssetTest(unittest.TestCase):
         # 完整字段集，避免资产改名后「少一行」被读成「没有这一项」。
         script = self.asset("desktop/airy_observe.sh")
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            files = {
-                "usr/lib/os-release":
-                    'ID=airymaxos\nVERSION_ID="0.0.3"\n'
-                    'PRETTY_NAME="AirymaxOS 0.0.3 (OpenAirymax)"\n',
-                "etc/default/grub": 'GRUB_DISTRIBUTOR="AirymaxOS"\n',
-                "etc/hostname": "airymaxos\n",
-                "usr/share/backgrounds/airymaxos/airymaxos-default.jpg": "",
-                "usr/share/glib-2.0/schemas/"
-                "99-airymaxos-default.gschema.override": "",
-            }
-            for name in ("desktop_ready.sh", "airy_record.sh",
-                         "airy_observe.sh", "airy_bench.py",
-                         "airy_demo.py"):
-                files[f"usr/lib/airymaxos/desktop/{name}"] = ""
-            for rel, body in files.items():
-                path = root / rel
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(body, encoding="utf-8")
+            root = identity_root(Path(tmp))
             out = run(["sh", str(script), "--root", str(root), "--static"])
             self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
             lines = out.stdout.splitlines()
@@ -434,6 +495,60 @@ class DesktopAssetTest(unittest.TestCase):
                 self.assertIn(f"AIRYMAX-OBSERVE {key}=absent", lines)
             self.assertIn("AIRYMAX-OBSERVE mode=static fields=12", lines)
             self.assertEqual(lines[-1], "AIRYMAX-OBSERVE status=partial")
+
+    def test_observe_live_carries_identity(self):
+        # 身份段是两种模式共用的：装机后再也没有人跑 --static，而「这台机器
+        # 是谁」恰恰是活体现场最常被问的一项。活体必须先用同一份实现读身份
+        # 文件，再补运行段（D-35）。
+        script = self.asset("desktop/airy_observe.sh")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = identity_root(Path(tmp))
+            out = run(["sh", str(script), "--root", str(root)])
+            lines = out.stdout.splitlines()
+            for want in ("os.id=airymaxos", "os.version=0.0.3",
+                         "host.name=airymaxos",
+                         'os.pretty="AirymaxOS 0.0.3 (OpenAirymax)"',
+                         "brand.grub=AirymaxOS"):
+                self.assertIn(f"AIRYMAX-OBSERVE {want}", lines)
+            self.assertIn("AIRYMAX-OBSERVE mode=live fields=25", lines)
+            self.assertTrue(
+                any(line.startswith("AIRYMAX-OBSERVE kernel.release=")
+                    for line in lines))
+
+    def test_observe_modes_share_identity_keys(self):
+        # 两种模式的差集只能是运行段：身份键少一个就说明活体又退回了「身份
+        # 只在构建期可查」，多一个则说明同一事实被两个来源各写了一遍。
+        script = self.asset("desktop/airy_observe.sh")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = identity_root(Path(tmp))
+            static = keys_of(run(["sh", str(script), "--root", str(root),
+                                  "--static"]).stdout)
+            live = keys_of(run(["sh", str(script), "--root", str(root)]).stdout)
+        self.assertEqual(static - live, set())
+        self.assertEqual(live - static, RUN_KEYS)
+
+    def test_demo_judges_identity_by_value(self):
+        # 判据收紧（D-35）：展示项缺一两个只影响那一行，不能把品牌正确的
+        # 机器判成 degraded；真正的缺口是观察点跑不起来或测量失败。
+        demo = self.asset("desktop/airy_demo.py")
+        with tempfile.TemporaryDirectory() as tmp:
+            stage = Path(tmp)
+            shutil.copy2(demo, stage / "airy_demo.py")
+            (stage / "airy_observe.sh").write_text(
+                OBSERVE_STUB, encoding="utf-8")
+            (stage / "airy_bench.py").write_text(BENCH_STUB, encoding="utf-8")
+            ok = run([sys.executable, str(stage / "airy_demo.py"),
+                      "--no-sweep", "--plain"])
+            self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
+            self.assertIn("AIRYMAX-DEMO status=ok", ok.stdout)
+            self.assertIn("absent", ok.stdout)
+
+            (stage / "airy_bench.py").write_text(
+                "import sys\nsys.exit(1)\n", encoding="utf-8")
+            bad = run([sys.executable, str(stage / "airy_demo.py"),
+                       "--no-sweep", "--plain"])
+            self.assertNotEqual(bad.returncode, 0)
+            self.assertIn("AIRYMAX-DEMO status=degraded", bad.stdout)
 
     def test_record_check_reports_degraded(self):
         # 自检必须先给出证据再下结论：缺 ffmpeg 时提前退出，自动化只会
