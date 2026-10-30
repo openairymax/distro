@@ -432,6 +432,17 @@ class BuildDesktopTest(unittest.TestCase):
         self.assertIn("superuser privileges", res.stderr)
         self.assertNotIn("求解未完成", res.stderr)
 
+    def test_closure_fatal_reports_reason(self):
+        # dnf 的 Error 行只有一个冒号时，抬到控制台的必须是能指到具体包的
+        # 那一行，否则现场仍然看不出是哪条排除项把提供者删掉了。
+        self.tools()
+        self.stock()
+        res = self.build("--arch", "x86_64", "--closure",
+                         FAKE_DNF_MODE="blankerr", CLOSURE_WAIT="0")
+        self.assertEqual(res.returncode, 6)
+        self.assertIn("跳过重试", res.stderr)
+        self.assertIn("filtered out by exclude filtering", res.stderr)
+
     def test_closure_retries_link(self):
         self.tools()
         self.stock()

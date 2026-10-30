@@ -325,6 +325,11 @@ deny)
     # 三次再换根，控制台只剩「未完成」（B50 播种机首次收割的形态）。
     printf 'Error: This command has to be run with superuser privileges (under the root user on most systems).\\n' >&2
     exit 1 ;;
+blankerr)
+    # 依赖冲突：Error 行只有一个冒号，原因分行写在下面的 Problem 与
+    # filtered out 里。收割端要抬出能指到具体包的那一行，不是空冒号。
+    printf 'Error: \\n Problem 1: package setup-3.0-1.noarch requires system-release, but none of the providers can be installed\\n - package openEuler-release-24.03-1.x86_64 is filtered out by exclude filtering\\n' >&2
+    exit 1 ;;
 empty) exit 0 ;;
 slow) sleep "${FAKE_DNF_SLEEP:-2}" ;;
 hang)
