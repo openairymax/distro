@@ -458,8 +458,22 @@ cl_watch()
 # 退出且零下载，重试同一根只会复现同一行错误。此前这类失败被读成「求解
 # 未完成」，重试三次再换根，控制台只剩一句笼统的「未完成」，真实原因埋在
 # dnf 日志里（B50 播种机首次收割：每个根都只回一行 superuser 错误，六分钟
-# 才走到尽头，正是「卡点看不出是哪个问题」）。快速失败时把日志最后一条
-# Error 行抬到控制台，并跳过本根的重试。
+# 才走到尽头，正是「卡点看不出是哪个问题」）。快速失败时把日志里能定位到
+# 根因的那一行抬到控制台，并跳过本根的重试。
+# 依赖冲突时 dnf 的 Error 行往往只有一个冒号，真正的原因分行写在下面：
+# 「Problem N:」指出哪个包的依赖无解，「- package ... is filtered out by
+# exclude filtering」指出是哪条排除项把提供者删掉。控制台只给一行，取
+# 离根因最近的那一行；三者都没有才退回裸 Error 行。
+cl_reason()
+{
+    awk '
+        /^Error[:：][ \t]*[^ \t]/ { why = $0 }
+        /^[ \t]+- package .* is filtered out/ { filt = $0 }
+        /^ Problem [0-9]+:/ { prob = $0 }
+        END { print (why != "" ? why : (filt != "" ? filt : prob)) }
+    ' "$1" 2>/dev/null
+}
+
 cl_fatal()
 {
     local dl="$1" log="$2" el="$3" line
@@ -467,7 +481,7 @@ cl_fatal()
     [ "$el" -lt "$CL_FAST" ] || return 1
     [ -z "$(find "$dl" -maxdepth 1 -type f -name '*.rpm' -print -quit \
         2>/dev/null)" ] || return 1
-    line="$(grep -E '^Error[:：]' "$log" 2>/dev/null | tail -n 1)"
+    line="$(cl_reason "$log")"
     [ -n "$line" ] || return 1
     printf 'closure: %s 秒内失败且零下载，跳过重试：%s\n' "$el" "$line" >&2
     if [ "$(id -u)" -ne 0 ]; then
