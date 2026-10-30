@@ -72,6 +72,13 @@ class BuildIsoTest(unittest.TestCase):
         return self.run_script("--iso", str(self.base), "--ks", str(self.ks),
                                "--out", str(self.out), *args, **extra)
 
+    def member(self, iso, name):
+        raw = iso.read_bytes()
+        mark = f"=== /{name}\n".encode()
+        start = raw.index(mark) + len(mark)
+        end = raw.find(b"=== /", start)
+        return raw[start:end if end >= 0 else len(raw)]
+
     def make_base(self, app):
         img = bytearray(64 * 2048)
         off = 16 * 2048
@@ -187,6 +194,19 @@ class BuildIsoTest(unittest.TestCase):
         vol = int.from_bytes(raw[16 * 2048 + 80:16 * 2048 + 84], "little")
         self.assertEqual(len(raw), vol * 2048)
         self.assertRegex(appdata(raw), r"ISO MD5SUM = [0-9a-f]{32}")
+
+    def test_media_branded(self):
+        self.full()
+        res = self.build("--arch", "x86_64")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        iso = self.out / "airymaxos-0.0.3-x86_64.iso"
+        tree = self.member(iso, ".treeinfo")
+        self.assertIn(b"family = AirymaxOS", tree)
+        self.assertIn(b"name = AirymaxOS-0.0.3", tree)
+        self.assertIn(b"version = 0.0.3", tree)
+        self.assertNotIn(b"openEuler", tree)
+        self.assertIn(b"Welcome to AirymaxOS 0.0.3",
+                      self.member(iso, "isolinux/boot.msg"))
 
     def test_stale_appdata_replaced(self):
         stale = b"ISO MD5SUM = " + b"0" * 32 + b";SKIPSECTORS = 15;"

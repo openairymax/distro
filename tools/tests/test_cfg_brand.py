@@ -8,6 +8,8 @@
 # 判定：标题按产品名改写、default 指向含 inst.ks 且不含 rd.live.check 的
 # 安装项、Troubleshooting/Rescue 类条目不误改、重复执行幂等。内核行与
 # inst.ks=/LABEL= 必须逐字节保留，否则 kickstart 与 stage2 定位会失效。
+# 另外覆盖 .treeinfo 的品牌键改写与 boot.msg 的品牌串替换，二者同样要求
+# 其余内容逐字节不变、二次运行退出 3。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
 # Version: 0.0.3
@@ -63,6 +65,28 @@ menuentry 'Install openEuler 24.03-LTS-SP2' {
     linuxefi /vmlinuz inst.stage2=hd:LABEL=AIRYMAXOS
 }
 """
+
+TREEINFO = """\
+[general]
+timestamp = 1750912660.4513083
+family = openEuler
+version = 24.03-LTS-SP2
+name = openEuler-24.03-LTS-SP2
+variant = Server
+arch = x86_64
+packagedir = 
+
+[stage2]
+mainimage = images/install.img
+
+[images-x86_64]
+kernel = images/pxeboot/vmlinuz
+initrd = images/pxeboot/initrd.img
+efiboot.img = images/efiboot.img
+"""
+
+BOOTMSG = "\x0c \n\x18splash.lss\n\n -  Welcome to openEuler 24.03-LTS-SP2\n\n"
+BOOTMSG_PLAIN = "\x0c \n\x18splash.lss\n\n -  Press the \x0f01<ENTER>\x0f07 key\n\n"
 
 
 class CfgBrandTest(unittest.TestCase):
@@ -139,6 +163,42 @@ class CfgBrandTest(unittest.TestCase):
         res = self.brand(path)
         self.assertEqual(res.returncode, 1, res.stderr)
         self.assertEqual(path.read_text(encoding="utf-8"), NO_KS)
+
+    def test_treeinfo_brand(self):
+        path = self.make(TREEINFO, ".treeinfo")
+        res = self.brand(path)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("family = AirymaxOS", text)
+        self.assertIn("version = 0.0.3", text)
+        self.assertIn("name = AirymaxOS-0.0.3", text)
+        self.assertIn("variant = Server", text)
+        self.assertIn("mainimage = images/install.img", text)
+        self.assertIn("general.name=openEuler-24.03-LTS-SP2 -> AirymaxOS-0.0.3",
+                      res.stderr)
+
+    def test_treeinfo_idempotent(self):
+        path = self.make(TREEINFO, ".treeinfo")
+        self.assertEqual(self.brand(path).returncode, 0)
+        again = self.brand(path)
+        self.assertEqual(again.returncode, 3, again.stderr)
+        self.assertEqual(again.stderr, "")
+
+    def test_bootmsg_brand(self):
+        path = self.make(BOOTMSG, "boot.msg")
+        res = self.brand(path)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        text = path.read_text(encoding="utf-8")
+        self.assertTrue(text.startswith("\x0c \n\x18splash.lss\n"))
+        self.assertIn("Welcome to AirymaxOS 0.0.3", text)
+        self.assertNotIn("openEuler", text)
+        self.assertEqual(self.brand(path).returncode, 3)
+
+    def test_bootmsg_plain(self):
+        path = self.make(BOOTMSG_PLAIN, "boot.msg")
+        res = self.brand(path)
+        self.assertEqual(res.returncode, 3, res.stderr)
+        self.assertEqual(path.read_text(encoding="utf-8"), BOOTMSG_PLAIN)
 
     def test_usage_error(self):
         path = self.make(GRUB)

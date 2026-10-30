@@ -15,6 +15,12 @@
 # 定位，改坏即装机失败。改写前后整文件比对，只有真的变化才写回，同一文
 # 件重复执行幂等（第二次退出 3）。
 #
+# 介质还有两处底座暴露，按文件名分派到同一入口：ISO 根目录的 .treeinfo
+# 是 anaconda 填写安装源产品名的来源（[general] 的 family/name/version），
+# isolinux/boot.msg 则是老式 BIOS 欢迎文本。.treeinfo 按 INI 只改品牌键
+# 的值，其余行与顺序逐字节保留；boot.msg 只替换明确的底座品牌串，不重排
+# 版面。两者遵守同一份幂等契约。
+#
 # 用法：cfg_brand.py --product "AirymaxOS 0.0.3" FILE
 # 退出码：0 有改写；3 已合规（无变化）；1 无法解析或无法满足（缺 inst.ks
 #         安装项等）；2 用法错误。
@@ -43,6 +49,11 @@ LABEL_RE = re.compile(r"^label\s+(\S+)")
 ISOLINUX_HINT = re.compile(r"^\s*(label|append|menu (?:label|title))\b")
 APPEND_RE = re.compile(r"^\s*append\s")
 DEF_RE = re.compile(r"^default=(\S+)")
+SECT_RE = re.compile(r"^\[([^\]]+)\]")
+TREE_KEY = re.compile(r"^(\s*)([A-Za-z0-9_.-]+)(\s*=\s*)(.*)$")
+TREE_SEC = ("general", "release", "product")
+BASE_NAME = re.compile(r"openeuler", re.IGNORECASE)
+BASE_MSG = re.compile(r"openEuler(?:[- ][0-9][^\s,;:.]*)?")
 
 # 只认底座确实存在的三种标题；Troubleshooting 之类原样保留。
 TITLE_RULES = (
@@ -243,6 +254,86 @@ def detect(lines):
     return None
 
 
+def b_parts(product):
+    """把产品名拆成 (名称, 版本, 名称-版本)；无版本时后两项退化为原名。"""
+    name, _, ver = product.rpartition(" ")
+    if not name or not ver[:1].isdigit():
+        return product, "", product
+    return name, ver, f"{name}-{ver}"
+
+
+def t_val(key, value, brand):
+    """返回品牌键改写后的值；非品牌键或已合规时原样返回。"""
+    name, ver, slug = brand
+    if key == "version":
+        return ver or value
+    if key in ("family", "short"):
+        return name if BASE_NAME.search(value) else value
+    if key == "name" and BASE_NAME.search(value):
+        return slug if value.lower().startswith("openeuler-") else name
+    return value
+
+
+def t_key(line, sec, brand):
+    """改写一条 .treeinfo 键值行；无变化返回 None。"""
+    text = line.rstrip("\r\n")
+    m = TREE_KEY.match(text)
+    if not m:
+        return None
+    key = m.group(2).lower()
+    val = m.group(4)
+    tail = val[len(val.rstrip()):]
+    new = t_val(key, val.rstrip(), brand)
+    if new == val.rstrip():
+        return None
+    body = m.group(1) + m.group(2) + m.group(3) + new + tail
+    return body + eol(line), (f"{sec}.{key}={val.rstrip()}", new)
+
+
+def t_plan(lines, product):
+    """只改 general/release/product 段的品牌键，段名与其余行原样保留。"""
+    brand = b_parts(product)
+    sec = ""
+    out = list(lines)
+    changes = []
+    for pos, line in enumerate(lines):
+        m = SECT_RE.match(line)
+        if m:
+            sec = m.group(1).strip().lower()
+            continue
+        if sec not in TREE_SEC:
+            continue
+        hit = t_key(line, sec, brand)
+        if hit:
+            out[pos] = hit[0]
+            changes.append(hit[1])
+    return out, changes, None
+
+
+def bm_plan(lines, product):
+    """只替换 boot.msg 里明确的底座品牌串，行序与版面不动。"""
+    text = "".join(lines)
+    hits = BASE_MSG.findall(text)
+    if not hits:
+        return list(lines), [], None
+    out = BASE_MSG.sub(product, text)
+    return out.splitlines(True), [(hit, product) for hit in hits], None
+
+
+def dialect(path, lines):
+    """按文件名后缀分派介质类型，其余回落到引导配置方言判别。
+
+    后缀而非全等：回读校验把提取副本命名为 verify.<原名>，全等匹配会
+    让数据文件在幂等断言处退化成「无法识别」。
+    """
+    name = path.name
+    if name.endswith(".treeinfo"):
+        return t_plan
+    if name.endswith("boot.msg"):
+        return bm_plan
+    return detect(lines)
+
+
 def report(path, changes, dchg):
     """每个变化向 stderr 打一行。"""
     for old, new in changes:
@@ -253,7 +344,7 @@ def report(path, changes, dchg):
 
 def apply(path, raw, product):
     """生成改写计划；确有变化才写回。"""
-    plan = detect(raw.splitlines(keepends=True))
+    plan = dialect(path, raw.splitlines(keepends=True))
     if plan is None:
         print(f"cfg_brand: {path}: 无法识别引导配置或缺少 inst.ks 安装项",
               file=sys.stderr)
