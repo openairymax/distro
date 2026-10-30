@@ -40,16 +40,17 @@ clearpart --all --initlabel
 autopart --type=plain --fstype=ext4
 
 # ---- 网络 ----
-network --bootproto=dhcp --activate --hostname=airymaxos-min
+network --bootproto=dhcp --activate --hostname=AIRYMAX_PC
 
 # ---- 账户 ----
 # OS-OPS-009：口令只以 SHA-512 crypt 哈希落盘，禁止明文。最小系统启用 sshd，
 # 必须留下可远程接管的 wheel 账户，否则安装完成后无任何入口。
-# 交付口径（0.0.3 决策）：airymax 免密（ssh 侧由 airymaxos-release 的
+# 交付口径（0.0.3 决策）：Airymax 免密（ssh 侧由 airymaxos-release 的
 # /etc/ssh/sshd_config.d/50-airymax-sshd.conf 放行空口令），root 交付口令
-# 固定 00000000 且不强制首登改密。
+# 固定 00000000 且不强制首登改密。账户名与主机名的大小写是产品口径
+# （Airymax / AIRYMAX_PC），取值理由见 airymaxos-workstation.ks 账户段。
 rootpw --iscrypted $6$airy003root0x01$.lY1w9YA54iCwREQZCVZEoQ3xmCjcbkpWmWCrLciZeSNYA/T/6lkx4M2yFnhb13xBfbZLZQ64V01cSAkka1r30
-user --name=airymax --groups=wheel --iscrypted --password=$6$airy003user0x01$s1JW7QjW0kiAW7B51kVB2hNsabAadz4G/h6yBDRvpWzwsV7NO7Kh3ChDjLtapHZ6HGl5WoqNKi.IAY7IT5yRc/
+user --name=Airymax --groups=wheel --iscrypted --password=$6$airy003user0x01$s1JW7QjW0kiAW7B51kVB2hNsabAadz4G/h6yBDRvpWzwsV7NO7Kh3ChDjLtapHZ6HGl5WoqNKi.IAY7IT5yRc/
 
 # ---- 服务与防火墙 ----
 services --enabled=sshd,chronyd
@@ -156,10 +157,10 @@ rpm -q airymaxos-release >/dev/null 2>&1 || fail release-pkg
 [ -r /etc/system-release ] || fail system-release
 
 # 账户自检：没有可登录账户的安装介质不具备「OS 能运行」的前提
-# root 交付为固定口令（sha512 哈希），airymax 交付为空口令（empty）。
-passwd -d airymax || fail airymax-unlock
+# root 交付为固定口令（sha512 哈希），Airymax 交付为空口令（empty）。
+passwd -d Airymax || fail airymax-unlock
 acct_req root sha512 root-account
-acct_req airymax empty airymax-account
+acct_req Airymax empty airymax-account
 
 set_default multi-user.target
 

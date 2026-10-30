@@ -49,7 +49,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.3
-%global airy_release 23
+%global airy_release 24
 # 基底版本是显式输入，与 distro/repo/airymax-os.repo 及 kickstart 的
 # url/repo 行是三处同源表达。%%check 以本宏断言客户端配置，版本漂移在
 # 构建期失败，而不是等到装机后 dnf 报「找不到仓库」。
@@ -98,6 +98,7 @@ Source30:       airy_record.sh
 Source31:       airy_observe.sh
 Source32:       airy_bench.py
 Source33:       airy_demo.py
+Source34:       99-airymax-hostname.conf
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -197,6 +198,12 @@ install -m 0644 %{SOURCE16} \
 install -d -m 0750 %{buildroot}%{_sysconfdir}/sudoers.d
 install -m 0440 %{SOURCE21} \
     %{buildroot}%{_sysconfdir}/sudoers.d/90-airymax
+
+# 主机名的运行时来源：/etc/hostname 的产品名含下划线，systemd 读取时会按
+# RFC 1123 静默删除，故由 sysctl.d 在内核层写回（理由见该文件头注释）。
+install -d -m 0755 %{buildroot}%{_sysconfdir}/sysctl.d
+install -m 0644 %{SOURCE34} \
+    %{buildroot}%{_sysconfdir}/sysctl.d/99-airymax-hostname.conf
 
 # 锁屏策略与 sudo 策略是同一口径的两半：交付账户既能免密进桌面，就不能被
 # 空闲锁屏拦住。目录由 dconf 包拥有，这里只落键文件。
@@ -359,7 +366,7 @@ grep -qxF 'SESS_CLASSES="greeter user"' \
 bash -n %{buildroot}%{_datadir}/airymaxos/distro/desktop/70-airymax-ukui-policy.sh
 grep -qxF 'user-session=ukui' \
     %{buildroot}%{_sysconfdir}/lightdm/lightdm.conf.d/50-airymax.conf
-grep -qxF 'autologin-user=airymax' \
+grep -qxF 'autologin-user=Airymax' \
     %{buildroot}%{_sysconfdir}/lightdm/lightdm.conf.d/50-airymax.conf
 grep -qxF 'PermitEmptyPasswords yes' \
     %{buildroot}%{_sysconfdir}/ssh/sshd_config.d/50-airymax-sshd.conf
@@ -369,7 +376,12 @@ grep -qxF 'PermitEmptyPasswords yes' \
 test "$(stat -c %a %{buildroot}%{_sysconfdir}/sudoers.d/90-airymax)" = 440
 airy_rule=$(grep -v '^#' %{buildroot}%{_sysconfdir}/sudoers.d/90-airymax |
     sed '/^$/d')
-test "${airy_rule}" = 'airymax ALL=(ALL) NOPASSWD: ALL'
+test "${airy_rule}" = 'Airymax ALL=(ALL) NOPASSWD: ALL'
+# 主机名：/etc/hostname 由配方写入，产品名含下划线，systemd 会按 RFC 1123
+# 删除它，故运行时名由 sysctl.d 在内核层写回。两处都必须逐字断言，否则
+# 「装完主机名少一个下划线」只能等现场发现。
+grep -qxF 'kernel.hostname = AIRYMAX_PC' \
+    %{buildroot}%{_sysconfdir}/sysctl.d/99-airymax-hostname.conf
 # 锁屏策略：键名拼错或取值被改回 true 都不会让构建失败，只会在装机后以
 # 「每五分钟一次口令框」的形式出现，所以两个键都要逐字断言。
 airy_saver=%{buildroot}%{_sysconfdir}/dconf/db/local.d/00-airymax-screensaver
@@ -501,6 +513,7 @@ fi
 %config(noreplace) %{_sysconfdir}/ssh/sshd_config.d/50-airymax-sshd.conf
 %dir %attr(0750, root, root) %{_sysconfdir}/sudoers.d
 %config(noreplace) %attr(0440, root, root) %{_sysconfdir}/sudoers.d/90-airymax
+%config(noreplace) %{_sysconfdir}/sysctl.d/99-airymax-hostname.conf
 %config(noreplace) %{_sysconfdir}/dconf/db/local.d/00-airymax-screensaver
 %config(noreplace) %{_sysconfdir}/X11/xinit/xinitrc.d/70-airymax-im.sh
 %config(noreplace) %{_sysconfdir}/X11/xinit/xinitrc.d/60-airymax-display.sh
@@ -536,6 +549,16 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Thu Oct 30 2026 SPHARX <dev@spharx.com> - 0.0.3-24
+- Fix the delivery account name to Airymax and the machine name to
+  AIRYMAX_PC across kickstart, seat policy, sudo policy, site suffix and
+  smoke checks: the three assets disagreeing was the root cause of a
+  desktop that never auto-logged in on a renamed account
+- Ship /etc/sysctl.d/99-airymax-hostname.conf: systemd strips the
+  underscore from /etc/hostname per RFC 1123, so the runtime name is
+  written back at the kernel level after sysinit
+- Keep the smoke host expectation aligned with the recipe, so a hostname
+  drift fails the acceptance run instead of the field
 * Thu Oct 29 2026 SPHARX <dev@spharx.com> - 0.0.3-23
 - Ship airy-demo, a terminal-only overview that renders identity and IPC
   capability from airy-observe and airy-bench. It computes nothing itself:

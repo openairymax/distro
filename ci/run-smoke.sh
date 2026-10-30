@@ -9,7 +9,7 @@
 #
 # 环境:
 #   AIRYMAX_SMOKE_WAIT  守护进程就绪等待秒数（默认 30）
-#   AIRYMAX_SMOKE_HOST  期望的主机名（默认 airymaxos，即 workstation 配方值）
+#   AIRYMAX_SMOKE_HOST  期望的主机名（默认 AIRYMAX_PC，即配方值）
 #   AIRYMAX_SMOKE_ROOT  只读系统视图的根前缀（默认空，即真实 /）。T6–T16 读取
 #                       /boot、/sys、/etc 与 /usr/lib 下的发行版标识与资产，
 #                       单测在沙箱里用该前缀复核判定，装机现场保持默认值。
@@ -49,7 +49,7 @@ TARGET="${1:?usage: run-smoke.sh <target-id>}"
 WALLPAPER=/usr/share/backgrounds/airymaxos/airymaxos-default.jpg
 PAPER_SHA=fee7f439834ac7dacfc75deaf80a1db1c4bc7459583248eecc87125d52a5ef18
 START_WAIT="${AIRYMAX_SMOKE_WAIT:-30}"
-HOSTNAME_WANT="${AIRYMAX_SMOKE_HOST:-airymaxos}"
+HOSTNAME_WANT="${AIRYMAX_SMOKE_HOST:-AIRYMAX_PC}"
 SYSROOT="${AIRYMAX_SMOKE_ROOT:-}"
 
 PASS=0
@@ -425,7 +425,7 @@ t11_efi_brand() {
     }
 }
 
-# T12: 免密提权（airymax 交付为空口令，而空口令在 sudo 的 PAM 栈里不是可用
+# T12: 免密提权（Airymax 交付为空口令，而空口令在 sudo 的 PAM 栈里不是可用
 # 的交互凭据；缺了 NOPASSWD，装机后没有任何非交互提权路径，从桌面上却看不出
 # 异常。这里直接以交付账户身份试一次，不读配置文件）
 t12_passwordless() {
@@ -435,7 +435,7 @@ t12_passwordless() {
             echo "${f} missing"
             return 1
         }
-        grep -qxF 'airymax ALL=(ALL) NOPASSWD: ALL' "${f}" || {
+        grep -qxF 'Airymax ALL=(ALL) NOPASSWD: ALL' "${f}" || {
             echo "policy line absent in ${f}"
             return 1
         }
@@ -477,8 +477,8 @@ t13_passwordless_desktop() {
         "lock-enabled" || return 1
     expect "$(dconf read /org/ukui/screensaver/idle-lock-enabled 2>&1)" false \
         "idle-lock-enabled" || return 1
-    id -nG airymax 2>/dev/null | tr ' ' '\n' | grep -qxF nopasswdlogin || {
-        echo "airymax not in nopasswdlogin"
+    id -nG Airymax 2>/dev/null | tr ' ' '\n' | grep -qxF nopasswdlogin || {
+        echo "Airymax not in nopasswdlogin"
         return 1
     }
 }

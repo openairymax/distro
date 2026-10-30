@@ -113,17 +113,23 @@ mark "AIRYMAX-DISK-OK disk=${disk} bytes=${best_size}"
 %include /tmp/airymax-disk.ks
 
 # ---- 网络 ----
-network --bootproto=dhcp --activate --hostname=airymaxos
+network --bootproto=dhcp --activate --hostname=AIRYMAX_PC
 
 # ---- 账户 ----
 # OS-OPS-009：口令只以 SHA-512 crypt 哈希落盘，禁止明文。
-# 交付口径（0.0.3 决策）：airymax 免密（本地座位自动登录 + SSH 空口令 +
+# 交付口径（0.0.3 决策）：Airymax 免密（本地座位自动登录 + SSH 空口令 +
 # 控制台空口令），root 交付口令固定 00000000 且不再强制首登改密。安装没有
 # 交互建号环节，账户必须在安装结束后即可登录，否则 UKUI 与控制台都无入口。
 # 空口令由 %post 的 passwd -d 落地（见下），ssh 侧由 airymaxos-release
 # 提供的 /etc/ssh/sshd_config.d/50-airymax-sshd.conf 放行。
+#
+# 账户名与主机名的大小写是产品口径（Airymax / AIRYMAX_PC），不是笔误：
+# shadow-utils 接受大写账户名（B50 实测 useradd AirymaxTmp 返回 0），而
+# systemd 读取 /etc/hostname 时会按 RFC 1123 过滤掉下划线，故主机名另由
+# /etc/sysctl.d/99-airymax-hostname.conf 在 sysinit 后写回，见 boot/ 下的
+# 同名文件头注释。
 rootpw --iscrypted $6$airy003root0x01$.lY1w9YA54iCwREQZCVZEoQ3xmCjcbkpWmWCrLciZeSNYA/T/6lkx4M2yFnhb13xBfbZLZQ64V01cSAkka1r30
-user --name=airymax --groups=wheel --iscrypted --password=$6$airy003user0x01$s1JW7QjW0kiAW7B51kVB2hNsabAadz4G/h6yBDRvpWzwsV7NO7Kh3ChDjLtapHZ6HGl5WoqNKi.IAY7IT5yRc/
+user --name=Airymax --groups=wheel --iscrypted --password=$6$airy003user0x01$s1JW7QjW0kiAW7B51kVB2hNsabAadz4G/h6yBDRvpWzwsV7NO7Kh3ChDjLtapHZ6HGl5WoqNKi.IAY7IT5yRc/
 
 # ---- 包组 ----
 # --nocore 关闭 anaconda 隐式追加的 @core（selection.core_group_enabled
@@ -392,23 +398,23 @@ rpm -q airymaxos-release >/dev/null 2>&1 || fail release-pkg
 rpm -q airymaxos-system >/dev/null 2>&1 || fail system-pkg
 
 # 3) 账户自检：没有可登录账户的安装介质不具备「OS 能运行」的前提
-#    root 交付为固定口令（sha512 哈希），airymax 交付为空口令（empty）。
+#    root 交付为固定口令（sha512 哈希），Airymax 交付为空口令（empty）。
 #    空口令只能完成登录，不能作为 sudo 的交互凭据，因此同一步还要确认
 #    airymaxos-release 的 NOPASSWD 策略确实落盘：策略缺失时装机后没有
 #    任何提权路径，而这一点在图形界面上看不出来。
-passwd -d airymax || fail airymax-unlock
+passwd -d Airymax || fail airymax-unlock
 acct_req root sha512 root-account
-acct_req airymax empty airymax-account
+acct_req Airymax empty airymax-account
 sudoers=/etc/sudoers.d/90-airymax
 [ -f "${sudoers}" ] || fail sudo-policy-missing
 [ "$(stat -c %a "${sudoers}")" = 440 ] || fail sudo-policy-mode
-grep -qxF 'airymax ALL=(ALL) NOPASSWD: ALL' "${sudoers}" || fail sudo-policy-line
+grep -qxF 'Airymax ALL=(ALL) NOPASSWD: ALL' "${sudoers}" || fail sudo-policy-line
 #    greeter 与锁屏的 PAM 栈第一条都是
 #    pam_succeed_if.so user ingroup nopasswdlogin：账户不在该组时两者都会继续
 #    走到 pam_unix 并弹出对话框。组由基础发行版预置，这里只补成员。
 groupadd -f nopasswdlogin 2>/dev/null || :
-usermod -aG nopasswdlogin airymax || fail airymax-group
-id -nG airymax | tr ' ' '\n' | grep -qxF nopasswdlogin ||
+usermod -aG nopasswdlogin Airymax || fail airymax-group
+id -nG Airymax | tr ' ' '\n' | grep -qxF nopasswdlogin ||
     fail airymax-group
 #    空口令账户配空闲锁屏只会制造口令框：锁屏策略必须与免密登录同口径落盘。
 saver=/etc/dconf/db/local.d/00-airymax-screensaver
@@ -428,7 +434,7 @@ set_default graphical.target
 #    按文件内容断言，而不是只认 lightdm.service 起没起。
 seat=/etc/lightdm/lightdm.conf.d/50-airymax.conf
 [ -f "${seat}" ] || fail lightdm-seat-missing
-grep -qxF 'autologin-user=airymax' "${seat}" || fail lightdm-autologin
+grep -qxF 'autologin-user=Airymax' "${seat}" || fail lightdm-autologin
 
 # 5) 启用边界由本段确定性收口。presets/ 是默认关闭策略：自有单元显式
 #    disable，99-airymax-default-disable.preset 以 `disable *` 兜底，避免

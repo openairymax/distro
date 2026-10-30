@@ -280,9 +280,9 @@ class DesktopAssetTest(unittest.TestCase):
         self.assertNotIn("type", conf["Seat:*"])
 
     def test_lightdm_autologin(self):
-        # 0.0.3 口径：本地座位以 airymax 自动登录，与 shadow 空口令一致
+        # 0.0.3 口径：本地座位以 Airymax 自动登录，与 shadow 空口令一致
         conf = parse_kv(self.asset("desktop/lightdm/50-airymax.conf"))
-        self.assertEqual(conf["Seat:*"]["autologin-user"], "airymax")
+        self.assertEqual(conf["Seat:*"]["autologin-user"], "Airymax")
         self.assertEqual(conf["Seat:*"]["autologin-session"], "ukui")
         self.assertEqual(conf["Seat:*"]["autologin-user-timeout"], "0")
 
@@ -310,7 +310,7 @@ class DesktopAssetTest(unittest.TestCase):
             encoding="utf-8")
         rules = [line for line in text.splitlines()
                  if line.strip() and not line.startswith("#")]
-        self.assertEqual(rules, ["airymax ALL=(ALL) NOPASSWD: ALL"])
+        self.assertEqual(rules, ["Airymax ALL=(ALL) NOPASSWD: ALL"])
         spec = SPEC.read_text(encoding="utf-8")
         self.assertIn(
             "install -m 0440 %{SOURCE21} \\\n"
@@ -318,6 +318,20 @@ class DesktopAssetTest(unittest.TestCase):
         self.assertIn(
             "%config(noreplace) %attr(0440, root, root) "
             "%{_sysconfdir}/sudoers.d/90-airymax", spec)
+
+    def test_hostname_runtime_source(self):
+        # /etc/hostname 的产品名含下划线，systemd 读取时按 RFC 1123 删除它，
+        # 运行时名只能由 sysctl.d 在内核层写回；有效行必须唯一且逐字一致
+        text = self.asset("boot/99-airymax-hostname.conf").read_text(
+            encoding="utf-8")
+        rules = [line for line in text.splitlines()
+                 if line.strip() and not line.startswith("#")]
+        self.assertEqual(rules, ["kernel.hostname = AIRYMAX_PC"])
+        spec = SPEC.read_text(encoding="utf-8")
+        self.assertIn("Source34:       99-airymax-hostname.conf", spec)
+        self.assertIn(
+            "%config(noreplace) %{_sysconfdir}/sysctl.d/"
+            "99-airymax-hostname.conf", spec)
 
     def test_screensaver_policy_disables_idle_lock(self):
         # 锁屏策略与 sudo 策略是免密口径的两半：键名拼错或取值回退到 true
