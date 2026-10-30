@@ -90,12 +90,13 @@
 #                    实际求解成功的镜像根留在 WORK/mirror-root.txt。
 #   closure_specs    从配方填充 CL_SPECS/CL_EXCL，供测试单独调用。
 #   closure_lock     清单文件路径（CLOSURE_LOCK），空串表示不重放也不写。
-#   CLOSURE_SKIP     空格分隔的包 glob，只在在线求解时作为 dnf --exclude
-#                    参与求解。没有自建 RPM 的收割机上，配方点名的
-#                    airymaxos-* 远端并不存在，只能用 airymax* 这类排除项
-#                    让事务成立；排除项下的包不在事务里，因此非空时禁止写
-#                    闭包清单。离线重放按清单 NEVRA 点名、审计只看事务内
-#                    文件，两者都不受排除项影响。
+#   CLOSURE_SKIP     空格分隔的包 glob，只在在线求解时生效：命中 glob 的
+#                    规格先从安装参数里摘掉，再作为 dnf --exclude 参与求解。
+#                    没有自建 RPM 的收割机上，配方点名的 airymaxos-* 远端
+#                    并不存在，光给 --exclude 不够（exclude 过滤可选项，对
+#                    点名要装的包仍报 Unable to find a match）。排除项下的
+#                    包不在事务里，因此非空时禁止写闭包清单。离线重放按清单
+#                    NEVRA 点名、审计只看事务内文件，两者都不受排除项影响。
 #
 # 退出码：0 表示事务内全部 RPM 已落盘并通过审计；非 0 时调用方据此
 # 判定构建失败，不得带病产出镜像。
@@ -293,15 +294,41 @@ cl_boot()
 
 cl_args()
 {
-    local list spec
-    local -a excl=("${CL_EXCL[@]}")
+    local list spec glob keep
+    local -a excl=()
     cl_boot "$1" || return 1
-    CL_ARGS=("${CL_SPECS[@]}" "${CL_BOOT[@]}")
+    # 排除项之下的包不在事务里。显式点名的规格光靠 --exclude 不够：dnf 的
+    # exclude 过滤的是可选项，对点名要装的包仍报「Unable to find a match」，
+    # 正是播种机首次收割的失败行。因此先用 glob 把规格摘掉，再让排除项参与
+    # 求解，防止依赖把同一批包拉回来。
+    CL_ARGS=()
+    for spec in "${CL_SPECS[@]}" "${CL_BOOT[@]}"; do
+        keep=1
+        # shellcheck disable=SC2086  # 跳过项按空白切分，glob 由 case 展开
+        for glob in ${CLOSURE_SKIP:-}; do
+            case "$spec" in
+            $glob) keep=0 ;;
+            esac
+        done
+        [ "$keep" -eq 1 ] && CL_ARGS+=("$spec")
+    done
+    for spec in "${CL_EXCL[@]}"; do
+        # 配方的 release 排除项是为了避免与自建的 airymaxos-release 争用
+        # system-release；播种模式下自建包整体缺席，这条排除反而让 setup
+        # 的依赖无解（B50 实测：openEuler-release 被 exclude 过滤掉）。
+        # kernel 与 kylin-ai 的排除只收缩事务，不会使依赖无解，两种模式都留。
+        if [ -n "${CLOSURE_SKIP:-}" ]; then
+            case "$spec" in
+            *release*) continue ;;
+            esac
+        fi
+        excl+=("$spec")
+    done
     # 排除项合并成一条 --exclude：dnf 对多次出现的 --exclude 只认最后一条，
     # 分开发会把配方自带的排除项丢掉。
-    # shellcheck disable=SC2086
-    for spec in ${CLOSURE_SKIP:-}; do
-        excl+=("$spec")
+    # shellcheck disable=SC2086  # 跳过项按空白切分
+    for glob in ${CLOSURE_SKIP:-}; do
+        excl+=("$glob")
     done
     list="$(IFS=,; printf '%s' "${excl[*]}")"
     if [ -n "$list" ]; then
