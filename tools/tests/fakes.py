@@ -758,6 +758,7 @@ field()
     ActiveState) printf '%s\\n' "${FAKE_ACTIVE_STATE:-active}" ;;
     SubState) printf '%s\\n' "${FAKE_SUB_STATE:-running}" ;;
     Result) printf '%s\\n' "${FAKE_RESULT:-success}" ;;
+    InvocationID) printf '%s\\n' "${FAKE_INVOCATION:-}" ;;
     NRestarts) printf '%s\\n' "${FAKE_NRESTARTS:-0}" ;;
     MainPID) printf '%s\\n' "${FAKE_MAIN_PID:-0}" ;;
     *) return 1 ;;
