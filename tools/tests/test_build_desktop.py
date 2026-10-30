@@ -163,6 +163,24 @@ class BuildDesktopTest(unittest.TestCase):
         return (self.out / "closure" / "mirror-root.txt").read_text(
             encoding="utf-8").strip()
 
+    def lock_of(self, pool, path):
+        """按池内容写一份闭包清单：sha256、文件名、NEVRA。
+
+        文件名去掉 .rpm 就是 NEVRA（伪 RPM 的命名即 name-ver-rel.arch），
+        与 cl_lock_write 从 rpm -qp 取到的一致。
+        """
+        lines = []
+        for rpm in sorted(pool.glob("*.rpm")):
+            digest = hashlib.sha256(rpm.read_bytes()).hexdigest()
+            lines.append("%s  %s  %s\n" % (digest, rpm.name, rpm.name[:-4]))
+        path.write_text("".join(lines), encoding="utf-8")
+        return path
+
+    def build_into(self, out, *args, **extra):
+        return self.run_script("--iso", str(self.base), "--ks", str(KS),
+                               "--out", str(out), "--rpms", str(self.rpms),
+                               *args, **extra)
+
     def test_help(self):
         self.tools()
         res = self.run_script("--help")
@@ -279,6 +297,59 @@ class BuildDesktopTest(unittest.TestCase):
         self.assertIn("@airymax-desktop-core", specs)
         self.assertIn("@airymax-desktop ", specs)
         self.assertNotIn("@^", specs)
+
+    def test_closure_replays_lock(self):
+        """池与清单吻合时完全离线重放：不取远端元数据，也不按组求解。"""
+        self.tools()
+        self.stock()
+        pool = self.root / "pool"
+        first = self.build("--arch", "x86_64", "--closure",
+                           CLOSURE_POOL=str(pool))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        lock = self.lock_of(pool, self.root / "closure.lock")
+        out = self.root / "replay"
+        out.mkdir()
+        res = self.build_into(out, "--arch", "x86_64", "--closure",
+                              "--closure-lock", str(lock),
+                              CLOSURE_POOL=str(pool))
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("离线重放命中", res.stdout)
+        log = (out / "logs" / "closure.log").read_text(encoding="utf-8")
+        self.assertIn("离线重放", log)
+        self.assertNotIn("求解尝试", log)
+        manifest = (out / "payload" / "airymax" /
+                    "payload-manifest.txt").read_text(encoding="utf-8")
+        self.assertIn(f"count={TOTAL}", manifest)
+
+    def test_closure_lock_gap_falls_back(self):
+        """池缺一项就回落在线求解：带病的重放比慢一轮危险得多。"""
+        self.tools()
+        self.stock()
+        pool = self.root / "pool"
+        first = self.build("--arch", "x86_64", "--closure",
+                           CLOSURE_POOL=str(pool))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        lock = self.lock_of(pool, self.root / "closure.lock")
+        victim = sorted(pool.glob("*.rpm"))[0]
+        victim.unlink()
+        out = self.root / "online"
+        out.mkdir()
+        res = self.build_into(out, "--arch", "x86_64", "--closure",
+                              "--closure-lock", str(lock),
+                              CLOSURE_POOL=str(pool), CLOSURE_WAIT="0")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("池缺", res.stderr)
+        manifest = (out / "payload" / "airymax" /
+                    "payload-manifest.txt").read_text(encoding="utf-8")
+        self.assertIn(f"count={TOTAL}", manifest)
+
+    def test_closure_lock_needs_closure(self):
+        self.tools()
+        self.stock()
+        lock = self.root / "closure.lock"
+        lock.write_text("", encoding="utf-8")
+        self.assertEqual(
+            self.build("--closure-lock", str(lock)).returncode, 5)
 
     def test_closure_off_by_default(self):
         self.tools()
