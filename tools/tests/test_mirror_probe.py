@@ -55,16 +55,17 @@ def serve(root):
     return "http://127.0.0.1:%d" % httpd.server_address[1], stop
 
 
-def stage(root, payload=0):
+def stage(root, payload=0, ext="gz"):
     """写一个 update 仓库的元数据目录；payload=0 表示不写主索引（不可用根）。"""
     meta = Path(root) / "update" / "x86_64" / "repodata"
     meta.mkdir(parents=True, exist_ok=True)
     if not payload:
         return
-    (meta / "h-primary.xml.gz").write_bytes(b"x" * payload)
+    name = "h-primary.xml.%s" % ext
+    (meta / name).write_bytes(b"x" * payload)
     (meta / "repomd.xml").write_text(
         '<repomd><data type="primary"><location href='
-        '"repodata/h-primary.xml.gz"/></data></repomd>', encoding="utf-8")
+        '"repodata/%s"/></data></repomd>' % name, encoding="utf-8")
 
 
 class MirrorProbeTest(unittest.TestCase):
@@ -110,6 +111,20 @@ class MirrorProbeTest(unittest.TestCase):
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertEqual(res.stdout.split(), [fast])
         self.assertIn(dead, res.stderr)
+
+    def test_samples_zst_primary_index(self):
+        """24.03-SP2 的 repodata 只发布 .zst，探测必须仍取到样本。"""
+        stage(self.root / "z", payload=1 << 18, ext="zst")
+        (self.root / "b").mkdir()
+        base, stop = serve(self.root)
+        self.addCleanup(stop)
+        res = self.cli("--timeout", "5", "--span", "65536", "--floor", "1",
+                       base + "/b", base + "/z")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(res.stdout.split(), [base + "/z"])
+        line = [row for row in res.stderr.splitlines() if row.endswith("/z")]
+        self.assertEqual(len(line), 1, res.stderr)
+        self.assertNotIn("(repomd)", line[0])
 
     def test_all_below_floor_still_picks_one(self):
         stage(self.root / "a", payload=1 << 18)

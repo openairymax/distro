@@ -9,10 +9,10 @@
 # 日志里只有「速率低于下限」，没有一行数字说明谁快谁慢）。
 #
 # 探测在求解之前做一次定长抽样，把「先试谁」从书写顺序改为实测吞吐。
-# 抽样对象是该根 update 仓库的 primary.xml.gz：求解必须先拿到它，它也是
-# 整段事务里第一个大件。元数据文件名带内容哈希，各根不一定相同，因此
-# 先从 repomd.xml 读出真实路径再取首段；Range 只取前 1 MiB，超时即按已读
-# 字节折算速率——被限速的根给不出更多数据，正是要测的量。
+# 抽样对象是该根 update 仓库的主索引（primary.xml.gz 或 primary.xml.zst）：
+# 求解必须先拿到它，它也是整段事务里第一个大件。元数据文件名带内容哈希，
+# 各根不一定相同，因此先从 repomd.xml 读出真实路径再取首段；Range 只取前
+# 1 MiB，超时即按已读字节折算速率——被限速的根给不出更多数据，正是要测的量。
 #
 # 用法：
 #   mirror_probe.py [--timeout S] [--floor KIB] [--span BYTES] ROOT...
@@ -35,11 +35,14 @@ UA = {"User-Agent": "airy-closure-probe"}
 REPO = "update/x86_64"
 SPAN = 1 << 20
 CHUNK = 1 << 16
-HREF = re.compile(r'href="([^"]*primary\.xml\.gz)"')
+# 主索引的压缩格式随镜像演进：openEuler 24.03-SP2 已把 repodata 换成
+# primary.xml.zst，仍按 .gz 匹配会让每个根都取不到样本、全部记为 0 KiB/s，
+# 排序退回书写顺序——探测静默失效，日志里只看到「速率低于下限」。
+HREF = re.compile(r'href="([^"]*primary\.xml\.(?:gz|zst))"')
 
 
 def meta_of(root, timeout):
-    """返回该根 primary.xml.gz 的地址；取不到 repomd 时返回空串。"""
+    """返回该根主索引的地址；取不到 repomd 时返回空串。"""
     base = root.rstrip("/")
     url = "%s/%s/repodata/repomd.xml" % (base, REPO)
     try:
