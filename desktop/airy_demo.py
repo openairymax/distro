@@ -288,21 +288,21 @@ def selfcheck() -> int:
 def hints() -> None:
     # 每行都能被单独复算：前六行取上方同一批字段，后四行是同一事实的标准
     # 工具入口。展示完就给出复算方法，读的人不必相信这段输出，也不必记住
-    # 命令。
-    title("复算入口（逐行可执行，前六行与上方字段同源）")
-    for line in (
-        "airy-observe --section kernel   内核归属/构建/模块/命令行",
-        "airy-observe --section os       发行版/包数/SELinux",
-        "airy-observe --section boot     固件/GRUB/默认 target/启动耗时",
-        "airy-observe --section net      地址/网关/DNS/链路",
-        "airy-observe --section sched    loadavg/实时预算/时钟节拍",
-        "airy-bench --ops 20000          原始分位与并发标度",
-        "rpm -qf /boot/vmlinuz-$(uname -r)   内核包归属（kernel.owner）",
-        "systemd-analyze                     启动耗时（boot.total）",
-        "systemctl list-units --failed       失败单元（boot.failed）",
-        "airy-record --tty -- airy-demo      终端会话可回放录制",
+    # 命令。命令列宽固定，长命令溢出时靠一格空格分隔，不挤掉说明。
+    title("复算入口（逐行可执行，与上方输出同源）")
+    for cmd, desc in (
+        ("airy-observe --section kernel", "内核归属/构建/模块/命令行"),
+        ("airy-observe --section os", "发行版/包数/SELinux"),
+        ("airy-observe --section boot", "固件/GRUB/默认 target/启动耗时"),
+        ("airy-observe --section net", "地址/网关/DNS/链路"),
+        ("airy-observe --section sched", "loadavg/实时预算/时钟节拍"),
+        ("airy-bench --ops 20000", "原始分位与并发标度"),
+        ("rpm -qf /boot/vmlinuz-$(uname -r)", "内核包归属 kernel.owner"),
+        ("systemd-analyze", "启动耗时 boot.total"),
+        ("systemctl list-units --failed", "失败单元 boot.failed"),
+        ("airy-record --tty -- airy-demo", "终端会话可回放录制"),
     ):
-        print("  " + paint(line, "2"))
+        print("  " + paint(f"{cmd:<34} {desc}", "2"))
 
 
 def main() -> int:
