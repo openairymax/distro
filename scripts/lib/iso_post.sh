@@ -16,10 +16,13 @@
 # 处理顺序不可调换：isohybrid 对齐会改写前 64 KiB 的分区表扇区，先注入
 # 校验块会把改写后的字节算进旧摘要，rd.live.check 因而必然失败。
 #
-# 菜单品牌化（iso_cfg_brand）必须排在 hybrid 之前：它要用 xorriso 重新打包
-# 一次，El Torito 条目的逻辑块号会随之前移，故品牌化发生时强制走 isohybrid
-# --sync 重写 MBR/GPT，再由 hybrid 复核，最后才注入校验块。iso_cfg_brand
-# 返回 77 表示所有引导配置与介质元数据都已合规、无需重新打包。
+# 几何修复（iso_post_fix）必须排在 hybrid 之前且无条件执行：mkksiso 本身
+# 就以 xorriso 重排镜像，无需品牌化也已经让 El Torito 逻辑块号前移，而
+# MBR/GPT 仍是旧扇区号。此前只在品牌化确实写回时才修复，品牌化已合规
+# （返回 77）的镜像会带着超界的旧分区表通过后续校验（run 41086804840：
+# MBR 起始扇区 1837799 超出可读块 1836864），USB 盘方式引导静默失败。
+# 修复是幂等的：三元已一致时 --sync 直接判定 ok 而不改字节。iso_cfg_brand
+# 返回 77 只表示引导配置与介质元数据都已合规、无需重新打包。
 #
 # 除 grub.cfg/isolinux.cfg 外，同一流程还覆盖 .treeinfo（anaconda 的安装源
 # 产品名）与 isolinux/boot.msg。两者是数据文件，不走 inst.ks 断言，但回读
@@ -246,8 +249,9 @@ iso_post_hybrid()
 }
 
 # iso_post_fix <iso> <work>
-# 重新打包会把 El Torito 条目的逻辑块号前移，而 MBR/GPT 仍是旧扇区号；
-# 派生路径必须先按 El Torito 真值改写分区表，再走一致性判定。
+# 重新打包会把 El Torito 条目的逻辑块号前移，而 MBR/GPT 仍是旧扇区号。
+# 重打包不只发生在品牌化：mkksiso 与站点派生同样如此，故本步不看调用方
+# 是否改写过配置，一律按 El Torito 真值对齐一次，再由 hybrid 复核。
 iso_post_fix()
 {
     local iso="$1" work="$2" rc=0 log="${work}/logs/isohybrid.log"
@@ -284,17 +288,16 @@ iso_post_md5()
     return 0
 }
 
-# iso_post <iso> <ks> <volid> <work> [--no-md5] [--fix] [--product NAME]
+# iso_post <iso> <ks> <volid> <work> [--no-md5] [--product NAME]
 iso_post()
 {
     local iso="$1" ks="$2" volid="$3" work="$4"
     shift 4
-    local opt got md5=1 fix=0 product="" rc=0
+    local opt got md5=1 product="" rc=0
     while [ $# -gt 0 ]; do
         opt="$1"
         case "${opt}" in
         --no-md5) md5=0; shift ;;
-        --fix) fix=1; shift ;;
         --product)
             if [ $# -lt 2 ]; then
                 iso_post_log "--product 缺少参数"
@@ -323,15 +326,11 @@ iso_post()
     iso_post_cfg "${iso}" "${volid}" "${work}" || return 1
     if [ -n "${product}" ]; then
         iso_cfg_brand "${iso}" "${product}" "${work}" || rc=$?
-        case "${rc}" in
-        0) fix=1 ;;
-        77) ;;
-        *) return 1 ;;
-        esac
+        if [ "${rc}" -ne 0 ] && [ "${rc}" -ne 77 ]; then
+            return 1
+        fi
     fi
-    if [ "${fix}" -eq 1 ]; then
-        iso_post_fix "${iso}" "${work}" || return 1
-    fi
+    iso_post_fix "${iso}" "${work}" || return 1
     iso_post_hybrid "${iso}" "${work}" || return 1
     if [ "${md5}" -eq 1 ]; then
         iso_post_md5 "${iso}" "${work}" || return 1

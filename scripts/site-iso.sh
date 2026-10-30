@@ -11,8 +11,8 @@
 # 两条腿共用后处理链的理由是实机故障：重新打包后 El Torito 条目的逻辑
 # 块号前移，MBR/GPT 仍是旧扇区号，USB 盘方式引导会读到机器码而静默回落
 # BootOrder 首位；同时 PVD 应用数据区里的旧校验记录会让默认菜单的
-# rd.live.check 误报介质损坏。派生路径因此必须以 --fix 对齐分区表，并在
-# 对齐之后才注入校验块。
+# rd.live.check 误报介质损坏。分区表对齐由后处理链统一完成，派生路径不在
+# 调用侧另加开关。
 #
 # 产物契约（190-distribution/03-installer-design.md §7.4）：
 #   - /ks.cfg 与派生配方逐字节一致；
@@ -225,7 +225,7 @@ pad_iso()
 
 post_iso()
 {
-    local -a flags=(--fix)
+    local -a flags=()
     if [ "$MD5" -ne 1 ]; then
         flags+=(--no-md5)
     fi
