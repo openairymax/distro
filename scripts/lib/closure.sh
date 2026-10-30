@@ -46,6 +46,13 @@
 # 传输仍在推进时，静默判据永远不会触发，因此另设窗口速率下限，低于下限
 # 同样换根（CLOSURE_FLOOR，见 cl_watch）。
 #
+# 先试哪个根不再取决于镜像表的书写顺序：求解前用 tools/mirror_probe.py 对
+# 每个根做一次定长抽样，按实测吞吐降序排列并丢掉不达标的根（cl_probe）。
+# 行序是人工维护的，与此刻哪台主机快无关，按行序尝试等于把最慢的根放在
+# 第一位，而每一根都要花掉数分钟才轮到下一根（run 41039410608 三根共耗
+# 15 分钟，日志里没有一行数字）。探测是优化而非前提：取不到样本时保持
+# 原序继续，CLOSURE_PROBE=0 可整体关闭。
+#
 # 跨轮复用走缓存池（CLOSURE_POOL 指向的目录）：池内 RPM 由本地仓库以
 # cost=1 参与同一次求解，远端只补差异；未完成的轮次也会把已校验的包留进
 # 池里。于是「链路慢」只决定第一轮要多久，不决定每一轮都从零再走一遍。
@@ -83,6 +90,9 @@ readonly CL_WARM="${CLOSURE_WARMUP:-180}"
 readonly CL_SAMPLE="${CLOSURE_SAMPLE:-120}"
 readonly CL_POOL="${CLOSURE_POOL:-}"
 readonly CL_MIRROR_LIST="${CL_ROOT}/repo/mirrors.list"
+readonly CL_PROBE="${CLOSURE_PROBE:-1}"
+readonly CL_PROBE_TOOL="${CLOSURE_PROBE_TOOL:-${CL_ROOT}/tools/mirror_probe.py}"
+readonly CL_PTIME="${CLOSURE_PROBE_TIME:-8}"
 readonly -a CL_DNF_OPTS=(
     --setopt=strict=1
     --setopt=max_parallel_downloads=4
@@ -98,6 +108,7 @@ CL_BOOT=()
 CL_NEW=0
 CL_MIRRORS=()
 CL_ROOTS=()
+CL_CANON=""
 CL_STALLED=0
 CL_SLOW=0
 
@@ -125,19 +136,45 @@ cl_init_mirrors()
     fi
 }
 
-# 把配方里的源改写到指定镜像根：只有命中首根前缀的地址才换根，其余
+# 把配方里的源改写到指定镜像根：只有命中基准前缀的地址才换根，其余
 # （离线 file:// 与第三方仓库）原样返回。空根表示不做改写。
+#
+# 基准不是镜像表的首项：探测会重排 CL_MIRRORS，把「当前排第一的根」当
+# 前缀会让重排后的改写全部落空、地址退回原址，探测等于白做。基准由
+# cl_canon 从配方自身求出（见下）。
 cl_base()
 {
     local base="$1" root="$2"
-    if [ -z "$root" ] || [ "${#CL_MIRRORS[@]}" -eq 0 ]; then
+    if [ -z "$root" ] || [ -z "$CL_CANON" ]; then
         printf '%s' "$base"
         return 0
     fi
     case "$base" in
-    "${CL_MIRRORS[0]}"/*) printf '%s/%s' "$root" "${base#"${CL_MIRRORS[0]}"/}" ;;
+    "${CL_CANON}"/*) printf '%s/%s' "$root" "${base#"${CL_CANON}"/}" ;;
     *) printf '%s' "$base" ;;
     esac
+}
+
+# 改写基准 = 配方第一条非 file:// 源所落在的那个镜像根。它只取决于配方
+# 与镜像表的成员关系，与行序无关，因此探测怎么重排都不影响改写结果；
+# 一条也命中不了（第三方根、纯离线配方）时留空，表示不改写。
+cl_canon()
+{
+    local name base cost root
+    CL_CANON=""
+    while IFS=$'\t' read -r name base cost; do
+        case "$base" in
+        file://*|"") continue ;;
+        esac
+        for root in "${CL_MIRRORS[@]}"; do
+            case "$base" in
+            "${root}"/*) CL_CANON="$root" ;;
+            esac
+            [ -n "$CL_CANON" ] && break
+        done
+        return 0
+    done < <(python3 "$CL_SPEC" repos --skip-file "$1")
+    return 0
 }
 
 # 待尝试的快照序列。镜像表缺失时退化为只用配方里那一个源——宁可比预期
@@ -146,6 +183,34 @@ cl_roots()
 {
     CL_ROOTS=("${CL_MIRRORS[@]}")
     [ "${#CL_ROOTS[@]}" -gt 0 ] || CL_ROOTS=("")
+}
+
+# 按实测吞吐重排镜像根。行序是人工维护的，与此刻哪台主机快无关；按行序
+# 尝试等于把最慢的根放在第一位，而每一根都要花掉数分钟才轮到下一根
+# （run 41039410608：三根共耗 15 分钟，日志里没有一行数字说明谁快谁慢）。
+# 探测是排序，不是前提：工具缺失、python3 不可用或一个样本都取不到时
+# 保持原序继续，CLOSURE_PROBE=0 可整体关闭。测速表直接进构建日志。
+cl_probe()
+{
+    local roots=() root out
+    [ "$CL_PROBE" = "1" ] || return 0
+    [ "${#CL_MIRRORS[@]}" -gt 1 ] || return 0
+    [ -f "$CL_PROBE_TOOL" ] || return 0
+    for root in "${CL_MIRRORS[@]}"; do
+        case "$root" in
+        http://*|https://*) roots+=("$root") ;;
+        esac
+    done
+    [ "${#roots[@]}" -gt 1 ] || return 0
+    if ! out="$(python3 "$CL_PROBE_TOOL" --timeout "$CL_PTIME" \
+        --floor "$(( CL_FLOOR / 1024 ))" "${roots[@]}")"; then
+        # 全部低于下限时探测仍给出最快的一个，只是用退出码 3 声明这件事。
+        [ -n "$out" ] || return 0
+    fi
+    [ -n "$out" ] || return 0
+    # shellcheck disable=SC2206  # 每行一个根，不含空格
+    CL_MIRRORS=(${out})
+    return 0
 }
 
 cl_repos()
@@ -459,6 +524,10 @@ closure_fetch()
     mkdir -p "${work}/repos"
     cl_arch "$arch" || return 1
     cl_init_mirrors
+    # 基准先算、再重排：canon 只认同「哪个根是配方源」，与顺序无关；若在
+    # 探测之后再算，被探测丢掉的首根会让基准落空，改写失效。
+    cl_canon "$ks"
+    cl_probe
     cl_roots
     closure_specs "$ks" || return 1
     cl_args "$arch" || return 1
