@@ -103,17 +103,45 @@ EOF
     exit 1
 }
 disk=${best#/dev/}
-cat >/tmp/airymax-disk.ks <<EOF
-ignoredisk --only-use=${disk}
-clearpart --all --initlabel --drives=${disk}
-autopart --type=plain --fstype=ext4
-EOF
+
+# 布局逐项 --ondisk 钉住，不用 autopart。autopart 的引导设备选取会跨盘
+# 寻找既有 ESP、/boot 与 swap：B50 实测（2026-10-30，/var/log/anaconda/
+# storage.log 与目标机 fstab）在 nvme0n1 上建了 / 与 /home，却把 /boot、
+# ESP 与 swap 建在另一块 U 盘上，拔掉 U 盘即无法启动；ignoredisk
+# --only-use 不约束这条路径。显式分区与盘位一一对应，也便于版本间对齐。
+if [ "${best_size}" -lt 34359738368 ]; then
+    mark "AIRYMAX-DISK-FAIL reason=too-small bytes=${best_size}"
+    exit 1
+fi
+swap_mb=8192 root_mb=1 split=
+if [ "${best_size}" -ge 171798691840 ]; then
+    swap_mb=16384 root_mb=71680 split=1
+fi
+{
+    printf 'ignoredisk --only-use=%s\n' "${disk}"
+    printf 'clearpart --all --initlabel --drives=%s\n' "${disk}"
+    printf 'part /boot/efi --fstype=efi --size=600 --ondisk=%s\n' "${disk}"
+    printf 'part /boot --fstype=ext4 --size=1024 --ondisk=%s\n' "${disk}"
+    printf 'part swap --size=%s --ondisk=%s\n' "${swap_mb}" "${disk}"
+    if [ -n "${split}" ]; then
+        printf 'part / --fstype=ext4 --size=%s --ondisk=%s\n' \
+            "${root_mb}" "${disk}"
+        printf 'part /home --fstype=ext4 --size=1024 --grow --ondisk=%s\n' \
+            "${disk}"
+    else
+        printf 'part / --fstype=ext4 --size=1 --grow --ondisk=%s\n' "${disk}"
+    fi
+} >/tmp/airymax-disk.ks
 mark "AIRYMAX-DISK-OK disk=${disk} bytes=${best_size}"
 %end
 %include /tmp/airymax-disk.ks
 
 # ---- 网络 ----
-network --bootproto=dhcp --activate --hostname=AIRYMAX_PC
+# 这里不写 --hostname：产品名 AIRYMAX_PC 含下划线，不符合 RFC 1123，
+# anaconda 会在落盘时静默改写（B50 实测 /root/anaconda-ks.cfg 记录为
+# --hostname=airymaxos，目标机 /etc/hostname 也随之变成 airymaxos）。
+# 主机名因此由 %post 直接写 /etc/hostname，判据只看落盘结果。
+network --bootproto=dhcp --activate
 
 # ---- 账户 ----
 # OS-OPS-009：口令只以 SHA-512 crypt 哈希落盘，禁止明文。
@@ -125,9 +153,9 @@ network --bootproto=dhcp --activate --hostname=AIRYMAX_PC
 #
 # 账户名与主机名的大小写是产品口径（Airymax / AIRYMAX_PC），不是笔误：
 # shadow-utils 接受大写账户名（B50 实测 useradd AirymaxTmp 返回 0），而
-# systemd 读取 /etc/hostname 时会按 RFC 1123 过滤掉下划线，故主机名另由
-# /etc/sysctl.d/99-airymax-hostname.conf 在 sysinit 后写回，见 boot/ 下的
-# 同名文件头注释。
+# /etc/hostname 里的下划线会被 systemd 按 RFC 1123 过滤，故该文件由 %post
+# 按产品口径写入，运行期名再由 /etc/sysctl.d/99-airymax-hostname.conf 在
+# sysinit 后写回内核，见 boot/ 下的同名文件头注释。
 rootpw --iscrypted $6$airy003root0x01$.lY1w9YA54iCwREQZCVZEoQ3xmCjcbkpWmWCrLciZeSNYA/T/6lkx4M2yFnhb13xBfbZLZQ64V01cSAkka1r30
 user --name=Airymax --groups=wheel --iscrypted --password=$6$airy003user0x01$s1JW7QjW0kiAW7B51kVB2hNsabAadz4G/h6yBDRvpWzwsV7NO7Kh3ChDjLtapHZ6HGl5WoqNKi.IAY7IT5yRc/
 
@@ -526,6 +554,12 @@ grub2-mkconfig -o "${grub_cfg}" >/dev/null 2>&1 ||
 grep -qxF '  set gfxmode=1920x1080,1680x1050,1600x900,1280x1024,1024x768,auto' \
     "${grub_cfg}" || fail grub-gfxmode
 grep -qF '  terminal_output gfxterm' "${grub_cfg}" || fail grub-gfxterm
+
+# 9) 主机名：只认 /etc/hostname 的落盘值。安装器的 network --hostname 会
+#    按 RFC 1123 改写含下划线的名字（B50 实测 AIRYMAX_PC 变成 airymaxos），
+#    因此产品名由配方直接写入，并以读回值作为唯一判据。
+printf 'AIRYMAX_PC\n' >/etc/hostname || fail hostname-write
+[ "$(cat /etc/hostname)" = AIRYMAX_PC ] || fail hostname-value
 
 mark "AirymaxOS workstation install complete (baseline $(date -u +%Y%m%d))"
 %end
