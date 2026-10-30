@@ -14,13 +14,18 @@
 # 不省略该行——省略会让「没采到」和「没有这一项」长得一模一样；取值内部
 # 含空格时整体加双引号（如 os.pretty），保证按空白切分不会错位。
 #
-# --static 只读文件、不执行任何系统命令：构建期在 buildroot 上核对品牌与
-# 资产是否落位，不要求构建机有 X server 或 systemd。--root 指定观察根，
-# 与 --static 配合用于打包自检。
+# 报告分两段，字段名在两种模式下同义：
+#   身份段（os.*、brand.*、asset.*、host.name）只读文件，静态与活体共用
+#     同一份实现，因此「这台机器是谁」在构建期与装机后是同一组键、同一
+#     个权威来源（os-release、grub 默认项、hostname）。
+#   运行段（kernel.*、session.*、boot.* 等）需要真实内核与 systemd，只在
+#     活体模式出现；--static 跳过它，不要求构建机有 X server 或 systemd。
+# --root 指定观察根，与 --static 配合用于打包自检；运行段不受 --root 影响，
+# 因为它问的是当前内核与当前 cgroup。
 #
-# 末三行固定为 mode、fields、status：调用方按 status 判一次结论即可，
-# 不必自己聚合各行。status=ok 表示身份与桌面链都成立，非零退出码让脚本
-# 能直接用在 CI 断言里。
+# 末两行固定为 mode、fields：调用方按 status 判一次结论即可，不必自己聚合
+# 各行。status=ok 表示身份与桌面链都成立，非零退出码让脚本能直接用在 CI
+# 断言里。
 #
 # 依赖：POSIX sh、awk、sed；活体模式另需 systemctl、xrandr、ip（可选）。
 # ===========================================================================
@@ -115,7 +120,7 @@ meminfo() {
         END { if (!found) printf "absent" }' /proc/meminfo
 }
 
-static_report() {
+identity_report() {
     osr=${ROOT}/usr/lib/os-release
     [ -r "$osr" ] || osr=${ROOT}/etc/os-release
     os_id=$(read_kv "$osr" ID) || os_id=absent
@@ -147,7 +152,7 @@ static_report() {
     done
 }
 
-live_report() {
+run_report() {
     emit kernel.release "$(uname -r 2>/dev/null || printf absent)"
     owner=$(rpm -q --qf '%{NAME}' -f "/boot/vmlinuz-$(uname -r)" 2>/dev/null) ||
         owner=unowned
@@ -200,11 +205,11 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+identity_report
 if [ "$STATIC" -eq 1 ]; then
-    static_report
     mode=static
 else
-    live_report
+    run_report
     mode=live
 fi
 

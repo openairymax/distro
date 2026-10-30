@@ -34,6 +34,7 @@ import subprocess
 import sys
 
 MARK = "AIRYMAX-DEMO"
+WANT_ID = "airymaxos"
 WIDTH = 18
 RULE = 74
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -41,6 +42,7 @@ PEERS = {"airy-bench": "airy_bench.py", "airy-observe": "airy_observe.sh"}
 OB_MARK = "AIRYMAX-OBSERVE"
 BENCH_MARK = "AIRYMAX-BENCH"
 SHOWN = (
+    "os.id",
     "os.pretty",
     "host.name",
     "kernel.release",
@@ -154,7 +156,10 @@ def greet() -> bool:
             left = clip(space[keys[i + 1]], 24)
             cell += f" {paint(f'{keys[i + 1]:<15}', '2')} {left}"
         print(cell)
-    return space.get("os.pretty", "absent") != "absent"
+    # 身份按取值判定，不按字段是否存在判定：观察点少了某个展示项只能说明
+    # 这一行没显示，不能说明这台机器不是 AirymaxOS。判据只认 os.id 与发
+    # 行标识是否一致，其余字段缺了就缺了，屏幕上照实显示 absent。
+    return space.get("os.id") == WANT_ID
 
 
 def show_rows(state: dict) -> None:
