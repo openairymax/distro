@@ -15,6 +15,13 @@
 # 出镜像前再校验载荷仓库仍携带配方的环境组，避免交互安装与按环境解析
 # 在现场才失败。
 #
+# --closure-only 把收割单独拎出来：跨境链路对托管运行商限速时，CI 的
+# 180 分钟组装预算下不完 2.5 GB 闭包，而一台快机器几分钟就能收完，产物
+# 再由 CI 侧注入缓存池（ci/gates/pool-seed.sh）。这条路径只做收割，不出
+# ISO，也不要求 --iso/--rpms。收割机通常没有自建 RPM，配方点名的
+# airymaxos-* 远端并不存在，--closure-skip 用来排除它们；排除项下的事务
+# 不完整，因此即使 CLOSURE_LOCK_WRITE=1 也不写闭包清单。
+#
 # 产物（0.0.3 任务方案 M-15；190-distribution/03-installer-design.md §7.1）：
 #   DIR/payload/airymax/Packages/*.rpm        离线包集合
 #   DIR/payload/airymax/Packages/repodata/    含 group 元数据的仓库索引
@@ -55,10 +62,12 @@ VERSION=""
 GPG_KEY=""
 MD5=1
 CLOSURE=0
+CLOSURE_ONLY=0
 LOCK=""
 RPMS=()
 ADDS=()
 REQUIRE=()
+SKIPS=()
 OUT_ABS=""
 PAY=""
 AIRY=""
@@ -87,6 +96,12 @@ usage()
   --closure          收割完整安装闭包：按 kickstart 仓库求解安装事务并
                      将全部 RPM 收入载荷，装机不再访问公网（需 dnf 与
                      同架构宿主）
+  --closure-only     只收割闭包并退出：不出 ISO，不要求 --iso 与 --rpms，
+                     产物为 DIR/payload/airymax 下的离线仓库
+  --closure-skip GLOB
+                     在线求解时排除匹配 GLOB 的包，可重复；用于没有自建
+                     RPM 的收割机（airymaxos-* 远端不存在），需与
+                     --closure 同用
   --closure-lock FILE
                      闭包清单：缓存池与之逐项吻合时完全离线重放，不再
                      取任何远端元数据；缺项或摘要不符则回落在线求解
@@ -146,6 +161,8 @@ parse_args()
         --gpg-key) optarg "$1" "$#"; GPG_KEY="$2"; shift 2 ;;
         --no-md5) MD5=0; shift ;;
         --closure) CLOSURE=1; shift ;;
+        --closure-only) CLOSURE=1; CLOSURE_ONLY=1; shift ;;
+        --closure-skip) optarg "$1" "$#"; SKIPS+=("$2"); shift 2 ;;
         --closure-lock) optarg "$1" "$#"; LOCK="$2"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
         *) die "${E_INVAL}" "未知参数: $1" ;;
@@ -166,18 +183,29 @@ check_arch()
 
 check_args()
 {
-    local dir add pkg
-    [ -n "$BASE" ] || die "${E_INVAL}" "--iso 必填"
-    [ -f "$BASE" ] || die "${E_INVAL}" "基础 ISO 不存在: ${BASE}"
+    local dir add pkg skip
+    if [ "$CLOSURE_ONLY" -eq 0 ]; then
+        [ -n "$BASE" ] || die "${E_INVAL}" "--iso 必填"
+        [ -f "$BASE" ] || die "${E_INVAL}" "基础 ISO 不存在: ${BASE}"
+    fi
     [ -n "$KS" ] || die "${E_INVAL}" "--ks 必填"
     [ -f "$KS" ] || die "${E_INVAL}" "kickstart 不存在: ${KS}"
-    [ "${#RPMS[@]}" -gt 0 ] || die "${E_INVAL}" "--rpms 至少给出一个目录"
+    if [ "$CLOSURE_ONLY" -eq 0 ]; then
+        [ "${#RPMS[@]}" -gt 0 ] ||
+            die "${E_INVAL}" "--rpms 至少给出一个目录"
+    fi
     for dir in "${RPMS[@]}"; do
         [ -d "$dir" ] || die "${E_INVAL}" "--rpms 目录不存在: ${dir}"
     done
     for pkg in "${REQUIRE[@]}"; do
         [ -n "$pkg" ] || die "${E_INVAL}" "--require 包名不得为空"
     done
+    for skip in "${SKIPS[@]}"; do
+        [ -n "$skip" ] || die "${E_INVAL}" "--closure-skip 不得为空"
+    done
+    if [ "${#SKIPS[@]}" -gt 0 ] && [ "$CLOSURE" -eq 0 ]; then
+        die "${E_INVAL}" "--closure-skip 需与 --closure 同时使用"
+    fi
     [ -f "$CL_COMPS" ] || die "${E_INVAL}" "comps 定义缺失: ${CL_COMPS}"
     [ -f "$CL_SPEC" ] || die "${E_INVAL}" "规格提取器缺失: ${CL_SPEC}"
     if [ -n "$LOCK" ]; then
@@ -230,8 +258,19 @@ collect_rpms()
     done < <(for dir in "${RPMS[@]}"; do
         find "$dir" -type f -name '*.rpm' -print
     done | sort)
-    [ "${#NAMES[@]}" -gt 0 ] ||
+    # 只收割闭包时载荷可以从空开始：本机不必有自建 RPM。
+    if [ "${#NAMES[@]}" -eq 0 ] && [ "$CLOSURE_ONLY" -eq 0 ]; then
         die "${E_INVAL}" "--rpms 目录内没有可用的 RPM"
+    fi
+}
+
+# 排除项以环境变量交给 closure.sh：驱动与收割库之间没有别的参数通道，
+# 环境变量在子 shell 与测试直调库时同样可见。
+export_skip()
+{
+    [ "${#SKIPS[@]}" -gt 0 ] || return 0
+    CLOSURE_SKIP="${SKIPS[*]}"
+    export CLOSURE_SKIP
 }
 
 closure_default()
@@ -395,17 +434,24 @@ main()
     check_arch
     check_args
     need createrepo_c
-    need xorriso
+    if [ "$CLOSURE_ONLY" -eq 0 ]; then
+        need xorriso
+    fi
     need sha256sum
     need find
     need sort
     need python3
     need_closure
+    export_skip
     prep_payload
     collect_rpms
     closure_default
     make_repo
     run_closure
+    if [ "$CLOSURE_ONLY" -eq 1 ]; then
+        printf '闭包池: %s（%d 个 RPM）\n' "$PKGDIR" "${#NAMES[@]}"
+        return 0
+    fi
     guard_payload "$PKGDIR" "$OUT_ABS" ||
         die "${E_IO}" "载荷兜底重打包失败"
     make_repo
