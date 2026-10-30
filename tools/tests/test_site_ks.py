@@ -200,10 +200,9 @@ class SiteIsoTest(unittest.TestCase):
         self.assertEqual(again.returncode, 2, again.stderr)
         self.assertIn("产物已存在", again.stderr)
 
-    def test_recipe_without_clearpart(self):
-        text = "\n".join(line for line in self.project().splitlines()
-                         if not line.startswith("clearpart"))
-        iso = self.make_iso(text + "\n", "noclear.iso")
+    def test_recipe_without_disk_select(self):
+        text = "\n".join(self.strip_selection(self.project()).splitlines())
+        iso = self.make_iso(text + "\n", "nosel.iso")
         work = self.root / "unit"
         out = self.root / "unit" / "site.ks"
         res = subprocess.run(
@@ -214,8 +213,25 @@ class SiteIsoTest(unittest.TestCase):
              "--psk", str(self.psk)], env=self.env(), text=True,
             capture_output=True)
         self.assertEqual(res.returncode, 5, res.stderr)
-        self.assertIn("clearpart --all", res.stderr)
+        self.assertIn("%include", res.stderr)
         self.assertFalse(out.exists())
+
+    def strip_selection(self, text):
+        """去掉产品配方的选盘段：%pre 连同它写出的 %include。"""
+        out = []
+        skip = False
+        for line in text.splitlines():
+            head = line.strip()
+            if head.startswith("%pre"):
+                skip = True
+                continue
+            if skip:
+                skip = head != "%end"
+                continue
+            if head and head.split(None, 1)[0] == "%include":
+                continue
+            out.append(line)
+        return "\n".join(out)
 
 
 if __name__ == "__main__":
