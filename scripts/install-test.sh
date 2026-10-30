@@ -59,6 +59,10 @@ readonly PAY_FAIL
 # 只能等到 --install-timeout。问句本身即失败证据，命中就判负。
 readonly ASK_FAIL
 readonly INST_ERR="${INST_FAIL}|${RPM_FAIL}|${PAY_FAIL}|${ASK_FAIL}"
+# 固件层失败：SeaBIOS 找不到可引导介质时只往 VGA 与调试口写这一行，串口
+# 一个字都不会有。没有这份证据时，该腿要空转到装机超时才判负（run
+# 41121955316 的 run-bios-1 空转 3600 秒），且现场只剩「串口静默」。
+readonly FW_FAIL='Boot failed|No bootable device|could not read the boot disk'
 
 . "${DISTRO_ROOT}/scripts/lib/outdir.sh"
 
@@ -118,9 +122,10 @@ usage()
   DIR/run-FW-N/boot.log        第 N 轮启动串口日志
   DIR/run-FW-N/qemu.log        安装阶段 QEMU 自身 stderr
   DIR/run-FW-N/qemu-boot.log   启动阶段 QEMU 自身 stderr
+  DIR/run-FW-N/firmware.log    固件调试口（SeaBIOS 0x402），BIOS+光盘腿
   DIR/install-manifest.txt     轮次结果与 ISO 摘要
 
-每轮开始前会删除本轮 install.log/boot.log，判读只看本轮内容。
+每轮开始前会删除本轮 install.log/boot.log/firmware.log，判读只看本轮内容。
 
 OUT 必须位于源码区之外；缺失 qemu-system-$ARCH / qemu-img 时以 77 跳过。
 同一个 --out 只承载一种 --media：cdrom 与 usb 的轮次目录同名，混用会
@@ -359,6 +364,20 @@ dev_media()
     fi
 }
 
+# dev_dbg <fw> <dir>
+# SeaBIOS 的调试输出走 0x402 端口，QEMU 缺省不落盘；-serial 只接 guest
+# ttyS0。引导链断在固件时两条通路都空，现场无法区分「介质不可引导」与
+# 「介质可引导但内核没起」。把 0x402 接进 firmware.log 后，该腿会留下
+# "Booting from DVD/CD..." 或 "Boot failed" 这类事实，卡点直接落在层上。
+# UEFI 固件的诊断走 OVMF 自己的调试口（0x402 的另一套），不在本步范围。
+dev_dbg()
+{
+    local fw="$1" dir="$2"
+    [ "${fw}" = bios ] && [ "${ARCH}" = x86_64 ] || return 0
+    QARGS+=(-chardev "file,id=fwdbg,path=${dir}/firmware.log"
+            -device isa-debugcon,iobase=0x402,chardev=fwdbg)
+}
+
 fw_args()
 {
     local fw="$1" vars="$2/vars.fd"
@@ -403,15 +422,17 @@ fail_hit()
     grep -oE "${INST_ERR}" "$1" 2>/dev/null | head -n 1
 }
 
-# fail_note <fw> <log> <qemu-log> <spent>
+# fail_note <fw> <log> <qemu-log> <fw-log> <spent>
 # 失败归因的唯一出口：串口有内容就回显尾行；0 字节则显式说明该固件腿
-# 从未向 ttyS0 写过东西，并始终附上 QEMU 自身 stderr。此前只在日志文件
-# 不存在时才打 QEMU 输出，而安装器把全部输出送到 VGA 时日志是存在的空
-# 文件，现场只剩一行空的 serial tail，读日志的人分不清是固件没引导、
-# 内核没起来，还是引导参数缺 console（run 41090215913 的 run-bios-1）。
+# 从未向 ttyS0 写过东西，并依次附上固件调试口与 QEMU 自身 stderr。
+# 此前只在日志文件不存在时才打 QEMU 输出，而安装器把全部输出送到 VGA 时
+# 日志是存在的空文件，现场只剩一行空的 serial tail，读日志的人分不清是
+# 固件没引导、内核没起来，还是引导参数缺 console（run 41090215913 的
+# run-bios-1）。固件尾行补上这一层：有 "Boot failed" 就是介质不可引导，
+# 有 "Booting from DVD/CD" 才是「已引导、内核没起」。
 fail_note()
 {
-    local fw="$1" log="$2" qlog="$3" spent="$4" qemu
+    local fw="$1" log="$2" qlog="$3" fwlog="$4" spent="$5" qemu fwline
 
     if [ -s "${log}" ]; then
         printf '#   serial tail: %.200s\n' "$(log_tail "${log}")" >&2
@@ -420,16 +441,27 @@ fail_note()
             "${spent}" "${fw}" >&2
         printf ' to ttyS0\n' >&2
     fi
+    fwline="$(log_tail "${fwlog}")"
+    if [ -n "${fwline}" ]; then
+        printf '#   firmware tail: %.200s\n' "${fwline}" >&2
+    elif [ "${fw}" = bios ] && [ "${ARCH}" = x86_64 ]; then
+        printf '#   firmware silent: %s 未写调试口，引导链未进入固件阶段\n' \
+            "SeaBIOS" >&2
+    fi
     qemu="$(tr '\n' ' ' <"${qlog}" 2>/dev/null)"
     [ -n "${qemu}" ] || return 0
     printf '#   qemu: %.300s\n' "${qemu}" >&2
 }
 
+# wait_inst <log> <fw-log> <pid> <deadline> <start>
+# 返回 0 完成、2 命中安装失败标记、3 超时、4 固件判定介质不可引导。
+# 固件判负要先于超时：此后内核根本没有机会写串口，再等下去只是空耗。
 wait_inst()
 {
-    local log="$1" pid="$2" deadline="$3" start="$4" now
+    local log="$1" fwlog="$2" pid="$3" deadline="$4" start="$5" now
     while :; do
         grep -qE "${INST_ERR}" "${log}" 2>/dev/null && return 2
+        fw_failed "${fwlog}" && return 4
         if ! kill -0 "${pid}" 2>/dev/null; then
             wait "${pid}" 2>/dev/null
             return $?
@@ -441,22 +473,31 @@ wait_inst()
     done
 }
 
+# fw_failed <fw-log>
+fw_failed()
+{
+    [ -s "$1" ] || return 1
+    grep -qE "${FW_FAIL}" "$1" 2>/dev/null
+}
+
 install_run()
 {
-    local fw="$1" n="$2" dir="${OUT}/run-$1-$2" disk log rc start pid
+    local fw="$1" n="$2" dir="${OUT}/run-$1-$2" disk log fwlog rc start pid
     mkdir -p "${dir}" || return 1
     disk="${dir}/disk.qcow2"
     log="${dir}/install.log"
+    fwlog="${dir}/firmware.log"
     # 判读只看日志内容、不看时间戳，因此上一轮的串口日志必须先删掉。
     # wait_inst() 首轮就会 grep INST_ERR，残留日志能让空跑直接判失败；
     # 末尾的 MARKER 断言同样会被残留日志满足，从而假通过。
-    rm -f "${log}" "${dir}/qemu.log" || return 1
+    rm -f "${log}" "${fwlog}" "${dir}/qemu.log" || return 1
     qemu-img create -f qcow2 "${disk}" 40G >"${dir}/qemu-img.log" 2>&1 ||
         { printf 'qemu-img create failed: run-%s-%s\n' "${fw}" "${n}" >&2; return 1; }
     qemu_base
     fw_args "${fw}" "${dir}" || return 1
     dev_disk "${disk}" "${fw}"
     dev_media "${ISO}"
+    dev_dbg "${fw}" "${dir}"
     # USB 形态下 U 盘属于硬盘类设备，SeaBIOS 只按 boot order 枚举被点名的
     # 类别；仍写 order=d 时整类硬盘被跳过，U 盘根本没有被尝试的机会。
     if [ "${MEDIA}" = usb ]; then
@@ -470,7 +511,8 @@ install_run()
     PROG_AT=${PROGRESS_EVERY}
     "${QEMU}" "${QARGS[@]}" >/dev/null 2>"${dir}/qemu.log" &
     pid=$!
-    wait_inst "${log}" "${pid}" "$((start + INSTALL_TIMEOUT))" "${start}"
+    wait_inst "${log}" "${fwlog}" "${pid}" \
+        "$((start + INSTALL_TIMEOUT))" "${start}"
     rc=$?
     stop_qemu "${pid}"
     if [ "${rc}" -ne 0 ]; then
@@ -479,15 +521,17 @@ install_run()
                "${fw}" "${n}" "$(fail_hit "${log}")" >&2 ;;
         3) printf 'install timeout in run-%s-%s after %ss\n' \
                "${fw}" "${n}" "$(($(date +%s) - start))" >&2 ;;
+        4) printf 'firmware rejected the media in run-%s-%s: %.110s\n' \
+               "${fw}" "${n}" "$(log_tail "${fwlog}")" >&2 ;;
         *) printf 'install run %s-%s exited rc=%s\n' "${fw}" "${n}" "${rc}" >&2 ;;
         esac
-        fail_note "${fw}" "${log}" "${dir}/qemu.log" \
+        fail_note "${fw}" "${log}" "${dir}/qemu.log" "${fwlog}" \
             "$(($(date +%s) - start))"
         return 1
     fi
     grep -q "${MARKER}" "${log}" 2>/dev/null ||
         { printf 'marker missing in run-%s-%s/install.log\n' "${fw}" "${n}" >&2
-          fail_note "${fw}" "${log}" "${dir}/qemu.log" \
+          fail_note "${fw}" "${log}" "${dir}/qemu.log" "${fwlog}" \
               "$(($(date +%s) - start))"
           return 1; }
 }
@@ -512,14 +556,19 @@ note_units()
     printf '#   boot unit failures: %s\n' "${units//$'\n'/,}" >&2
 }
 
+# wait_marker <log> <fw-log> <pid> <deadline> <start>
+# 返回 0 命中启动标记、1 超时或进程早退未达标记、2 命中引导失败标记、
+# 3 固件判定磁盘不可引导。返回 3 与 wait_inst 同义：盘上没有可引导代码时
+# guest 不会向 ttyS0 写字，再等满 --boot-timeout 也只是空转。
 wait_marker()
 {
-    local log="$1" pid="$2" deadline="$3" start="$4" rc now
+    local log="$1" fwlog="$2" pid="$3" deadline="$4" start="$5" rc now
     while :; do
         probe_log "${log}"
         rc=$?
         [ "${rc}" -eq 0 ] && return 0
         [ "${rc}" -eq 2 ] && return 2
+        fw_failed "${fwlog}" && return 3
         if ! kill -0 "${pid}" 2>/dev/null; then
             # 进程可能刚写完标记就被回收，退出后必须再判一次，
             # 否则短生命周期生产者会被误报为启动未完成。
@@ -543,20 +592,23 @@ boot_run()
 {
     local fw="$1" n="$2" dir="${OUT}/run-$1-$2"
     local disk="${dir}/disk.qcow2" log="${dir}/boot.log"
+    local fwlog="${dir}/firmware.log"
     local pid start now code
     [ -f "${disk}" ] || { printf 'no disk for run-%s-%s\n' "${fw}" "${n}" >&2; return 1; }
     # 同 install_run：boot.log 若不轮转，wait_marker 首轮就能被上一轮的
     # 标记满足，空跑会被判为启动成功。
-    rm -f "${log}" "${dir}/qemu-boot.log" || return 1
+    rm -f "${log}" "${fwlog}" "${dir}/qemu-boot.log" || return 1
     qemu_base
     fw_args "${fw}" "${dir}" || return 1
     dev_disk "${disk}" "${fw}"
+    dev_dbg "${fw}" "${dir}"
     QARGS+=(-boot order=c -serial "file:${log}")
     start=$(date +%s)
     PROG_AT=${PROGRESS_EVERY}
     "${QEMU}" "${QARGS[@]}" >/dev/null 2>"${dir}/qemu-boot.log" &
     pid=$!
-    wait_marker "${log}" "${pid}" "$((start + BOOT_TIMEOUT))" "${start}"
+    wait_marker "${log}" "${fwlog}" "${pid}" \
+        "$((start + BOOT_TIMEOUT))" "${start}"
     code=$?
     stop_qemu "${pid}"
     note_units "${log}"
@@ -565,11 +617,15 @@ boot_run()
     case "${code}" in
     0) ;;
     2) printf 'boot failure pattern in run-%s-%s/boot.log\n' "${fw}" "${n}" >&2
-       fail_note "${fw}" "${log}" "${dir}/qemu-boot.log" "${BOOT_S}"
+       fail_note "${fw}" "${log}" "${dir}/qemu-boot.log" "${fwlog}" "${BOOT_S}"
+       return 1 ;;
+    3) printf 'firmware found no bootable disk in run-%s-%s: %.110s\n' \
+           "${fw}" "${n}" "$(log_tail "${fwlog}")" >&2
+       fail_note "${fw}" "${log}" "${dir}/qemu-boot.log" "${fwlog}" "${BOOT_S}"
        return 1 ;;
     *) printf 'boot incomplete in run-%s-%s/boot.log after %ss\n' \
            "${fw}" "${n}" "${BOOT_S}" >&2
-       fail_note "${fw}" "${log}" "${dir}/qemu-boot.log" "${BOOT_S}"
+       fail_note "${fw}" "${log}" "${dir}/qemu-boot.log" "${fwlog}" "${BOOT_S}"
        return 1 ;;
     esac
     if [ -n "${MAX_BOOT}" ] && [ "${BOOT_S}" -gt "${MAX_BOOT}" ]; then
