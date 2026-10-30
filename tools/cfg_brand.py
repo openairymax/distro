@@ -36,9 +36,15 @@
 # 架构行不动；boot.msg 只替换明确的底座品牌串，不重排版面。三者遵守同一
 # 份幂等契约。
 #
+# 改写完成不等于品牌面收干净：漏改的构造（例如注释行里的底座名）会被幂等
+# 断言判为「已在合规态」而悄悄留在介质里。故每次落地都做一次负向断言——
+# 五个文件里任何白名单外的 openEuler 字样都判失败，而不是等人眼复查。
+# 白名单只收 GRUB 的主题样式类：它不是用户可见文本，改名会让主题按类匹配
+# 失效，属底座必须保留的部分。
+#
 # 用法：cfg_brand.py --product "AirymaxOS 0.0.3" FILE
-# 退出码：0 有改写；3 已合规（无变化）；1 无法解析或无法满足（缺 inst.ks
-#         安装项等）；2 用法错误。
+# 退出码：0 有改写；3 已合规（无变化）；1 无法解析、无法满足（缺 inst.ks
+#         安装项等）或改写后仍有白名单外的底座字样；2 用法错误。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
 # Version: 0.0.3
@@ -76,6 +82,12 @@ TREE_SEC = ("general", "release", "product")
 BASE_NAME = re.compile(r"openeuler", re.IGNORECASE)
 BASE_TOKEN = r"openEuler(?:[- ]\d[\w.\-]*[0-9A-Za-z])?"
 BASE_MSG = re.compile(BASE_TOKEN)
+
+# 负向断言的两个面：LEAK 命中任何大小写的底座名，ALLOW 逐行豁免。
+# 豁免只给 GRUB 主题样式类——它与菜单文字同处一行，但用户看不到，
+# 且主题按类名匹配，改名会让条目失去样式。
+LEAK = re.compile(r"open\s*euler", re.IGNORECASE)
+ALLOW = (re.compile(r"--class\s+openEuler", re.IGNORECASE),)
 
 # 只认底座确实存在的三种整条标题；带修饰语（"in basic graphics mode"）或
 # 热键符的标题交给 retitle 的品牌串替换，避免把修饰语一并删掉。
@@ -476,6 +488,18 @@ def report(path, changes, dchg):
         print(f"cfg_brand: {path}: default -> {dchg}", file=sys.stderr)
 
 
+def guard(path, text):
+    """返回白名单外的底座字样行；空列表即品牌面已收干净。"""
+    hits = []
+    for no, line in enumerate(text.splitlines(), 1):
+        if not LEAK.search(line):
+            continue
+        if any(pat.search(line) for pat in ALLOW):
+            continue
+        hits.append(f"{path}:{no}: {line.strip()}")
+    return hits
+
+
 def apply(path, raw, product):
     """生成改写计划；确有变化才写回。"""
     plan = dialect(path, raw.splitlines(keepends=True))
@@ -490,6 +514,11 @@ def apply(path, raw, product):
         return BAD
     out, changes, dchg = result
     text = "".join(out)
+    leaks = guard(path, text)
+    if leaks:
+        for item in leaks:
+            print(f"cfg_brand: 底座字样残留 {item}", file=sys.stderr)
+        return BAD
     if text == raw:
         return SAME
     report(path, changes, dchg)
