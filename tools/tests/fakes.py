@@ -71,6 +71,12 @@ body=$out.body
     printf '    linuxefi /vmlinuz %s inst.stage2=hd:LABEL=%s rd.live.check\\n' \\
         "$ksline" "$stage"
     printf '}\\n'
+    printf '=== /.treeinfo\\n'
+    printf '[general]\\nfamily = openEuler\\nversion = 24.03-LTS-SP2\\n'
+    printf 'name = openEuler-24.03-LTS-SP2\\nvariant = Server\\n\\n'
+    printf '[stage2]\\nmainimage = images/install.img\\n'
+    printf '=== /isolinux/boot.msg\\n'
+    printf ' -  Welcome to openEuler 24.03-LTS-SP2\\n'
 } > "$body"
 for a in $adds; do
     [ -e "$a" ] || continue

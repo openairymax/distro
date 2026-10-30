@@ -19,7 +19,11 @@
 # 菜单品牌化（iso_cfg_brand）必须排在 hybrid 之前：它要用 xorriso 重新打包
 # 一次，El Torito 条目的逻辑块号会随之前移，故品牌化发生时强制走 isohybrid
 # --sync 重写 MBR/GPT，再由 hybrid 复核，最后才注入校验块。iso_cfg_brand
-# 返回 77 表示两个引导配置都已合规、无需重新打包。
+# 返回 77 表示所有引导配置与介质元数据都已合规、无需重新打包。
+#
+# 除 grub.cfg/isolinux.cfg 外，同一流程还覆盖 .treeinfo（anaconda 的安装源
+# 产品名）与 isolinux/boot.msg。两者是数据文件，不走 inst.ks 断言，但回读
+# 后必须与写出的文件逐字节一致，并再次满足品牌化幂等（退出码 3）。
 # ===========================================================================
 
 ISO_POST_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
@@ -167,7 +171,8 @@ iso_cfg_brand()
     local cfg name src rc=0 changed=0
     local log="${work}/logs/cfg_brand.log"
     mkdir -p "${work}/post" "${work}/logs"
-    for cfg in EFI/BOOT/grub.cfg isolinux/isolinux.cfg; do
+    for cfg in EFI/BOOT/grub.cfg isolinux/isolinux.cfg .treeinfo \
+        isolinux/boot.msg; do
         name="$(basename "${cfg}")"
         src="${work}/post/${name}"
         rm -f "${src}" "${log}"
