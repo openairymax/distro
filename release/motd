@@ -1,0 +1,10 @@
+AirymaxOS terminal entry points
+
+  airy-os       OS identity, session state, desktop readiness
+  airy-kernel   running kernel, build provenance, module count
+  airy-bench    IPC round-trip latency and concurrency scaling
+  airy-observe  machine-readable runtime snapshot, key=value lines
+  airy-demo     one-screen summary recomputed from observe and bench
+  airy-record   capture this terminal to a replayable log
+
+Every value is printed as key=value and can be re-derived locally.

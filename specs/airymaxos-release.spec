@@ -5,7 +5,8 @@
 # 职责：
 #   1. 提供 /usr/lib/os-release 与 /etc/os-release 符号链接（VERSION_ID 唯一
 #      事实源为仓库内 release/os-release）；并提供 /etc/airymaxos-release 与
-#      /etc/system-release 符号链接（内容由同一事实源派生，见下）；
+#      /etc/system-release 符号链接（内容由同一事实源派生，见下）；以及登录
+#      前后的两处品牌面 /etc/issue 与 /etc/motd.d/airymax；
 #   2. 提供 /etc/yum.repos.d/airymaxos.repo（仓库列表 SSoT）；
 #   3. 提供 /etc/rpm/macros.airymax（文件系统布局宏 SSoT）；
 #   4. 部署桌面会话静态资产：lightdm 座位策略、座位 X server 启动封装、X11
@@ -20,7 +21,8 @@
 #      作用于安装器本次生成的那一份，anaconda 不写 /etc/default/grub，此后
 #      每次 grub2-mkconfig 都会丢掉启动参数；
 #   7. 部署 EFI 品牌化脚本 efi_brand.sh：同一安装段在 6 之后调用，把
-#      anaconda 留下的 openEuler 引导项替换为置顶的 AirymaxOS 条目；
+#      anaconda 留下的 openEuler 引导项替换为置顶的 AirymaxOS 条目，并清掉
+#      本机 ESP 上的同名残留条目，使固件菜单里不再出现上游名字；
 #   8. %%post 只执行装配后才能确定的运行期动作：编译 glib schema、屏蔽桌面
 #      自带 AI 控制面单元、在运行中的系统上重载 systemd。
 #   9. 声明默认启动画面主题：以 /usr/share/plymouth/themes/default.plymouth
@@ -49,7 +51,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.3
-%global airy_release 24
+%global airy_release 25
 # 基底版本是显式输入，与 distro/repo/airymax-os.repo 及 kickstart 的
 # url/repo 行是三处同源表达。%%check 以本宏断言客户端配置，版本漂移在
 # 构建期失败，而不是等到装机后 dnf 报「找不到仓库」。
@@ -100,6 +102,7 @@ Source32:       airy_bench.py
 Source33:       airy_demo.py
 Source34:       99-airymax-hostname.conf
 Source35:       airy_inspect.py
+Source36:       motd
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -141,6 +144,20 @@ airy_ver=$(sed -n 's/^VERSION="\(.*\)"$/\1/p' %{SOURCE0})
 printf '%s release %s\n' "${airy_name}" "${airy_ver}" \
     > %{buildroot}%{_sysconfdir}/airymaxos-release
 ln -s airymaxos-release %{buildroot}%{_sysconfdir}/system-release
+
+# /etc/issue 不被任何包持有（目标机 rpm -qf 无归属），本包直接提供：agetty
+# 在登录提示前原样打印它，是控制台与串口上最先出现的品牌面。\\r \\m \\l 是
+# agetty 转义（运行内核版本、机器架构、终端设备），必须原样保留——写死字
+# 符串会让横幅与真实运行的内核脱钩，验收现场无法据此判断引导了哪个内核。
+airy_vid=$(sed -n 's/^VERSION_ID="\(.*\)"$/\1/p' %{SOURCE0})
+printf 'AirymaxOS %s\nKernel \\r on an \\m (\\l)\n' "${airy_vid}" \
+    > %{buildroot}%{_sysconfdir}/issue
+
+# 登录后横幅走 /etc/motd.d 而不是 /etc/motd：后者由 setup 包持有，两个包
+# 同持一个路径会让安装事务整体失败（与 plymouthd.conf 同一条约束）。目标机
+# 的 pam_motd 1.5.3 会按目录读取 /etc/motd.d 下的全部文件并拼接输出。
+install -d -m 0755 %{buildroot}%{_sysconfdir}/motd.d
+install -m 0644 %{SOURCE36} %{buildroot}%{_sysconfdir}/motd.d/airymax
 
 install -d -m 0755 %{buildroot}%{_sysconfdir}/yum.repos.d
 install -m 0644 %{SOURCE1} %{buildroot}%{_sysconfdir}/yum.repos.d/airymaxos.repo
@@ -291,6 +308,20 @@ test "$(readlink %{buildroot}%{_sysconfdir}/system-release)" = airymaxos-release
 test "$(wc -l < %{buildroot}%{_sysconfdir}/airymaxos-release)" -eq 1
 test "$(sed 's, release .*$,,g' \
     %{buildroot}%{_sysconfdir}/system-release)" = "${want}"
+# 品牌面两处：登录提示前的 /etc/issue 必须自称 AirymaxOS 并保留 agetty 转义
+# （写死内核版本会让横幅与真实引导的内核脱钩），登录后的 /etc/motd.d/airymax
+# 必须列全六个入口，且每个入口都是 /usr/bin 下真实存在的符号链接——横幅
+# 里写了却装不出来的命令，比不写更糟。
+airy_issue=%{buildroot}%{_sysconfdir}/issue
+airy_vid=$(sed -n 's/^VERSION_ID="\(.*\)"$/\1/p' %{buildroot}/usr/lib/os-release)
+test "$(sed -n 1p "${airy_issue}")" = "AirymaxOS ${airy_vid}"
+grep -qxF 'Kernel \r on an \m (\l)' "${airy_issue}"
+airy_motd=%{buildroot}%{_sysconfdir}/motd.d/airymax
+for airy_cmd in airy-os airy-kernel airy-bench airy-observe airy-demo \
+    airy-record; do
+    grep -qF "  ${airy_cmd} " "${airy_motd}"
+    test -L "%{buildroot}%{_bindir}/${airy_cmd}"
+done
 # 客户端源配置：装机期的仓库闭包由 kickstart 的 url/repo 行声明，装完之后
 # 的 dnf 只认本文件。0.0.3 发布前这里指向 repo.airymaxos.org（不存在的主
 # 机）与 $releasever（展开为产品版本 0.0.3），于是安装器能装完、系统起来
@@ -526,6 +557,8 @@ fi
 /usr/lib/os-release
 %{_sysconfdir}/airymaxos-release
 %{_sysconfdir}/system-release
+%config(noreplace) %{_sysconfdir}/issue
+%config(noreplace) %{_sysconfdir}/motd.d/airymax
 %config(noreplace) %{_sysconfdir}/yum.repos.d/airymaxos.repo
 %config(noreplace) %{_sysconfdir}/rpm/macros.airymax
 %config(noreplace) %{_sysconfdir}/lightdm/lightdm.conf.d/50-airymax.conf
@@ -571,6 +604,15 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Thu Oct 30 2026 SPHARX <dev@spharx.com> - 0.0.3-25
+- Ship /etc/issue as AirymaxOS: no package owns that path on the target,
+  so the pre-login banner kept the generic upstream template. Kernel
+  release, machine and tty stay agetty escapes, so the banner cannot
+  drift from the kernel that actually booted
+- Ship the terminal entry points as /etc/motd.d/airymax rather than
+  /etc/motd: setup owns the latter and a second owner would break the
+  install transaction, while pam_motd 1.5.3 already reads the drop-in
+  directory. Each named command is also asserted to exist as a symlink
 * Thu Oct 30 2026 SPHARX <dev@spharx.com> - 0.0.3-24
 - Fix the delivery account name to Airymax and the machine name to
   AIRYMAX_PC across kickstart, seat policy, sudo policy, site suffix and
