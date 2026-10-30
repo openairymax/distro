@@ -381,10 +381,20 @@ log_tail()
 
 progress()
 {
-    local log="$1" elapsed="$2"
+    local log="$1" elapsed="$2" line bytes
     [ "${elapsed}" -ge "${PROG_AT}" ] || return 0
+    line="$(log_tail "${log}")"
+    if [ -z "${line}" ]; then
+        # 空尾行不是「正在启动」，而是该腿一个字都没往 ttyS0 写。引导参数
+        # 缺 console=ttyS0 时安装器把全部输出留在 VGA，心跳连打两小时后
+        # 仍只有空行，读日志的人分不清是慢还是静默（run 41121955316 的
+        # run-bios-1：120 次心跳全空，直到 3600 秒超时才由 fail_note 归因）。
+        # 字节数一并给出，0 B 就是该腿从未写过串口。
+        bytes="$(stat -c %s "${log}" 2>/dev/null || printf 0)"
+        line="(串口静默 ${bytes}B，无引导输出)"
+    fi
     printf '# %s +%ss: %.110s\n' "$(basename "$(dirname "${log}")")" \
-        "${elapsed}" "$(log_tail "${log}")"
+        "${elapsed}" "${line}"
     PROG_AT=$((elapsed + PROGRESS_EVERY))
 }
 
