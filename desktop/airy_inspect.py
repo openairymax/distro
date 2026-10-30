@@ -88,11 +88,19 @@ def kv_of(text):
 
 
 def sha_of(path):
-    """分块摘要，避免把 40 MB 的 vmlinuz 整个读进内存。"""
+    """分块摘要，避免把 40 MB 的 vmlinuz 整个读进内存。
+
+    非 root 读不读得到 /boot 取决于发行版的目录权限，与内核本身无关；
+    读不到时返回 None 由调用方写 absent，不能让整条命令带栈退出——那会
+    把「这一项没采到」显示成「这台机器身份不明」。
+    """
     digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1 << 20), b""):
-            digest.update(chunk)
+    try:
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1 << 20), b""):
+                digest.update(chunk)
+    except OSError:
+        return None
     return digest.hexdigest()
 
 
