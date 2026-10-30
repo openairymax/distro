@@ -48,6 +48,7 @@ VERSION=""
 GPG_KEY=""
 KARGS="console=tty0 console=ttyS0,115200"
 MD5=1
+PRODUCT=""
 ADDS=()
 OUT_ABS=""
 WORK=""
@@ -67,6 +68,8 @@ usage()
   --volid NAME       ISO 卷标，缺省 AIRYMAXOS
   --arch ARCH        x86_64|aarch64，缺省为宿主
   --version VER      版本号，缺省取 release/os-release 的 VERSION_ID
+  --product TEXT     引导菜单显示的产品名，缺省由 os-release 的 NAME 与
+                     VERSION_ID 拼成（如 "AirymaxOS 0.0.3"）
   --kargs TEXT       追加到安装内核命令行的参数，缺省
                      "console=tty0 console=ttyS0,115200"；传空串则不追加
   --add PATH         额外加入 ISO 的文件或目录，可重复
@@ -113,6 +116,7 @@ parse_args()
         --volid) optarg "$1" "$#"; VOLID="$2"; shift 2 ;;
         --arch) optarg "$1" "$#"; ARCH="$2"; shift 2 ;;
         --version) optarg "$1" "$#"; VERSION="$2"; shift 2 ;;
+        --product) optarg "$1" "$#"; PRODUCT="$2"; shift 2 ;;
         --kargs) optarg "$1" "$#"; KARGS="$2"; shift 2 ;;
         --add) optarg "$1" "$#"; ADDS+=("$2"); shift 2 ;;
         --gpg-key) optarg "$1" "$#"; GPG_KEY="$2"; shift 2 ;;
@@ -150,6 +154,28 @@ base_ver()
 {
     sed -n 's/^VERSION_ID="\{0,1\}\([^"]*\)"\{0,1\}[[:space:]]*$/\1/p' \
         "${DISTRO_ROOT}/release/os-release"
+}
+
+base_name()
+{
+    sed -n 's/^NAME="\{0,1\}\([^"]*\)"\{0,1\}[[:space:]]*$/\1/p' \
+        "${DISTRO_ROOT}/release/os-release"
+}
+
+# 引导菜单只显示产品名，不含发行版代号；缺省取 os-release 的 NAME 与
+# VERSION_ID 拼接，与 manifest 的 version 字段各自独立。字符白名单用正则
+# 而非 case：bash 的 case 模式在方括号里遇到圆括号会按语法解析。
+check_product()
+{
+    if [ -z "$PRODUCT" ]; then
+        PRODUCT="$(base_name) $(base_ver)"
+    fi
+    if [[ "$PRODUCT" =~ [^A-Za-z0-9\ ._\(\)\&-] ]]; then
+        die "${E_INVAL}" "产品名含非法字符: ${PRODUCT}"
+    fi
+    if [ "${#PRODUCT}" -gt 48 ]; then
+        die "${E_INVAL}" "产品名长度超过 48 字节: ${PRODUCT}"
+    fi
 }
 
 check_files()
@@ -234,7 +260,8 @@ post_iso()
     if [ "$MD5" -ne 1 ]; then
         flag="--no-md5"
     fi
-    if ! iso_post "$DEST" "$KS" "$VOLID" "$WORK" "$flag"; then
+    if ! iso_post "$DEST" "$KS" "$VOLID" "$WORK" \
+        --product "$PRODUCT" "$flag"; then
         die "${E_IO}" "ISO 后处理失败（日志 ${WORK}/logs）"
     fi
 }
@@ -271,6 +298,7 @@ write_manifest()
         printf 'version=%s\n' "$VERSION"
         printf 'arch=%s\n' "$ARCH"
         printf 'volid=%s\n' "$VOLID"
+        printf 'product=%s\n' "$PRODUCT"
         printf 'source_date_epoch=%s\n' "$SOURCE_DATE_EPOCH"
         printf 'iso %s %s\n' "$1" "$NAME"
         printf 'ks %s %s\n' "$ks_sum" "$(basename "$KS")"
@@ -285,6 +313,7 @@ main()
     check_arch
     check_volid
     check_files
+    check_product
     need mkksiso
     need xorriso
     need sha256sum

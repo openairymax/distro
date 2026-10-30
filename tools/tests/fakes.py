@@ -53,10 +53,24 @@ body=$out.body
         cat "$ks"
     fi
     printf '=== /isolinux/isolinux.cfg\\n'
-    printf 'append %s inst.stage2=hd:LABEL=%s quiet\\n' "$ksline" "$stage"
-    printf '=== /EFI/BOOT/grub.cfg\\n'
-    printf 'linuxefi /vmlinuz %s inst.stage2=hd:LABEL=%s\\n' \\
+    printf 'default=1\\ntimeout 600\\n'
+    printf 'label 0\\n'
+    printf '  menu label ^Install openEuler 24.03-LTS-SP2\\n'
+    printf '  append %s inst.stage2=hd:LABEL=%s quiet\\n' "$ksline" "$stage"
+    printf 'label 1\\n'
+    printf '  menu label Test this media & install openEuler 24.03-LTS-SP2\\n'
+    printf '  append %s inst.stage2=hd:LABEL=%s rd.live.check quiet\\n' \\
         "$ksline" "$stage"
+    printf '=== /EFI/BOOT/grub.cfg\\n'
+    printf 'set default="1"\\nset timeout=60\\n'
+    printf "menuentry 'Install openEuler 24.03-LTS-SP2' {\\n"
+    printf '    linuxefi /vmlinuz %s inst.stage2=hd:LABEL=%s\\n' \\
+        "$ksline" "$stage"
+    printf '}\\n'
+    printf "menuentry 'Test this media & install openEuler 24.03-LTS-SP2' {\\n"
+    printf '    linuxefi /vmlinuz %s inst.stage2=hd:LABEL=%s rd.live.check\\n' \\
+        "$ksline" "$stage"
+    printf '}\\n'
 } > "$body"
 for a in $adds; do
     [ -e "$a" ] || continue
