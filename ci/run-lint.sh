@@ -61,11 +61,10 @@ python3 tools/ks_lint.py
 echo "== preset lint =="
 python3 tools/preset_lint.py
 
+# 只走标准库 unittest：此前的「装了 pytest 就用 pytest」会让同一批用例在
+# 开发机与 runner 上跑成两套收集规则与两套失败格式，门禁结论不可比；用例
+# 本身全部是 unittest.TestCase，没有一条依赖 pytest。
 echo "== tool tests =="
-if python3 -c 'import pytest' >/dev/null 2>&1; then
-    python3 -m pytest -q tools/tests
-else
-    python3 -m unittest discover -s tools/tests -p 'test_*.py'
-fi
+python3 -m unittest discover -s tools/tests -p 'test_*.py'
 
 echo "== lint passed =="
