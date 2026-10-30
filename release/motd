@@ -8,3 +8,13 @@ AirymaxOS terminal entry points
   airy-record   capture this terminal to a replayable log
 
 Every value is printed as key=value and can be re-derived locally.
+
+Cross-check the same machine with stock Linux tooling:
+
+  uname -a                          running kernel, build time, machine
+  cat /etc/os-release               distribution identity and version
+  lscpu | head -12                  topology, model, cache
+  free -h; lsblk -o NAME,SIZE,TYPE  memory and block devices
+  ip -br addr                       interfaces and addresses
+  systemd-analyze; systemctl --failed
+  journalctl -b -p err --no-pager   boot errors, if any

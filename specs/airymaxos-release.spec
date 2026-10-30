@@ -51,7 +51,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.3
-%global airy_release 25
+%global airy_release 26
 # 基底版本是显式输入，与 distro/repo/airymax-os.repo 及 kickstart 的
 # url/repo 行是三处同源表达。%%check 以本宏断言客户端配置，版本漂移在
 # 构建期失败，而不是等到装机后 dnf 报「找不到仓库」。
@@ -321,6 +321,12 @@ for airy_cmd in airy-os airy-kernel airy-bench airy-observe airy-demo \
     airy-record; do
     grep -qF "  ${airy_cmd} " "${airy_motd}"
     test -L "%{buildroot}%{_bindir}/${airy_cmd}"
+done
+# 横幅同时给出不依赖 Airymax 代码的复核路径：判据落在标准工具的输出上，
+# 任何一条被删掉都会让「换台机器也能验证」这句话失去依据。
+for airy_std in 'uname -a' 'cat /etc/os-release' 'lscpu' 'free -h' 'ip -br addr' \
+    'systemd-analyze' 'journalctl -b -p err'; do
+    grep -qF "${airy_std}" "${airy_motd}"
 done
 # 客户端源配置：装机期的仓库闭包由 kickstart 的 url/repo 行声明，装完之后
 # 的 dnf 只认本文件。0.0.3 发布前这里指向 repo.airymaxos.org（不存在的主
@@ -604,6 +610,12 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Thu Oct 30 2026 SPHARX <dev@spharx.com> - 0.0.3-26
+- List the stock Linux cross-checks in /etc/motd.d/airymax next to the
+  six Airymax entry points: uname, os-release, lscpu, free, lsblk, ip,
+  systemd-analyze and journalctl. A reviewer can re-derive every number
+  without running any Airymax code, and %check asserts that the list
+  cannot be trimmed silently
 * Thu Oct 30 2026 SPHARX <dev@spharx.com> - 0.0.3-25
 - Ship /etc/issue as AirymaxOS: no package owns that path on the target,
   so the pre-login banner kept the generic upstream template. Kernel
