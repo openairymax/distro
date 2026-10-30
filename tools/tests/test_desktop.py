@@ -668,6 +668,9 @@ class DesktopAssetTest(unittest.TestCase):
             self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
             for topic in ("kernel", "os", "boot", "net", "sched"):
                 self.assertIn(f"--section {topic}", out.stdout)
+            # 身份取证的两个入口必须随展示一起给出，否则观众只能相信屏幕
+            for cmd in ("airy-kernel", "airy-os"):
+                self.assertIn(cmd, out.stdout)
             self.assertIn("rpm -qf /boot/vmlinuz-$(uname -r)", out.stdout)
             self.assertEqual(out.stdout.splitlines()[-1],
                              "AIRYMAX-DEMO status=ok")

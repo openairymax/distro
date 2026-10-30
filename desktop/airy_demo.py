@@ -286,7 +286,7 @@ def selfcheck() -> int:
 
 
 def hints() -> None:
-    # 每行都能被单独复算：前六行取上方同一批字段，后四行是同一事实的标准
+    # 每行都能被单独复算：前六行取上方同一批字段，后六行是同一事实的标准
     # 工具入口。展示完就给出复算方法，读的人不必相信这段输出，也不必记住
     # 命令。命令列宽固定，长命令溢出时靠一格空格分隔，不挤掉说明。
     title("复算入口（逐行可执行，与上方输出同源）")
@@ -297,6 +297,8 @@ def hints() -> None:
         ("airy-observe --section net", "地址/网关/DNS/链路"),
         ("airy-observe --section sched", "loadavg/实时预算/时钟节拍"),
         ("airy-bench --ops 20000", "原始分位与并发标度"),
+        ("airy-kernel", "内核身份/镜像摘要/自有配置/符号数"),
+        ("airy-os", "发行版/包归属/仓库段/硬件/免密账户"),
         ("rpm -qf /boot/vmlinuz-$(uname -r)", "内核包归属 kernel.owner"),
         ("systemd-analyze", "启动耗时 boot.total"),
         ("systemctl list-units --failed", "失败单元 boot.failed"),
