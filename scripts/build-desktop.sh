@@ -52,6 +52,8 @@ readonly DISTRO_ROOT
 . "${DISTRO_ROOT}/scripts/lib/closure.sh"
 # shellcheck source=lib/guard.sh
 . "${DISTRO_ROOT}/scripts/lib/guard.sh"
+# shellcheck source=lib/iso_post.sh
+. "${DISTRO_ROOT}/scripts/lib/iso_post.sh"
 
 BASE=""
 KS=""
@@ -408,22 +410,25 @@ iso_path()
     [ -f "$OUT_ISO" ] || die "${E_IO}" "ISO 产物不存在: ${OUT_ISO}"
 }
 
+# xorriso 对容忍级 SORRY（旧 GPT 头超出介质容量等）返回 32，而文件已经
+# 完整落地。以退出码判定会把「提取成功」报成「ISO 内缺少文件」，把排障
+# 引向错误方向（run 41086804840）。判据与后处理链共用 iso_xor：以落地
+# 文件非空为准，xorriso 日志只作失败上下文。
 check_payload()
 {
     local got="${OUT_ABS}/verify" log="${OUT_ABS}/logs/xorriso.log"
-    if ! xorriso -osirrox on -indev "$OUT_ISO" \
-        -extract /airymax/payload-manifest.txt \
-        "${got}/payload-manifest.txt" >"$log" 2>&1; then
-        die "${E_IO}" "ISO 内缺少 /airymax/payload-manifest.txt"
-    fi
-    if ! xorriso -osirrox on -indev "$OUT_ISO" \
-        -extract /airymax/Packages/repodata/repomd.xml \
-        "${got}/repomd.xml" >>"$log" 2>&1; then
+    local name
+    iso_xor "$OUT_ISO" /airymax/payload-manifest.txt \
+        "${got}/payload-manifest.txt" "$log" ||
+        die "${E_IO}" "ISO 内缺少 /airymax/payload-manifest.txt（${log}）"
+    iso_xor "$OUT_ISO" /airymax/Packages/repodata/repomd.xml \
+        "${got}/repomd.xml" "$log" ||
         die "${E_IO}" "ISO 内缺少 /airymax/Packages/repodata/repomd.xml"
-    fi
-    cmp -s "${AIRY}/payload-manifest.txt" "${got}/payload-manifest.txt" ||
+    name="payload-manifest.txt"
+    cmp -s "${AIRY}/${name}" "${got}/${name}" ||
         die "${E_IO}" "ISO 内载荷清单与源文件不一致"
-    cmp -s "${PKGDIR}/repodata/repomd.xml" "${got}/repomd.xml" ||
+    name="repomd.xml"
+    cmp -s "${PKGDIR}/repodata/${name}" "${got}/${name}" ||
         die "${E_IO}" "ISO 内仓库索引与源文件不一致"
 }
 
