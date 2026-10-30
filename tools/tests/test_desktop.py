@@ -651,6 +651,25 @@ class DesktopAssetTest(unittest.TestCase):
             self.assertNotEqual(bad.returncode, 0)
             self.assertIn("AIRYMAX-DEMO status=degraded", bad.stdout)
 
+    def test_demo_prints_replay_entries(self):
+        # 展示必须自带复算入口：看到数字的人第一件事是复跑命令，入口随
+        # 输出走，就不依赖文档是否同步；末尾仍是唯一一行结论。
+        demo = self.asset("desktop/airy_demo.py")
+        with tempfile.TemporaryDirectory() as tmp:
+            stage = Path(tmp)
+            shutil.copy2(demo, stage / "airy_demo.py")
+            (stage / "airy_observe.sh").write_text(
+                OBSERVE_STUB, encoding="utf-8")
+            (stage / "airy_bench.py").write_text(BENCH_STUB, encoding="utf-8")
+            out = run([sys.executable, str(stage / "airy_demo.py"),
+                       "--no-sweep", "--plain"])
+            self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+            for topic in ("kernel", "os", "boot", "net", "sched"):
+                self.assertIn(f"--section {topic}", out.stdout)
+            self.assertIn("rpm -qf /boot/vmlinuz-$(uname -r)", out.stdout)
+            self.assertEqual(out.stdout.splitlines()[-1],
+                             "AIRYMAX-DEMO status=ok")
+
     def test_record_check_reports_degraded(self):
         # 自检必须先给出证据再下结论：缺 ffmpeg 时提前退出，自动化只会
         # 拿到一个没有行的失败。这里用去掉 ffmpeg 的 PATH 固定这三条语义。
