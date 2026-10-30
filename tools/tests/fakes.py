@@ -319,6 +319,12 @@ if [ -n "${FAKE_DNF_REJECT:-}" ]; then
 fi
 case "${FAKE_DNF_MODE:-ok}" in
 fail) printf 'dnf: 依赖解析失败\\n' >&2; exit 1 ;;
+deny)
+    # 确定性故障（权限不足、本地仓库不可读）：真实 dnf 只回一行 Error 就
+    # 退出，零下载。收割端必须把它识别成不可重试，否则同一行错误被重试
+    # 三次再换根，控制台只剩「未完成」（B50 播种机首次收割的形态）。
+    printf 'Error: This command has to be run with superuser privileges (under the root user on most systems).\\n' >&2
+    exit 1 ;;
 empty) exit 0 ;;
 slow) sleep "${FAKE_DNF_SLEEP:-2}" ;;
 hang)

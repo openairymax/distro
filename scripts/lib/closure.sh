@@ -78,6 +78,11 @@
 # 40850633573 都在这一段沉默 80 分钟后被人工取消）。因此求解期间按
 # CLOSURE_BEAT 秒打印一行落盘进度，父进程据此判断这一段是否仍在推进。
 #
+# 失败必须能落到具体一行：确定性故障（非 root 跑 dnf --installroot、本地
+# 仓库缺 repodata）在数秒内退出且零下载，重试同一根只会复现同一行 Error。
+# 这类失败不再计入事务级重试，直接把日志里的 Error 行抬到控制台并换根
+# （cl_fatal）。收割端的进门前置判定（需 root）在 ci/gates/closure-pool.sh。
+#
 # 调用约定：
 #   closure_fetch KS ARCH PKGDIR WORK LOG
 #                    新增包数写入 CL_NEW；收割到的文件名追加到调用方的
@@ -108,6 +113,7 @@ readonly CL_TRY="${CLOSURE_TRY:-3}"
 readonly CL_WAIT="${CLOSURE_WAIT:-10}"
 readonly CL_BEAT="${CLOSURE_BEAT:-30}"
 readonly CL_STALL="${CLOSURE_STALL:-600}"
+readonly CL_FAST="${CLOSURE_FAST:-60}"
 readonly CL_FLOOR="${CLOSURE_FLOOR:-524288}"
 readonly CL_WARM="${CLOSURE_WARMUP:-180}"
 readonly CL_SAMPLE="${CLOSURE_SAMPLE:-120}"
@@ -421,6 +427,28 @@ cl_watch()
     return 0
 }
 
+# 确定性故障——非 root 跑 dnf --installroot、本地仓库缺 repodata——在数秒内
+# 退出且零下载，重试同一根只会复现同一行错误。此前这类失败被读成「求解
+# 未完成」，重试三次再换根，控制台只剩一句笼统的「未完成」，真实原因埋在
+# dnf 日志里（B50 播种机首次收割：每个根都只回一行 superuser 错误，六分钟
+# 才走到尽头，正是「卡点看不出是哪个问题」）。快速失败时把日志最后一条
+# Error 行抬到控制台，并跳过本根的重试。
+cl_fatal()
+{
+    local dl="$1" log="$2" el="$3" line
+
+    [ "$el" -lt "$CL_FAST" ] || return 1
+    [ -z "$(find "$dl" -maxdepth 1 -type f -name '*.rpm' -print -quit \
+        2>/dev/null)" ] || return 1
+    line="$(grep -E '^Error[:：]' "$log" 2>/dev/null | tail -n 1)"
+    [ -n "$line" ] || return 1
+    printf 'closure: %s 秒内失败且零下载，跳过重试：%s\n' "$el" "$line" >&2
+    if [ "$(id -u)" -ne 0 ]; then
+        printf 'closure: 当前非 root；dnf --installroot 要求超级用户\n' >&2
+    fi
+    return 0
+}
+
 # 按镜像根逐个求解，每个根内最多 CL_TRY 次事务级重试（重试复用已下的包，
 # 只补残缺部分）。换根即换快照，上轮残留的包必须先清掉：不同快照的 NEVRA
 # 一起留在沙箱里会被当作本轮载荷收割，等于把两个快照混进同一份镜像。
@@ -449,6 +477,9 @@ cl_try()
                 cl_pool_keep "${work}/dl"
             fi
             [ "$rc" -eq 0 ] && return 0
+            if cl_fatal "${work}/dl" "$log" "$(( $(date +%s) - t0 ))"; then
+                break
+            fi
             if [ "$CL_SLOW" -eq 1 ]; then
                 CL_SLOW=0
                 printf 'closure: 镜像根 %s 速率低于下限，跳过重试换下一个根\n' \
