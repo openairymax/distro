@@ -13,6 +13,10 @@
 # specs/airymaxos-release.spec 的 %check 断言本文件的段集与版本串，版本
 # 漂移在构建期失败，而不是等到装机后 dnf 报「找不到仓库」。
 #
+# 显示名只写 AirymaxOS 自己的版次：dnf repolist 是用户看仓库的第一眼，
+# 上游发行版字样出现在这里没有信息增量，只会让人以为装的是别家的系统。
+# 上游域名留在 baseurl 里，因为那是真实取包地址，改写即取不到包。
+#
 # 信任边界：openEuler 24.03 LTS SP2 的软件包不带 PGP 签名
 # （rpm -q --qf '%{SIGPGP:pgpsig}' 为 (none)），仓库元数据同样未签名，
 # 故 gpgcheck 与 repo_gpgcheck 关闭，链路完整性只由 HTTPS 保证。
@@ -20,7 +24,7 @@
 # ===========================================================================
 
 [airymaxos-base]
-name=AirymaxOS Base (openEuler 24.03 LTS SP2) - $basearch
+name=AirymaxOS Base 24.03 - $basearch
 baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/OS/$basearch/ https://mirrors.tuna.tsinghua.edu.cn/openeuler/openEuler-24.03-LTS-SP2/OS/$basearch/ https://mirrors.huaweicloud.com/openeuler/openEuler-24.03-LTS-SP2/OS/$basearch/
 enabled=1
 gpgcheck=0
@@ -29,7 +33,7 @@ metadata_expire=6h
 skip_if_unavailable=True
 
 [airymaxos-updates]
-name=AirymaxOS Updates (openEuler 24.03 LTS SP2) - $basearch
+name=AirymaxOS Updates 24.03 - $basearch
 baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/update/$basearch/ https://mirrors.tuna.tsinghua.edu.cn/openeuler/openEuler-24.03-LTS-SP2/update/$basearch/ https://mirrors.huaweicloud.com/openeuler/openEuler-24.03-LTS-SP2/update/$basearch/
 enabled=1
 gpgcheck=0
@@ -38,7 +42,7 @@ metadata_expire=1h
 skip_if_unavailable=True
 
 [airymaxos-epol]
-name=AirymaxOS EPOL (openEuler 24.03 LTS SP2) - $basearch
+name=AirymaxOS EPOL 24.03 - $basearch
 baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/EPOL/main/$basearch/ https://mirrors.tuna.tsinghua.edu.cn/openeuler/openEuler-24.03-LTS-SP2/EPOL/main/$basearch/ https://mirrors.huaweicloud.com/openeuler/openEuler-24.03-LTS-SP2/EPOL/main/$basearch/
 enabled=1
 gpgcheck=0
@@ -47,7 +51,7 @@ metadata_expire=6h
 skip_if_unavailable=True
 
 [airymaxos-epol-updates]
-name=AirymaxOS EPOL Updates (openEuler 24.03 LTS SP2) - $basearch
+name=AirymaxOS EPOL Updates 24.03 - $basearch
 baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/EPOL/update/main/$basearch/ https://mirrors.tuna.tsinghua.edu.cn/openeuler/openEuler-24.03-LTS-SP2/EPOL/update/main/$basearch/ https://mirrors.huaweicloud.com/openeuler/openEuler-24.03-LTS-SP2/EPOL/update/main/$basearch/
 enabled=1
 gpgcheck=0
@@ -56,7 +60,7 @@ metadata_expire=1h
 skip_if_unavailable=True
 
 [airymaxos-everything]
-name=AirymaxOS Everything (openEuler 24.03 LTS SP2) - $basearch
+name=AirymaxOS Everything 24.03 - $basearch
 baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/everything/$basearch/ https://mirrors.tuna.tsinghua.edu.cn/openeuler/openEuler-24.03-LTS-SP2/everything/$basearch/ https://mirrors.huaweicloud.com/openeuler/openEuler-24.03-LTS-SP2/everything/$basearch/
 enabled=0
 gpgcheck=0
