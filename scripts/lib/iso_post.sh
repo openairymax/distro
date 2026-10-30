@@ -25,8 +25,9 @@
 # 返回 77 只表示引导配置与介质元数据都已合规、无需重新打包。
 #
 # 除 grub.cfg/isolinux.cfg 外，同一流程还覆盖 .treeinfo（anaconda 的安装源
-# 产品名）与 isolinux/boot.msg。两者是数据文件，不走 inst.ks 断言，但回读
-# 后必须与写出的文件逐字节一致，并再次满足品牌化幂等（退出码 3）。
+# 产品名）、.discinfo（介质自述里的发行版名）与 isolinux/boot.msg。三者是
+# 数据文件，不走 inst.ks 断言，但回读后必须与写出的文件逐字节一致，并再次
+# 满足品牌化幂等（退出码 3）。
 # ===========================================================================
 
 ISO_POST_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
@@ -193,7 +194,7 @@ iso_cfg_brand()
     local -a puts=() verifies=()
     mkdir -p "${work}/post" "${work}/logs"
     for cfg in EFI/BOOT/grub.cfg isolinux/isolinux.cfg .treeinfo \
-        isolinux/boot.msg; do
+        .discinfo isolinux/boot.msg; do
         name="$(basename "${cfg}")"
         src="${work}/post/${name}"
         rm -f "${src}" "${log}"

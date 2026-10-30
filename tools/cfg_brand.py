@@ -22,11 +22,13 @@
 # 41090215913：run-bios-1/install.log 全程 0 字节，门禁只能等到超时）。
 # 两条固件腿必须给出同样的可观测性，否则 BIOS 装机现场卡住时无从定位。
 #
-# 介质还有两处底座暴露，按文件名分派到同一入口：ISO 根目录的 .treeinfo
+# 介质还有三处底座暴露，按文件名分派到同一入口：ISO 根目录的 .treeinfo
 # 是 anaconda 填写安装源产品名的来源（[general] 的 family/name/version），
+# 同目录的 .discinfo 是介质自述（时间戳、发行版名、架构、变体），
 # isolinux/boot.msg 则是老式 BIOS 欢迎文本。.treeinfo 按 INI 只改品牌键
-# 的值，其余行与顺序逐字节保留；boot.msg 只替换明确的底座品牌串，不重排
-# 版面。两者遵守同一份幂等契约。
+# 的值，其余行与顺序逐字节保留；.discinfo 只改发行版名那一行，时间戳与
+# 架构行不动；boot.msg 只替换明确的底座品牌串，不重排版面。三者遵守同一
+# 份幂等契约。
 #
 # 用法：cfg_brand.py --product "AirymaxOS 0.0.3" FILE
 # 退出码：0 有改写；3 已合规（无变化）；1 无法解析或无法满足（缺 inst.ks
@@ -355,6 +357,23 @@ def bm_plan(lines, product):
     return out.splitlines(True), [(hit, product) for hit in hits], None
 
 
+def d_plan(lines, product):
+    """只改 .discinfo 的发行版名行（第二行），时间戳与架构行原样保留。
+
+    该文件四行固定为「时间戳 / 发行版 / 架构 / 变体」，行序是 anaconda 的
+    读取契约，因此不按内容搜行、直接落在第二行；不以 openEuler 开头的
+    第二行原样返回，避免把非底座介质误改成产品名。
+    """
+    if len(lines) < 2:
+        return list(lines), [], None
+    text = lines[1].rstrip("\r\n")
+    if not BASE_NAME.search(text):
+        return list(lines), [], None
+    out = list(lines)
+    out[1] = product + eol(lines[1])
+    return out, [(text, product)], None
+
+
 def dialect(path, lines):
     """按文件名后缀分派介质类型，其余回落到引导配置方言判别。
 
@@ -364,6 +383,8 @@ def dialect(path, lines):
     name = path.name
     if name.endswith(".treeinfo"):
         return t_plan
+    if name.endswith(".discinfo"):
+        return d_plan
     if name.endswith("boot.msg"):
         return bm_plan
     return detect(lines)
