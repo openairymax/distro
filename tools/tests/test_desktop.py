@@ -543,6 +543,41 @@ class DesktopAssetTest(unittest.TestCase):
         self.assertEqual(static - live, set())
         self.assertEqual(live - static, RUN_KEYS)
 
+    def test_observe_sections_reuse_identity(self):
+        # 主题视图是一次采集的切片，不是第二份实现：os.id 必须与静态报告
+        # 逐字相同，否则「展示里叫 AirymaxOS、验收里叫别的」只差一个参数。
+        script = self.asset("desktop/airy_observe.sh")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = identity_root(Path(tmp))
+            static = run(["sh", str(script), "--root", str(root),
+                          "--static"]).stdout
+            out = run(["sh", str(script), "--root", str(root),
+                       "--section", "os"])
+            self.assertIn("AIRYMAX-OBSERVE os.id=airymaxos", out.stdout)
+            keys = keys_of(static)
+            self.assertIn("os.id", keys)
+            lines = out.stdout.splitlines()
+            self.assertIn("AIRYMAX-OBSERVE section=os fields=7", lines)
+            self.assertIn("AIRYMAX-OBSERVE mode=section fields=7", lines)
+
+    def test_observe_sections_cover_topics(self):
+        # 每个主题的字段数是契约：少一行要么是采集退化，要么是版本漂移，
+        # 两种都必须在 CI 里看出来，而不是到展示现场才发现屏幕缺一截。
+        script = self.asset("desktop/airy_observe.sh")
+        for topic, count in (("kernel", 8), ("boot", 5), ("net", 4),
+                             ("sched", 4)):
+            out = run(["sh", str(script), "--section", topic])
+            self.assertIn(f"AIRYMAX-OBSERVE section={topic} fields={count}",
+                          out.stdout.splitlines(), topic)
+
+    def test_observe_rejects_unknown_section(self):
+        # 打错主题名必须立刻失败：静默输出空报告会被当成「这台机器没有
+        # 这些项」。
+        script = self.asset("desktop/airy_observe.sh")
+        out = run(["sh", str(script), "--section", "nope"])
+        self.assertEqual(out.returncode, 2)
+        self.assertIn("reason=bad-section=nope", out.stderr)
+
     def test_observe_resolves_delayed_grub_brand(self):
         # anaconda 写入的 GRUB_DISTRIBUTOR 是延迟展开的管道表达式。报告不
         # eval 别人的配置，而是按同一条规则从 /etc/system-release 推菜单

@@ -236,6 +236,13 @@ multi-user.target，不会触发该单元；workstation kickstart 显式 enable�
   末三行固定 `mode`、`fields`、`status` 并以 `status=ok` 作为退出码，CI 与
   人工读同一份报告。`--static --root` 只读文件，供打包自检在 buildroot 上
   核对品牌与资产，不要求构建机有 X server 或 systemd。
+  `--section kernel|os|boot|net|sched` 把同一份采集按主题单独输出，每段末
+  行给出 `section=<名> fields=<数>`：展示与排障一次只看一屏，且任一主题的
+  键与完整报告逐字同源，不存在第二套取值实现。内核主题给出 release、
+  rpm 归属、`CONFIG_LOCALVERSION`、`/proc/version` 的构建信息、模块数、
+  `tainted` 与命令行；系统主题给出 systemd 版本、包数、airymaxos 包数与
+  SELinux 状态；启动主题给出固件形态、GRUB 版本、默认 target、
+  systemd-analyze 总耗时与失败单元数。段内任一字段取不到即判 `partial`。
 - `airy_bench.py`（`/usr/bin/airy-bench`）：把「IPC 快、并发强」变成可复算
   的数字。三段原语（pipe、AF_UNIX stream、AF_UNIX dgram）各做一次丢弃前
   1000 次预热采样的往返，报 `rtt_p50_us` / `rtt_p99_us` / `rate`；另有
