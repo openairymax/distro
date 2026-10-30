@@ -55,6 +55,7 @@ VERSION=""
 GPG_KEY=""
 MD5=1
 CLOSURE=0
+LOCK=""
 RPMS=()
 ADDS=()
 REQUIRE=()
@@ -86,6 +87,9 @@ usage()
   --closure          收割完整安装闭包：按 kickstart 仓库求解安装事务并
                      将全部 RPM 收入载荷，装机不再访问公网（需 dnf 与
                      同架构宿主）
+  --closure-lock FILE
+                     闭包清单：缓存池与之逐项吻合时完全离线重放，不再
+                     取任何远端元数据；缺项或摘要不符则回落在线求解
   -h, --help         显示本帮助
 
 产出:
@@ -142,6 +146,7 @@ parse_args()
         --gpg-key) optarg "$1" "$#"; GPG_KEY="$2"; shift 2 ;;
         --no-md5) MD5=0; shift ;;
         --closure) CLOSURE=1; shift ;;
+        --closure-lock) optarg "$1" "$#"; LOCK="$2"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
         *) die "${E_INVAL}" "未知参数: $1" ;;
         esac
@@ -175,6 +180,11 @@ check_args()
     done
     [ -f "$CL_COMPS" ] || die "${E_INVAL}" "comps 定义缺失: ${CL_COMPS}"
     [ -f "$CL_SPEC" ] || die "${E_INVAL}" "规格提取器缺失: ${CL_SPEC}"
+    if [ -n "$LOCK" ]; then
+        [ "$CLOSURE" -eq 1 ] ||
+            die "${E_INVAL}" "--closure-lock 需与 --closure 同时使用"
+        [ -f "$LOCK" ] || die "${E_INVAL}" "闭包清单不存在: ${LOCK}"
+    fi
     for add in "${ADDS[@]}"; do
         [ -e "$add" ] || die "${E_INVAL}" "--add 路径不存在: ${add}"
     done
@@ -318,6 +328,7 @@ run_closure()
         return 0
     fi
     local work="${OUT_ABS}/closure" log="${OUT_ABS}/logs/closure.log"
+    CL_LOCK="$LOCK"
     closure_fetch "$KS" "$ARCH" "$PKGDIR" "$work" "$log" ||
         die "${E_IO}" "安装闭包收割失败（日志 ${log}）"
     printf '闭包收割: 新增 %d 个 RPM（总计 %d）\n' "$CL_NEW" "${#NAMES[@]}"

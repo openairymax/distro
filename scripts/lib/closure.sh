@@ -57,6 +57,22 @@
 # cost=1 参与同一次求解，远端只补差异；未完成的轮次也会把已校验的包留进
 # 池里。于是「链路慢」只决定第一轮要多久，不决定每一轮都从零再走一遍。
 #
+# 池只解决「重复下载」，不解决「跨境链路根本来不及」：镜像站对托管运行商
+# 的地址限速到 10–20 KiB/s 时，2.5 GB 闭包要三十小时以上，而组装步的预算
+# 是 180 分钟（run 41039410608：三个根各 300 秒后被窗口速率判据逐个放弃，
+# dnf 连 everything 的元数据都没取完）。因此求解结果可以钉成清单：一次
+# 成功的收割按 sha256 与 NEVRA 逐包写入 CLOSURE_LOCK，此后只要池与清单
+# 逐项吻合，求解就完全离线重放——reposdir 里只有池这一个 file:// 仓库，
+# 不取任何远端元数据。
+#
+# 离线重放不按组求解，而按清单里的 NEVRA 逐个点名：组解析要读各仓库的
+# comps，离线时远端 comps 并不存在；NEVRA 集合本身就是上一次成功事务的
+# 结果，逐个点名还能关掉弱依赖补全，使重放的事务与钉住的那一次一致。
+#
+# 清单由 CLOSURE_LOCK_WRITE=1 在成功收割后写出并随源码提交；构建端只读
+# 不写，池与清单不一致时（新增依赖、换了快照）自动回落到在线求解，不带
+# 病产出镜像。
+#
 # 拉取全程必须可见：2.5 GB 的传输一旦只写进日志文件，外部看到的就是
 # 数十分钟静默，无法区分「在慢慢下」与「已经挂死」（run 40839355885 与
 # 40850633573 都在这一段沉默 80 分钟后被人工取消）。因此求解期间按
@@ -68,6 +84,7 @@
 #                    NAMES 数组（与 collect_rpms 共用同一份载荷清单）；
 #                    实际求解成功的镜像根留在 WORK/mirror-root.txt。
 #   closure_specs    从配方填充 CL_SPECS/CL_EXCL，供测试单独调用。
+#   closure_lock     清单文件路径（CLOSURE_LOCK），空串表示不重放也不写。
 #
 # 退出码：0 表示事务内全部 RPM 已落盘并通过审计；非 0 时调用方据此
 # 判定构建失败，不得带病产出镜像。
@@ -89,6 +106,10 @@ readonly CL_FLOOR="${CLOSURE_FLOOR:-524288}"
 readonly CL_WARM="${CLOSURE_WARMUP:-180}"
 readonly CL_SAMPLE="${CLOSURE_SAMPLE:-120}"
 readonly CL_POOL="${CLOSURE_POOL:-}"
+# 非 readonly：调用方在解析完选项后赋值（--closure-lock），而本库在解析
+# 之前就被 source 了。
+CL_LOCK="${CLOSURE_LOCK:-}"
+readonly CL_LOCK_W="${CLOSURE_LOCK_WRITE:-0}"
 readonly CL_MIRROR_LIST="${CL_ROOT}/repo/mirrors.list"
 readonly CL_PROBE="${CLOSURE_PROBE:-1}"
 readonly CL_PROBE_TOOL="${CLOSURE_PROBE_TOOL:-${CL_ROOT}/tools/mirror_probe.py}"
@@ -104,6 +125,7 @@ readonly -a CL_DNF_OPTS=(
 CL_SPECS=()
 CL_EXCL=()
 CL_ARGS=()
+CL_XOPTS=()
 CL_BOOT=()
 CL_NEW=0
 CL_MIRRORS=()
@@ -284,7 +306,7 @@ cl_run()
     dnf -y install --downloadonly --downloaddir="${work}/dl" \
         --installroot="${work}/root" --releasever="$CL_VER" \
         --forcearch="$arch" --setopt="reposdir=${work}/repos" \
-        "${CL_DNF_OPTS[@]}" --nogpgcheck \
+        "${CL_DNF_OPTS[@]}" ${CL_XOPTS[@]+"${CL_XOPTS[@]}"} --nogpgcheck \
         --repofrompath="airymax-local,${pkg}" \
         "${CL_ARGS[@]}" >>"$log" 2>&1
 }
@@ -501,7 +523,93 @@ cl_harvest()
         NAMES+=("$base")
         CL_NEW=$((CL_NEW + 1))
     done < <(find "$dl" -maxdepth 1 -type f -name '*.rpm' | sort)
-    [ "$CL_NEW" -gt 0 ]
+    # 载荷已含全部包时新增数为 0，这不是失败：重放与重跑都会走到这里。
+    # 事务本身是否成立由 cl_has_dl 与 cl_audit 判定。
+    return 0
+}
+
+# 空事务也会返回 0：dnf 一个包都没解出来时，收割与审计都对着空目录真空
+# 通过，镜像带着空闭包出门，装机现场才缺包。把「什么都没解」从成功里摘
+# 出来。
+cl_has_dl()
+{
+    [ -n "$(find "${1}/dl" -maxdepth 1 -type f -name '*.rpm' \
+        2>/dev/null | head -n 1)" ]
+}
+
+# 清单每行「sha256  文件名  NEVRA」：文件名是池里的身份，NEVRA 供离线
+# 重放逐个点名，sha256 使池里那一份可以被独立复核。先写临时文件再改名，
+# 中途失败不会留下半份清单让下一轮误以为已钉住。
+cl_lock_write()
+{
+    local dl="$1" lock="$2" rpm base nev n=0 sum
+    : >"${lock}.tmp"
+    while IFS= read -r rpm; do
+        base="$(basename "$rpm")"
+        sum="$(sha256sum "$rpm" | cut -d' ' -f1)" || return 1
+        nev="$(rpm -qp --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}' \
+            "$rpm" 2>/dev/null)" || return 1
+        [ -n "$nev" ] || return 1
+        printf '%s  %s  %s\n' "$sum" "$base" "$nev" >>"${lock}.tmp"
+        n=$((n + 1))
+    done < <(find "$dl" -maxdepth 1 -type f -name '*.rpm' | LC_ALL=C sort)
+    if [ "$n" -eq 0 ]; then
+        rm -f "${lock}.tmp"
+        return 1
+    fi
+    mv "${lock}.tmp" "$lock" || return 1
+    printf 'closure: 闭包清单写出 %s 个包（%s）\n' "$n" "$lock"
+}
+
+# 池与清单逐项吻合才允许离线重放。缺项或摘要不符说明池不完整或被人改过，
+# 重放解出的事务会与钉住的那次不同——回落在线的代价远小于带病镜像。
+cl_lock_load()
+{
+    local lock="$1" sum base nev miss=0
+    [ -s "$lock" ] || return 1
+    [ -n "$CL_POOL" ] || return 1
+    CL_ARGS=()
+    while read -r sum base nev; do
+        [ -n "$nev" ] || continue
+        if [ ! -f "${CL_POOL}/${base}" ]; then
+            printf 'closure: 池缺 %s\n' "$base" >&2
+            miss=$((miss + 1))
+            continue
+        fi
+        if [ "$(sha256sum "${CL_POOL}/${base}" | cut -d' ' -f1)" != "$sum" ]; then
+            printf 'closure: 池内 %s 摘要不符\n' "$base" >&2
+            miss=$((miss + 1))
+            continue
+        fi
+        CL_ARGS+=("$nev")
+    done <"$lock"
+    [ "$miss" -eq 0 ] && [ "${#CL_ARGS[@]}" -gt 0 ]
+}
+
+# 完全离线重放：reposdir 里只有池这一个 file:// 仓库，不取任何远端元数据。
+# 按 NEVRA 点名而不按组求解——组解析要读远端 comps，离线时它并不存在；
+# 关掉弱依赖补全，使事务与钉住的那一次一致。
+cl_replay()
+{
+    local arch="$1" pkg="$2" work="$3" log="$4"
+    [ -n "$CL_LOCK" ] || return 1
+    cl_lock_load "$CL_LOCK" || return 1
+    rm -rf "${work}/repos" "${work}/dl"
+    mkdir -p "${work}/repos"
+    cl_pool_init "${work}/repos/pool.repo" || return 1
+    [ -f "${work}/repos/pool.repo" ] || return 1
+    printf '%s\n' "$CL_POOL" >"${work}/mirror-root.txt"
+    : >"$log"
+    printf '## 离线重放 %s（%d 个包）\n' "$CL_LOCK" "${#CL_ARGS[@]}" >>"$log"
+    CL_XOPTS=(--setopt=install_weak_deps=0)
+    if ! cl_run "$work" "$arch" "$pkg" "$log"; then
+        CL_XOPTS=()
+        return 1
+    fi
+    CL_XOPTS=()
+    cl_harvest "${work}/dl" "$pkg" || return 1
+    cl_has_dl "$work" || return 1
+    cl_audit "${work}/dl" "$pkg"
 }
 
 cl_audit()
@@ -523,6 +631,16 @@ closure_fetch()
     rm -rf "$work"
     mkdir -p "${work}/repos"
     cl_arch "$arch" || return 1
+    # 池与清单吻合就先离线重放：跨境链路对托管运行商限速到 10–20 KiB/s 时，
+    # 在线求解在一段预算内根本走不完（见文件头）。命中即返回，不碰任何远端。
+    if cl_replay "$arch" "$pkg" "$work" "$log"; then
+        printf 'closure: 离线重放命中，未访问远端（%s）\n' "$CL_LOCK"
+        rm -rf "${work}/root"
+        return 0
+    fi
+    printf 'closure: 未命中离线重放，转在线求解\n' >&2
+    rm -rf "${work}/repos" "${work}/dl"
+    mkdir -p "${work}/repos"
     cl_init_mirrors
     # 基准先算、再重排：canon 只认同「哪个根是配方源」，与顺序无关；若在
     # 探测之后再算，被探测丢掉的首根会让基准落空，改写失效。
@@ -536,9 +654,15 @@ closure_fetch()
     cl_pool_init "${work}/repos/pool.repo"
     cl_try "$ks" "$arch" "$pkg" "$work" "$log" || return 1
     cl_harvest "${work}/dl" "$pkg" || return 1
+    cl_has_dl "$work" || return 1
     cl_audit "${work}/dl" "$pkg" || return 1
     # 本轮完整下完的包也入池：下一轮（换版本、换架构、重跑）不必再走
     # 公网。放在审计之后，只有通过审计的事务才扩大池的可信集合。
     cl_pool_keep "${work}/dl"
+    # 清单只在显式要求时写：构建端只读不写，否则每轮都会用当轮的求解
+    # 结果覆盖掉人工钉住的那一份。
+    if [ "$CL_LOCK_W" = "1" ] && [ -n "$CL_LOCK" ]; then
+        cl_lock_write "${work}/dl" "$CL_LOCK" || return 1
+    fi
     rm -rf "${work}/root" "${work}/dl"
 }

@@ -241,6 +241,34 @@ case "$cfg" in
 *airymaxos-offline*)
     printf 'dnf: 离线自引用仓库未剔除\\n' >&2; exit 8 ;;
 esac
+# 离线重放按 NEVRA 逐个点名，不按组求解：配方组与 baseos 仓库都不参与，
+# 载荷只来自 reposdir 里的 file:// 池。伪工具据此分流——规格里没有 @ 时
+# 按 NEVRA 在池内找同名包落进 dl，找不到即解析失败（真实 dnf 同语义）。
+case "$specs" in
+*@*) ;;
+*)
+    python3 - "$dl" "$repos" "$specs" <<'PY'
+import sys
+from pathlib import Path
+
+dl, repos, specs = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3].split()
+dirs = [Path(line[len("baseurl=file://"):])
+        for cfg in repos.glob("*.repo")
+        for line in cfg.read_text(encoding="utf-8").splitlines()
+        if line.startswith("baseurl=file://")]
+for spec in specs:
+    for base in dirs:
+        hit = base / (spec + ".rpm")
+        if hit.is_file():
+            (dl / hit.name).write_bytes(hit.read_bytes())
+            break
+    else:
+        print("dnf: 无匹配的包: %s" % spec, file=sys.stderr)
+        sys.exit(1)
+PY
+    exit $?
+    ;;
+esac
 case "$cfg" in
 *"[baseos]"*) ;;
 *) printf 'dnf: 缺 baseos 仓库\\n' >&2; exit 9 ;;
@@ -341,6 +369,23 @@ for name in members:
     (dl / have.get(name, f"{name}-1.0-1.noarch.rpm")).write_text(
         f"rpm {name}\\n", encoding="utf-8")
 PY
+"""
+
+# 闭包池只收「摘要可校验」的包（rpm -K），清单又靠 rpm -qp 取 NEVRA。
+# 宿主不必装 rpm：伪工具给 -K 放行，并把文件名去掉 .rpm 当作 NEVRA——
+# 伪 RPM 的命名即 name-ver-rel.arch，与真实查询结果同形。
+RPM = """\
+#!/bin/sh
+case "${1:-}" in
+-K) exit 0 ;;
+-qp)
+    last=""
+    for a in "$@"; do last=$a; done
+    base=${last##*/}
+    printf '%s\\n' "${base%.rpm}"
+    exit 0 ;;
+esac
+exit 1
 """
 
 XORRISO = """\
@@ -1048,6 +1093,7 @@ def desk_tools(bin_dir):
     iso_tools(bin_dir)
     write(bin_dir, "createrepo_c", CREATEREPO)
     write(bin_dir, "dnf", DNF)
+    write(bin_dir, "rpm", RPM)
 
 
 def qemu_tools(bin_dir, arch="x86_64", qemu=True):
