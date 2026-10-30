@@ -9,8 +9,10 @@
 #      AIRYMAX-SMOKE-PASS），无内核 panic，且会话内探针报告 systemd
 #      记账里没有失败单元。
 #
-# 安装腿失败时该轮启动腿直接判负并跳过，不在无引导盘上空转；两条腿
-# 每 30 秒回显一次串口尾行，便于失败现场在 CI 日志中直接可读。
+# 安装腿失败时该轮启动腿直接判负并跳过，不在无引导盘上空转；两条腿每
+# 30 秒回显一次串口尾行，便于失败现场在 CI 日志中直接可读。失败归因统一
+# 走 fail_note：串口 0 字节时明确报「该固件腿没有向 ttyS0 写任何东西」，
+# 并附 QEMU 自身 stderr，避免空日志现场无从定位。
 #
 # --max-boot 只约束 login: 腿：NFR-P-005 的 30s 口径是 systemd 到登录
 # 提示的冷启动。桌面腿与验收腿的标记由会话内冒烟上报产生，墙钟包含
@@ -391,6 +393,28 @@ fail_hit()
     grep -oE "${INST_ERR}" "$1" 2>/dev/null | head -n 1
 }
 
+# fail_note <fw> <log> <qemu-log> <spent>
+# 失败归因的唯一出口：串口有内容就回显尾行；0 字节则显式说明该固件腿
+# 从未向 ttyS0 写过东西，并始终附上 QEMU 自身 stderr。此前只在日志文件
+# 不存在时才打 QEMU 输出，而安装器把全部输出送到 VGA 时日志是存在的空
+# 文件，现场只剩一行空的 serial tail，读日志的人分不清是固件没引导、
+# 内核没起来，还是引导参数缺 console（run 41090215913 的 run-bios-1）。
+fail_note()
+{
+    local fw="$1" log="$2" qlog="$3" spent="$4" qemu
+
+    if [ -s "${log}" ]; then
+        printf '#   serial tail: %.200s\n' "$(log_tail "${log}")" >&2
+    else
+        printf '#   serial empty after %ss: %s boot path wrote nothing' \
+            "${spent}" "${fw}" >&2
+        printf ' to ttyS0\n' >&2
+    fi
+    qemu="$(tr '\n' ' ' <"${qlog}" 2>/dev/null)"
+    [ -n "${qemu}" ] || return 0
+    printf '#   qemu: %.300s\n' "${qemu}" >&2
+}
+
 wait_inst()
 {
     local log="$1" pid="$2" deadline="$3" start="$4" now
@@ -447,17 +471,14 @@ install_run()
                "${fw}" "${n}" "$(($(date +%s) - start))" >&2 ;;
         *) printf 'install run %s-%s exited rc=%s\n' "${fw}" "${n}" "${rc}" >&2 ;;
         esac
-        printf '#   serial tail: %.200s\n' "$(log_tail "${log}")" >&2
-        # QEMU 自己起不来（缺 KVM、镜像被占）时串口日志根本不存在，
-        # 上面的 tail 是空的；把 QEMU 的 stderr 打出来才定位得到。
-        [ -f "${log}" ] ||
-            printf '#   qemu: %.300s\n' \
-                "$(tr '\n' ' ' <"${dir}/qemu.log" 2>/dev/null)" >&2
+        fail_note "${fw}" "${log}" "${dir}/qemu.log" \
+            "$(($(date +%s) - start))"
         return 1
     fi
     grep -q "${MARKER}" "${log}" 2>/dev/null ||
         { printf 'marker missing in run-%s-%s/install.log\n' "${fw}" "${n}" >&2
-          printf '#   serial tail: %.200s\n' "$(log_tail "${log}")" >&2
+          fail_note "${fw}" "${log}" "${dir}/qemu.log" \
+              "$(($(date +%s) - start))"
           return 1; }
 }
 
@@ -534,14 +555,11 @@ boot_run()
     case "${code}" in
     0) ;;
     2) printf 'boot failure pattern in run-%s-%s/boot.log\n' "${fw}" "${n}" >&2
-       printf '#   serial tail: %.200s\n' "$(log_tail "${log}")" >&2
+       fail_note "${fw}" "${log}" "${dir}/qemu-boot.log" "${BOOT_S}"
        return 1 ;;
     *) printf 'boot incomplete in run-%s-%s/boot.log after %ss\n' \
            "${fw}" "${n}" "${BOOT_S}" >&2
-       printf '#   serial tail: %.200s\n' "$(log_tail "${log}")" >&2
-       [ -f "${log}" ] ||
-           printf '#   qemu: %.300s\n' \
-               "$(tr '\n' ' ' <"${dir}/qemu-boot.log" 2>/dev/null)" >&2
+       fail_note "${fw}" "${log}" "${dir}/qemu-boot.log" "${BOOT_S}"
        return 1 ;;
     esac
     if [ -n "${MAX_BOOT}" ] && [ "${BOOT_S}" -gt "${MAX_BOOT}" ]; then
