@@ -413,6 +413,19 @@ class BuildDesktopTest(unittest.TestCase):
                          FAKE_DNF_MODE="fail", CLOSURE_WAIT="0")
         self.assertEqual(res.returncode, 6)
 
+    def test_closure_fatal_not_retried(self):
+        # 确定性故障零下载且秒退，重试同一根只会复现同一行错误：每个根只
+        # 求解一次，并把那行 Error 抬到控制台，而不是只报「未完成」。
+        self.tools()
+        self.stock()
+        res = self.build("--arch", "x86_64", "--closure",
+                         FAKE_DNF_MODE="deny", CLOSURE_WAIT="0",
+                         CLOSURE_MIRRORS="https://a.example/oe https://b.example/oe")
+        self.assertEqual(res.returncode, 6)
+        self.assertIn("跳过重试", res.stderr)
+        self.assertIn("superuser privileges", res.stderr)
+        self.assertNotIn("求解未完成", res.stderr)
+
     def test_closure_retries_link(self):
         self.tools()
         self.stock()
