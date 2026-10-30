@@ -71,6 +71,7 @@ readonly CL_VER="${CLOSURE_VER:-24.03}"
 readonly CL_TRY="${CLOSURE_TRY:-3}"
 readonly CL_WAIT="${CLOSURE_WAIT:-10}"
 readonly CL_BEAT="${CLOSURE_BEAT:-30}"
+readonly CL_STALL="${CLOSURE_STALL:-600}"
 readonly CL_MIRROR_LIST="${CL_ROOT}/repo/mirrors.list"
 readonly -a CL_DNF_OPTS=(
     --setopt=strict=1
@@ -87,6 +88,7 @@ CL_BOOT=()
 CL_NEW=0
 CL_MIRRORS=()
 CL_ROOTS=()
+CL_STALLED=0
 
 # 镜像根表：每行一个根，# 起注释，空行跳过，行序即尝试顺序。
 cl_mirrors()
@@ -219,19 +221,67 @@ cl_dlstat()
         2>/dev/null | wc -l)" "${size:-0}"
 }
 
-# 子进程存活期间每 CL_BEAT 秒报一行落盘量：父进程据此把「还在传」与
-# 「已经挂死」分开。轮询粒度固定 1 秒，子进程退出后不会多等一个节拍。
+# 目录树已落盘字节数合计：只读目录项，不解内容，每轮的成本与文件数同阶。
+cl_bytes()
+{
+    local dir total=0 b
+    for dir in "$@"; do
+        b="$(du -sb "$dir" 2>/dev/null | cut -f1)"
+        total=$(( total + ${b:-0} ))
+    done
+    printf '%s' "$total"
+}
+
+# 先 TERM 再 KILL：dnf 收到 TERM 会删掉写了一半的 .rpm 并留下已完成的包，
+# 下一次求解据此只补残缺部分。
+cl_kill()
+{
+    local pid="$1" i=0
+    kill -TERM "$pid" 2>/dev/null
+    while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 5 ]; do
+        sleep 1
+        i=$(( i + 1 ))
+    done
+    kill -KILL "$pid" 2>/dev/null
+    return 0
+}
+
+# 子进程存活期间每 CL_BEAT 秒报一行落盘量，并在连续 CL_STALL 秒没有任何
+# 字节落盘时判定为挂死：节拍只让静默可见，处置仍需有人做，否则整段构建
+# 只能等 job 上限被强制取消（run 40839355885、40850633573 各沉默 80 分钟，
+# 日志里既没有失败原因，也看不出卡在哪一步）。
+#
+# 落盘量以「下载目录 + installroot 的 dnf 缓存」合计：求解前期的元数据抓取
+# 只写缓存，只盯 .rpm 个数会把正常的元数据阶段误判成挂死。轮询粒度固定
+# 1 秒，子进程退出后不会多等一个节拍。
 cl_watch()
 {
-    local dl="$1" pid="$2" t0="$3" next=0 el n s
+    local work="$1" pid="$2" t0="$3"
+    local dl="${work}/dl" cache="${work}/root/var/cache/dnf"
+    local next=0 el n=0 s=0 mark prev="" quiet=0
     while kill -0 "$pid" 2>/dev/null; do
         sleep 1
         el=$(( $(date +%s) - t0 ))
-        [ "$el" -ge "$next" ] || continue
-        read -r n s <<<"$(cl_dlstat "$dl")"
-        printf 'closure: 拉取中 files=%s size=%sMiB elapsed=%ss\n' "$n" "$s" "$el"
-        next=$(( el + CL_BEAT ))
+        if [ "$el" -ge "$next" ]; then
+            read -r n s <<<"$(cl_dlstat "$dl")"
+            printf 'closure: 拉取中 files=%s size=%sMiB elapsed=%ss\n' "$n" "$s" "$el"
+            next=$(( el + CL_BEAT ))
+        fi
+        mark="$(cl_bytes "$dl" "$cache")"
+        if [ "$mark" = "$prev" ]; then
+            quiet=$(( quiet + 1 ))
+        else
+            prev="$mark"
+            quiet=0
+        fi
+        [ "$quiet" -lt "$CL_STALL" ] && continue
+        printf 'closure: 静默 %s 秒无落盘（files=%s size=%sMiB），判定挂死，终止本次求解\n' \
+            "$quiet" "$n" "$s" >&2
+        cl_kill "$pid"
+        CL_STALLED=1
+        return 0
     done
+    return 0
 }
 
 # 按镜像根逐个求解，每个根内最多 CL_TRY 次事务级重试（重试复用已下的包，
@@ -254,9 +304,17 @@ cl_try()
             mkdir -p "${work}/dl"
             cl_run "$work" "$arch" "$pkg" "$log" &
             pid=$!
-            cl_watch "${work}/dl" "$pid" "$t0"
+            cl_watch "$work" "$pid" "$t0"
             wait "$pid" && rc=0 || rc=$?
             [ "$rc" -eq 0 ] && return 0
+            if [ "$CL_STALLED" -eq 1 ]; then
+                # 挂死是快照侧的确定性故障，同一根上重试只会再静默一轮，
+                # 把 3 次重试的等待压成一次，直接换快照。
+                CL_STALLED=0
+                printf 'closure: 镜像根 %s 求解挂死，跳过重试换下一个根\n' \
+                    "$label" >&2
+                break
+            fi
             [ "$n" -lt "$CL_TRY" ] || break
             printf 'closure: 镜像根 %s 第 %d 次求解未完成，%d 秒后重试\n' \
                 "$label" "$n" "$CL_WAIT" >&2

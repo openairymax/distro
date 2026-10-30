@@ -273,6 +273,11 @@ case "${FAKE_DNF_MODE:-ok}" in
 fail) printf 'dnf: 依赖解析失败\\n' >&2; exit 1 ;;
 empty) exit 0 ;;
 slow) sleep "${FAKE_DNF_SLEEP:-2}" ;;
+hang)
+    # 挂死：不落任何字节也不退出，复刻求解期镜像无响应、dnf 卡在连接的
+    # 现场。收割端必须在静默上限到达时终止它并换根，不能等 step 超时。
+    # exec 让 sh 自身变成 sleep，TERM 直达进程，测试里不留孤儿。
+    exec sleep "${FAKE_DNF_SLEEP:-3600}" ;;
 flaky)
     # 链路抖动：前 FAKE_DNF_FAILS 轮失败且不落任何 RPM，之后成功。
     # 用于验证收割的事务级重试，而不是每次失败都重启整份构建。
