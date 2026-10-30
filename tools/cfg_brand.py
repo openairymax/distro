@@ -22,6 +22,12 @@
 # 41090215913：run-bios-1/install.log 全程 0 字节，门禁只能等到超时）。
 # 两条固件腿必须给出同样的可观测性，否则 BIOS 装机现场卡住时无从定位。
 #
+# 底座菜单还有四处漏改：Troubleshooting 子菜单内缩进的条目、热键符 ^ 居中
+# 的 "Test this ^media & install ..."、BIOS 菜单横幅与帮助正文里的产品名，
+# 以及挂在 check 条目上的 menu default 标记——BIOS 因此先把整份介质校验
+# 一遍再装机。标题按行扫描（含缩进）、帮助正文只在 text help 块内替换品牌
+# 串、menu default 挪到含 inst.ks 且不含 rd.live.check 的安装项。
+#
 # 介质还有三处底座暴露，按文件名分派到同一入口：ISO 根目录的 .treeinfo
 # 是 anaconda 填写安装源产品名的来源（[general] 的 family/name/version），
 # 同目录的 .discinfo 是介质自述（时间戳、发行版名、架构、变体），
@@ -52,9 +58,13 @@ SAME = 3
 USAGE = '用法: cfg_brand.py --product "AirymaxOS 0.0.3" FILE'
 
 GRUB_RE = re.compile(r"^(menuentry|submenu)\s+(['\"])(.*?)\2")
+GRUB_ANY = re.compile(r"^(\s*)(menuentry|submenu)\s+(['\"])(.*?)\3")
 GRUB_DEF = re.compile(r"^set\s+default=\S+")
 MENU_RE = re.compile(r"^(\s*menu (?:label|title)\s+)(\^?)(.*)$")
 LABEL_RE = re.compile(r"^label\s+(\S+)")
+MDEF_RE = re.compile(r"^\s*menu\s+default\s*$")
+HELP_RE = re.compile(r"^\s*text\s+help\s*$")
+ENDTEXT_RE = re.compile(r"^\s*endtext\s*$")
 ISOLINUX_HINT = re.compile(r"^\s*(label|append|menu (?:label|title))\b")
 APPEND_RE = re.compile(r"^\s*append\s")
 SERIAL_RE = re.compile(r"console=ttyS0")
@@ -64,23 +74,32 @@ SECT_RE = re.compile(r"^\[([^\]]+)\]")
 TREE_KEY = re.compile(r"^(\s*)([A-Za-z0-9_.-]+)(\s*=\s*)(.*)$")
 TREE_SEC = ("general", "release", "product")
 BASE_NAME = re.compile(r"openeuler", re.IGNORECASE)
-BASE_MSG = re.compile(r"openEuler(?:[- ][0-9][^\s,;:.]*)?")
+BASE_TOKEN = r"openEuler(?:[- ]\d[\w.\-]*[0-9A-Za-z])?"
+BASE_MSG = re.compile(BASE_TOKEN)
 
-# 只认底座确实存在的三种标题；Troubleshooting 之类原样保留。
+# 只认底座确实存在的三种整条标题；带修饰语（"in basic graphics mode"）或
+# 热键符的标题交给 retitle 的品牌串替换，避免把修饰语一并删掉。
 TITLE_RULES = (
-    (re.compile(r"^Install\s+\S"), "Install {p}"),
-    (re.compile(r"^Test this media & install\s+\S"),
+    (re.compile(rf"^Install\s+{BASE_TOKEN}$"), "Install {p}"),
+    (re.compile(rf"^Test this media & install\s+{BASE_TOKEN}$"),
      "Test this media & install {p}"),
-    (re.compile(r"^Rescue a\s+\S.*\s+system$"), "Rescue {p} system"),
+    (re.compile(rf"^Rescue a\s+{BASE_TOKEN}\s+system$"), "Rescue {p} system"),
 )
 
 
 def retitle(text, product):
-    """按产品名改写菜单标题；不匹配的标题原样返回。"""
+    """按产品名改写菜单标题；不含底座品牌的标题原样返回。
+
+    TITLE_RULES 只覆盖整条标题是标准形状的三种条目。底座还有两类标题
+    匹配不到：热键符 ^ 出现在标题中间（"Test this ^media & install
+    openEuler 24.03-LTS-SP2"），以及菜单横幅 "menu title openEuler
+    24.03-LTS-SP2"。两类都退回底座品牌串替换：位置在中间的 ^ 与前后文
+    一字不动，只换产品名。
+    """
     for pat, fmt in TITLE_RULES:
         if pat.search(text):
             return fmt.format(p=product)
-    return text
+    return BASE_MSG.sub(product, text)
 
 
 def g_end(lines, start):
@@ -116,21 +135,24 @@ def g_install(lines, entries):
     return None
 
 
-def g_put(line, title):
-    """只替换引号内的标题，引号与行尾保持原样。"""
-    m = GRUB_RE.match(line)
-    return line[:m.start(3)] + title + line[m.end(3):]
+def g_retitle(lines, product):
+    """改写所有 menuentry/submenu 标题，含缩进的子菜单条目。
 
-
-def g_retitle(lines, entries, product):
-    """返回 (新行列表, [(旧标题, 新标题)])。"""
+    g_entries 只认列 0 起的条目（default 序号按顶层算），而
+    Troubleshooting 子菜单里的条目缩进两层：此前从未被改写，用户展开
+    子菜单仍然看到 "Install openEuler ... in basic graphics mode" 与
+    "Rescue a openEuler system"。这里按行扫描，缩进原样保留。
+    """
     out = list(lines)
     changes = []
-    for start, _, title in entries:
-        new = retitle(title, product)
-        if new != title:
-            out[start] = g_put(lines[start], new)
-            changes.append((title, new))
+    for pos, line in enumerate(lines):
+        m = GRUB_ANY.match(line)
+        if not m:
+            continue
+        new = retitle(m.group(4), product)
+        if new != m.group(4):
+            out[pos] = line[:m.start(4)] + new + line[m.end(4):]
+            changes.append((m.group(4), new))
     return out, changes
 
 
@@ -160,7 +182,7 @@ def grub(lines, product):
     idx = g_install(lines, entries)
     if idx is None:
         return None
-    out, changes = g_retitle(lines, entries, product)
+    out, changes = g_retitle(lines, product)
     title = retitle(entries[idx][2], product)
     out, old = g_default(out, idx)
     return out, changes, dmove(old, f'set default="{idx}"', title)
@@ -269,6 +291,57 @@ def i_default(lines, name):
     return lines, None
 
 
+def i_help(lines, product):
+    """改写 text help ... endtext 内的底座品牌串。
+
+    帮助正文在 BIOS 菜单里按 Tab/F1 直接显示，底座原文
+    "installing openEuler 24.03-LTS-SP2." 会原样露给用户；只换产品名，
+    缩进、换行与其余文字一字不动。
+    """
+    out = list(lines)
+    changes = []
+    inside = False
+    for pos, line in enumerate(lines):
+        if HELP_RE.match(line):
+            inside = True
+            continue
+        if ENDTEXT_RE.match(line):
+            inside = False
+            continue
+        if not inside:
+            continue
+        new = BASE_MSG.sub(product, line)
+        if new != line:
+            out[pos] = new
+            changes.append((line.strip(), new.strip()))
+    return out, changes
+
+
+def i_defmark(lines, blk):
+    """把 menu default 标记挪到安装项块；无变化返回 (lines, None)。
+
+    isolinux 的 preselected 条目由「菜单项上的 menu default 标记」决定，
+    文件顶部的 `default vesamenu.c32` 只指定菜单模块，与条目无关。底座
+    把该标记放在 check 上，BIOS 缺省就停在 "Test this media & install"：
+    装机前先把整份 3.7 GB 介质校验一遍，CD-ROM 腿上这一遍把装机推到
+    小时级。缺省项必须是含 inst.ks 且不含 rd.live.check 的安装项。
+    """
+    name = blk[2]
+    inside = any(MDEF_RE.match(lines[pos])
+                 for pos in range(blk[0] + 1, blk[1]))
+    stray = [pos for pos, line in enumerate(lines)
+             if MDEF_RE.match(line) and not blk[0] < pos < blk[1]]
+    if inside and not stray:
+        return lines, None
+    out = [line for pos, line in enumerate(lines) if pos not in stray]
+    if not inside:
+        idx = next(pos for pos, line in enumerate(out)
+                   if LABEL_RE.match(line)
+                   and LABEL_RE.match(line).group(1) == name)
+        out.insert(idx + 1, "  menu default" + eol(out[idx]))
+    return out, f"{name} (menu default)"
+
+
 def isolinux(lines, product):
     """isolinux 改写计划；缺安装项返回 None。"""
     blk = i_install(lines, i_blocks(lines))
@@ -276,10 +349,15 @@ def isolinux(lines, product):
         return None
     out, changes = i_retitle(lines, product)
     out, serial = i_serial_all(out)
-    changes += serial
+    out, helps = i_help(out, product)
+    changes += serial + helps
     title = i_title(lines, blk, product)
     out, old = i_default(out, blk[2])
-    return out, changes, dmove(old, f"default={blk[2]}", title)
+    mark = None
+    if any(MDEF_RE.match(line) for line in out):
+        out, mark = i_defmark(out, blk)
+    dflt = dmove(old, f"default={blk[2]}", title)
+    return out, changes, "；".join(x for x in (dflt, mark) if x) or None
 
 
 def detect(lines):

@@ -67,6 +67,37 @@ menuentry 'Install openEuler 24.03-LTS-SP2' {
 }
 """
 
+# 与 netinst 同形的真实 isolinux.cfg 片段：菜单横幅、热键符居中的
+# "Test this ^media & install"、挂在 check 上的 menu default，以及
+# text help 正文里的产品名。
+ISOLINUX_NETINST = """\
+default vesamenu.c32
+timeout 600
+
+menu title openEuler 24.03-LTS-SP2
+menu background splash.png
+
+label linux
+  menu label ^Install openEuler 24.03-LTS-SP2
+  kernel vmlinuz
+  append initrd=initrd.img inst.stage2=hd:LABEL=AIRYMAXOS quiet inst.ks=hd:LABEL=AIRYMAXOS:/ks.cfg
+
+label check
+  menu label Test this ^media & install openEuler 24.03-LTS-SP2
+  menu default
+  kernel vmlinuz
+  append initrd=initrd.img inst.stage2=hd:LABEL=AIRYMAXOS rd.live.check quiet inst.ks=hd:LABEL=AIRYMAXOS:/ks.cfg
+
+label vesa
+  menu label Install AirymaxOS 0.0.3
+  text help
+\tTry this option out if you're having trouble installing
+\topenEuler 24.03-LTS-SP2.
+  endtext
+  kernel vmlinuz
+  append initrd=initrd.img inst.stage2=hd:LABEL=AIRYMAXOS nomodeset quiet inst.ks=hd:LABEL=AIRYMAXOS:/ks.cfg
+"""
+
 SERIAL = """\
 default=0
 timeout 600
@@ -246,6 +277,43 @@ class CfgBrandTest(unittest.TestCase):
         self.assertIn("openEuler 24.03-LTS-SP2 -> AirymaxOS 0.0.3",
                       res.stderr)
         self.assertEqual(self.brand(path).returncode, 3)
+
+    def test_isolinux_netinst_default_moves_to_install(self):
+        path = self.make(ISOLINUX_NETINST, "isolinux.cfg")
+        res = self.brand(path)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        lines = path.read_text(encoding="utf-8").splitlines()
+        idx = lines.index("label linux")
+        self.assertEqual(lines[idx + 1], "  menu default")
+        self.assertEqual([l for l in lines if l.strip() == "menu default"],
+                         ["  menu default"])
+        self.assertIn("linux (menu default)", res.stderr)
+
+    def test_isolinux_netinst_brands_banner_and_help(self):
+        path = self.make(ISOLINUX_NETINST, "isolinux.cfg")
+        self.assertEqual(self.brand(path).returncode, 0)
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("menu title AirymaxOS 0.0.3", text)
+        self.assertIn("menu label Test this ^media & install AirymaxOS 0.0.3",
+                      text)
+        self.assertIn("\tAirymaxOS 0.0.3.", text)
+        self.assertNotIn("openEuler", text)
+
+    def test_isolinux_netinst_idempotent(self):
+        path = self.make(ISOLINUX_NETINST, "isolinux.cfg")
+        self.assertEqual(self.brand(path).returncode, 0)
+        again = self.brand(path)
+        self.assertEqual(again.returncode, 3, again.stderr)
+        self.assertEqual(again.stderr, "")
+
+    def test_grub_submenu_keeps_its_qualifier(self):
+        path = self.make(GRUB)
+        self.assertEqual(self.brand(path).returncode, 0)
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("menuentry 'Install AirymaxOS 0.0.3 in basic graphics "
+                      "mode'", text)
+        self.assertIn("menuentry 'Rescue AirymaxOS 0.0.3 system'", text)
+        self.assertNotIn("openEuler", text)
 
     def test_usage_error(self):
         path = self.make(GRUB)
