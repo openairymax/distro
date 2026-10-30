@@ -130,7 +130,36 @@ efibootmgr -o "${order}" >/dev/null 2>&1 || fail "set BootOrder failed"
 first=$(efibootmgr 2>/dev/null | sed -n 's/^BootOrder: //p' | cut -d, -f1)
 [ "${first}" = "${new}" ] || fail "BootOrder head=${first} want=${new}"
 
+# anaconda 自己建的那条 "openEuler" 条目仍留在 NVRAM 里，固件菜单因此同时
+# 列出两个名字，其中一个指向本机 ESP 上的上游目录。品牌化交付项要求菜单里
+# 看不到上游名字，所以在 AirymaxOS 条目确认置顶之后清理，顺序不能颠倒：
+# 先删后建，中途失败会让机器彻底没有可引导项。
+#
+# 两条判据都只读 efibootmgr -v 的实际内容，不按序号猜（序号在多次安装之间
+# 不稳定）：一是路径为 \EFI\openEuler\ 且 HD() 的设备签名等于本机 ESP 的
+# PARTUUID——只清自己的盘，接入的其它磁盘上的引导项不动；二是只有 VenHw()
+# 而没有任何 .efi 路径的同名条目，这类空壳不带磁盘身份、选中即失败，是安装
+# 器留下的死条目。
+partuuid=$(lsblk -no PARTUUID "${dev}" 2>/dev/null) || partuuid=
+pruned=0
+for e in $(efibootmgr -v 2>/dev/null | awk \
+    -v self="${new}" -v uuid="${partuuid}" '
+    $2 == "openEuler" {
+        id = $1
+        sub(/^Boot/, "", id)
+        gsub(/\*/, "", id)
+        if (length(id) != 4 || id == self) next
+        if ($0 ~ /\\EFI\\openEuler\\/) {
+            if (uuid != "" && index($0, uuid) > 0) print id
+            next
+        }
+        if ($0 !~ /\.efi/) print id
+    }'); do
+    efibootmgr -b "${e}" -B >/dev/null 2>&1 || :
+    pruned=$((pruned + 1))
+done
+
 install -d -m 0755 "${state%/*}" || fail "create ${state%/*} failed"
-printf 'entry=%s\nloader=%s\n' "${new}" "${loader}" >"${state}" ||
-    fail "write ${state} failed"
-note "entry=${new} disk=${disk} part=${part} order=${order}"
+printf 'entry=%s\nloader=%s\npruned=%s\n' "${new}" "${loader}" "${pruned}" \
+    >"${state}" || fail "write ${state} failed"
+note "entry=${new} disk=${disk} part=${part} order=${order} pruned=${pruned}"
