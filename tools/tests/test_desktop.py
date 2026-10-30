@@ -60,6 +60,8 @@ ASSETS = (
      "/usr/lib/airymaxos/desktop/airy_bench.py"),
     ("desktop/airy_demo.py",
      "/usr/lib/airymaxos/desktop/airy_demo.py"),
+    ("desktop/airy_inspect.py",
+     "/usr/lib/airymaxos/desktop/airy_inspect.py"),
     ("desktop/xserver.sh",
      "/usr/lib/airymaxos/desktop/xserver"),
     ("desktop/70-airymax-ukui-policy.sh",
@@ -138,7 +140,7 @@ def identity_root(root):
         "99-airymaxos-default.gschema.override": "",
     }
     for name in ("desktop_ready.sh", "airy_record.sh", "airy_observe.sh",
-                 "airy_bench.py", "airy_demo.py"):
+                 "airy_bench.py", "airy_demo.py", "airy_inspect.py"):
         files[f"usr/lib/airymaxos/desktop/{name}"] = ""
     for rel, body in files.items():
         path = root / rel

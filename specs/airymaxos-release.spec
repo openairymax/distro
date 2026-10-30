@@ -99,6 +99,7 @@ Source31:       airy_observe.sh
 Source32:       airy_bench.py
 Source33:       airy_demo.py
 Source34:       99-airymax-hostname.conf
+Source35:       airy_inspect.py
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -175,6 +176,8 @@ install -m 0755 %{SOURCE32} \
     %{buildroot}/usr/lib/airymaxos/desktop/airy_bench.py
 install -m 0755 %{SOURCE33} \
     %{buildroot}/usr/lib/airymaxos/desktop/airy_demo.py
+install -m 0755 %{SOURCE35} \
+    %{buildroot}/usr/lib/airymaxos/desktop/airy_inspect.py
 
 # 录屏与观察点以子命令形式对外：实现留在库目录，入口只是符号链接，升级时
 # 不需要在多处同步文件名，也不会出现 /usr/bin 与库目录两份实现。
@@ -183,6 +186,8 @@ ln -s ../lib/airymaxos/desktop/airy_record.sh %{buildroot}%{_bindir}/airy-record
 ln -s ../lib/airymaxos/desktop/airy_observe.sh %{buildroot}%{_bindir}/airy-observe
 ln -s ../lib/airymaxos/desktop/airy_bench.py %{buildroot}%{_bindir}/airy-bench
 ln -s ../lib/airymaxos/desktop/airy_demo.py %{buildroot}%{_bindir}/airy-demo
+ln -s ../lib/airymaxos/desktop/airy_inspect.py %{buildroot}%{_bindir}/airy-kernel
+ln -s ../lib/airymaxos/desktop/airy_inspect.py %{buildroot}%{_bindir}/airy-os
 
 install -d -m 0755 %{buildroot}%{_sysconfdir}/lightdm/lightdm.conf.d
 install -m 0644 %{SOURCE7} \
@@ -359,6 +364,20 @@ python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' \
 %{buildroot}/usr/lib/airymaxos/desktop/airy_demo.py --check |
     grep -qxF 'AIRYMAX-DEMO status=ok'
 test -L %{buildroot}%{_bindir}/airy-demo
+# 内核与整机取证：一份实现按 argv[0] 基名分派出两个入口，所以断言必须走
+# %%{_bindir} 下的符号链接——直接跑实现文件只会得到用法错误。静态模式在
+# buildroot 上真跑一次：没有 procfs 时 release 必须是 absent（缺项不省略
+# 是本工具的契约），而 os.id 与免密账户必须能被同一条链读出。
+python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' \
+    %{buildroot}/usr/lib/airymaxos/desktop/airy_inspect.py
+test -L %{buildroot}%{_bindir}/airy-kernel
+test -L %{buildroot}%{_bindir}/airy-os
+%{buildroot}%{_bindir}/airy-kernel --root %{buildroot} |
+    grep -qxF 'AIRYMAX-KERNEL kernel.release=absent'
+%{buildroot}%{_bindir}/airy-os --root %{buildroot} |
+    grep -qxF 'AIRYMAX-OS os.id=airymaxos'
+%{buildroot}%{_bindir}/airy-os --root %{buildroot} |
+    grep -qxF 'AIRYMAX-OS session.autologin=Airymax'
 # 类别集合必须同时覆盖 greeter 与 autologin：座位策略启用 autologin 时
 # lightdm 不创建 greeter 会话，只认一类会让另一种镜像永远等不到就绪标记。
 grep -qxF 'SESS_CLASSES="greeter user"' \
@@ -535,10 +554,13 @@ fi
 /usr/lib/airymaxos/desktop/airy_observe.sh
 /usr/lib/airymaxos/desktop/airy_bench.py
 /usr/lib/airymaxos/desktop/airy_demo.py
+/usr/lib/airymaxos/desktop/airy_inspect.py
 %{_bindir}/airy-record
 %{_bindir}/airy-observe
 %{_bindir}/airy-bench
 %{_bindir}/airy-demo
+%{_bindir}/airy-kernel
+%{_bindir}/airy-os
 /usr/lib/airymaxos/boot/efi_brand.sh
 /usr/lib/airymaxos/boot/grub_args.sh
 %{_datadir}/plymouth/themes/default.plymouth
