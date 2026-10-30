@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # ===========================================================================
-# test_isohybrid_sync.py — tools/isohybrid_sync.py 三元一致性回归测试
+# test_isohybrid_sync.py — tools/isohybrid_sync.py 一致性回归测试
 #
 # 用最小合成镜像覆盖判定与修复：镜像自带 El Torito 引导目录、MBR 0xEF
 # 分区项与 GPT 表，按真实 isohybrid 布局排布（引导记录在 LBA 17，目录在
-# LBA 18，EFI 镜像条目在 platform 0xEF 段内）。每个用例只破坏一个前提，
-# 修复后必须能重新读出合法 GPT 头 CRC。无 El Torito 记录的镜像按「不适用」
-# 退出 77，使 build-iso 的伪 ISO 沙箱用例不受本门禁影响。
+# LBA 18，EFI 镜像条目在 platform 0xEF 段内，isolinux 引导镜像在 LBA 20
+# 且带合法的 boot info table）。每个用例只破坏一个前提，修复后必须能重新
+# 读出合法 GPT 头 CRC、合法的 bi_file 与 bi_csum。无 El Torito 记录的镜像
+# 按「不适用」退出 77，使 build-iso 的伪 ISO 沙箱用例不受本门禁影响。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
 # Version: 0.0.3
@@ -26,8 +27,14 @@ BLK = 2048
 SECT = 512
 UEFI_LBA = 24
 UEFI_LEN = 8
+BIOS_LBA = 20
+BIOS_LEN = 4096
+BLOCKS = 26
 GPT_ESZ = 128
 GPT_NUM = 4
+BIP = 8
+BIP_SUM = 64
+ISOLINUX = 0xFB
 
 
 def crc32(buf):
@@ -55,6 +62,19 @@ def gpt_head(table):
     return bytes(head)
 
 
+def dsum(img):
+    n = (len(img) - BIP_SUM) & ~3
+    return sum(struct.unpack_from(f"<{n // 4}I", img, BIP_SUM)) & 0xFFFFFFFF
+
+
+def isolinux(lba):
+    img = bytearray(BIOS_LEN)
+    img[BIP_SUM] = ISOLINUX
+    struct.pack_into("<IIII", img, BIP, 16, lba, BIOS_LEN, 0)
+    struct.pack_into("<I", img, BIP + 12, dsum(img))
+    return bytes(img)
+
+
 def torito(lba):
     br = bytearray(BLK)
     br[0:7] = b"\x00CD001\x01"
@@ -74,12 +94,13 @@ def torito(lba):
     return bytes(br), bytes(cat)
 
 
-def image(lba=UEFI_LBA, mbr=(UEFI_LBA * 4, UEFI_LEN), gpt=None):
+def image(lba=UEFI_LBA, mbr=(UEFI_LBA * 4, UEFI_LEN), gpt=None,
+          bip_lba=BIOS_LBA):
     first, last = gpt or (mbr[0], mbr[0] + mbr[1] - 1)
     table = gpt_entry(0, 0, "ISOHybrid")
     table += gpt_entry(first, last, "ISOHybrid1")
     table += b"\0" * (GPT_ESZ * (GPT_NUM - 2))
-    raw = bytearray(b"\0" * (20 * BLK))
+    raw = bytearray(b"\0" * (BLOCKS * BLK))
     raw[446 + 16 + 4] = 0xEF
     struct.pack_into("<II", raw, 446 + 16 + 8, *mbr)
     raw[SECT:SECT + 92] = gpt_head(table)
@@ -87,6 +108,7 @@ def image(lba=UEFI_LBA, mbr=(UEFI_LBA * 4, UEFI_LEN), gpt=None):
     br, cat = torito(lba)
     raw[17 * BLK:18 * BLK] = br
     raw[18 * BLK:19 * BLK] = cat
+    raw[BIOS_LBA * BLK:BIOS_LBA * BLK + BIOS_LEN] = isolinux(bip_lba)
     return bytes(raw)
 
 
@@ -111,6 +133,7 @@ class IsohybridTest(unittest.TestCase):
         res = self.run_tool("--check", str(self.make()))
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
         self.assertIn("status: ok", res.stdout)
+        self.assertIn("bootinfo=ok", res.stdout)
 
     def test_mismatch_detected(self):
         res = self.run_tool("--check", str(self.make(lba=23)))
@@ -131,6 +154,21 @@ class IsohybridTest(unittest.TestCase):
                          crc32(bytes(head[:16]) + b"\0\0\0\0" + head[20:]))
         first, last = struct.unpack_from("<QQ", table, esz + 32)
         self.assertEqual((first, last), (92, 99))
+
+    def test_bootinfo_stale(self):
+        res = self.run_tool("--check", str(self.make(bip_lba=BIOS_LBA + 1)))
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertIn("bootinfo=stale", res.stdout)
+
+    def test_sync_fixes_bootinfo(self):
+        path = self.make(bip_lba=BIOS_LBA + 1)
+        res = self.run_tool("--sync", str(path))
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        raw = path.read_bytes()
+        off = BIOS_LBA * BLK
+        pvd, file, length, csum = struct.unpack_from("<IIII", raw, off + BIP)
+        self.assertEqual((pvd, file), (16, BIOS_LBA))
+        self.assertEqual(csum, dsum(raw[off:off + length]))
 
     def test_gpt_size_mismatch(self):
         path = self.make(gpt=(UEFI_LBA * 4, UEFI_LBA * 4 + UEFI_LEN))

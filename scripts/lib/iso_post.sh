@@ -245,14 +245,17 @@ iso_post_hybrid()
         ;;
     esac
     sed 's/^/  /' "${log}" >&2
-    iso_post_log "isohybrid 三元不一致，USB 盘方式将无法引导: ${iso}"
+    iso_post_log "isohybrid 自洽性检查失败（分区表/BIOS 引导表）: ${iso}"
     return 1
 }
 
 # iso_post_fix <iso> <work>
-# 重新打包会把 El Torito 条目的逻辑块号前移，而 MBR/GPT 仍是旧扇区号。
-# 重打包不只发生在品牌化：mkksiso 与站点派生同样如此，故本步不看调用方
-# 是否改写过配置，一律按 El Torito 真值对齐一次，再由 hybrid 复核。
+# 重新打包会把 El Torito 条目的逻辑块号前移，而 MBR/GPT 仍是旧扇区号，
+# isolinux 的 boot info table 也仍记着旧块号。前者让固件按分区表找到垃圾，
+# 后者让 isolinux 找不到自己的配置，两个缺陷都只在引导时暴露，检查手段
+# 只能来自介质静态解析。重打包不只发生在品牌化：mkksiso 与站点派生同样
+# 如此，故本步不看调用方是否改写过配置，一律按 El Torito 真值对齐一次，
+# 再由 hybrid 复核。
 iso_post_fix()
 {
     local iso="$1" work="$2" rc=0 log="${work}/logs/isohybrid.log"
