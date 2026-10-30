@@ -257,6 +257,10 @@ multi-user.target，不会触发该单元；workstation kickstart 显式 enable�
   随到达即出现；并发段另按 1/2/4/8 逐级三次取中位画条，避免单次调度抖动
   被读成能力。非 TTY 或 `NO_COLOR` 时去色，`--check` 只清点对端与终端，
   不重复度量，末行固定 `status=ok|degraded`。
+  正文之后固定打印一段「复算入口」：五个主题视图、`airy-bench` 原始测量、
+  以及 `rpm -qf` / `systemd-analyze` / `systemctl --failed` / `airy-record
+  --tty` 四条标准工具入口。入口随输出走而不是只写在文档里——看到数字的人
+  第一件事是复跑，缺了这一步，展示就退化成不可核对的自述。
 
 四个入口在 `/usr/bin` 下是到 `/usr/lib/airymaxos/desktop/` 的相对符号链接，
 升级时不会出现两份实现。ffmpeg 在 EPOL 而非基线仓库，故声明为
