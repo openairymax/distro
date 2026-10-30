@@ -9,8 +9,8 @@
 # 安装项、Troubleshooting/Rescue 类条目不误改、重复执行幂等，以及
 # isolinux 的 append 行补齐串口控制台。内核行与 inst.ks=/LABEL= 必须逐字节
 # 保留，否则 kickstart 与 stage2 定位会失效。
-# 另外覆盖 .treeinfo 的品牌键改写与 boot.msg 的品牌串替换，二者同样要求
-# 其余内容逐字节不变、二次运行退出 3。
+# 另外覆盖 .treeinfo 的品牌键改写、.discinfo 的发行版名改写与 boot.msg 的
+# 品牌串替换，三者同样要求其余内容逐字节不变、二次运行退出 3。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
 # Version: 0.0.3
@@ -103,6 +103,8 @@ efiboot.img = images/efiboot.img
 
 BOOTMSG = "\x0c \n\x18splash.lss\n\n -  Welcome to openEuler 24.03-LTS-SP2\n\n"
 BOOTMSG_PLAIN = "\x0c \n\x18splash.lss\n\n -  Press the \x0f01<ENTER>\x0f07 key\n\n"
+
+DISCINFO = "1750912660.4513083\nopenEuler 24.03-LTS-SP2\nx86_64\nServer\n"
 
 
 class CfgBrandTest(unittest.TestCase):
@@ -233,6 +235,17 @@ class CfgBrandTest(unittest.TestCase):
         res = self.brand(path)
         self.assertEqual(res.returncode, 3, res.stderr)
         self.assertEqual(path.read_text(encoding="utf-8"), BOOTMSG_PLAIN)
+
+    def test_discinfo_brand(self):
+        path = self.make(DISCINFO, ".discinfo")
+        res = self.brand(path)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(path.read_text(encoding="utf-8"),
+                         "1750912660.4513083\nAirymaxOS 0.0.3\nx86_64\n"
+                         "Server\n")
+        self.assertIn("openEuler 24.03-LTS-SP2 -> AirymaxOS 0.0.3",
+                      res.stderr)
+        self.assertEqual(self.brand(path).returncode, 3)
 
     def test_usage_error(self):
         path = self.make(GRUB)
