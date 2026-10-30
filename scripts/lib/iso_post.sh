@@ -119,17 +119,30 @@ iso_post_cfg()
     return 0
 }
 
-# iso_xor_put <iso> <src> <path> <work>
-# 用 -map 而不是 -update：-update 按 mtime 判断是否覆盖，提取出的配置副本
-# 与镜像内文件同名同尺寸时会被静默跳过，改写就不会进入镜像。xorriso 要求
-# 输入输出是不同文件，故先写临时镜像，成功后再覆盖回原路径。
+# iso_xor_put <iso> <work> <src>|<path> ...
+# 所有替换项一次写完。用 -map 而不是 -update：-update 按 mtime 判断是否
+# 覆盖，提取出的配置副本与镜像内文件同名同尺寸时会被静默跳过，改写就不会
+# 进入镜像。xorriso 要求输入输出是不同文件，故先写临时镜像，成功后再覆盖
+# 回原路径。
+#
+# 必须合并成一次：每次 -map 都要重打包整份镜像，而重打包会让镜像缩短若干
+# 扇区（run 41083814240：1837800 → 1836832 扇区），旧 MBR/GPT 仍描述原几何。
+# 逐个文件写回时，第二个文件面对的就是这份中间态镜像，xorriso 读备份 GPT 头
+# 时命中「起始地址超出可读块数」的 SORRY 并以 32 退出，品牌化就地失败；
+# 单次写回的输入是未改写的原镜像，不存在这段中间态，同时省掉一遍 3.6 GB
+# 整镜像读写。
 iso_xor_put()
 {
-    local iso="$1" src="$2" path="$3" work="$4"
+    local iso="$1" work="$2" pair
     local tmp="${work}/post/put.iso" log="${work}/logs/xorriso-put.log"
+    local -a maps=()
+    shift 2
+    for pair in "$@"; do
+        maps+=(-map "${pair%%|*}" "${pair#*|}")
+    done
     rm -f "${tmp}"
     if ! xorriso -indev "${iso}" -outdev "${tmp}" \
-        -boot_image any keep -map "${src}" "${path}" >>"${log}" 2>&1; then
+        -boot_image any keep "${maps[@]}" >>"${log}" 2>&1; then
         iso_post_log "xorriso 写回失败（日志 ${log}）"
         return 1
     fi
@@ -164,12 +177,17 @@ iso_cfg_verify()
 }
 
 # iso_cfg_brand <iso> <product> <work>
+# 先全部提取并改写，再一次性写回，最后逐个回读复核。写回必须合并成一次：
+# 每次写回都会重打包并让镜像缩短，旧 GPT 指向旧几何，第二次写回读中间态
+# 镜像即失败（详见 iso_xor_put）。两个数组同序对应：puts 带前导斜杠用于
+# 写回定位，verifies 保留镜像内相对路径用于回读断言。
 # 返回 0 至少改写一个引导配置；77 全部已合规无需重新打包；1 失败。
 iso_cfg_brand()
 {
     local iso="$1" product="$2" work="$3"
-    local cfg name src rc=0 changed=0
+    local cfg name src rc=0 item
     local log="${work}/logs/cfg_brand.log"
+    local -a puts=() verifies=()
     mkdir -p "${work}/post" "${work}/logs"
     for cfg in EFI/BOOT/grub.cfg isolinux/isolinux.cfg .treeinfo \
         isolinux/boot.msg; do
@@ -188,10 +206,8 @@ iso_cfg_brand()
         fi
         case "${rc}" in
         0)
-            iso_xor_put "${iso}" "${src}" "/${cfg}" "${work}" || return 1
-            iso_cfg_verify "${iso}" "${src}" "${cfg}" "${product}" \
-                "${work}" || return 1
-            changed=1
+            puts+=("${src}|/${cfg}")
+            verifies+=("${src}|${cfg}")
             ;;
         3) ;;
         *)
@@ -200,9 +216,14 @@ iso_cfg_brand()
             ;;
         esac
     done
-    if [ "${changed}" -ne 1 ]; then
+    if [ "${#puts[@]}" -eq 0 ]; then
         return 77
     fi
+    iso_xor_put "${iso}" "${work}" "${puts[@]}" || return 1
+    for item in "${verifies[@]}"; do
+        iso_cfg_verify "${iso}" "${item%%|*}" "${item#*|}" \
+            "${product}" "${work}" || return 1
+    done
     return 0
 }
 
