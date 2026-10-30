@@ -142,8 +142,10 @@ class BuildDesktopTest(unittest.TestCase):
             fakes.write(self.bin, name, body)
 
     def run_script(self, *args, **extra):
+        # 探测默认开着，会真的去量公网镜像的吞吐；契约测试不碰网络，
+        # 逐例用 CLOSURE_PROBE=0 关掉（需要探测语义的用例自行覆盖）。
         env = {"PATH": str(self.bin), "HOME": str(self.root),
-               "FAKE_MKKSISO_LOG": str(self.log)}
+               "CLOSURE_PROBE": "0", "FAKE_MKKSISO_LOG": str(self.log)}
         env.update(extra)
         return subprocess.run([BASH, str(SCRIPT), *args], env=env,
                               text=True, capture_output=True)
@@ -311,11 +313,14 @@ class BuildDesktopTest(unittest.TestCase):
         self.assertEqual(state.read_text(encoding="utf-8").strip(), "2")
 
     def test_closure_retry_gives_up(self):
+        # 单个根内的重试上限与镜像表大小无关：用单根把「N 次后放弃」
+        # 钉死在 CLOSURE_TRY 上，不随 mirrors.list 增删而漂移。
         self.tools()
         self.stock()
         res = self.build("--arch", "x86_64", "--closure",
                          FAKE_DNF_MODE="flaky", FAKE_DNF_FAILS="9",
                          FAKE_DNF_STATE=str(self.root / "dnf.state"),
+                         CLOSURE_MIRRORS="https://mirror.only/oe",
                          CLOSURE_TRY="2", CLOSURE_WAIT="0")
         self.assertEqual(res.returncode, 6)
         self.assertIn("安装闭包收割失败", res.stderr)
@@ -371,6 +376,38 @@ class BuildDesktopTest(unittest.TestCase):
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertEqual(repo_baseurls(cfg),
                          [[base] for _, base, _ in ks_repos()])
+
+    def test_closure_probe_reorders(self):
+        # 探测重排后改写基准不能跟着漂移：基准取自「哪个根是配方源」，
+        # 与行序无关。若仍拿首项当前缀，重排后一条 baseurl 也匹配不上，
+        # 地址会整体退回原址，探测等于白做。
+        self.tools()
+        self.stock()
+        cfg = self.root / "closure.repo"
+        roots = mirrors()
+        probe = self.root / "probe.py"
+        probe.write_text(
+            "import sys\n"
+            "roots = [a for a in sys.argv[1:] if a.startswith('http')]\n"
+            "print('\\n'.join(reversed(roots)))\n", encoding="utf-8")
+        res = self.build("--arch", "x86_64", "--closure",
+                         CLOSURE_PROBE="1", CLOSURE_PROBE_TOOL=str(probe),
+                         FAKE_DNF_CFG=str(cfg))
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(self.witness_root(), roots[-1])
+        want = [[f"{roots[-1]}/{base[len(roots[0]) + 1:]}" if
+                 base.startswith(roots[0] + "/") else base]
+                for _, base, _ in ks_repos()]
+        self.assertEqual(repo_baseurls(cfg), want)
+
+    def test_closure_probe_absent(self):
+        # 探测是排序而非前提：工具不在就按原序继续，构建不能因此失败。
+        self.tools()
+        self.stock()
+        res = self.build("--arch", "x86_64", "--closure", CLOSURE_PROBE="1",
+                         CLOSURE_PROBE_TOOL=str(self.root / "gone.py"))
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(self.witness_root(), mirrors()[0])
 
     def test_closure_reports_progress(self):
         # 静默的长传输与挂死在 CI 控制台完全同形（run 40839355885 沉默 80

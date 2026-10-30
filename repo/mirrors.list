@@ -1,12 +1,18 @@
-# openEuler 基底仓库镜像根，行序即尝试顺序。
+# openEuler 基底仓库镜像根。
 #
-# 唯一声明处：装机镜像（repo/airymax-os.repo）、构建期闭包收割
-# （scripts/lib/closure.sh）与介质下载（ci/gates/media-fetch.sh）都读
-# 本表，三处不再各写一份地址。首个根必须与 kickstart 的 repo --baseurl
-# 同源——anaconda 的 repo 行不接多值，安装期只能挂一个源。
+# 唯一声明处：构建期闭包收割（scripts/lib/closure.sh）读本表，装机镜像与
+# 已装系统的 dnf 源（repo/airymax-os.repo）同源于第一个根，三处不再各写
+# 一份地址。首个根必须与 kickstart 的 repo --baseurl 同源——anaconda 的
+# repo 行不接多值，安装期只能挂一个源；它同时是闭包改写的基准前缀。
 #
-# 收割端每次求解只用一个根，失败才换下一个（不同主机的元数据不能当成
-# 同一仓库的备用地址，否则解出的 NEVRA 组合没有主机保证过）。
+# 行序不再等于尝试顺序：求解前由 tools/mirror_probe.py 对每个根做一次定长
+# 抽样，按实测吞吐降序排列（本机实测 0.3–2.1 MiB/s，差异近一个数量级）。
+# 增删根只需保证「同一份快照」——不同快照的 NEVRA 组合没有主机保证过，
+# 所以每次求解仍只用一个根，失败才换下一个。
 https://repo.openeuler.org/openEuler-24.03-LTS-SP2
+https://mirrors.nju.edu.cn/openeuler/openEuler-24.03-LTS-SP2
 https://mirrors.tuna.tsinghua.edu.cn/openeuler/openEuler-24.03-LTS-SP2
+https://mirrors.ustc.edu.cn/openeuler/openEuler-24.03-LTS-SP2
+https://mirrors.aliyun.com/openeuler/openEuler-24.03-LTS-SP2
+https://mirrors.cloud.tencent.com/openeuler/openEuler-24.03-LTS-SP2
 https://mirrors.huaweicloud.com/openeuler/openEuler-24.03-LTS-SP2
