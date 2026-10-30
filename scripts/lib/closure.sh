@@ -144,6 +144,10 @@ CL_NEW=0
 CL_MIRRORS=()
 CL_ROOTS=()
 CL_CANON=""
+# 重放未命中时留下断在哪个阶段。回落的代价是全流程再求一次解，而这段
+# 静默正是此前「池齐了却仍走公网」无从归因的原因；调用方把它拼进一行
+# 结论，日志里就能直接看到是清单没配、池对不上，还是求解本身失败。
+CL_STAGE=""
 CL_STALLED=0
 CL_SLOW=0
 
@@ -689,24 +693,47 @@ cl_lock_load()
 cl_replay()
 {
     local arch="$1" pkg="$2" work="$3" log="$4"
-    [ -n "$CL_LOCK" ] || return 1
-    cl_lock_load "$CL_LOCK" || return 1
+    if [ -n "$CL_LOCK" ]; then
+        cl_lock_load "$CL_LOCK" || {
+            CL_STAGE="清单与池不吻合"
+            return 1
+        }
+    else
+        CL_STAGE="未配置清单（CLOSURE_LOCK 为空）"
+        return 1
+    fi
     rm -rf "${work}/repos" "${work}/dl"
     mkdir -p "${work}/repos"
-    cl_pool_init "${work}/repos/pool.repo" || return 1
-    [ -f "${work}/repos/pool.repo" ] || return 1
+    cl_pool_init "${work}/repos/pool.repo" || {
+        CL_STAGE="池索引不可用"
+        return 1
+    }
+    [ -f "${work}/repos/pool.repo" ] || {
+        CL_STAGE="池索引不可用"
+        return 1
+    }
     printf '%s\n' "$CL_POOL" >"${work}/mirror-root.txt"
     : >"$log"
     printf '## 离线重放 %s（%d 个包）\n' "$CL_LOCK" "${#CL_ARGS[@]}" >>"$log"
     CL_XOPTS=(--setopt=install_weak_deps=0)
     if ! cl_run "$work" "$arch" "$pkg" "$log"; then
         CL_XOPTS=()
+        CL_STAGE="离线求解失败（${log##*/}）"
         return 1
     fi
     CL_XOPTS=()
-    cl_harvest "${work}/dl" "$pkg" || return 1
-    cl_has_dl "$work" || return 1
-    cl_audit "${work}/dl" "$pkg"
+    cl_harvest "${work}/dl" "$pkg" || {
+        CL_STAGE="收割失败"
+        return 1
+    }
+    cl_has_dl "$work" || {
+        CL_STAGE="未产出 RPM"
+        return 1
+    }
+    cl_audit "${work}/dl" "$pkg" || {
+        CL_STAGE="载荷缺包"
+        return 1
+    }
 }
 
 cl_audit()
@@ -735,7 +762,7 @@ closure_fetch()
         rm -rf "${work}/root"
         return 0
     fi
-    printf 'closure: 未命中离线重放，转在线求解\n' >&2
+    printf 'closure: 未命中离线重放（%s），转在线求解\n' "$CL_STAGE" >&2
     rm -rf "${work}/repos" "${work}/dl"
     mkdir -p "${work}/repos"
     cl_init_mirrors
