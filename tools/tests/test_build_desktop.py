@@ -560,7 +560,10 @@ class BuildDesktopTest(unittest.TestCase):
                          FAKE_DNF_MODE="slow", FAKE_DNF_SLEEP="2",
                          CLOSURE_BEAT="1")
         self.assertEqual(res.returncode, 0, res.stderr)
-        self.assertIn("closure: 拉取中 files=", res.stdout)
+        # 尚未落包时是求解阶段，心跳要写明阶段，不能让人把求解等待读成
+        # 链路挂死；速率取上一段的实测，不是采样窗口的初值。
+        self.assertIn("closure: 求解中 files=", res.stdout)
+        self.assertIn("rate=", res.stdout)
 
     def test_closure_kills_stalled_solver(self):
         # 静默不等于「在慢慢下」：run 41007425145 在 files=0 上静默 50 分钟，
