@@ -14,6 +14,12 @@
 # 不省略该行——省略会让「没采到」和「没有这一项」长得一模一样；取值内部
 # 含空格时整体加双引号（如 os.pretty），保证按空白切分不会错位。
 #
+# 报告另提供 --section，把同一批事实按主题切开单独输出（kernel/os/boot/
+# net/sched）。默认证号仍是「身份 + 运行」两段，逐字未变；--section 只是
+# 换一个视角看同一份采集，不引入第二套取值逻辑，因此同一个键在任何模式
+# 下都来自同一个权威来源。展示与排障时一次只一屏，避免几十行混在一起
+# 看不出卡在哪一项。
+#
 # 报告分两段，字段名在两种模式下同义：
 #   身份段（os.*、brand.*、asset.*、host.name）只读文件，静态与活体共用
 #     同一份实现，因此「这台机器是谁」在构建期与装机后是同一组键、同一
@@ -37,11 +43,15 @@ WANT_ID=airymaxos
 SLICES="system.slice user.slice airymax.slice airymax-desktop.slice"
 ROOT=/
 STATIC=0
+SECTIONS=
+OS_ID=absent
 fields=0
+absent_n=0
 status=ok
 
 emit() {
     val=${2:-absent}
+    [ "$val" = absent ] && absent_n=$((absent_n + 1))
     case $val in
     *' '*) val="\"${val}\"" ;;
     esac
@@ -140,13 +150,193 @@ meminfo() {
         END { if (!found) printf "absent" }' /proc/meminfo
 }
 
-identity_report() {
-    osr=${ROOT}/usr/lib/os-release
+# 内核归属只认 rpm 数据库：/boot/vmlinuz-<release> 由哪个包安装，运行中的
+# 内核就属于哪个包。查不到写 unowned，不用发行版名字兜底——那只能说明
+# 机器叫什么，不能说明这个内核是谁装的。
+kernel_owner() {
+    local rel owner
+    rel=$(uname -r 2>/dev/null) || {
+        printf 'unowned'
+        return 0
+    }
+    owner=$(rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}' \
+        -f "/boot/vmlinuz-${rel}" 2>/dev/null) || owner=
+    printf '%s' "${owner:-unowned}"
+}
+
+systemd_ver() {
+    local v
+    command -v systemctl >/dev/null 2>&1 || {
+        printf 'absent'
+        return 0
+    }
+    v=$(systemctl --version 2>/dev/null | head -n 1)
+    printf '%s' "${v:-absent}"
+}
+
+# systemd-analyze 的耗时字符串含空格，emit 会整体加引号，按空白切分不会错位。
+boot_total() {
+    local v
+    command -v systemd-analyze >/dev/null 2>&1 || {
+        printf 'absent'
+        return 0
+    }
+    v=$(systemd-analyze 2>/dev/null | sed -n 's/^Startup finished in //p' |
+        head -n 1)
+    printf '%s' "${v:-absent}"
+}
+
+net_gw() {
+    command -v ip >/dev/null 2>&1 || {
+        printf 'absent'
+        return 0
+    }
+    v=$(ip -4 route show default 2>/dev/null | awk 'NR == 1 { print $3 }')
+    printf '%s' "${v:-none}"
+}
+
+net_dns() {
+    local v
+    v=$(sed -n 's/^nameserver //p' /etc/resolv.conf 2>/dev/null | head -n 1)
+    printf '%s' "${v:-none}"
+}
+
+net_up() {
+    command -v ip >/dev/null 2>&1 || {
+        printf 'absent'
+        return 0
+    }
+    v=$(ip -o link show up 2>/dev/null | awk 'NF { n++ } END { print n + 0 }')
+    printf '%s' "${v:-0}"
+}
+
+# 内核命令行里的开关：只报「有没有这一项」，取值本身由 kernel.cmdline 给出。
+cmdline_word() {
+    [ -r /proc/cmdline ] || {
+        printf 'absent'
+        return 0
+    }
+    if tr ' ' '\n' </proc/cmdline 2>/dev/null | grep -q "^$1"; then
+        printf 'present'
+    else
+        printf 'absent'
+    fi
+}
+
+# os-release 的三个身份键由身份段与 --section os 共用：同一个键只能读同一
+# 个文件，两处各读一次就可能对同一台机器给出不同答案。
+os_keys() {
+    local osr=${ROOT}/usr/lib/os-release
     [ -r "$osr" ] || osr=${ROOT}/etc/os-release
-    os_id=$(read_kv "$osr" ID) || os_id=absent
-    emit os.id "$os_id"
+    OS_ID=$(read_kv "$osr" ID) || OS_ID=absent
+    emit os.id "$OS_ID"
     emit os.version "$(read_kv "$osr" VERSION_ID || printf absent)"
     emit os.pretty "$(read_kv "$osr" PRETTY_NAME || printf absent)"
+}
+
+# 内核配置项：取值来自装机内核自带的 /boot/config-<release>，不做推断。
+cfg() {
+    local f="${ROOT}/boot/config-$(uname -r)" v
+    [ -r "$f" ] || {
+        printf 'absent'
+        return 0
+    }
+    v=$(grep -m 1 "^$1=" "$f" 2>/dev/null) || {
+        printf 'absent'
+        return 0
+    }
+    printf '%s' "${v#*=}"
+}
+
+# 单文件取值（taint、cmdline、enforce 一类只有一个词的 sysctl/procfs）。
+one_line() {
+    local v
+    [ -r "$1" ] || {
+        printf 'absent'
+        return 0
+    }
+    v=$(tr -d '\n' <"$1" 2>/dev/null)
+    printf '%s' "${v:-absent}"
+}
+
+mod_count() {
+    local f="${ROOT}/lib/modules/$(uname -r)/modules.dep"
+    [ -r "$f" ] || {
+        printf 'absent'
+        return 0
+    }
+    awk 'NF { n++ } END { print n + 0 }' "$f"
+}
+
+# 编译器与构建时间只出现在 /proc/version，是「这个内核确实被编出来过」的
+# 直接证据；发行包信息由 kernel.owner 给出，两者不互相替代。
+kernel_build() {
+    local v
+    [ -r /proc/version ] || {
+        printf 'absent'
+        return 0
+    }
+    v=$(sed -n 's/^Linux version [^ ]* //p' /proc/version | head -n 1)
+    printf '%s' "${v:-absent}"
+}
+
+kernel_report() {
+    emit kernel.release "$(uname -r 2>/dev/null || printf absent)"
+    emit kernel.owner "$(kernel_owner)"
+    emit kernel.localversion "$(cfg CONFIG_LOCALVERSION)"
+    emit kernel.build "$(kernel_build)"
+    emit kernel.modules "$(mod_count)"
+    emit kernel.preempt "$(cfg CONFIG_PREEMPT_DYNAMIC)"
+    emit kernel.taint "$(one_line /proc/sys/kernel/tainted)"
+    emit kernel.cmdline "$(one_line /proc/cmdline)"
+}
+
+# 包数只认 rpm 数据库；没有 rpm 时写 absent 而不是 0，否则「查不到」会被
+# 读成「一个包也没有」。
+pkg_count() {
+    local v
+    command -v rpm >/dev/null 2>&1 || {
+        printf 'absent'
+        return 0
+    }
+    v=$(rpm -qa "$@" 2>/dev/null | awk 'NF { n++ } END { print n + 0 }')
+    printf '%s' "${v:-0}"
+}
+
+os_report() {
+    os_keys
+    emit os.systemd "$(systemd_ver)"
+    emit os.packages "$(pkg_count)"
+    emit os.kernel_pkgs "$(pkg_count 'airymaxos-*')"
+    emit os.selinux "$(one_line /sys/fs/selinux/enforce)"
+}
+
+boot_report() {
+    emit boot.firmware "$(have /sys/firmware/efi)"
+    emit boot.loader "$(rpm -q --qf '%{VERSION}-%{RELEASE}' grub2 2>/dev/null ||
+        printf absent)"
+    emit boot.target "$(systemctl get-default 2>/dev/null || printf absent)"
+    emit boot.total "$(boot_total)"
+    emit boot.failed "$(failed_count)"
+}
+
+net_report() {
+    emit net.ipv4 "$(net_v4)"
+    emit net.gw "$(net_gw)"
+    emit net.dns "$(net_dns)"
+    emit net.link "$(net_up)"
+}
+
+sched_report() {
+    emit sched.loadavg "$(cut -d ' ' -f 1-3 /proc/loadavg 2>/dev/null ||
+        printf absent)"
+    emit sched.iso "$(cmdline_word isolcpus)"
+    emit sched.rt "$(rt_budget)"
+    emit sched.hz "$(cfg CONFIG_HZ)"
+}
+
+identity_report() {
+    os_keys
     emit brand.grub "$(grub_brand)"
     wallpaper=$(have /usr/share/backgrounds/airymaxos/airymaxos-default.jpg)
     emit brand.wallpaper "$wallpaper"
@@ -164,7 +354,7 @@ identity_report() {
     emit asset.demo "$demo"
     host=$(cat "${ROOT}/etc/hostname" 2>/dev/null) || host=
     emit host.name "${host:-absent}"
-    [ "$os_id" = "$WANT_ID" ] || status=partial
+    [ "$OS_ID" = "$WANT_ID" ] || status=partial
     for v in "$wallpaper" "$schema" "$desktop" "$recorder" "$observer" \
         "$bencher" "$demo"; do
         [ "$v" = present ] || status=partial
@@ -203,9 +393,7 @@ ready_state() {
 
 run_report() {
     emit kernel.release "$(uname -r 2>/dev/null || printf absent)"
-    owner=$(rpm -q --qf '%{NAME}' -f "/boot/vmlinuz-$(uname -r)" 2>/dev/null) ||
-        owner=unowned
-    emit kernel.owner "${owner:-unowned}"
+    emit kernel.owner "$(kernel_owner)"
     sess=${XDG_SESSION_TYPE:-}
     [ -n "$sess" ] || {
         [ -n "${DISPLAY:-}" ] && sess=x11 || sess=absent
@@ -245,8 +433,18 @@ while [ $# -gt 0 ]; do
         STATIC=1
         shift
         ;;
+    --section)
+        [ -n "${2:-}" ] || {
+            printf '%s fail reason=missing-section\n' "$MARK" >&2
+            exit 2
+        }
+        SECTIONS="${SECTIONS:+$SECTIONS,}$2"
+        shift 2
+        ;;
     -h | --help)
         printf '用法: airy-observe [--static] [--root DIR]\n'
+        printf '      airy-observe --section NAME[,NAME...]\n'
+        printf '主题: kernel os boot net sched\n'
         exit 0
         ;;
     *)
@@ -256,10 +454,39 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-identity_report
-if [ "$STATIC" -eq 1 ]; then
+# 主题视图：同一批采集按主题切片输出，每段给出自己的字段数，便于把一个
+# 屏里的一行对回完整报告。段内任何一项取不到都判 partial——主题视图的
+# 用途就是「这一段是否完整」，不是「整机是否可用」。
+section_report() {
+    local sec before
+    for sec in $(printf '%s' "$SECTIONS" | tr ',' ' '); do
+        before=$fields
+        case $sec in
+        kernel) kernel_report ;;
+        os) os_report ;;
+        boot) boot_report ;;
+        net) net_report ;;
+        sched) sched_report ;;
+        *)
+            printf '%s fail reason=bad-section=%s\n' "$MARK" "$sec" >&2
+            return 2
+            ;;
+        esac
+        printf '%s section=%s fields=%s\n' "$MARK" "$sec" \
+            "$((fields - before))"
+    done
+    [ "$absent_n" -eq 0 ] || status=partial
+    return 0
+}
+
+if [ -n "$SECTIONS" ]; then
+    section_report || exit $?
+    mode=section
+elif [ "$STATIC" -eq 1 ]; then
+    identity_report
     mode=static
 else
+    identity_report
     run_report
     mode=live
 fi
