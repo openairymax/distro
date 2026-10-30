@@ -1,0 +1,320 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# ===========================================================================
+# cfg_brand.py — 引导菜单品牌化与缺省安装项改写
+#
+# AirymaxOS 0.0.3 的安装 ISO 以 openEuler 24.03-LTS-SP2 netinst 为底座，
+# mkksiso 注入 kickstart 重建后，引导菜单仍保留底座原文（"Install
+# openEuler 24.03-LTS-SP2"、"Rescue a openEuler system"），且缺省项停在
+# "Test this media & install ..."（set default="1"）。无人值守安装会先跑
+# rd.live.check 把整份 3.7 GB 介质从 U 盘读一遍才开始装，既拖慢装机又让
+# 用户看到别家产品名。
+#
+# 本工具只改两样东西：菜单标题文字与 default 行。内核行/append 行逐字节
+# 不动，inst.ks= 与 LABEL= 必须原样保留——它们决定 kickstart 与 stage2 的
+# 定位，改坏即装机失败。改写前后整文件比对，只有真的变化才写回，同一文
+# 件重复执行幂等（第二次退出 3）。
+#
+# 用法：cfg_brand.py --product "AirymaxOS 0.0.3" FILE
+# 退出码：0 有改写；3 已合规（无变化）；1 无法解析或无法满足（缺 inst.ks
+#         安装项等）；2 用法错误。
+#
+# Author: Liren Wang <wangliren@spharx.cn>
+# Version: 0.0.3
+# ===========================================================================
+
+from __future__ import annotations
+
+import re
+import sys
+from pathlib import Path
+
+OK = 0
+BAD = 1
+ERR = 2
+SAME = 3
+
+USAGE = '用法: cfg_brand.py --product "AirymaxOS 0.0.3" FILE'
+
+GRUB_RE = re.compile(r"^(menuentry|submenu)\s+(['\"])(.*?)\2")
+GRUB_DEF = re.compile(r"^set\s+default=\S+")
+MENU_RE = re.compile(r"^(\s*menu (?:label|title)\s+)(\^?)(.*)$")
+LABEL_RE = re.compile(r"^label\s+(\S+)")
+ISOLINUX_HINT = re.compile(r"^\s*(label|append|menu (?:label|title))\b")
+APPEND_RE = re.compile(r"^\s*append\s")
+DEF_RE = re.compile(r"^default=(\S+)")
+
+# 只认底座确实存在的三种标题；Troubleshooting 之类原样保留。
+TITLE_RULES = (
+    (re.compile(r"^Install\s+\S"), "Install {p}"),
+    (re.compile(r"^Test this media & install\s+\S"),
+     "Test this media & install {p}"),
+    (re.compile(r"^Rescue a\s+\S.*\s+system$"), "Rescue {p} system"),
+)
+
+
+def retitle(text, product):
+    """按产品名改写菜单标题；不匹配的标题原样返回。"""
+    for pat, fmt in TITLE_RULES:
+        if pat.search(text):
+            return fmt.format(p=product)
+    return text
+
+
+def g_end(lines, start):
+    """返回 menuentry/submenu 体内列 0 的 '}' 行号；缺失则退到末行。"""
+    for pos in range(start + 1, len(lines)):
+        if lines[pos].rstrip("\n") == "}":
+            return pos
+    return len(lines) - 1
+
+
+def g_entries(lines):
+    """返回 [(起始行, 结束行, 标题)]，只含列 0 起的顶层项。"""
+    hits = []
+    for pos, line in enumerate(lines):
+        m = GRUB_RE.match(line)
+        if m:
+            hits.append((pos, g_end(lines, pos), m.group(3)))
+    return hits
+
+
+def g_ok(body):
+    """体内含 inst.ks= 且任何一行都不含 rd.live.check 即为安装项。"""
+    has_ks = any("inst.ks=" in line for line in body)
+    has_check = any("rd.live.check" in line for line in body)
+    return has_ks and not has_check
+
+
+def g_install(lines, entries):
+    """返回第一个安装项的序号（0 基）；没有则返回 None。"""
+    for idx, (start, end, _) in enumerate(entries):
+        if g_ok(lines[start:end + 1]):
+            return idx
+    return None
+
+
+def g_put(line, title):
+    """只替换引号内的标题，引号与行尾保持原样。"""
+    m = GRUB_RE.match(line)
+    return line[:m.start(3)] + title + line[m.end(3):]
+
+
+def g_retitle(lines, entries, product):
+    """返回 (新行列表, [(旧标题, 新标题)])。"""
+    out = list(lines)
+    changes = []
+    for start, _, title in entries:
+        new = retitle(title, product)
+        if new != title:
+            out[start] = g_put(lines[start], new)
+            changes.append((title, new))
+    return out, changes
+
+
+def g_default(lines, idx):
+    """返回 (新行列表, 旧 default 行文本)；无 default 行时旧值为 None。"""
+    new = f'set default="{idx}"'
+    for pos, line in enumerate(lines):
+        if GRUB_DEF.match(line):
+            return lines[:pos] + [new + eol(line)] + lines[pos + 1:], \
+                line.strip()
+    return lines, None
+
+
+def dmove(old, new, title):
+    """default 行确有变化时返回报告用标题，否则返回 None。"""
+    return None if old is None or old == new else title
+
+
+def eol(line):
+    """返回该行的换行符（含 CRLF），供替换行时保留。"""
+    return line[len(line.rstrip("\r\n")):]
+
+
+def grub(lines, product):
+    """grub 改写计划；缺安装项返回 None。"""
+    entries = g_entries(lines)
+    idx = g_install(lines, entries)
+    if idx is None:
+        return None
+    out, changes = g_retitle(lines, entries, product)
+    title = retitle(entries[idx][2], product)
+    out, old = g_default(out, idx)
+    return out, changes, dmove(old, f'set default="{idx}"', title)
+
+
+def i_blocks(lines):
+    """按 label 行切块，返回 [(起始行, 结束行, label 名)]。"""
+    marks = []
+    for pos, line in enumerate(lines):
+        m = LABEL_RE.match(line)
+        if m:
+            marks.append((pos, m.group(1)))
+    out = []
+    for idx, (start, name) in enumerate(marks):
+        end = marks[idx + 1][0] if idx + 1 < len(marks) else len(lines)
+        out.append((start, end, name))
+    return out
+
+
+def i_ok(body):
+    """append 行含 inst.ks= 且不含 rd.live.check 即为安装项。"""
+    ap = [line for line in body if APPEND_RE.match(line)]
+    has_ks = any("inst.ks=" in line for line in ap)
+    has_check = any("rd.live.check" in line for line in ap)
+    return has_ks and not has_check
+
+
+def i_install(lines, blocks):
+    """返回第一个安装项块；没有则返回 None。"""
+    for blk in blocks:
+        if i_ok(lines[blk[0] + 1:blk[1]]):
+            return blk
+    return None
+
+
+def i_menu(line, product):
+    """改写一条 menu label/title 行；无变化返回 None。"""
+    text = line.rstrip("\r\n")
+    m = MENU_RE.match(text)
+    if not m:
+        return None
+    new = retitle(m.group(3), product)
+    if new == m.group(3):
+        return None
+    return (m.group(1) + m.group(2) + new,
+            (m.group(2) + m.group(3), m.group(2) + new))
+
+
+def i_retitle(lines, product):
+    """返回 (新行列表, [(旧文字, 新文字)])，保留行首 ^ 热键标记与行尾。
+
+    MENU_RE 的 $ 停在该行换行符之前，匹配结果不含换行；改写行必须把原
+    行尾接回去，否则 menu label 会与下一条 append 拼成一行，isolinux 解
+    析器随即把安装参数整体读成菜单文字，装机直接失败。
+    """
+    out = list(lines)
+    changes = []
+    for pos, line in enumerate(lines):
+        hit = i_menu(line, product)
+        if hit:
+            out[pos] = hit[0] + eol(line)
+            changes.append(hit[1])
+    return out, changes
+
+
+def i_title(lines, blk, product):
+    """取安装项块的菜单标题（品牌化后的文字）；没有则退回 label 名。"""
+    for line in lines[blk[0] + 1:blk[1]]:
+        m = MENU_RE.match(line)
+        if m:
+            return retitle(m.group(3), product)
+    return blk[2]
+
+
+def i_default(lines, name):
+    """返回 (新行列表, 旧 default 行文本)；无 default 行时旧值为 None。"""
+    new = f"default={name}"
+    for pos, line in enumerate(lines):
+        if DEF_RE.match(line):
+            return lines[:pos] + [new + eol(line)] + lines[pos + 1:], \
+                line.strip()
+    return lines, None
+
+
+def isolinux(lines, product):
+    """isolinux 改写计划；缺安装项返回 None。"""
+    blk = i_install(lines, i_blocks(lines))
+    if blk is None:
+        return None
+    out, changes = i_retitle(lines, product)
+    title = i_title(lines, blk, product)
+    out, old = i_default(out, blk[2])
+    return out, changes, dmove(old, f"default={blk[2]}", title)
+
+
+def detect(lines):
+    """按行首标记判别配置方言；都不像则返回 None。"""
+    if any(GRUB_RE.match(line) for line in lines):
+        return grub
+    if any(ISOLINUX_HINT.match(line) for line in lines):
+        return isolinux
+    return None
+
+
+def report(path, changes, dchg):
+    """每个变化向 stderr 打一行。"""
+    for old, new in changes:
+        print(f"cfg_brand: {path}: {old} -> {new}", file=sys.stderr)
+    if dchg:
+        print(f"cfg_brand: {path}: default -> {dchg}", file=sys.stderr)
+
+
+def apply(path, raw, product):
+    """生成改写计划；确有变化才写回。"""
+    plan = detect(raw.splitlines(keepends=True))
+    if plan is None:
+        print(f"cfg_brand: {path}: 无法识别引导配置或缺少 inst.ks 安装项",
+              file=sys.stderr)
+        return BAD
+    result = plan(raw.splitlines(keepends=True), product)
+    if result is None:
+        print(f"cfg_brand: {path}: 缺少含 inst.ks 且不含 rd.live.check 的"
+              "安装项", file=sys.stderr)
+        return BAD
+    out, changes, dchg = result
+    text = "".join(out)
+    if text == raw:
+        return SAME
+    report(path, changes, dchg)
+    path.write_bytes(text.encode("utf-8"))
+    return OK
+
+
+def parse(argv):
+    """解析 CLI；返回 (product, path)，--help 返回 (None, None)。"""
+    if any(arg in ("-h", "--help") for arg in argv):
+        return None, None
+    product = None
+    files = []
+    pos = 0
+    while pos < len(argv):
+        arg = argv[pos]
+        if arg == "--product" and pos + 1 < len(argv):
+            product = argv[pos + 1]
+            pos += 2
+        elif arg.startswith("--product="):
+            product = arg.split("=", 1)[1]
+            pos += 1
+        elif arg.startswith("-"):
+            raise ValueError(f"未知参数: {arg}")
+        else:
+            files.append(arg)
+            pos += 1
+    if not product or len(files) != 1:
+        raise ValueError("需要 --product 与唯一 FILE")
+    return product, files[0]
+
+
+def main(argv):
+    try:
+        product, name = parse(argv)
+    except ValueError as exc:
+        print(f"cfg_brand: {exc}", file=sys.stderr)
+        print(USAGE, file=sys.stderr)
+        return ERR
+    if product is None:
+        print(USAGE)
+        return OK
+    path = Path(name)
+    try:
+        raw = path.read_bytes().decode("utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"cfg_brand: {exc}", file=sys.stderr)
+        return BAD
+    return apply(path, raw, product)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
