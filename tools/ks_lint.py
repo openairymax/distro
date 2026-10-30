@@ -75,7 +75,7 @@ UPSTREAM_EXCLUDES = ("-kernel", "-kernel-tools", "-openEuler-release",
 # 第二个词即落到这里，anaconda 在解析阶段终止安装。
 BARE = frozenset({"lang", "keyboard", "timezone", "rootpw", "part",
                   "partition", "raid", "logvol", "volgroup", "btrfs",
-                  "device", "driverdisk", "sshkey"})
+                  "device", "driverdisk", "sshkey", "include"})
 
 # openEuler 24.03 的 anaconda 36 中 user 命令的选项集合（备注字段是
 # --gecos，不存在 --comment）；未知选项同样令解析终止。
@@ -149,6 +149,15 @@ def parse(lines: list[str]) -> tuple[list[Cmd], list[Sect],
             if line == "%end":
                 close_sect(num, cur, sects, issues)
                 cur = None
+            elif line.split(None, 1)[0] == "%include":
+                # %include 是无主体的单行指令，不是区块；按命令建模，存储
+                # 布局才能由它间接提供（见 check_storage）。
+                if cur is not None:
+                    issues.append(Issue("K001", num,
+                                        f"%include inside %{cur.name}"))
+                else:
+                    cmds.append(Cmd(num, "include",
+                                    line.partition(" ")[2].strip()))
             else:
                 cur = open_sect(line, num, cur, issues)
         elif cur is not None:
@@ -193,13 +202,32 @@ def check_required(cmds: list[Cmd], sects: list[Sect],
         issues.append(Issue("K003", 1, "missing %packages"))
 
 
-def check_storage(cmds: list[Cmd], issues: list[Issue]) -> None:
+def pre_text(sects: list[Sect]) -> str:
+    return "\n".join(line for sect in sects if sect.name == "pre"
+                     for _, line in sect.body)
+
+
+def dynamic_storage(cmds: list[Cmd], sects: list[Sect]) -> list[Cmd]:
+    """%pre 生成、%include 引用的存储布局。
+
+    anaconda 的 preScriptPass 在正式解析前单独跑一遍 %pre，正是为「脚本
+    生成被 include 的片段」保留的通道，所以顶层可以没有 clearpart 与
+    autopart。判据只认路径确实出现在 %pre 正文里的 include：include 一个
+    谁都没写的文件不是布局，安装器解析到它只会终止。
+    """
+    text = pre_text(sects)
+    return [cmd for cmd in cmds
+            if cmd.name == "include" and cmd.args and cmd.args in text]
+
+
+def check_storage(cmds: list[Cmd], sects: list[Sect],
+                  issues: list[Issue]) -> None:
     auto = [cmd for cmd in cmds if cmd.name == "autopart"]
     expl = [cmd for cmd in cmds if cmd.name in STORAGE]
     if auto and expl:
         issues.append(Issue("K004", expl[0].num,
                             f"autopart conflicts with {expl[0].name}"))
-    if not auto and not expl:
+    if not auto and not expl and not dynamic_storage(cmds, sects):
         issues.append(Issue("K004", 1, "no storage layout"))
 
 
@@ -423,7 +451,7 @@ def lint_text(text: str) -> list[Issue]:
     cmds, sects, issues = parse(text.splitlines())
     check_src(cmds, issues)
     check_required(cmds, sects, issues)
-    check_storage(cmds, issues)
+    check_storage(cmds, sects, issues)
     check_roots(cmds, issues)
     check_urls(cmds, issues)
     check_kernel(sects, issues)

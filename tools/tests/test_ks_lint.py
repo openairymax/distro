@@ -117,6 +117,27 @@ class KsLintTest(unittest.TestCase):
         text = text.replace("autopart --type=plain --fstype=ext4\n", "")
         self.assertIn("K004", self.codes(text))
 
+    def test_storage_dynamic(self):
+        text = VALID.replace(
+            "clearpart --all --initlabel\n"
+            "autopart --type=plain --fstype=ext4\n",
+            "%pre --erroronfail --log=/tmp/disk.log\n"
+            "set -eu\n"
+            "cat >/tmp/disk.ks <<EOF\n"
+            "clearpart --all --initlabel\n"
+            "autopart --type=plain --fstype=ext4\n"
+            "EOF\n"
+            "%end\n"
+            "%include /tmp/disk.ks\n")
+        self.assertEqual(self.codes(text), [])
+
+    def test_storage_include_unbound(self):
+        text = VALID.replace(
+            "clearpart --all --initlabel\n"
+            "autopart --type=plain --fstype=ext4\n",
+            "%include /tmp/disk.ks\n")
+        self.assertIn("K004", self.codes(text))
+
     def test_rootpw_plain(self):
         text = VALID.replace(ROOT, "rootpw secret")
         self.assertIn("K005", self.codes(text))

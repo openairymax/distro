@@ -68,6 +68,16 @@ class GenAcceptKsTest(unittest.TestCase):
         self.assertLess(lines.index("reboot"), lines.index("%end"))
         self.assertEqual(lines[-1], "reboot")
 
+    def test_include_is_not_section(self):
+        base = ("lang zh_CN.UTF-8\n"
+                "%pre --erroronfail --log=/tmp/p.log\n"
+                "set -eu\necho disk\n%end\n"
+                "%include /tmp/disk.ks\nreboot\n")
+        lines = gen_accept_ks.compose(base, self.part).splitlines()
+        self.assertEqual(lines[-1], "reboot")
+        self.assertLess(lines.index("%include /tmp/disk.ks"),
+                        lines.index(gen_accept_ks.MARK))
+
     def test_cli_writes(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "acceptance.ks"

@@ -53,8 +53,64 @@ repo --name=airymaxos-offline --baseurl=file:///run/install/repo/airymax/Package
 # ttyS0（安装验收依赖的 login: 哨兵来自 agetty，不受影响）。按 Esc 或
 # 删掉这两个参数即可回到逐行日志，现场排障不需要重装。
 bootloader --timeout=3 --append="console=tty0 console=ttyS0,115200 console=ttyAMA0,115200 rhgb quiet"
-clearpart --all --initlabel
+
+# ---- 分区作用域（真机缺陷 D-32）----
+# 安装器没有「自动」盘名：clearpart --all + autopart 会把每一块可用磁盘都
+# 纳入自动布局。B50（2026-10-30）因此把 ESP 与 /boot 放到可插拔 U 盘、把
+# 根与 /home 放到 NVMe：拔盘即不可引导，且 --all 清空了全部接入磁盘。
+#
+# anaconda 的 preScriptPass 先独立跑一遍 %pre 再解析其余指令，正是为了
+# 「脚本生成被 include 的片段」；这是安装器唯一支持的动态选择方式。片段
+# 把作用域收敛到一块内置盘，%post 与磁盘布局的语义不变。
+#
+# 选择规则：TYPE=disk、RM=0、TRAN≠usb、且不是安装介质自身所在盘，取容量
+# 最大者。排除安装介质是硬要求：BMC 虚拟光驱与内置盘上的 ISO 都表现为
+# RM=0，不排除就会把安装源自己格式化掉。
+%pre --erroronfail --log=/tmp/airymax-disk.log
+set -eu
+mark()
+{
+    local dev
+    printf '%s\n' "$*"
+    for dev in /dev/console /dev/ttyS0 /dev/ttyAMA0; do
+        [ -w "${dev}" ] || continue
+        printf '%s\n' "$*" >"${dev}" 2>/dev/null && return 0
+    done
+    return 0
+}
+
+medium=
+src=$(findmnt -no SOURCE /run/install/repo 2>/dev/null) || src=
+case "${src}" in
+/dev/*) medium=$(lsblk -dno PKNAME "${src}" 2>/dev/null) || medium= ;;
+esac
+
+best= best_size=0
+while read -r name type rm tran size; do
+    [ "${type}" = disk ] || continue
+    [ "${rm}" = 0 ] || continue
+    [ "${tran}" != usb ] || continue
+    [ "${name#/dev/}" != "${medium}" ] || continue
+    [ "${size:-0}" -gt "${best_size}" ] || continue
+    best=${name}
+    best_size=${size}
+done <<EOF
+$(lsblk -dnpo NAME,TYPE,RM,TRAN,SIZE --bytes 2>/dev/null)
+EOF
+
+[ -n "${best}" ] || {
+    mark "AIRYMAX-DISK-FAIL reason=no-internal-disk"
+    exit 1
+}
+disk=${best#/dev/}
+cat >/tmp/airymax-disk.ks <<EOF
+ignoredisk --only-use=${disk}
+clearpart --all --initlabel --drives=${disk}
 autopart --type=plain --fstype=ext4
+EOF
+mark "AIRYMAX-DISK-OK disk=${disk} bytes=${best_size}"
+%end
+%include /tmp/airymax-disk.ks
 
 # ---- 网络 ----
 network --bootproto=dhcp --activate --hostname=airymaxos

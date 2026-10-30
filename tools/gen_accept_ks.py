@@ -35,7 +35,9 @@ def stop_at(lines: list[str]) -> int | None:
         if not text or text.startswith("#"):
             continue
         if text.startswith("%"):
-            inside = text.split(None, 1)[0] != "%end"
+            # %include 没有主体，不改变所处区块：漏掉它会让 inside 永为
+            # 真，收尾命令就永远找不到。
+            inside = text.split(None, 1)[0] not in ("%end", "%include")
             continue
         if inside:
             continue

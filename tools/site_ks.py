@@ -107,31 +107,56 @@ def site_block(site: Site) -> str:
     ])
 
 
+def include_span(lines: list[str]) -> tuple[int, int]:
+    """定位「%pre 选盘 + %include 片段」段，返回首末行号。
+
+    产品配方把存储布局交给 %pre 依现场选盘生成（D-32），站点派生必须把
+    整段换掉：站点机的分区由 --onpart 显式绑定，不能再让脚本挑盘。只认
+    %pre 正文确实写出该文件的情形，避免误删有别的用途的 %pre。
+
+    紧贴 %pre 的注释属于该段：它们解释的是选盘规则，留在派生配方里会描述
+    一段已经不存在的逻辑。
+    """
+    start = end = None
+    for num, raw in enumerate(lines):
+        text = raw.strip()
+        if not text or text.startswith("#"):
+            continue
+        word = text.split(None, 1)[0]
+        if word == "%pre":
+            start, end = num, None
+        elif text == "%end" and start is not None:
+            end = num
+        elif word == "%include" and start is not None:
+            body = "\n".join(lines[start:end if end is not None else num])
+            if text.split(None, 1)[-1] in body:
+                while start > 0 and lines[start - 1].lstrip().startswith("#"):
+                    start -= 1
+                return start, num
+    raise ValueError("产品配方缺少 %pre 选盘段与 %include 引用")
+
+
 def transform(text: str, site: Site) -> str:
-    """把整盘分区换成显式绑定，并在收尾命令前插入站点段。
+    """把选盘段换成显式绑定，并在收尾命令前插入站点段。
 
     bootloader 行补 --location=mbr --boot-drive：BIOS 侧写 MBR、EFI 侧仍写
     自身 ESP，与既有系统各用各的引导目录。
     """
+    lines = text.splitlines()
+    first, last = include_span(lines)
     out: list[str] = []
-    seen = False
-    for line in text.splitlines():
+    for num, line in enumerate(lines):
+        if num == first:
+            out.append(part_block(site))
+        if first <= num <= last:
+            continue
         head = line.strip()
-        if head.startswith("clearpart --all"):
-            if not seen:
-                out.append(part_block(site))
-                seen = True
-            continue
-        if head.startswith("autopart"):
-            continue
         if head.startswith("bootloader ") and "--boot-drive" not in head:
             line = f"{line} --location=mbr --boot-drive={site.disk}"
         if head == "reboot":
             out.append(site_block(site))
             out.append("")
         out.append(line)
-    if not seen:
-        raise ValueError("产品配方缺少 clearpart --all 行")
     return "\n".join(out) + "\n"
 
 
