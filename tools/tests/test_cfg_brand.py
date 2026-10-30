@@ -137,6 +137,25 @@ BOOTMSG_PLAIN = "\x0c \n\x18splash.lss\n\n -  Press the \x0f01<ENTER>\x0f07 key\
 
 DISCINFO = "1750912660.4513083\nopenEuler 24.03-LTS-SP2\nx86_64\nServer\n"
 
+# 注释行里的底座名是改写器碰不到的构造：幂等断言会把它当成「已合规」，
+# 只有负向断言能拦住，故构建必须在这一行失败。
+GRUB_RESIDUAL = """\
+# derived from the openEuler 24.03-LTS-SP2 tree
+set default="0"
+menuentry 'Install openEuler 24.03-LTS-SP2' {
+    linuxefi /vmlinuz inst.ks=hd:LABEL=AIRYMAXOS:/ks.cfg inst.stage2=hd:LABEL=AIRYMAXOS
+}
+"""
+
+# GRUB 主题样式类与菜单文字同处一行，但不是用户可见文本；改名会让主题
+# 按类匹配失效，故按白名单保留而不判失败。
+GRUB_CLASS = """\
+set default="0"
+menuentry 'Install openEuler 24.03-LTS-SP2' --class openEuler --class gnu-linux {
+    linuxefi /vmlinuz inst.ks=hd:LABEL=AIRYMAXOS:/ks.cfg inst.stage2=hd:LABEL=AIRYMAXOS
+}
+"""
+
 
 class CfgBrandTest(unittest.TestCase):
     def setUp(self):
@@ -320,6 +339,23 @@ class CfgBrandTest(unittest.TestCase):
         self.assertEqual(self.run_tool(str(path)).returncode, 2)
         self.assertEqual(self.run_tool("--product").returncode, 2)
         self.assertEqual(self.run_tool("--bogus", str(path)).returncode, 2)
+
+    def test_residual_token_fails_the_build(self):
+        path = self.make(GRUB_RESIDUAL)
+        res = self.brand(path)
+        self.assertEqual(res.returncode, 1, res.stderr)
+        self.assertIn("底座字样残留", res.stderr)
+        self.assertEqual(path.read_text(encoding="utf-8"), GRUB_RESIDUAL)
+
+    def test_grub_class_is_whitelisted(self):
+        path = self.make(GRUB_CLASS)
+        self.assertEqual(self.brand(path).returncode, 0)
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("menuentry 'Install AirymaxOS 0.0.3' --class openEuler",
+                      text)
+        again = self.brand(path)
+        self.assertEqual(again.returncode, 3, again.stderr)
+        self.assertEqual(again.stderr, "")
 
 
 if __name__ == "__main__":
