@@ -351,6 +351,47 @@ class BuildDesktopTest(unittest.TestCase):
         self.assertEqual(
             self.build("--closure-lock", str(lock)).returncode, 5)
 
+    def test_closure_only_skips_iso(self):
+        """播种机只收闭包：不出 ISO，也不要求 --iso/--rpms。"""
+        self.tools()
+        (self.bin / "xorriso").unlink()
+        res = self.run_script("--closure-only", "--ks", str(KS),
+                              "--out", str(self.out), "--arch", "x86_64",
+                              FAKE_DNF_LOG=str(self.root / "dnf.log"))
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertFalse((self.out / "iso").exists())
+        self.assertTrue((self.out / "payload" / "airymax" / "Packages" /
+                         "repodata" / "repomd.xml").is_file())
+        self.assertIn("闭包池:", res.stdout)
+
+    def test_closure_skip_excludes_globs(self):
+        """播种机没有自建 RPM，排除项必须真的进 dnf 参数。"""
+        self.tools()
+        log = self.root / "dnf.log"
+        res = self.run_script("--closure-only", "--ks", str(KS),
+                              "--out", str(self.out), "--arch", "x86_64",
+                              "--closure-skip", "airymax*",
+                              "--closure-skip", "airymaxos-*",
+                              FAKE_DNF_LOG=str(log))
+        self.assertEqual(res.returncode, 0, res.stderr)
+        args = log.read_text(encoding="utf-8")
+        self.assertIn("airymax*", args)
+        self.assertIn("airymaxos-*", args)
+
+    def test_closure_skip_refuses_lock_write(self):
+        """排除项下的事务不完整，即使要求写清单也不得落盘。"""
+        self.tools()
+        lock = self.root / "closure.lock"
+        lock.write_text("", encoding="utf-8")
+        res = self.run_script("--closure-only", "--ks", str(KS),
+                              "--out", str(self.out), "--arch", "x86_64",
+                              "--closure-lock", str(lock),
+                              "--closure-skip", "airymax*",
+                              CLOSURE_LOCK_WRITE="1")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(lock.read_text(encoding="utf-8"), "")
+        self.assertIn("拒绝写闭包清单", res.stderr)
+
     def test_closure_off_by_default(self):
         self.tools()
         self.stock()

@@ -85,6 +85,12 @@
 #                    实际求解成功的镜像根留在 WORK/mirror-root.txt。
 #   closure_specs    从配方填充 CL_SPECS/CL_EXCL，供测试单独调用。
 #   closure_lock     清单文件路径（CLOSURE_LOCK），空串表示不重放也不写。
+#   CLOSURE_SKIP     空格分隔的包 glob，只在在线求解时作为 dnf --exclude
+#                    参与求解。没有自建 RPM 的收割机上，配方点名的
+#                    airymaxos-* 远端并不存在，只能用 airymax* 这类排除项
+#                    让事务成立；排除项下的包不在事务里，因此非空时禁止写
+#                    闭包清单。离线重放按清单 NEVRA 点名、审计只看事务内
+#                    文件，两者都不受排除项影响。
 #
 # 退出码：0 表示事务内全部 RPM 已落盘并通过审计；非 0 时调用方据此
 # 判定构建失败，不得带病产出镜像。
@@ -281,10 +287,17 @@ cl_boot()
 
 cl_args()
 {
-    local list
+    local list spec
+    local -a excl=("${CL_EXCL[@]}")
     cl_boot "$1" || return 1
     CL_ARGS=("${CL_SPECS[@]}" "${CL_BOOT[@]}")
-    list="$(IFS=,; printf '%s' "${CL_EXCL[*]}")"
+    # 排除项合并成一条 --exclude：dnf 对多次出现的 --exclude 只认最后一条，
+    # 分开发会把配方自带的排除项丢掉。
+    # shellcheck disable=SC2086
+    for spec in ${CLOSURE_SKIP:-}; do
+        excl+=("$spec")
+    done
+    list="$(IFS=,; printf '%s' "${excl[*]}")"
     if [ -n "$list" ]; then
         CL_ARGS+=("--exclude=${list}")
     fi
@@ -662,7 +675,13 @@ closure_fetch()
     # 清单只在显式要求时写：构建端只读不写，否则每轮都会用当轮的求解
     # 结果覆盖掉人工钉住的那一份。
     if [ "$CL_LOCK_W" = "1" ] && [ -n "$CL_LOCK" ]; then
-        cl_lock_write "${work}/dl" "$CL_LOCK" || return 1
+        if [ -n "${CLOSURE_SKIP:-}" ]; then
+            printf 'closure: CLOSURE_SKIP 非空（%s），拒绝写闭包清单\n' \
+                "$CLOSURE_SKIP" >&2
+            printf 'closure: 排除项下的包不在事务里，写出的清单会让装机缺包\n' >&2
+        else
+            cl_lock_write "${work}/dl" "$CL_LOCK" || return 1
+        fi
     fi
     rm -rf "${work}/root" "${work}/dl"
 }
