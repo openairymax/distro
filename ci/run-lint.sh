@@ -64,7 +64,11 @@ python3 tools/preset_lint.py
 # 只走标准库 unittest：此前的「装了 pytest 就用 pytest」会让同一批用例在
 # 开发机与 runner 上跑成两套收集规则与两套失败格式，门禁结论不可比；用例
 # 本身全部是 unittest.TestCase，没有一条依赖 pytest。
+#
+# 逐模块并行：626 条用例串行要四分多钟，而单个模块最长不过二十三秒，时间
+# 全花在等被测脚本的子进程与轮询上。门禁是本仓库唯一排在镜像组装之前的
+# 步骤，它的墙钟直接加在每一轮流水线上。
 echo "== tool tests =="
-python3 -m unittest discover -s tools/tests -p 'test_*.py'
+python3 ci/par_tests.py
 
 echo "== lint passed =="
