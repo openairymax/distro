@@ -23,6 +23,8 @@ import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import fakes
+
 BASE = Path(__file__).resolve().parents[2]
 SPEC = BASE / "specs" / "airymaxos-release.spec"
 WALLPAPER = "/usr/share/backgrounds/airymaxos/airymaxos-default.jpg"
@@ -526,6 +528,56 @@ class DesktopAssetTest(unittest.TestCase):
             live = keys_of(run(["sh", str(script), "--root", str(root)]).stdout)
         self.assertEqual(static - live, set())
         self.assertEqual(live - static, RUN_KEYS)
+
+    def test_observe_resolves_delayed_grub_brand(self):
+        # anaconda 写入的 GRUB_DISTRIBUTOR 是延迟展开的管道表达式。报告不
+        # eval 别人的配置，而是按同一条规则从 /etc/system-release 推菜单
+        # 名；否则名字那一行显示的是「一条命令」，看的人无从判断品牌。
+        script = self.asset("desktop/airy_observe.sh")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = identity_root(Path(tmp))
+            (root / "etc/default/grub").write_text(
+                'GRUB_DISTRIBUTOR="$(sed \'s, release .*$,,g\' '
+                '/etc/system-release)"\n', encoding="utf-8")
+            (root / "etc/system-release").write_text(
+                "AirymaxOS release 0.0.3 (OpenAirymax)\n", encoding="utf-8")
+            out = run(["sh", str(script), "--root", str(root), "--static"])
+            self.assertIn("AIRYMAX-OBSERVE brand.grub=AirymaxOS",
+                          out.stdout.splitlines())
+
+            (root / "etc/system-release").unlink()
+            out = run(["sh", str(script), "--root", str(root), "--static"])
+            self.assertIn("AIRYMAX-OBSERVE brand.grub=absent",
+                          out.stdout.splitlines())
+
+    def test_observe_reads_oneshot_ready(self):
+        # 就绪探针是 Type=oneshot：成功后单元回到 inactive，is-active 恒答
+        # inactive。只看 is-active 会把已经起了桌面的机器判成 partial，所以
+        # 判据改成 Result=success 且 InvocationID 非空。
+        script = self.asset("desktop/airy_observe.sh")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = identity_root(Path(tmp))
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            fakes.write(bin_dir, "systemctl", fakes.SYSTEMCTL)
+            cases = (
+                ({"FAKE_ACTIVE_STATE": "inactive", "FAKE_RESULT": "success",
+                  "FAKE_INVOCATION": "d6e35bd7169f4c30a14c4f80de233976"},
+                 "ready", "ok"),
+                ({"FAKE_ACTIVE_STATE": "inactive", "FAKE_RESULT": "success",
+                  "FAKE_INVOCATION": ""}, "absent", "partial"),
+                ({"FAKE_ACTIVE_STATE": "failed", "FAKE_RESULT": "exit-code"},
+                 "failed", "partial"),
+            )
+            for extra, want, verdict in cases:
+                env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}",
+                           **extra)
+                out = subprocess.run(
+                    ["sh", str(script), "--root", str(root)],
+                    capture_output=True, text=True, check=False, env=env)
+                lines = out.stdout.splitlines()
+                self.assertIn(f"AIRYMAX-OBSERVE desktop.ready={want}", lines)
+                self.assertIn(f"AIRYMAX-OBSERVE status={verdict}", lines)
 
     def test_demo_judges_identity_by_value(self):
         # 判据收紧（D-35）：展示项缺一两个只影响那一行，不能把品牌正确的

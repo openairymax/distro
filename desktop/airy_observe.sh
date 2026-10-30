@@ -60,6 +60,26 @@ have() {
     [ -r "${ROOT}$1" ] && printf 'present' || printf 'absent'
 }
 
+# anaconda 把 GRUB_DISTRIBUTOR 写成延迟展开的管道表达式，取值要等
+# grub-mkconfig 求值。报告不 eval 别人的配置：按同一条 sed 规则（去掉
+# " release " 及其后全部）从 /etc/system-release 推出菜单名。
+grub_brand() {
+    val=$(read_kv "${ROOT}/etc/default/grub" GRUB_DISTRIBUTOR) || {
+        printf 'absent'
+        return 0
+    }
+    case $val in
+    *'$('*)
+        rel=$(head -n 1 "${ROOT}/etc/system-release" 2>/dev/null) || rel=
+        case $rel in
+        *' release '*) printf '%s' "${rel%% release*}" ;;
+        *) printf 'absent' ;;
+        esac
+        ;;
+    *) printf '%s' "$val" ;;
+    esac
+}
+
 is_pos() {
     case ${1:-0} in
     '' | *[!0-9]*) return 1 ;;
@@ -127,8 +147,7 @@ identity_report() {
     emit os.id "$os_id"
     emit os.version "$(read_kv "$osr" VERSION_ID || printf absent)"
     emit os.pretty "$(read_kv "$osr" PRETTY_NAME || printf absent)"
-    emit brand.grub "$(read_kv "${ROOT}/etc/default/grub" GRUB_DISTRIBUTOR ||
-        printf absent)"
+    emit brand.grub "$(grub_brand)"
     wallpaper=$(have /usr/share/backgrounds/airymaxos/airymaxos-default.jpg)
     emit brand.wallpaper "$wallpaper"
     schema=$(have /usr/share/glib-2.0/schemas/99-airymaxos-default.gschema.override)
@@ -152,6 +171,36 @@ identity_report() {
     done
 }
 
+# 就绪探针是 Type=oneshot：跑成功后单元回到 inactive，is-active 永远答
+# inactive。判定必须看单元留下的结果与调用号——Result=success 且有过一次
+# 调用，才等于「桌面链已验证过」。
+ready_state() {
+    show=$(systemctl show -p ActiveState -p Result -p InvocationID \
+        airymax-desktop-ready.service 2>/dev/null) || show=
+    [ -n "$show" ] || {
+        printf 'absent'
+        return 0
+    }
+    active=$(printf '%s\n' "$show" | sed -n 's/^ActiveState=//p')
+    case $active in
+    active | activating | reloading)
+        printf '%s' "$active"
+        return 0
+        ;;
+    failed)
+        printf 'failed'
+        return 0
+        ;;
+    esac
+    result=$(printf '%s\n' "$show" | sed -n 's/^Result=//p')
+    inv=$(printf '%s\n' "$show" | sed -n 's/^InvocationID=//p')
+    [ -n "$inv" ] && [ "$result" = success ] || {
+        printf 'absent'
+        return 0
+    }
+    printf 'ready'
+}
+
 run_report() {
     emit kernel.release "$(uname -r 2>/dev/null || printf absent)"
     owner=$(rpm -q --qf '%{NAME}' -f "/boot/vmlinuz-$(uname -r)" 2>/dev/null) ||
@@ -164,9 +213,8 @@ run_report() {
     emit session.type "$sess"
     emit session.display "${DISPLAY:-absent}"
     emit display.outputs "$(outputs)"
-    ready=$(systemctl is-active airymax-desktop-ready.service 2>/dev/null) ||
-        ready=absent
-    emit desktop.ready "${ready:-absent}"
+    ready=$(ready_state)
+    emit desktop.ready "$ready"
     failed=$(failed_count)
     emit boot.health "$failed"
     emit rt.budget "$(rt_budget)"
@@ -176,7 +224,10 @@ run_report() {
     emit root.used "$(df -P / 2>/dev/null | awk 'NR == 2 { print $5 }')"
     emit net.ipv4 "$(net_v4)"
     [ "$failed" = 0 ] || status=partial
-    [ "$ready" = active ] || status=partial
+    case $ready in
+    ready | active | activating) ;;
+    *) status=partial ;;
+    esac
 }
 
 while [ $# -gt 0 ]; do
