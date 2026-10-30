@@ -383,6 +383,21 @@ class BuildDesktopTest(unittest.TestCase):
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertIn("closure: 拉取中 files=", res.stdout)
 
+    def test_closure_kills_stalled_solver(self):
+        # 静默不等于「在慢慢下」：run 41007425145 在 files=0 上静默 50 分钟，
+        # 只能等 step 上限被取消，日志里既没有失败原因也看不出卡在哪一步。
+        # 静默达到上限就终止本次求解并换根，把等待从分钟级上限收敛到秒级。
+        self.tools()
+        self.stock()
+        res = self.build("--arch", "x86_64", "--closure",
+                         FAKE_DNF_MODE="hang", FAKE_DNF_SLEEP="30",
+                         CLOSURE_MIRRORS="http://mirror.one/oe",
+                         CLOSURE_STALL="2", CLOSURE_TRY="1",
+                         CLOSURE_WAIT="0")
+        self.assertEqual(res.returncode, 6)
+        self.assertIn("判定挂死", res.stderr)
+        self.assertIn("跳过重试换下一个根", res.stderr)
+
     def test_mkksiso_fail(self):
         self.tools()
         self.stock()
