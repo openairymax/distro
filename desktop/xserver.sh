@@ -18,8 +18,11 @@
 # 需要改这份脚本。
 #
 # 入口：lightdm 按 xserver-command 调用，参数原样转交 Xorg。
-# 输出：一行 AIRYMAX-XSERVER 标记，落在 /var/log/lightdm/x-*.log 里，
-#       现场据此区分「走了自动选择」与「走了 fbdev 兜底」。
+# 输出：一行 AIRYMAX-XSERVER 标记，同时写到 stdout 与固定状态文件
+#       （默认 /run/airymaxos/xserver.log）。现场据此区分「走了自动选择」
+#       与「走了 fbdev 兜底」。lightdm 不接管 xserver-command 的 stdout，
+#       x-0.log 里看不到它（B50 实测零命中），所以取证面是状态文件，
+#       stdout 只是给手工执行留的即时回显。
 # ===========================================================================
 
 set -u
@@ -27,8 +30,16 @@ set -u
 DRM="${AIRYMAX_DRM_DIR:-/sys/class/drm}"
 FB="${AIRYMAX_FB_DEV:-/dev/fb0}"
 CONF="${AIRYMAX_XSERVER_CONF:-/run/airymaxos/xserver-fbdev.conf}"
+STATE="${AIRYMAX_XSERVER_STATE:-/run/airymaxos/xserver.log}"
 XORG="${AIRYMAX_XORG:-Xorg}"
 PLATFORM="simple-framebuffer"
+
+mark()
+{
+    printf 'AIRYMAX-XSERVER %s\n' "$*"
+    mkdir -p "${STATE%/*}" 2>/dev/null
+    printf 'AIRYMAX-XSERVER %s\n' "$*" >"${STATE}" 2>/dev/null
+}
 
 dev_driver()
 {
@@ -61,18 +72,18 @@ main()
     local drv conf
 
     if drv=$(dev_driver); then
-        printf 'AIRYMAX-XSERVER driver=%s\n' "${drv}"
+        mark "driver=${drv}"
         exec "${XORG}" "$@"
     fi
     if [ ! -e "${FB}" ]; then
-        printf 'AIRYMAX-XSERVER driver=none note=no-fb\n'
+        mark "driver=none note=no-fb"
         exec "${XORG}" "$@"
     fi
     if ! conf=$(fbdev_conf); then
-        printf 'AIRYMAX-XSERVER driver=fbdev note=conf-unwritable\n'
+        mark "driver=fbdev note=conf-unwritable"
         exec "${XORG}" "$@"
     fi
-    printf 'AIRYMAX-XSERVER driver=fbdev fb=%s conf=%s\n' "${FB}" "${conf}"
+    mark "driver=fbdev fb=${FB} conf=${conf}"
     exec "${XORG}" -config "${conf}" "$@"
 }
 

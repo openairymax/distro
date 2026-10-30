@@ -46,6 +46,7 @@ class XServerTest(unittest.TestCase):
         self.fb = self.root / "fb0"
         self.fb.write_text("", encoding="utf-8")
         self.conf = self.root / "run" / "airymaxos" / "xserver-fbdev.conf"
+        self.state = self.root / "run" / "airymaxos" / "xserver.log"
         self.xorg = self.bin / "Xorg"
         self.xorg.write_text(XORG, encoding="utf-8")
         self.xorg.chmod(0o755)
@@ -64,6 +65,7 @@ class XServerTest(unittest.TestCase):
         env = {"PATH": str(self.bin), "AIRYMAX_DRM_DIR": str(self.drm),
                "AIRYMAX_FB_DEV": str(self.fb),
                "AIRYMAX_XSERVER_CONF": str(self.conf),
+               "AIRYMAX_XSERVER_STATE": str(self.state),
                "AIRYMAX_XORG": str(self.xorg)}
         env.update(extra)
         return subprocess.run([SH, str(SCRIPT), *(args or ARGS)], env=env,
@@ -122,6 +124,15 @@ class XServerTest(unittest.TestCase):
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertIn("note=conf-unwritable", res.stdout)
         self.assertEqual(self.argv(res.stdout), list(ARGS))
+
+    def test_marker_persists_beside_stdout(self):
+        self.add_card("simple-framebuffer")
+        res = self.run_seat()
+        self.assertEqual(res.returncode, 0, res.stderr)
+        line = f"AIRYMAX-XSERVER driver=fbdev fb={self.fb} conf={self.conf}"
+        self.assertIn(line, res.stdout)
+        self.assertEqual(self.state.read_text(encoding="utf-8"),
+                         line + "\n")
 
     def test_seat_declares_wrapper(self):
         lines = [line.strip() for line in SEAT.read_text(
