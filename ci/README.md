@@ -14,7 +14,7 @@
 | T5 | 内置壁纸 | `org.mate.background picture-filename` 指向内置路径；图像 sha256 与发行资产一致（图像缺失或 schema 缺失均判失败） | 0.0.3 品牌桌面基线 |
 | T6 | 内核归属 | `uname -r` 带 `-alk` 后缀；`/boot` 的 vmlinuz/config/System.map 齐全；`CONFIG_LOCALVERSION` 与 `CONFIG_SECURITY_AIRY` 一致 | 产品内核不可被上游内核顶替 |
 | T7 | LSM 注册表 | `airy` 在 `/sys/kernel/security/lsm` 中只登记一次；`airy_lockdown` 在位 | 补充钩子不得重复注册 |
-| T8 | 主机名 | `/etc/hostname` 为配方值（workstation 剖面 `airymaxos`），不是安装器缺省名 | 品牌身份随装机落地 |
+| T8 | 主机名 | `/etc/hostname` 为配方值 `AIRYMAX_PC`，不是安装器缺省名；运行期名由 `sysctl.d` 写回（systemd 会去掉下划线） | 品牌身份随装机落地 |
 | T9 | 发行版品牌 | `/etc/os-release` 的 `NAME=AirymaxOS`、`ID=airymaxos`、`PRETTY_NAME` 前缀与语义化 `VERSION_ID` 同时成立 | 发行版标识 SSoT 生效 |
 | T10 | 分辨率策略 | 每个 connected 输出的实际模式等于 `display_mode.sh` 在该拓扑上选定的模式（上限 1920x1200，首选优先） | 0.0.3 分辨率自适应 |
 | T11 | EFI 启动品牌 | ESP 内 `EFI/airymaxos` 的 shim/grub/BOOTX64.CSV 齐全，品牌状态与安装期日志在位，`BootOrder` 首位为本产品（纯 BIOS 目标显式标注 non-EFI） | 品牌归属随装机落地 |

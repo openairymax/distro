@@ -27,7 +27,7 @@
 
 ## Initial credentials
 
-0.0.3 ships a "boot straight to the desktop" policy: `airymax` logs in
+0.0.3 ships a "boot straight to the desktop" policy: `Airymax` logs in
 without a password and `root` uses a fixed password, with no forced rotation.
 Both kickstarts still record the values as SHA-512 crypt hashes per
 OS-OPS-009, so an unattended install is login-ready without depending on a
@@ -36,14 +36,18 @@ first-boot account creation flow that does not exist yet:
 | Account | Delivered state | Login boundary |
 |---------|-----------------|----------------|
 | `root` | fixed password `00000000` | console/SSH takeover; no forced rotation |
-| `airymax` | empty password (passwordless) | `wheel`; lightdm autologin + UKUI desktop |
+| `Airymax` | empty password (passwordless) | `wheel`; lightdm autologin + UKUI desktop |
 
-The empty password is applied by `passwd -d airymax` in the kickstart
-`%post`, whose trailing account assertions treat "root is sha512, airymax is
+The empty password is applied by `passwd -d Airymax` in the kickstart
+`%post`, whose trailing account assertions treat "root is sha512, Airymax is
 empty" as part of install success. For SSH, `airymaxos-release` installs
 `/etc/ssh/sshd_config.d/50-airymax-sshd.conf` (`PermitEmptyPasswords yes`);
-for the local seat, `autologin-user=airymax` in `50-airymax.conf` skips the
-greeter. For a custom build, replace the hashes in the kickstart before
+for the local seat, `autologin-user=Airymax` in `50-airymax.conf` skips the
+greeter. The machine name `AIRYMAX_PC` is written to `/etc/hostname` by the
+recipe and written back at the kernel level by
+`/etc/sysctl.d/99-airymax-hostname.conf`: systemd strips the underscore per
+RFC 1123, so the static name degrades to `AIRYMAXPC` without that drop-in.
+For a custom build, replace the hashes in the kickstart before
 injecting the ISO; never write plaintext.
 
 ## Repository layout

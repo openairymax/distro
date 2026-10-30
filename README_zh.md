@@ -25,20 +25,23 @@
 
 ## 初始凭据
 
-0.0.3 的交付口径是「开机即桌面」：`airymax` 免密，`root` 固定口令，
+0.0.3 的交付口径是「开机即桌面」：`Airymax` 免密，`root` 固定口令，
 都不强制改密。两个 kickstart 仍以 OS-OPS-009 要求的 SHA-512 crypt 哈希
 落盘，安装结束即可登录，不依赖尚不存在的首启建号流程：
 
 | 账户 | 交付状态 | 登录边界 |
 |------|----------|----------|
 | `root` | 固定口令 `00000000` | 控制台/SSH 接管；不强制改密 |
-| `airymax` | 空口令（免密） | `wheel`；lightdm 自动登录 + UKUI 桌面 |
+| `Airymax` | 空口令（免密） | `wheel`；lightdm 自动登录 + UKUI 桌面 |
 
-空口令由 kickstart 的 `%post` 执行 `passwd -d airymax` 落地，`%post` 末尾
-的账户断言把「root 为 sha512、airymax 为空口令」作为安装成功率的一部分。
+空口令由 kickstart 的 `%post` 执行 `passwd -d Airymax` 落地，`%post` 末尾
+的账户断言把「root 为 sha512、Airymax 为空口令」作为安装成功率的一部分。
 SSH 侧由 `airymaxos-release` 安装
 `/etc/ssh/sshd_config.d/50-airymax-sshd.conf`（`PermitEmptyPasswords yes`）
-放行；本地座位由 `50-airymax.conf` 的 `autologin-user=airymax` 免密进入。
+放行；本地座位由 `50-airymax.conf` 的 `autologin-user=Airymax` 免密进入。
+主机名 `AIRYMAX_PC` 由配方写入 `/etc/hostname`，运行时再由
+`/etc/sysctl.d/99-airymax-hostname.conf` 在内核层写回：systemd 读该文件时
+按 RFC 1123 去掉下划线，静态名会退化成 `AIRYMAXPC`。
 定制发行时在注入 ISO 前替换 kickstart 中的哈希，禁止写入明文。
 
 ## 仓库结构

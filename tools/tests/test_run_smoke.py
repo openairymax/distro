@@ -35,7 +35,7 @@ LEGACY = ("tauri", "webkitwebprocess", "fcitx5", "pipewire",
 # 用户态可见的发行版内核版本；T6 以 -alk 后缀区分产品内核与上游内核。
 KREL = "6.6.157-alk"
 LSM_LIST = "airy_lockdown,lockdown,capability,yama,airy,selinux"
-HOSTNAME = "airymaxos"
+HOSTNAME = "AIRYMAX_PC"
 OS_RELEASE = ('NAME="AirymaxOS"\n'
               'VERSION="0.0.3 (OpenAirymax)"\n'
               "ID=airymaxos\n"
@@ -149,7 +149,7 @@ class RunSmokeTest(unittest.TestCase):
         """免密提权的落点：与 airymaxos-release 交付的文件同名同内容。"""
         path = self.sysroot / "etc" / "sudoers.d" / "90-airymax"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("airymax ALL=(ALL) NOPASSWD: ALL\n", encoding="utf-8")
+        path.write_text("Airymax ALL=(ALL) NOPASSWD: ALL\n", encoding="utf-8")
         return path
 
     def write_screensaver(self):
@@ -524,7 +524,7 @@ class RunSmokeTest(unittest.TestCase):
         self.write_product("localhost.localdomain", OS_RELEASE)
         res = self.run_smoke()
         self.assert_fail(res, 8)
-        self.assertIn("hostname: localhost.localdomain (want airymaxos)",
+        self.assertIn(f"hostname: localhost.localdomain (want {HOSTNAME})",
                       res.stdout)
 
     def test_hostname_absent(self):
@@ -648,7 +648,7 @@ class RunSmokeTest(unittest.TestCase):
         # 文件在但策略被改成要口令：只认有效规则行，不认文件名
         self.tools()
         self.write_sudoers().write_text(
-            "airymax ALL=(ALL) ALL\n", encoding="utf-8")
+            "Airymax ALL=(ALL) ALL\n", encoding="utf-8")
         res = self.run_smoke()
         self.assert_fail(res, 12)
         self.assertIn("policy line absent", res.stdout)

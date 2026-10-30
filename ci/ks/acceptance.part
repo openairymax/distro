@@ -30,7 +30,7 @@ systemctl --root=/ mask airymax-desktop-ready.service
 #    /etc/lightdm/lightdm.conf.d/50-airymax.conf 提供。这里只断言，不再
 #    自写一份配置——否则产品资产退化成空时，验收依然会绿。
 lightdm=/etc/lightdm/lightdm.conf.d/50-airymax.conf
-for want in 'autologin-user=airymax' 'autologin-session=ukui'; do
+for want in 'autologin-user=Airymax' 'autologin-session=ukui'; do
     if ! grep -qx "${want}" "${lightdm}" 2>/dev/null; then
         echo "AIRYMAX-ACCEPT-FAIL lightdm ${want}" >&2
         exit 1
@@ -46,7 +46,7 @@ if ! grep -qx 'PermitEmptyPasswords yes' "${sshd_dropin}" 2>/dev/null; then
 fi
 
 # 4) 冒烟结果目录：会话用户写入，root 报告单元读取。
-install -d -o airymax -g airymax -m 0755 /var/log/airymax
+install -d -o Airymax -g Airymax -m 0755 /var/log/airymax
 
 # 5) 会话建立后自动启动冒烟。
 cat > /etc/xdg/autostart/airymax-smoke.desktop <<'EOF'
