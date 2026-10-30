@@ -377,6 +377,12 @@ class BuildDesktopTest(unittest.TestCase):
         args = log.read_text(encoding="utf-8")
         self.assertIn("airymax*", args)
         self.assertIn("airymaxos-*", args)
+        # 点名要装的包光靠 --exclude 仍会报 Unable to find a match，命中
+        # glob 的规格必须先从参数里摘掉，否则播种机每个根都失败。
+        self.assertNotIn("airymaxos-kernel", args)
+        # 自建 release 缺席时上游 release 必须回到事务里，否则 setup 的
+        # system-release 依赖无解（播种机收割的真实失败）。
+        self.assertNotIn("openEuler-release", args)
 
     def test_closure_skip_refuses_lock_write(self):
         """排除项下的事务不完整，即使要求写清单也不得落盘。"""
