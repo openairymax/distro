@@ -54,7 +54,7 @@ repo --name=airymaxos-offline --baseurl=file:///run/install/repo/airymax/Package
 # 删掉这两个参数即可回到逐行日志，现场排障不需要重装。
 bootloader --timeout=3 --append="console=tty0 console=ttyS0,115200 console=ttyAMA0,115200 rhgb quiet"
 
-# ---- 分区作用域（真机缺陷 D-32）----
+# ---- 分区作用域（真机缺陷 D-33）----
 # 安装器没有「自动」盘名：clearpart --all + autopart 会把每一块可用磁盘都
 # 纳入自动布局。B50（2026-10-30）因此把 ESP 与 /boot 放到可插拔 U 盘、把
 # 根与 /home 放到 NVMe：拔盘即不可引导，且 --all 清空了全部接入磁盘。
