@@ -108,6 +108,7 @@ class RunSmokeTest(unittest.TestCase):
                                   "CONFIG_SECURITY_AIRY=y\n")
         (boot / f"System.map-{KREL}").write_text(
             "ffffffff81000000 T start_kernel\n", encoding="utf-8")
+        self.write_module()
         self.write_lsm(LSM_LIST)
         self.write_product(HOSTNAME, OS_RELEASE)
         self.write_esp()
@@ -116,6 +117,21 @@ class RunSmokeTest(unittest.TestCase):
         self.write_repo()
         self.write_grub()
         self.write_assets()
+
+    def write_module(self, body=b"\x7fELF .module_sig\n"):
+        """T6 签名判定的落点：模块的节名字符串表里带 .module_sig。"""
+        path = (self.sysroot / "usr" / "lib" / "modules" / KREL /
+                "kernel" / "security" / "airy" / "airy.ko")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(body)
+        return path
+
+    def write_taint(self, value):
+        """运行内核的污染位：T6 用它区分「签名缺失」与「已加载未签名模块」。"""
+        path = self.sysroot / "proc" / "sys" / "kernel" / "tainted"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"{value}\n", encoding="utf-8")
+        return path
 
     def write_grub(self, body=GRUB_DEFAULTS):
         """引导参数的落点：grub2-mkconfig 的唯一输入文件。"""
@@ -493,6 +509,21 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke()
         self.assert_fail(res, 6)
         self.assertIn(f"config-{KREL}: LOCALVERSION mismatch", res.stdout)
+
+    def test_kernel_module_unsigned(self):
+        self.tools()
+        mod = self.write_module(b"\x7fELF .modinfo\n")
+        res = self.run_smoke()
+        self.assert_fail(res, 6)
+        self.assertIn(f"unsigned module: {mod}", res.stdout)
+
+    def test_kernel_tainted_by_unsigned_module(self):
+        self.tools()
+        self.write_taint(8192)
+        res = self.run_smoke()
+        self.assert_fail(res, 6)
+        self.assertIn("kernel tainted by unsigned module (tainted=8192)",
+                      res.stdout)
 
     def test_lsm_duplicate_airy(self):
         self.tools()

@@ -20,7 +20,8 @@
 #   T3  PulseAudio 音频栈：pactl 与守护进程握手
 #   T4  桌面隔离 slice：user@UID.service 归属与 slice 资源参数
 #   T5  内置壁纸：背景键指向内置路径，图像 sha256 与发行资产一致
-#   T6  内核归属：运行的内核是包内 ALK，/boot 三件套齐全且配置一致
+#   T6  内核归属：运行的内核是包内 ALK，/boot 三件套齐全、配置一致，模块
+#       带签名且内核未被未签名模块污染
 #   T7  LSM 注册表：airy 只登记一次，配套 lockdown LSM 在位
 #   T8  主机名：/etc/hostname 是产品名，不是安装器缺省名
 #   T9  品牌：/etc/os-release 的 NAME/ID/PRETTY_NAME/VERSION_ID 指向本产品
@@ -227,7 +228,7 @@ t5_wallpaper() {
 
 # T6: 内核归属（运行内核、/boot 三件套与配置一致）
 t6_kernel_identity() {
-    local rel f
+    local rel f mod taint
     rel="$(uname -r)"
     # 发行版内核带 -alk 本地版本后缀，这是「跑的是不是自己的内核」最便宜的
     # 判别。上游 openEuler 内核为 6.6.0-*.oe*，不会被误判为通过。
@@ -255,6 +256,24 @@ t6_kernel_identity() {
     }
     grep -q ' start_kernel$' "${SYSROOT}/boot/System.map-${rel}" || {
         echo "System.map-${rel}: start_kernel absent"
+        return 1
+    }
+    # 模块签名：0.0.3-6 及更早的打包装进镜像的是未签名模块，内核因此带上
+    # 8192（TAINT_UNSIGNED_MODULE）；打开 CONFIG_MODULE_SIG_FORCE 后这些
+    # 模块会被直接拒载。任取一个模块查 .module_sig，再核对运行内核的污染位。
+    mod="$(find "${SYSROOT}/usr/lib/modules/${rel}" -name '*.ko' \
+        -print -quit 2>/dev/null)"
+    [ -n "${mod}" ] || {
+        echo "no module under /usr/lib/modules/${rel}"
+        return 1
+    }
+    grep -qa '\.module_sig' "${mod}" || {
+        echo "unsigned module: ${mod}"
+        return 1
+    }
+    taint="$(cat "${SYSROOT}/proc/sys/kernel/tainted" 2>/dev/null)" || taint=0
+    [ $((taint & 8192)) -eq 0 ] || {
+        echo "kernel tainted by unsigned module (tainted=${taint})"
         return 1
     }
 }
