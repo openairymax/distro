@@ -248,6 +248,48 @@ cfg() {
     printf '%s' "${v#*=}"
 }
 
+# 抢占模型：配置里只有被选中的那一项写成 =y，其余是注释行，所以按由强到弱
+# 取第一个 =y 的项，不能只读某一项——只读 PREEMPT_DYNAMIC 时，非动态内核会
+# 报 absent，把「没有这一档」误读成「采不到」。
+preempt_model() {
+    local m model=
+    for m in PREEMPT_RT PREEMPT PREEMPT_VOLUNTARY PREEMPT_NONE; do
+        [ "$(cfg "CONFIG_${m}")" = y ] || continue
+        model=$m
+        break
+    done
+    [ -n "$model" ] || {
+        printf 'absent'
+        return 0
+    }
+    # 动态抢占在运行期可切，构建期仍要选一个默认档；两个事实一起报，
+    # 单写 dynamic 会丢掉「默认是哪一档」。
+    if [ "$(cfg CONFIG_PREEMPT_DYNAMIC)" = y ]; then
+        printf 'dynamic:%s' "$model"
+    else
+        printf '%s' "$model"
+    fi
+}
+
+# 引导器归属：产品里没有名为 grub2 的包（真实包名带架构后缀，如
+# grub2-efi-x64），按固定名查询只会拿到 rpm 的「not installed」文本。这里按
+# 支持的架构逐个试，命中即报 name-version-release。
+boot_loader() {
+    local p out
+    command -v rpm >/dev/null 2>&1 || {
+        printf 'absent'
+        return 0
+    }
+    for p in grub2-efi-x64 grub2-efi-aa64 grub2-efi-riscv64 \
+        grub2-efi-loongarch64 grub2-pc; do
+        out=$(rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}' "$p" 2>/dev/null) ||
+            continue
+        printf '%s' "$out"
+        return 0
+    done
+    printf 'absent'
+}
+
 # 单文件取值（taint、cmdline、enforce 一类只有一个词的 sysctl/procfs）。
 one_line() {
     local v
@@ -286,7 +328,7 @@ kernel_report() {
     emit kernel.localversion "$(cfg CONFIG_LOCALVERSION)"
     emit kernel.build "$(kernel_build)"
     emit kernel.modules "$(mod_count)"
-    emit kernel.preempt "$(cfg CONFIG_PREEMPT_DYNAMIC)"
+    emit kernel.preempt "$(preempt_model)"
     emit kernel.taint "$(one_line /proc/sys/kernel/tainted)"
     emit kernel.cmdline "$(one_line /proc/cmdline)"
 }
@@ -313,8 +355,7 @@ os_report() {
 
 boot_report() {
     emit boot.firmware "$(have /sys/firmware/efi)"
-    emit boot.loader "$(rpm -q --qf '%{VERSION}-%{RELEASE}' grub2 2>/dev/null ||
-        printf absent)"
+    emit boot.loader "$(boot_loader)"
     emit boot.target "$(systemctl get-default 2>/dev/null || printf absent)"
     emit boot.total "$(boot_total)"
     emit boot.failed "$(failed_count)"
