@@ -117,9 +117,28 @@ swap_mb=8192 root_mb=1 split=
 if [ "${best_size}" -ge 171798691840 ]; then
     swap_mb=16384 root_mb=71680 split=1
 fi
+
+# 磁盘标签固定为 GPT，两条固件腿用同一份布局。initlabel 的默认标签随
+# 固件与磁盘容量变化，布局一旦随环境漂移，两条腿就不再是同一种装机。
+#
+# BIOS + GPT 必须自带 1MB biosboot（类型 ef02）：GPT 没有 MBR 之后那段
+# 空隙可放 grub2-pc 的 core.img，core.img 只能落进该分区。缺它时 anaconda
+# 判存储配置无效，退回交互式文本主菜单（「您的计算机是基于 BIOS 的计算机，
+# 因此系统需要一个特殊分区以便从 GPT 磁盘标签引导」），无头安装没有 stdin，
+# 只能空耗整轮超时（run 41144010592 的 run-bios-1 撞满 3600 秒）。同一份
+# 介质在 UEFI 腿因为 ESP 满足引导条件而通过，缺陷只在 BIOS 腿暴露。
+#
+# 只在无 EFI 固件时生成：UEFI 从 ESP 引导，多一个 biosboot 是无用分区。
+biosboot=
+[ -d /sys/firmware/efi ] || biosboot=1
 {
     printf 'ignoredisk --only-use=%s\n' "${disk}"
-    printf 'clearpart --all --initlabel --drives=%s\n' "${disk}"
+    printf 'clearpart --all --initlabel --disklabel=gpt --drives=%s\n' \
+        "${disk}"
+    if [ -n "${biosboot}" ]; then
+        printf 'part biosboot --fstype=biosboot --size=1 --ondisk=%s\n' \
+            "${disk}"
+    fi
     printf 'part /boot/efi --fstype=efi --size=600 --ondisk=%s\n' "${disk}"
     printf 'part /boot --fstype=ext4 --size=1024 --ondisk=%s\n' "${disk}"
     printf 'part swap --size=%s --ondisk=%s\n' "${swap_mb}" "${disk}"
