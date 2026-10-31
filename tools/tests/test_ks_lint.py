@@ -138,6 +138,32 @@ class KsLintTest(unittest.TestCase):
             "%include /tmp/disk.ks\n")
         self.assertIn("K004", self.codes(text))
 
+    def layout_pose(self, parts):
+        """把 VALID 的内联布局换成 %pre 生成的显式布局。"""
+        return VALID.replace(
+            "clearpart --all --initlabel\n"
+            "autopart --type=plain --fstype=ext4\n",
+            "%pre --erroronfail --log=/tmp/disk.log\n"
+            "set -eu\n"
+            "cat >/tmp/disk.ks <<EOF\n"
+            f"{parts}"
+            "EOF\n"
+            "%end\n"
+            "%include /tmp/disk.ks\n")
+
+    def test_biosboot_present(self):
+        text = self.layout_pose(
+            "clearpart --all --initlabel --disklabel=gpt --drives=sda\n"
+            "part biosboot --fstype=biosboot --size=1 --ondisk=sda\n"
+            "part /boot/efi --fstype=efi --size=600 --ondisk=sda\n")
+        self.assertEqual(self.codes(text), [])
+
+    def test_biosboot_missing(self):
+        text = self.layout_pose(
+            "clearpart --all --initlabel --disklabel=gpt --drives=sda\n"
+            "part /boot/efi --fstype=efi --size=600 --ondisk=sda\n")
+        self.assertIn("K018", self.codes(text))
+
     def test_rootpw_plain(self):
         text = VALID.replace(ROOT, "rootpw secret")
         self.assertIn("K005", self.codes(text))

@@ -8,7 +8,7 @@
 # 明文）、脚本段闭合与失败即停、收尾状态、单例命令、安装界面互斥、
 # 桌面仓库闭包完整性、离线仓库落点、内核包身份、上游身份包排除与命令行
 # 参数语法。包组引用（@组 / @^环境）由 comps_lint 交叉校验，此处不重复
-# 实现。规则编号 K001~K017 与 tools/tests/test_ks_lint.py 一一对应。
+# 实现。规则编号 K001~K018 与 tools/tests/test_ks_lint.py 一一对应。
 #
 # 配方有两种姿态，判据不同：
 #   构建期 — 安装源为上游 https，桌面环境要求四仓库齐全（K013）；
@@ -229,6 +229,24 @@ def check_storage(cmds: list[Cmd], sects: list[Sect],
                             f"autopart conflicts with {expl[0].name}"))
     if not auto and not expl and not dynamic_storage(cmds, sects):
         issues.append(Issue("K004", 1, "no storage layout"))
+
+
+def check_biosboot(sects: list[Sect], issues: list[Issue]) -> None:
+    """显式布局带 ESP 时必须同时给出 biosboot 分区（K018）。
+
+    initlabel 在 BIOS 下把磁盘初始化成 GPT，而 GPT 没有 MBR 之后那段空隙
+    放 grub2-pc 的 core.img；缺 biosboot（ef02）时 anaconda 判存储配置无效，
+    退回交互式文本主菜单，无头安装没有 stdin，只能空耗整轮超时（run
+    41144010592 的 run-bios-1 撞满 3600 秒，install.log 停在「请从上方进行
+    选择」）。同一份介质在 UEFI 腿因为 ESP 满足引导条件而通过，缺陷只在
+    BIOS 腿暴露，且要到装机超时才可见；静态检查是它唯一的前置拦截点。
+
+    判据落在 %pre 正文：布局由脚本生成，顶层没有 part 行可查。
+    """
+    text = pre_text(sects)
+    if "part /boot/efi" in text and "biosboot" not in text:
+        issues.append(Issue("K018", 1,
+                            "layout lacks biosboot for BIOS+GPT boot"))
 
 
 def last_arg(args: str) -> str:
@@ -452,6 +470,7 @@ def lint_text(text: str) -> list[Issue]:
     check_src(cmds, issues)
     check_required(cmds, sects, issues)
     check_storage(cmds, sects, issues)
+    check_biosboot(sects, issues)
     check_roots(cmds, issues)
     check_urls(cmds, issues)
     check_kernel(sects, issues)
