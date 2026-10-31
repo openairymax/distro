@@ -63,7 +63,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.3
-%global airy_release 6
+%global airy_release 7
 %global kernel_version 6.6.157
 %global kernel_local -alk
 %global kernel_release %{kernel_version}%{kernel_local}
@@ -245,6 +245,22 @@ install -m 0644 %{ksrc}/System.map \
 
 %{kmake} INSTALL_MOD_PATH=%{buildroot}/usr INSTALL_MOD_STRIP=1 \
     modules_install
+# 签名补签（TAINT_UNSIGNED_MODULE）：modules_install 正常应在 strip 之后
+# 调用 scripts/sign-file，但 0.0.3 装机实测模块里只有 .modinfo/.BTF，没有
+# .module_sig，内核因此带上 8192。签名是装机后判断「模块是否本发行版产出」
+# 的唯一凭据，缺失时一旦打开 SIG_FORCE 会拒载全部模块。这里抽样判定是否
+# 漏签，漏签就地对已安装模块补签；正常路径签过则不重复签，避免叠加多份
+# PKCS#7 把模块拖大。
+if grep -qx 'CONFIG_MODULE_SIG_ALL=y' %{ksrc}/.config; then
+    moddir=%{buildroot}/usr/lib/modules/%{kernel_release}
+    sample="$(find "$moddir" -name '*.ko' -print -quit)"
+    if [ -n "$sample" ] &&
+        ! readelf -S "$sample" | grep -q '\.module_sig'; then
+        %{kmake} INSTALL_MOD_PATH=%{buildroot}/usr modules_sign
+        echo "airymaxos-kernel: modules were unsigned after install," \
+            "re-signed $(find "$moddir" -name '*.ko' | wc -l) modules"
+    fi
+fi
 rm -f %{buildroot}/usr/lib/modules/%{kernel_release}/build \
       %{buildroot}/usr/lib/modules/%{kernel_release}/source
 
@@ -329,6 +345,23 @@ test -s %{buildroot}/boot/config-%{kernel_release}
 test -s %{buildroot}/boot/System.map-%{kernel_release}
 test -s %{ksrc}/System.map
 readelf -h %{ksrc}/vmlinux >/dev/null
+# 模块签名门禁：每个 .ko 都必须带 .module_sig，缺一个就中断打包。签名缺失
+# 只在装机后以 taint 8192 的形式显形，打包阶段不查就无法在交付前发现；而
+# 打开 SIG_FORCE 后它直接表现为全部模块拒载。
+if grep -qx 'CONFIG_MODULE_SIG_ALL=y' %{ksrc}/.config; then
+    unsigned=0
+    total=0
+    for ko in $(find %{buildroot}/usr/lib/modules/%{kernel_release} \
+        -name '*.ko'); do
+        total=$((total + 1))
+        readelf -S "$ko" | grep -q '\.module_sig' || {
+            echo "unsigned module: ${ko}"
+            unsigned=$((unsigned + 1))
+        }
+    done
+    test "${total}" -gt 0
+    test "${unsigned}" -eq 0
+fi
 %if %{native}
 test -s %{ksrc}/tools/perf/perf
 test -s %{ksrc}/tools/bpf/bpftool/bpftool
@@ -385,6 +418,11 @@ depmod -a %{kernel_release}
 %endif
 
 %changelog
+* Sat Oct 31 2026 SPHARX <dev@spharx.com> - 0.0.3-7
+- kernel：modules_install 之后补一次签名检测，漏签就地对已安装模块执行
+  modules_sign，%%check 增加全量 .module_sig 门禁。0.0.3 装机实测模块只带
+  .modinfo/.BTF，内核被标 TAINT_UNSIGNED_MODULE（8192）；签名是判断模块
+  是否本发行版产出的唯一凭据，缺失后打开 SIG_FORCE 会拒载全部模块
 * Mon Oct 26 2026 SPHARX <dev@spharx.com> - 0.0.3-6
 - security/airy：AIRY_KUNIT 依赖收紧为 KUNIT=y。该符号是 bool，会把测试
   目标直接链入 vmlinux；原先 depends on KUNIT 在 KUNIT=m 时仍成立，
