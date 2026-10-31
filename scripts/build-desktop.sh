@@ -392,8 +392,11 @@ run_iso()
     if [ "$MD5" -ne 1 ]; then
         args+=(--no-md5)
     fi
+    # tee 而不是只重定向：后处理（卷标、品牌化、isohybrid 对齐、校验块）
+    # 的诊断全部走 stderr，只写文件时 CI 控制台上只剩「ok 3 - iso assembly」
+    # 一行结论，出问题时无法判断卡在链路的哪一步（run 41144010592）。
     "${DISTRO_ROOT}/scripts/build-iso.sh" "${args[@]}" \
-        >"${OUT_ABS}/logs/build-iso.log" 2>&1 || rc=$?
+        2>&1 | tee "${OUT_ABS}/logs/build-iso.log" || rc=$?
     case "$rc" in
     0) ;;
     2|5|6|11|12) die "$rc" "ISO 组装失败（日志 ${OUT_ABS}/logs/build-iso.log）" ;;
