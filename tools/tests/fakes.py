@@ -15,10 +15,10 @@ import shutil
 from pathlib import Path
 
 TOOLS = ("awk", "base64", "basename", "bash", "cat", "cmp", "cp", "cut",
-         "date", "dd", "dirname", "find", "git", "grep", "head", "mkdir",
-         "mv", "od", "python3", "readlink", "rm", "sed", "seq", "sha256sum",
-         "sleep", "sort", "stat", "tail", "tee", "timeout", "tr", "truncate",
-         "uname", "wc")
+         "date", "dd", "dirname", "find", "git", "grep", "head", "install",
+         "mkdir", "mv", "od", "python3", "readlink", "rm", "sed", "seq",
+         "sha256sum", "sleep", "sort", "stat", "tail", "tee", "timeout", "tr",
+         "truncate", "uname", "wc")
 
 MKKSISO = """\
 #!/bin/sh
@@ -940,9 +940,11 @@ db=${FAKE_LSBLK_DB:-}
     printf 'lsblk: cannot open block database\\n' >&2
     exit 1
 }
-pairs=0; disks=0; fields=""; dev=""
+pairs=0; disks=0; bytes=0; fields=""; dev=""
 while [ $# -gt 0 ]; do
     case "$1" in
+    --pairs) pairs=1 ;;
+    --bytes) bytes=1 ;;
     --*) ;;
     -*)
         rest=${1#-}
@@ -950,6 +952,7 @@ while [ $# -gt 0 ]; do
             c=${rest%"${rest#?}"}
             rest=${rest#?}
             case "$c" in
+            b) bytes=1 ;;
             d) disks=1 ;;
             P) pairs=1 ;;
             o)
@@ -970,8 +973,8 @@ done
     printf 'lsblk: -o 必填\\n' >&2
     exit 1
 }
-awk -F'|' -v pairs="$pairs" -v disks="$disks" -v fields="$fields" \\
-    -v dev="$dev" '
+awk -F'|' -v pairs="$pairs" -v disks="$disks" -v bytes="$bytes" \\
+    -v fields="$fields" -v dev="$dev" -v db="$db" '
 function human(b,   u, i) {
     split("B K M G T", u, " ")
     i = 1
@@ -981,14 +984,28 @@ function human(b,   u, i) {
     }
     return (i == 1 ? sprintf("%d", b) : sprintf("%.1f", b)) u[i]
 }
+# PKNAME 是父盘名。真 lsblk 读的是 sysfs 的父设备链接，沙箱里没有 sysfs，
+# 只能从同一张表按路径前缀还原：取能整除分区路径的最长整盘行。
+function parent(p,   i, best) {
+    best = ""
+    for (i = 1; i <= np; i++) {
+        if (ft[i] != "disk" || index(p, fp[i]) != 1)
+            continue
+        if (length(fp[i]) > length(best))
+            best = fp[i]
+    }
+    sub("^/dev/", "", best)
+    return best
+}
 function val(k) {
-    if (k == "PATH") return $1
+    if (k == "NAME" || k == "PATH") return $1
     if (k == "TYPE") return $2
-    if (k == "SIZE") return human($3)
+    if (k == "SIZE") return bytes ? $3 : human($3)
     if (k == "RM") return $4
     if (k == "TRAN") return $5
     if (k == "SERIAL") return $6
     if (k == "MODEL") return $7
+    if (k == "PKNAME") return parent($1)
     return ""
 }
 function emit(where,   i, s) {
@@ -1004,6 +1021,17 @@ BEGIN {
     for (i = 1; i <= n; i++)
         if (f[i] == "MOUNTPOINT")
             hasmp = 1
+    np = 0
+    while ((getline row < db) > 0) {
+        bar = index(row, "|")
+        if (bar == 0)
+            continue
+        np++
+        fp[np] = substr(row, 1, bar - 1)
+        tail = substr(row, bar + 1)
+        ft[np] = substr(tail, 1, index(tail "|", "|") - 1)
+    }
+    close(db)
 }
 $1 == "" { next }
 dev != "" && $1 != dev { next }
