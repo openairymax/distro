@@ -4,15 +4,17 @@
 # run-lint.sh — distro 仓库静态门禁
 #
 # 职责：
-#   1. bash -n 解析 ci/、lockfile/、scripts/、desktop/、tools/、boot/ 下的
-#      shell 入口，以及 scripts/lib 下被 source 的 *.env（判负证据集等共用
-#      数据）；desktop/xinitrc.d 与 boot/ 额外用 sh -n 校验 POSIX 兼容
-#      （前者被 Xsession 以 /bin/sh source，后者在 chroot 与 initramfs 内
-#      以 /bin/sh 执行）；
+#   1. bash -n 解析 ci/、lockfile/、scripts/、desktop/、tools/、boot/ 与
+#      kickstart/ 下的 shell 入口，以及 scripts/lib 下被 source 的 *.env
+#      （判负证据集等共用数据）；kickstart/ 的共享脚本会被嵌入配方，
+#      语法错误在构建期才暴露，故与入口同级校验；desktop/xinitrc.d 与
+#      boot/ 额外用 sh -n 校验 POSIX 兼容（前者被 Xsession 以 /bin/sh
+#      source，后者在 chroot 与 initramfs 内以 /bin/sh 执行）；
 #   2. 校验 specs/ 下所有 RPM 配方（tools/spec_lint.py，E001~E016）；
 #   3. 校验 comps/ 下包组定义（tools/comps_lint.py，C001~C011），并在
 #      具备 xmllint 时按 comps/comps.dtd 做 DTD 校验；
-#   4. 校验 kickstart/ 下安装配方（tools/ks_lint.py，K001~K018）；
+#   4. 校验 kickstart/ 下安装配方（tools/ks_lint.py，K001~K019），共享
+#      脚本先展开再判定；
 #   5. 校验 presets/ 下 systemd 启用边界（tools/preset_lint.py，P001~P008，含
 #      目录级「唯一 blanket 且字典序最后」约束）；
 #   6. 运行 tools/tests 下的规则回归测试。
@@ -30,8 +32,8 @@ cd "${ROOT}"
 echo "== shell syntax =="
 while IFS= read -r script; do
     bash -n "${script}"
-done < <(find ci lockfile scripts desktop tools boot -type f -name '*.sh' |
-    sort)
+done < <(find ci lockfile scripts desktop tools boot kickstart \
+    -type f -name '*.sh' | sort)
 while IFS= read -r env; do
     bash -n "${env}"
 done < <(find scripts/lib -type f -name '*.env' | sort)

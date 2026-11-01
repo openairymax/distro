@@ -8,10 +8,11 @@
 # 可被 pytest 直接收集。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.3
+# Version: 0.0.4
 # ===========================================================================
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -118,18 +119,7 @@ class KsLintTest(unittest.TestCase):
         self.assertIn("K004", self.codes(text))
 
     def test_storage_dynamic(self):
-        text = VALID.replace(
-            "clearpart --all --initlabel\n"
-            "autopart --type=plain --fstype=ext4\n",
-            "%pre --erroronfail --log=/tmp/disk.log\n"
-            "set -eu\n"
-            "cat >/tmp/disk.ks <<EOF\n"
-            "clearpart --all --initlabel\n"
-            "autopart --type=plain --fstype=ext4\n"
-            "EOF\n"
-            "%end\n"
-            "%include /tmp/disk.ks\n")
-        self.assertEqual(self.codes(text), [])
+        self.assertEqual(self.codes(self.embed_pose()), [])
 
     def test_storage_include_unbound(self):
         text = VALID.replace(
@@ -138,31 +128,50 @@ class KsLintTest(unittest.TestCase):
             "%include /tmp/disk.ks\n")
         self.assertIn("K004", self.codes(text))
 
-    def layout_pose(self, parts):
-        """把 VALID 的内联布局换成 %pre 生成的显式布局。"""
+    def embed_pose(self):
+        """把 VALID 的内联布局换成共享选盘器生成的显式布局。
+
+        真实配方只写一行嵌入标记，布局在展开后才可见；夹具与真实配方同形，
+        否则校验路径覆盖的就不是产品配方实际经过的那条。
+        """
         return VALID.replace(
             "clearpart --all --initlabel\n"
             "autopart --type=plain --fstype=ext4\n",
             "%pre --erroronfail --log=/tmp/disk.log\n"
             "set -eu\n"
-            "cat >/tmp/disk.ks <<EOF\n"
-            f"{parts}"
-            "EOF\n"
+            "# %airy-embed: disk-select.sh\n"
+            "airy_pre /tmp/disk.ks /tmp/disk.json\n"
             "%end\n"
             "%include /tmp/disk.ks\n")
 
     def test_biosboot_present(self):
-        text = self.layout_pose(
-            "clearpart --all --initlabel --disklabel=gpt --drives=sda\n"
-            "part biosboot --fstype=biosboot --size=1 --ondisk=sda\n"
-            "part /boot/efi --fstype=efi --size=600 --ondisk=sda\n")
-        self.assertEqual(self.codes(text), [])
+        self.assertEqual(self.codes(self.embed_pose()), [])
 
     def test_biosboot_missing(self):
-        text = self.layout_pose(
-            "clearpart --all --initlabel --disklabel=gpt --drives=sda\n"
-            "part /boot/efi --fstype=efi --size=600 --ondisk=sda\n")
-        self.assertIn("K018", self.codes(text))
+        src = ks_lint.SHARED_DIR / "disk-select.sh"
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / "disk-select.sh").write_text(
+                src.read_text(encoding="utf-8").replace("biosboot", "filler"),
+                encoding="utf-8")
+            codes = [item.code for item in
+                     ks_lint.lint_text(self.embed_pose(), base)]
+        self.assertIn("K018", codes)
+
+    def test_embed_marker_outside(self):
+        text = VALID.replace(
+            "bootloader", "# %airy-embed: disk-select.sh\nbootloader")
+        self.assertIn("K019", self.codes(text))
+
+    def test_embed_unknown_script(self):
+        self.assertIn("K019",
+                      self.codes(self.embed_pose().replace(
+                          "disk-select.sh", "bogus.sh")))
+
+    def test_embed_unmarked_fragment(self):
+        text = self.embed_pose().replace(
+            "# %airy-embed: disk-select.sh\n", "")
+        self.assertIn("K019", self.codes(text))
 
     def test_rootpw_plain(self):
         text = VALID.replace(ROOT, "rootpw secret")

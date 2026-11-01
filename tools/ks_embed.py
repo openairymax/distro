@@ -131,10 +131,13 @@ def main(argv: list[str]) -> int:
         prog="ks_embed.py", description="展开 kickstart 中的共享脚本")
     ap.add_argument("src", type=Path)
     ap.add_argument("dst", type=Path)
+    ap.add_argument("--include-dir", type=Path, default=None,
+                    help="共享脚本目录，缺省取 src 所在目录")
     args = ap.parse_args(argv)
+    base = args.include_dir if args.include_dir else args.src.parent
     try:
         text = args.src.read_text(encoding="utf-8")
-        out = expand(text, args.src.parent)
+        out = expand(text, base)
         args.dst.parent.mkdir(parents=True, exist_ok=True)
         args.dst.write_text(out, encoding="utf-8")
     except EmbedError as err:

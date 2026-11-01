@@ -8,7 +8,8 @@
 # 构建产物必须落在源码区之外（0.0.3 任务方案 §3.1）。
 #
 # 产物契约（190-distribution/03-installer-design.md §7.1）：
-#   - /ks.cfg 与输入 kickstart 逐字节一致；
+#   - /ks.cfg 与输入 kickstart 的展开产物逐字节一致（共享脚本在暂存
+#     阶段由 tools/ks_embed.py 嵌入，源码配方本身不含脚本正文）；
 #   - BIOS/UEFI 引导配置含 inst.ks= 且引用最终卷标；
 #   - 在主卷描述符应用数据区写入 ISO 校验和（implantisomd5）并以
 #     checkisomd5 复核，支持 dracut 的 rd.live.check；
@@ -221,14 +222,19 @@ prep()
     export TZ=UTC LANG=C.UTF-8 LC_ALL=C.UTF-8
     # mkksiso 以 basename 把 kickstart 映射进 ISO 根，产物契约要求固定为
     # /ks.cfg，故先按契约名暂存，再由 inst.ks=hd:LABEL=…:/ks.cfg 引用。
-    cp -f "$KS" "${WORK}/ks.cfg" ||
-        die "${E_IO}" "无法暂存 kickstart: ${WORK}/ks.cfg"
+    # 共享脚本在此嵌入：验收配方由 gen_accept_ks 生成到构建目录，与
+    # kickstart/ 不同级，故显式给出共享脚本目录，不按配方所在目录推断。
+    python3 "${DISTRO_ROOT}/tools/ks_embed.py" \
+        --include-dir "${DISTRO_ROOT}/kickstart" \
+        "$KS" "${WORK}/ks.cfg" ||
+        die "${E_INVAL}" "无法展开 kickstart: ${KS}"
 }
 
 lint_ks()
 {
     local log="${WORK}/logs/ks-lint.log"
-    if ! python3 "${DISTRO_ROOT}/tools/ks_lint.py" "$KS" >"$log" 2>&1; then
+    if ! python3 "${DISTRO_ROOT}/tools/ks_lint.py" \
+        --include-dir "${DISTRO_ROOT}/kickstart" "$KS" >"$log" 2>&1; then
         sed 's/^/  /' "$log" >&2
         die "${E_INVAL}" "kickstart 未通过静态校验: ${KS}"
     fi
@@ -260,7 +266,7 @@ post_iso()
     if [ "$MD5" -ne 1 ]; then
         flag="--no-md5"
     fi
-    if ! iso_post "$DEST" "$KS" "$VOLID" "$WORK" \
+    if ! iso_post "$DEST" "${WORK}/ks.cfg" "$VOLID" "$WORK" \
         --product "$PRODUCT" "$flag"; then
         die "${E_IO}" "ISO 后处理失败（日志 ${WORK}/logs）"
     fi
@@ -291,7 +297,8 @@ write_manifest()
 {
     local base_sum ks_sum
     base_sum="$(sum_of "$ISO")" || die "${E_IO}" "sha256sum 失败: ${ISO}"
-    ks_sum="$(sum_of "$KS")" || die "${E_IO}" "sha256sum 失败: ${KS}"
+    ks_sum="$(sum_of "${WORK}/ks.cfg")" ||
+        die "${E_IO}" "sha256sum 失败: ${WORK}/ks.cfg"
     {
         printf '# AirymaxOS ISO build manifest\n'
         printf 'name=%s\n' "$NAME"
@@ -301,7 +308,7 @@ write_manifest()
         printf 'product=%s\n' "$PRODUCT"
         printf 'source_date_epoch=%s\n' "$SOURCE_DATE_EPOCH"
         printf 'iso %s %s\n' "$1" "$NAME"
-        printf 'ks %s %s\n' "$ks_sum" "$(basename "$KS")"
+        printf 'ks %s %s\n' "$ks_sum" "ks.cfg"
         printf 'base %s %s\n' "$base_sum" "$(basename "$ISO")"
     } >"${OUT_ABS}/iso-manifest.txt"
 }
