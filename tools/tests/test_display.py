@@ -199,32 +199,43 @@ class DisplayModeTest(unittest.TestCase):
 
     def test_width_over_cap_uses_ladder(self):
         rows = self.plan(topo(
-            screen(2560, 1600),
-            "DP-2 connected 2560x1600+0+0 (normal) 0mm x 0mm",
-            "   2560x1600     59.97*+",
+            screen(3840, 2160),
+            "DP-2 connected 3840x2160+0+0 (normal) 0mm x 0mm",
+            "   3840x2160     59.97*+",
             "   1920x1080     60.00",
             "   1600x900      60.00"))
-        self.assertEqual(rows, [["DP-2", "2560x1600", "1920x1080"]])
+        self.assertEqual(rows, [["DP-2", "3840x2160", "1920x1080"]])
 
     def test_16x10_ladder_honored(self):
-        # 2560x1600 面板广播 1920x1200 与 1680x1050，两档都是 16:10 常用分辨率。
+        # 超上限的 16:10 面板广播 1920x1200 与 1680x1050，两档都是常用分辨率。
         # 阶梯只列 16:9 时无候选，会回退到超过上限的首选模式，上限形同虚设。
         rows = self.plan(topo(
-            screen(2560, 1600),
-            "DP-2 connected 2560x1600+0+0 (normal) 0mm x 0mm",
-            "   2560x1600     59.97*+",
+            screen(3200, 2000),
+            "DP-2 connected 3200x2000+0+0 (normal) 0mm x 0mm",
+            "   3200x2000     59.97*+",
             "   1920x1200     60.00",
             "   1680x1050     60.00"))
-        self.assertEqual(rows, [["DP-2", "2560x1600", "1920x1200"]])
+        self.assertEqual(rows, [["DP-2", "3200x2000", "1920x1200"]])
 
     def test_4x3_ladder_honored(self):
         rows = self.plan(topo(
-            screen(2048, 1536),
-            "VGA-1 connected 2048x1536+0+0 (normal) 0mm x 0mm",
-            "   2048x1536     75.00*+",
+            screen(3200, 2400),
+            "VGA-1 connected 3200x2400+0+0 (normal) 0mm x 0mm",
+            "   3200x2400     75.00*+",
             "   1600x1200     75.00",
             "   1024x768      75.00"))
-        self.assertEqual(rows, [["VGA-1", "2048x1536", "1600x1200"]])
+        self.assertEqual(rows, [["VGA-1", "3200x2400", "1600x1200"]])
+
+    def test_285h_native_kept(self):
+        # 285H 面板原生 2880x1800。0.0.3 的上限是 1920x1200，策略会把它压到
+        # 1920x1080，用户在验收时看到的就是「分辨率不对」。上限抬到原生值后
+        # 首选模式必须原样保留。
+        rows = self.plan(topo(
+            screen(2880, 1800),
+            "eDP-1 connected primary 2880x1800+0+0 (normal) 301mm x 188mm",
+            "   2880x1800     60.00*+",
+            "   1920x1080     60.00"))
+        self.assertEqual(rows, [["eDP-1", "2880x1800", "2880x1800"]])
 
     def test_non_ladder_mode_keeps_preferred(self):
         rows = self.plan(topo(

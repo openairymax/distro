@@ -402,8 +402,10 @@ class DesktopAssetTest(unittest.TestCase):
         out = run(["sh", str(self.asset("desktop/01_airymax_display"))])
         self.assertEqual(out.returncode, 0)
         lines = out.stdout.splitlines()
-        for want in ("  set gfxmode=1920x1080,1680x1050,1600x900,"
+        for want in ("  set gfxmode=2880x1800,2560x1600,2240x1400,"
+                     "1920x1200,1920x1080,1680x1050,1600x900,"
                      "1280x1024,1024x768,auto",
+                     "  set gfxpayload=keep",
                      "  insmod gfxterm",
                      "  terminal_output gfxterm"):
             self.assertIn(want, lines)

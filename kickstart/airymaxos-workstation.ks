@@ -539,9 +539,18 @@ grub_dir=${grub_cfg%/*}
 # 分辨率只做引导期一次选择：1.x 无 KMS，运行期改不了模式，因此把候选
 # 列表写在 /etc/default/grub，以 auto 兜底不认识的固件。候选不写位深：
 # 部分 GOP 实现拒绝全部带位深的候选后退回 auto，反而更低。
+# 高分档前置（2880x1800 / 2560x1600 / 2240x1400）：GOP 取第一个固件支持
+# 的模式，0.0.3 从 1920x1080 起选，285H 面板原生 2880x1800 从未被使用，
+# 桌面因此停在 1920x1080。新候选串与 01_airymax_display 逐字一致。
 sed -i '/^GRUB_GFXMODE=/d' /etc/default/grub
-printf 'GRUB_GFXMODE=1920x1080,1680x1050,1600x900,1280x1024,1024x768,auto\n' \
+printf 'GRUB_GFXMODE=2880x1800,2560x1600,2240x1400,1920x1200,1920x1080,1680x1050,1600x900,1280x1024,1024x768,auto\n' \
     >>/etc/default/grub
+
+# 内核必须沿用 grub 已设好的 GOP 模式（gfxpayload）。缺这一项时 10_linux
+# 按默认值切回低分辨率，simpledrm/efifb 拿到的 fb0 就不是上面选中的模式，
+# X 侧 xrandr 只有唯一模式可报，display_mode.sh 的阶梯全部落空。
+sed -i '/^GRUB_GFXPAYLOAD_LINUX=/d' /etc/default/grub
+printf 'GRUB_GFXPAYLOAD_LINUX=keep\n' >>/etc/default/grub
 
 # 输出终端必须含 gfxterm，否则 00_header 不生成 gfxmode 段落，上面的字体
 # 与 GFXMODE 都无从生效（D-28）。openEuler 的 grub2-mkconfig 在 212-217
@@ -570,8 +579,10 @@ grub2-mkconfig -o "${grub_cfg}" >/dev/null 2>&1 ||
     mark "AIRYMAX-INSTALL-NOTE grub2-mkconfig rc=$?"
 # 断言我们那段确实进了 cfg，而不是「cfg 里存在某条 gfxmode」：后者可能
 # 只是 00_header 的条件分支，缺字体时整段消失，旧断言于是假绿。
-grep -qxF '  set gfxmode=1920x1080,1680x1050,1600x900,1280x1024,1024x768,auto' \
+grep -qxF '  set gfxmode=2880x1800,2560x1600,2240x1400,1920x1200,1920x1080,1680x1050,1600x900,1280x1024,1024x768,auto' \
     "${grub_cfg}" || fail grub-gfxmode
+# gfxpayload 与 gfxmode 必须成对生效：只有前者正确时 fb0 才是所选模式。
+grep -qxF '  set gfxpayload=keep' "${grub_cfg}" || fail grub-gfxpayload
 grep -qF '  terminal_output gfxterm' "${grub_cfg}" || fail grub-gfxterm
 
 # 9) 主机名：只认 /etc/hostname 的落盘值。安装器的 network --hostname 会
