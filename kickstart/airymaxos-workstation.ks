@@ -467,6 +467,47 @@ id -nG Airymax | tr ' ' '\n' | grep -qxF nopasswdlogin ||
 saver=/etc/dconf/db/local.d/00-airymax-screensaver
 [ -f "${saver}" ] || fail screensaver-policy-missing
 grep -qxF 'lock-enabled=false' "${saver}" || fail screensaver-lock-off
+#    策略文件在盘上不等于策略生效：系统库只有被 /etc/dconf/profile/user 的
+#    system-db:local 引用、并由 dconf update 编译进 /etc/dconf/db/local 才
+#    会进入每个会话。0.0.3 只交付了 local.d 源文件，profile 与编译产物都
+#    靠基底包偶然提供，285H 上锁屏照常弹出。三个条件在这里一并收口。
+#    这两处不能由自有包交付：/etc/dconf/profile/user 与 /etc/pam.d/* 均为
+#    基底包所有，双属主会让 RPM 安装事务整体失败（plymouthd.conf 已踩过）。
+profile=/etc/dconf/profile/user
+mkdir -p /etc/dconf/profile
+if [ ! -f "${profile}" ]; then
+    printf 'user-db:user\nsystem-db:local\n' >"${profile}" ||
+        fail screensaver-profile-write
+elif ! grep -qxF 'system-db:local' "${profile}"; then
+    printf 'system-db:local\n' >>"${profile}" || fail screensaver-profile-write
+fi
+grep -qxF 'system-db:local' "${profile}" || fail screensaver-profile-value
+dconf update >/dev/null 2>&1 || fail screensaver-dconf-update
+grep -qa 'lock-enabled' /etc/dconf/db/local || fail screensaver-db-compiled
+
+#    锁屏解锁失败的第二条根因：ukui-screensaver-checkpass 为 0755 root:root
+#    时，PAM 的 account 阶段读不了 /etc/shadow，日志为
+#    pam_unix(ukui-screensaver-qt:account): setuid failed: Operation not
+#    permitted。补 setuid 位；同一 PAM 栈首行的 nopasswdlogin 直通（与
+#    greeter 同口径）在文件缺这一行时补上，两处都做才不依赖单一前提。
+checkpass=$(command -v ukui-screensaver-checkpass 2>/dev/null || true)
+[ -n "${checkpass}" ] ||
+    checkpass=/usr/lib/ukui-screensaver/ukui-screensaver-checkpass
+if [ -x "${checkpass}" ]; then
+    chmod 4755 "${checkpass}" || fail screensaver-checkpass-mode
+    [ "$(stat -c %a "${checkpass}")" = 4755 ] ||
+        fail screensaver-checkpass-mode
+fi
+for pam in /etc/pam.d/ukui-screensaver /etc/pam.d/ukui-screensaver-qt; do
+    [ -f "${pam}" ] || continue
+    grep -q 'pam_succeed_if.so user ingroup nopasswdlogin' "${pam}" && continue
+    printf 'auth\tsufficient\tpam_succeed_if.so user ingroup nopasswdlogin\n' \
+        >"${pam}.airy-new"
+    cat "${pam}" >>"${pam}.airy-new" && mv "${pam}.airy-new" "${pam}" ||
+        fail screensaver-pam-write
+    grep -q 'pam_succeed_if.so user ingroup nopasswdlogin' "${pam}" ||
+        fail screensaver-pam-value
+done
 #    启动日志默认只活在本次启动：openEuler 不预建 /var/log/journal，而
 #    Storage=auto 在目录缺失时退化为 volatile，重启后「上一次启动到底做到
 #    哪一步」再无证据可查。断言生效行而非文件存在，取值写错同样要拦下。
