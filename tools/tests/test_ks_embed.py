@@ -1,0 +1,124 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# ===========================================================================
+# test_ks_embed.py — 共享安装脚本展开与标记审计的回归测试
+#
+# 展开产物要能直接交给 anaconda，审计要能拦住「%pre 生成存储片段却手抄
+# 第二份选盘规则」的回退形态（D-33 的成因）。两条路径共用同一份段解析，
+# 用例逐一破坏前提：标记位置、共享脚本本身，以及生成 include 的 %pre。
+#
+# Author: Liren Wang <wangliren@spharx.cn>
+# Version: 0.0.4
+# ===========================================================================
+
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import ks_embed
+
+TOOL = Path(ks_embed.__file__)
+SHARED = "#!/usr/bin/env bash\necho airy\n"
+MARK = "# %airy-embed: disk-select.sh\n"
+PRE = """\
+%pre --erroronfail --log=/tmp/pre.log
+set -eu
+# %airy-embed: disk-select.sh
+airy_pre /tmp/disk.ks /tmp/disk.json
+%end
+%include /tmp/disk.ks
+reboot
+"""
+
+
+class EmbedTest(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.base = Path(self._tmp.name)
+        self.write("disk-select.sh", SHARED)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def write(self, name, text):
+        (self.base / name).write_text(text, encoding="utf-8")
+
+    def test_expand_inserts_body(self):
+        out = ks_embed.expand(PRE, self.base)
+        self.assertIn(SHARED, out)
+        self.assertNotIn(ks_embed.MARK, out)
+        self.assertIn("%include /tmp/disk.ks\nreboot\n", out)
+
+    def test_expand_keeps_rest(self):
+        out = ks_embed.expand(PRE, self.base)
+        self.assertEqual(out, PRE.replace(MARK, SHARED))
+
+    def test_expand_adds_newline(self):
+        self.write("disk-select.sh", "echo airy")
+        out = ks_embed.expand(PRE, self.base)
+        self.assertIn("echo airy\nairy_pre", out)
+
+    def test_marker_outside_section(self):
+        with self.assertRaises(ks_embed.EmbedError) as ctx:
+            ks_embed.expand(MARK + PRE, self.base)
+        self.assertEqual(ctx.exception.line, 1)
+
+    def test_unknown_script(self):
+        text = PRE.replace("disk-select.sh", "bogus.sh")
+        with self.assertRaises(ks_embed.EmbedError):
+            ks_embed.expand(text, self.base)
+
+    def test_missing_script(self):
+        (self.base / "disk-select.sh").unlink()
+        with self.assertRaises(ks_embed.EmbedError):
+            ks_embed.expand(PRE, self.base)
+
+    def test_nested_marker(self):
+        self.write("disk-select.sh", MARK + SHARED)
+        with self.assertRaises(ks_embed.EmbedError):
+            ks_embed.expand(PRE, self.base)
+
+    def test_audit_clean(self):
+        self.assertEqual(ks_embed.audit(PRE), [])
+
+    def test_audit_marker_outside(self):
+        self.assertEqual(ks_embed.audit(MARK + PRE),
+                         [(1, "嵌入标记不在脚本段内")])
+
+    def test_audit_unmarked_include(self):
+        text = PRE.replace(MARK, "set -eu\n")
+        issues = ks_embed.audit(text)
+        self.assertEqual([line for line, _ in issues], [1])
+        self.assertIn("未嵌入选盘器", issues[0][1])
+
+    def test_audit_include_not_generated(self):
+        text = PRE.replace(MARK, "set -eu\n").replace(
+            "%include /tmp/disk.ks\n", "")
+        self.assertEqual(ks_embed.audit(text), [])
+
+    def test_cli_ok(self):
+        src = self.base / "in.ks"
+        dst = self.base / "out" / "ks.cfg"
+        src.write_text(PRE, encoding="utf-8")
+        res = subprocess.run([sys.executable, str(TOOL), str(src), str(dst)],
+                             capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn(SHARED, dst.read_text(encoding="utf-8"))
+
+    def test_cli_reject(self):
+        src = self.base / "in.ks"
+        dst = self.base / "out" / "ks.cfg"
+        src.write_text(MARK + PRE, encoding="utf-8")
+        res = subprocess.run([sys.executable, str(TOOL), str(src), str(dst)],
+                             capture_output=True, text=True)
+        self.assertEqual(res.returncode, 5)
+        self.assertIn("ks_embed:", res.stderr)
+        self.assertFalse(dst.exists())
+
+
+if __name__ == "__main__":
+    sys.exit(unittest.main())
