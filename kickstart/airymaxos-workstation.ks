@@ -59,99 +59,14 @@ bootloader --timeout=3 --append="console=tty0 console=ttyS0,115200 console=ttyAM
 # 纳入自动布局。B50（2026-10-30）因此把 ESP 与 /boot 放到可插拔 U 盘、把
 # 根与 /home 放到 NVMe：拔盘即不可引导，且 --all 清空了全部接入磁盘。
 #
-# anaconda 的 preScriptPass 先独立跑一遍 %pre 再解析其余指令，正是为了
-# 「脚本生成被 include 的片段」；这是安装器唯一支持的动态选择方式。片段
-# 把作用域收敛到一块内置盘，%post 与磁盘布局的语义不变。
-#
-# 选择规则：TYPE=disk、RM=0、TRAN≠usb、且不是安装介质自身所在盘，取容量
-# 最大者。排除安装介质是硬要求：BMC 虚拟光驱与内置盘上的 ISO 都表现为
-# RM=0，不排除就会把安装源自己格式化掉。
+# 选盘、布局与选盘记录只有一份实现（kickstart/disk-select.sh），构建期由
+# tools/ks_embed.py 展开进下面的脚本段，本文件不再手抄规则。anaconda 的
+# preScriptPass 先独立跑一遍 %pre 再解析其余指令，正是为了「脚本生成被
+# include 的片段」；片段把作用域收敛到一块内置盘，%post 与布局语义不变。
 %pre --erroronfail --log=/tmp/airymax-disk.log
 set -eu
-mark()
-{
-    local dev
-    printf '%s\n' "$*"
-    for dev in /dev/console /dev/ttyS0 /dev/ttyAMA0; do
-        [ -w "${dev}" ] || continue
-        printf '%s\n' "$*" >"${dev}" 2>/dev/null && return 0
-    done
-    return 0
-}
-
-medium=
-src=$(findmnt -no SOURCE /run/install/repo 2>/dev/null) || src=
-case "${src}" in
-/dev/*) medium=$(lsblk -dno PKNAME "${src}" 2>/dev/null) || medium= ;;
-esac
-
-best= best_size=0
-while read -r name type rm tran size; do
-    [ "${type}" = disk ] || continue
-    [ "${rm}" = 0 ] || continue
-    [ "${tran}" != usb ] || continue
-    [ "${name#/dev/}" != "${medium}" ] || continue
-    [ "${size:-0}" -gt "${best_size}" ] || continue
-    best=${name}
-    best_size=${size}
-done <<EOF
-$(lsblk -dnpo NAME,TYPE,RM,TRAN,SIZE --bytes 2>/dev/null)
-EOF
-
-[ -n "${best}" ] || {
-    mark "AIRYMAX-DISK-FAIL reason=no-internal-disk"
-    exit 1
-}
-disk=${best#/dev/}
-
-# 布局逐项 --ondisk 钉住，不用 autopart。autopart 的引导设备选取会跨盘
-# 寻找既有 ESP、/boot 与 swap：B50 实测（2026-10-30，/var/log/anaconda/
-# storage.log 与目标机 fstab）在 nvme0n1 上建了 / 与 /home，却把 /boot、
-# ESP 与 swap 建在另一块 U 盘上，拔掉 U 盘即无法启动；ignoredisk
-# --only-use 不约束这条路径。显式分区与盘位一一对应，也便于版本间对齐。
-if [ "${best_size}" -lt 34359738368 ]; then
-    mark "AIRYMAX-DISK-FAIL reason=too-small bytes=${best_size}"
-    exit 1
-fi
-swap_mb=8192 root_mb=1 split=
-if [ "${best_size}" -ge 171798691840 ]; then
-    swap_mb=16384 root_mb=71680 split=1
-fi
-
-# 磁盘标签固定为 GPT，两条固件腿用同一份布局。initlabel 的默认标签随
-# 固件与磁盘容量变化，布局一旦随环境漂移，两条腿就不再是同一种装机。
-#
-# BIOS + GPT 必须自带 1MB biosboot（类型 ef02）：GPT 没有 MBR 之后那段
-# 空隙可放 grub2-pc 的 core.img，core.img 只能落进该分区。缺它时 anaconda
-# 判存储配置无效，退回交互式文本主菜单（「您的计算机是基于 BIOS 的计算机，
-# 因此系统需要一个特殊分区以便从 GPT 磁盘标签引导」），无头安装没有 stdin，
-# 只能空耗整轮超时（run 41144010592 的 run-bios-1 撞满 3600 秒）。同一份
-# 介质在 UEFI 腿因为 ESP 满足引导条件而通过，缺陷只在 BIOS 腿暴露。
-#
-# 只在无 EFI 固件时生成：UEFI 从 ESP 引导，多一个 biosboot 是无用分区。
-biosboot=
-[ -d /sys/firmware/efi ] || biosboot=1
-{
-    printf 'ignoredisk --only-use=%s\n' "${disk}"
-    printf 'clearpart --all --initlabel --disklabel=gpt --drives=%s\n' \
-        "${disk}"
-    if [ -n "${biosboot}" ]; then
-        printf 'part biosboot --fstype=biosboot --size=1 --ondisk=%s\n' \
-            "${disk}"
-    fi
-    printf 'part /boot/efi --fstype=efi --size=600 --ondisk=%s\n' "${disk}"
-    printf 'part /boot --fstype=ext4 --size=1024 --ondisk=%s\n' "${disk}"
-    printf 'part swap --size=%s --ondisk=%s\n' "${swap_mb}" "${disk}"
-    if [ -n "${split}" ]; then
-        printf 'part / --fstype=ext4 --size=%s --ondisk=%s\n' \
-            "${root_mb}" "${disk}"
-        printf 'part /home --fstype=ext4 --size=1024 --grow --ondisk=%s\n' \
-            "${disk}"
-    else
-        printf 'part / --fstype=ext4 --size=1 --grow --ondisk=%s\n' "${disk}"
-    fi
-} >/tmp/airymax-disk.ks
-mark "AIRYMAX-DISK-OK disk=${disk} bytes=${best_size}"
+# %airy-embed: disk-select.sh
+airy_pre /tmp/airymax-disk.ks /tmp/airymax-disk.json
 %end
 %include /tmp/airymax-disk.ks
 
@@ -240,6 +155,7 @@ plymouth
 # 失败」分码，BIOS 装机因此不会被误伤。
 %post --nochroot --erroronfail --log=/mnt/sysroot/root/airymax-efi.log
 set -eu
+# %airy-embed: disk-select.sh
 # 目标根的挂载点是安装器的实现细节（anaconda 各版本在 /mnt/sysroot 与
 # /mnt/sysimage 之间变化），按可执行文件实际位置判定，不猜环境变量。
 root=
@@ -249,23 +165,16 @@ for c in "${ANA_INSTALL_PATH-}" "${INSTALL_ROOT-}" /mnt/sysroot /mnt/sysimage; d
     break
 done
 
-mark()
-{
-    local dev
-    printf '%s\n' "$*"
-    for dev in /dev/console /dev/ttyS0 /dev/ttyAMA0; do
-        [ -w "${dev}" ] || continue
-        if printf '%s\n' "$*" >"${dev}" 2>/dev/null; then
-            break
-        fi
-    done
-    return 0
-}
-
 [ -n "${root}" ] || {
-    mark "AIRYMAX-EFI-FAIL no-install-root"
+    airy_mark "AIRYMAX-EFI-FAIL no-install-root"
     exit 1
 }
+
+# 选盘记录要随系统留下：本段的 /tmp 属于安装器，装完即消失。记录由共享
+# 选盘器写，这里只把它复制进目标根；装机后 airy-disk status 以它为比对
+# 基准，缺记录即无从判断安装器当时选了哪块盘。
+export ANA_INSTALL_PATH="${root}"
+airy_keep || exit 1
 # 固件只决定 ESP 品牌化，不决定启动参数：参数落在 /etc/default/grub，两条
 # 腿写法相同。把整段按固件提前退出，非 EFI 装机就永远拿不到 rhgb quiet 与
 # 关闭的 os-prober，装完第一次 grub2-mkconfig 即退回逐行滚日志——BIOS 腿
@@ -274,7 +183,7 @@ uefi=0
 if [ -d /sys/firmware/efi ]; then
     uefi=1
 else
-    mark "AIRYMAX-EFI-SKIP non-EFI install"
+    airy_mark "AIRYMAX-EFI-SKIP non-EFI install"
 fi
 
 # 段内挂载的目录在退出时全部还回去；rbind 把宿主的 /dev /proc /sys 视图
@@ -312,7 +221,7 @@ for d in /dev /proc /sys; do
 done
 
 [ "${uefi}" -eq 0 ] || mountpoint -q "${esp}" || {
-    mark "AIRYMAX-EFI-FAIL esp=${esp}"
+    airy_mark "AIRYMAX-EFI-FAIL esp=${esp}"
     exit 1
 }
 
@@ -330,25 +239,25 @@ step()
 
     log="${root}${logdir}/${name}.log"
     if [ ! -x "${root}${script}" ]; then
-        mark "AIRYMAX-${tag}-FAIL missing ${script}"
+        airy_mark "AIRYMAX-${tag}-FAIL missing ${script}"
         exit 1
     fi
     chroot "${root}" "${script}" --esp /boot/efi \
         --state "/var/lib/airymaxos/${name}" >"${log}" 2>&1 || rc=$?
     while IFS= read -r line; do
-        mark "${line}"
+        airy_mark "${line}"
     done <"${log}"
     if [ "${rc}" -ne 0 ]; then
-        mark "AIRYMAX-${tag}-FAIL rc=${rc} log=${logdir}/${name}.log"
+        airy_mark "AIRYMAX-${tag}-FAIL rc=${rc} log=${logdir}/${name}.log"
         exit 1
     fi
     # 退出码 0 不足以证明落地：脚本在「已经是目标状态」时也返回 0，状态
     # 文件是唯一事实，缺它即视为未完成。
     [ -s "${root}/var/lib/airymaxos/${name}" ] || {
-        mark "AIRYMAX-${tag}-FAIL state-absent log=${logdir}/${name}.log"
+        airy_mark "AIRYMAX-${tag}-FAIL state-absent log=${logdir}/${name}.log"
         exit 1
     }
-    mark "AIRYMAX-${tag}-OK"
+    airy_mark "AIRYMAX-${tag}-OK"
 }
 
 step /usr/lib/airymaxos/boot/grub_args.sh grub-args GRUB

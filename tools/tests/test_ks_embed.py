@@ -109,6 +109,17 @@ class EmbedTest(unittest.TestCase):
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertIn(SHARED, dst.read_text(encoding="utf-8"))
 
+    def test_cli_include_dir(self):
+        src = self.base / "src" / "in.ks"
+        dst = self.base / "out" / "ks.cfg"
+        src.parent.mkdir()
+        src.write_text(PRE, encoding="utf-8")
+        res = subprocess.run(
+            [sys.executable, str(TOOL), "--include-dir", str(self.base),
+             str(src), str(dst)], capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn(SHARED, dst.read_text(encoding="utf-8"))
+
     def test_cli_reject(self):
         src = self.base / "in.ks"
         dst = self.base / "out" / "ks.cfg"

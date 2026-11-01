@@ -7,18 +7,25 @@
 # 存储布局、账户口令（K005/K006：必须 --iscrypted $6$，禁止 --lock 与
 # 明文）、脚本段闭合与失败即停、收尾状态、单例命令、安装界面互斥、
 # 桌面仓库闭包完整性、离线仓库落点、内核包身份、上游身份包排除与命令行
-# 参数语法。包组引用（@组 / @^环境）由 comps_lint 交叉校验，此处不重复
-# 实现。规则编号 K001~K018 与 tools/tests/test_ks_lint.py 一一对应。
+# 参数语法、嵌入标记。包组引用（@组 / @^环境）由 comps_lint 交叉校验，
+# 此处不重复实现。规则编号 K001~K019 与 tools/tests/test_ks_lint.py
+# 一一对应。
 #
 # 配方有两种姿态，判据不同：
 #   构建期 — 安装源为上游 https，桌面环境要求四仓库齐全（K013）；
 #   安装期 — 安装源为 file:// 载荷，只允许载荷仓库，多一个仓库即 K015。
 # 姿态由安装源协议判定，同一份规则同时约束手写配方与投影产物。
 #
+# 共享脚本（kickstart/disk-select.sh）在构建期才展开，源码里的 %pre 正文
+# 只有一行嵌入标记。校验因此在展开之后的文本上做：布局、biosboot 与
+# 动态存储的判据都在展开产物里，只看原文会全部漏判。标记本身的问题
+# （段外标记、未嵌入却生成片段）由 ks_embed.audit 报 K019，与构建共用
+# 同一份段解析。
+#
 # 退出码：0 通过；1 存在问题；2 用法或读取错误。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.3
+# Version: 0.0.4
 # ===========================================================================
 
 from __future__ import annotations
@@ -28,6 +35,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ks_embed import EmbedError, audit, expand
 from lint_common import Issue, dump, report
 
 SOURCES = frozenset({"cdrom", "harddrive", "nfs", "url", "hmc", "liveimg",
@@ -42,6 +50,9 @@ SECTIONS = SCRIPTS | {"packages", "anaconda", "addon"}
 REQUIRED = ("lang", "keyboard", "timezone", "bootloader")
 SCHEME = ("https://", "file://")
 SHA512 = "$6$"
+
+# 共享脚本目录：源码配方与验收配方（位于构建目录）都用它解析嵌入标记。
+SHARED_DIR = Path(__file__).resolve().parents[1] / "kickstart"
 
 # 桌面环境的安装闭包分布在四个上游仓库：ukui/lightdm/ukui-greeter 在
 # EPOL，qt5-qtgraphicaleffects 等只在 everything；缺任一仓库时 Anaconda
@@ -465,8 +476,22 @@ def check_args(cmds: list[Cmd], issues: list[Issue]) -> None:
             arg_issue(cmd, tok, issues)
 
 
-def lint_text(text: str) -> list[Issue]:
-    cmds, sects, issues = parse(text.splitlines())
+def check_embed(text: str, base: Path, issues: list[Issue]) -> str:
+    """报 K019 并返回展开后的配方；展开失败时保留原文继续静态检查。"""
+    for line, msg in audit(text):
+        issues.append(Issue("K019", line, msg))
+    try:
+        return expand(text, base)
+    except EmbedError as err:
+        issues.append(Issue("K019", err.line, str(err)))
+        return text
+
+
+def lint_text(text: str, base: Path | None = None) -> list[Issue]:
+    issues: list[Issue] = []
+    text = check_embed(text, base or SHARED_DIR, issues)
+    cmds, sects, found = parse(text.splitlines())
+    issues.extend(found)
     check_src(cmds, issues)
     check_required(cmds, sects, issues)
     check_storage(cmds, sects, issues)
@@ -485,22 +510,37 @@ def lint_text(text: str) -> list[Issue]:
     return sorted(issues, key=lambda item: (item.line, item.code))
 
 
-def lint_ks(path: Path) -> list[Issue]:
-    return lint_text(path.read_text(encoding="utf-8"))
+def lint_ks(path: Path, base: Path | None = None) -> list[Issue]:
+    return lint_text(path.read_text(encoding="utf-8"), base or path.parent)
+
+
+def parse_argv(argv: list[str]) -> tuple[Path, list[Path]]:
+    base = SHARED_DIR
+    targets: list[Path] = []
+    rest = list(argv)
+    while rest:
+        arg = rest.pop(0)
+        if arg == "--include-dir" and rest:
+            base = Path(rest.pop(0))
+        elif arg.startswith("--include-dir="):
+            base = Path(arg.split("=", 1)[1])
+        else:
+            targets.append(Path(arg))
+    return base, targets
 
 
 def main(argv: list[str]) -> int:
-    base = Path(__file__).resolve().parent.parent
-    targets = [Path(arg) for arg in argv[1:]]
+    root = Path(__file__).resolve().parent.parent
+    base, targets = parse_argv(argv[1:])
     if not targets:
-        targets = sorted((base / "kickstart").glob("*.ks"))
+        targets = sorted((root / "kickstart").glob("*.ks"))
     if not targets:
         print("ks_lint: no kickstart file found", file=sys.stderr)
         return 2
     total = 0
     for path in targets:
         try:
-            issues = lint_ks(path)
+            issues = lint_ks(path, base)
         except OSError as err:
             print(f"ks_lint: {err}", file=sys.stderr)
             return 2
