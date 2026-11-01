@@ -13,6 +13,10 @@
 # 分区定容、数据分区增长。两条路径产出的指令形状相同，装机后 /data 可以
 # 单独扩容而系统分区的 UUID 与 fsck 结果不变。
 #
+# 系统盘优先取未被占用的整盘：双系统现场更大的那块盘往往已有 Windows，
+# 按容量直接选会把既有系统清掉；全部盘都被占用时才退回容量最大者，重装
+# 本系统的现场因此仍然可用。
+#
 # 本文件是唯一实现：工作站与最小两个剖面、安装期与装成后的磁盘记录都从
 # 这里取规则，任何一处都不再手抄一份。kickstart 以「# %airy-embed:
 # disk-select.sh」标记在脚本段内嵌入选盘器，构建期由 tools/ks_embed.py
@@ -165,6 +169,29 @@ airy_busy()
         END { exit(busy ? 0 : 1) }'
 }
 
+# airy_pick <skip> — 打印系统盘候选行：<name> <bytes> <bus>，无候选时为空。
+#
+# 双系统现场那块更大的盘往往已经有 Windows：按容量直接选盘会把用户的既有
+# 系统清掉（D-33）。空盘优先让裸盘、多盘与双系统走同一条判定路径——都按
+# 容量降序取第一块满足条件的整盘，只是条件不同；全部盘都被占用时才退回
+# 容量最大者，重装本系统的现场因此仍然可用。
+airy_pick()
+{
+    local skip="${1:-}" cand rest fallback=
+
+    while read -r cand rest; do
+        [ -n "${cand}" ] || continue
+        fallback=${fallback:-"${cand} ${rest}"}
+        if ! airy_busy "${cand#/dev/}"; then
+            printf '%s %s\n' "${cand}" "${rest}"
+            return 0
+        fi
+    done <<EOF
+$(airy_scan "${skip}")
+EOF
+    printf '%s\n' "${fallback}"
+}
+
 # airy_data <medium> <system> — 打印数据盘（不含 /dev/），没有候选时为空。
 #
 # 候选与系统盘同源（airy_scan）：内置、非介质、容量降序。多盘现场取第一块
@@ -290,7 +317,7 @@ airy_pre()
 
     fw=$(airy_fw)
     medium=$(airy_medium)
-    pick=$(airy_scan "${medium}" | head -n 1)
+    pick=$(airy_pick "${medium}")
     [ -n "${pick}" ] || airy_fail no-internal-disk
 
     disk=${pick%% *}

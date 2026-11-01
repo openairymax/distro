@@ -103,6 +103,32 @@ class DiskSelectTest(unittest.TestCase):
     def test_firmware_bios(self):
         self.assertEqual(self.sh("airy_fw").stdout.strip(), "bios")
 
+    def test_pick_skips_busy(self):
+        """双系统：更大的盘已有分区，系统盘落在空盘上。"""
+        self.table(NVME, ("/dev/nvme0n1p1", "part", 200 * GIB, 0, "", "", "",
+                          ""), SATA)
+        self.assertEqual(self.sh("airy_pick").stdout.split()[0], "/dev/sda")
+
+    def test_pick_fallback_busy(self):
+        """全部盘都被占用时退回容量最大者，重装本系统仍可进行。"""
+        self.table(NVME, ("/dev/nvme0n1p1", "part", 100 * GIB, 0, "", "", "",
+                          ""))
+        self.assertEqual(self.sh("airy_pick").stdout.split()[0],
+                         "/dev/nvme0n1")
+
+    def test_pre_dual_boot_keeps_windows(self):
+        """双系统只清空盘：既有系统盘不得出现在任何清除指令里。"""
+        self.table(NVME, ("/dev/nvme0n1p1", "part", 200 * GIB, 0, "", "", "",
+                          ""), SATA)
+        res, ks, rec = self.pre()
+        self.assertEqual(res.returncode, 0, res.stderr)
+        body = ks.read_text(encoding="utf-8")
+        self.assertIn("ignoredisk --only-use=sda\n", body)
+        self.assertNotIn("nvme0n1", body)
+        record = json.loads(rec.read_text(encoding="utf-8"))
+        self.assertEqual(record["disk"], "sda")
+        self.assertEqual(record["layout"], "single")
+
     def test_layout_uefi_single(self):
         out = self.sh("airy_layout nvme0n1 '' uefi %d" % (100 * GIB)).stdout
         self.assertNotIn("biosboot", out)
