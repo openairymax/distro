@@ -184,6 +184,15 @@ rpm -q airymaxos-release >/dev/null 2>&1 || fail release-pkg
 rpm -q airymaxos-system >/dev/null 2>&1 || fail system-pkg
 # 布局判定入口（M-36）：缺它则装机后 / 与 /data 的布局无从取证
 test -x /usr/bin/airy-disk || fail airy-disk
+# 重启后 / 与 /data 挂不挂得上只取决于 fstab（DISK-01 判据②）：按 /dev/sdX
+# 写的源在装机当场可用，扩容或插拔改号后 /data 开机即失挂，而系统照常
+# 起来。chroot 内的挂载点仍是 /mnt/sysroot/...，拓扑判定必然误杀，所以这
+# 里只判 fstab：源必须是 UUID/LABEL/PARTUUID，且 /data 不得 noauto。
+persist=$(airy-disk persist 2>&1) || {
+    mark "AIRYMAX-DISK-DIAG persist=${persist}"
+    fail disk-fstab
+}
+mark "AIRYMAX-DISK-OK ${persist}"
 
 # 账户自检：没有可登录账户的安装介质不具备「OS 能运行」的前提
 # root 交付为固定口令（sha512 哈希），Airymax 交付为空口令（empty）。
