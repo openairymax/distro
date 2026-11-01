@@ -238,7 +238,9 @@ default_srcs()
         return 0
     fi
     for dir in "${DISTRO_ROOT}/../system/units" \
-        "${DISTRO_ROOT}/../system/scripts"; do
+        "${DISTRO_ROOT}/../system/scripts" \
+        "${DISTRO_ROOT}/../system/bin" \
+        "${DISTRO_ROOT}/../system/services/airydisk"; do
         if [ -d "${dir}" ]; then
             SRC_DIRS+=("${dir}")
         fi

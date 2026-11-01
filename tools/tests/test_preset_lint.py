@@ -204,10 +204,9 @@ class PresetLintTest(unittest.TestCase):
                       text)
         self.assertIn("%{_presetdir}/90-airymax.preset", text)
         self.assertIn("%{_presetdir}/99-airymax-default-disable.preset", text)
-        self.assertIn("install -m 0644 %{_sourcedir}/90-airymax.preset",
-                      text)
         self.assertIn(
-            "install -m 0644 %{_sourcedir}/99-airymax-default-disable.preset",
+            "install -m 0644 %{SOURCE19} %{SOURCE20}"
+            " %{buildroot}%{_presetdir}/",
             text)
 
 
