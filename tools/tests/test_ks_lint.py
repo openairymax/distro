@@ -121,6 +121,21 @@ class KsLintTest(unittest.TestCase):
     def test_storage_dynamic(self):
         self.assertEqual(self.codes(self.embed_pose()), [])
 
+    def test_storage_dynamic_conflict(self):
+        for extra in ("autopart --type=plain",
+                      "clearpart --all --initlabel",
+                      "part / --size=1024"):
+            with self.subTest(extra=extra):
+                text = self.embed_pose().replace(
+                    "bootloader", extra + "\nbootloader")
+                self.assertIn("K004", self.codes(text))
+
+    def test_real_kickstarts_share_layout(self):
+        base = Path(__file__).resolve().parents[2]
+        for path in sorted((base / "kickstart").glob("*.ks")):
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("# %airy-embed: disk-select.sh", text, path.name)
+
     def test_storage_include_unbound(self):
         text = VALID.replace(
             "clearpart --all --initlabel\n"
