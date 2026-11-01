@@ -233,12 +233,24 @@ def dynamic_storage(cmds: list[Cmd], sects: list[Sect]) -> list[Cmd]:
 
 def check_storage(cmds: list[Cmd], sects: list[Sect],
                   issues: list[Issue]) -> None:
+    """布局只能有一个来源。
+
+    动态布局与顶层的 clearpart / autopart / part 同存时，两份指令都会进入
+    存储配置：clearpart --all 仍会清空全部接入磁盘，D-33 的分区跨盘即由此
+    复发。冲突必须在解析前判负，而不是靠 anaconda 的指令顺序碰运气。
+    """
     auto = [cmd for cmd in cmds if cmd.name == "autopart"]
-    expl = [cmd for cmd in cmds if cmd.name in STORAGE]
-    if auto and expl:
-        issues.append(Issue("K004", expl[0].num,
-                            f"autopart conflicts with {expl[0].name}"))
-    if not auto and not expl and not dynamic_storage(cmds, sects):
+    part = [cmd for cmd in cmds if cmd.name in STORAGE]
+    fixed = [cmd for cmd in cmds if cmd.name in STORAGE or
+             cmd.name in ("clearpart", "autopart")]
+    dyn = dynamic_storage(cmds, sects)
+    if dyn and fixed:
+        issues.append(Issue("K004", fixed[0].num,
+                            f"{fixed[0].name} conflicts with {dyn[0].args}"))
+    elif auto and part:
+        issues.append(Issue("K004", part[0].num,
+                            f"autopart conflicts with {part[0].name}"))
+    if not auto and not fixed and not dyn:
         issues.append(Issue("K004", 1, "no storage layout"))
 
 

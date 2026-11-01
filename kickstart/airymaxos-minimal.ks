@@ -36,8 +36,18 @@ repo --name=update --baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/
 # 恢复（install-test.sh 依赖 login: 哨兵）。只给串口时真机故障即黑屏，
 # 现场无从取证。
 bootloader --timeout=3 --append="console=tty0 console=ttyS0,115200 console=ttyAMA0,115200"
-clearpart --all --initlabel
-autopart --type=plain --fstype=ext4
+
+# 选盘、布局与选盘记录只有一份实现（kickstart/disk-select.sh），构建期由
+# tools/ks_embed.py 展开进下面的脚本段。clearpart --all 加 autopart 会把
+# 每一块接入的磁盘都纳入布局，B50（2026-10-30）因此把 ESP 与 /boot 建到
+# 可插拔 U 盘上（D-33）；改由 %pre 依现场选出唯一内置盘并逐项 --ondisk
+# 钉住，两个剖面走同一条路径。
+%pre --erroronfail --log=/tmp/airymax-disk.log
+set -eu
+# %airy-embed: disk-select.sh
+airy_pre /tmp/airymax-disk.ks /tmp/airymax-disk.json
+%end
+%include /tmp/airymax-disk.ks
 
 # ---- 网络 ----
 network --bootproto=dhcp --activate --hostname=AIRYMAX_PC
@@ -76,6 +86,15 @@ airymaxos-release
 %end
 
 # ---- 安装后脚本 ----
+# 选盘记录随系统留下：%pre 的 /tmp 属于安装器，装完即消失，装机后
+# airy-disk status 要以它作为比对基准。本段在目标根就绪后复制记录，缺失或
+# 写失败即判负，不留「装完但无从核对」的状态。
+%post --nochroot --erroronfail --log=/mnt/sysroot/root/airymax-disk.log
+set -eu
+# %airy-embed: disk-select.sh
+airy_keep
+%end
+
 %post --log=/root/airymax-post.log
 set -eu
 
