@@ -5,8 +5,13 @@
 #
 # 安装器没有「自动」盘名：clearpart --all 加 autopart 会把每一块可用磁盘
 # 都纳入自动布局。B50（2026-10-30）因此把 ESP 与 /boot 放到可插拔 U 盘、
-# 把根与 /home 放到 NVMe：拔盘即不可引导，且 --all 清空了全部接入磁盘
+# 把根与数据分区放到 NVMe：拔盘即不可引导，且 --all 清空了全部接入磁盘
 # （D-33）。选盘与布局必须收敛到一块内置盘，并逐项 --ondisk 钉住。
+#
+# 系统分区（/）与数据分区（/data）独立挂载（DISK-01）：系统盘之外若还有
+# 一块未被占用的内置盘，数据分区落在它上面；只有一块盘时同盘切分，系统
+# 分区定容、数据分区增长。两条路径产出的指令形状相同，装机后 /data 可以
+# 单独扩容而系统分区的 UUID 与 fsck 结果不变。
 #
 # 本文件是唯一实现：工作站与最小两个剖面、安装期与装成后的磁盘记录都从
 # 这里取规则，任何一处都不再手抄一份。kickstart 以「# %airy-embed:
@@ -22,7 +27,9 @@
 #   AIRY_MEDIUM_SRC  安装介质挂载点（默认 /run/install/repo）
 #   AIRY_REC         选盘记录路径（默认 /tmp/airymax-disk.json）
 #   AIRY_MIN_BYTES   可用容量下限，默认 32 GiB
-#   AIRY_SPLIT_BYTES 拆分 /home 的容量门槛，默认 160 GiB
+#   AIRY_SWAP_MIB    交换分区容量，默认 8192 MiB
+#   AIRY_ROOT_MIB    同盘切分时系统分区期望容量，默认 20480 MiB
+#   AIRY_DATA_MIB    同盘切分时数据分区保底容量，默认 10240 MiB
 # ===========================================================================
 
 # airy_mark <text> — 同时写标准输出与可用控制台。
@@ -36,8 +43,9 @@ airy_mark()
 
     printf '%s\n' "$*"
     for dev in /dev/console /dev/ttyS0 /dev/ttyAMA0; do
-        [ -w "${dev}" ] || continue
-        printf '%s\n' "$*" >"${dev}" 2>/dev/null && return 0
+        if [ -w "${dev}" ] && printf '%s\n' "$*" >"${dev}" 2>/dev/null; then
+            return 0
+        fi
     done
     return 0
 }
@@ -115,7 +123,99 @@ airy_scan()
         }' | sort -k2,2nr -k1,1
 }
 
-# airy_layout <disk> <single|split> <uefi|bios> — 打印整份存储指令。
+# airy_busy <disk> — 该整盘是否已被占用（有分区、有文件系统或已挂载）。
+#
+# 数据分区不得落在已被占用的盘上：双系统现场的第二块盘就是 Windows 的
+# NTFS 分区，清掉它等于毁掉用户既有系统。归属按盘名前缀还原（sda1、
+# nvme0n1p1），不认控制器与盘符，新设备只要 lsblk 报出父子关系就落在
+# 同一条判定里。
+airy_busy()
+{
+    lsblk -npo NAME,TYPE,FSTYPE,MOUNTPOINT --pairs 2>/dev/null |
+        awk -v disk="/dev/$1" '
+        {
+            name = ""; type = ""; fs = ""; mount = ""
+            for (i = 1; i <= NF; i++) {
+                eq = index($i, "=")
+                if (eq == 0)
+                    continue
+                key = substr($i, 1, eq - 1)
+                val = substr($i, eq + 1)
+                gsub(/"/, "", val)
+                if (key == "NAME")
+                    name = val
+                else if (key == "TYPE")
+                    type = val
+                else if (key == "FSTYPE")
+                    fs = val
+                else if (key == "MOUNTPOINT")
+                    mount = val
+            }
+            if (name == disk) {
+                if (type == "disk" && fs != "")
+                    busy = 1
+                next
+            }
+            if (index(name, disk) != 1)
+                next
+            rest = substr(name, length(disk) + 1)
+            if (rest ~ /^p?[0-9]+$/ || mount != "")
+                busy = 1
+        }
+        END { exit(busy ? 0 : 1) }'
+}
+
+# airy_data <medium> <system> — 打印数据盘（不含 /dev/），没有候选时为空。
+#
+# 候选与系统盘同源（airy_scan）：内置、非介质、容量降序。多盘现场取第一块
+# 既非系统盘、又未被占用的整盘，即「数据分区优先落第二块盘」；单盘现场无
+# 候选，由调用方转同盘切分。拓扑只改变候选集合，判定路径不变。
+airy_data()
+{
+    local skip="$1" sys="$2" cand rest
+
+    while read -r cand rest; do
+        [ -n "${cand}" ] || continue
+        cand=${cand#/dev/}
+        if [ "${cand}" = "${sys}" ]; then
+            continue
+        fi
+        if airy_busy "${cand}"; then
+            continue
+        fi
+        printf '%s\n' "${cand}"
+        return 0
+    done <<EOF
+$(airy_scan "${skip}")
+EOF
+    return 0
+}
+
+# airy_root_mib <bytes> — 同盘切分时系统分区的容量（MiB）。
+#
+# Windows 的系统盘/数据盘语义照搬到单盘：系统分区定容、数据分区增长，用户
+# 数据不再与系统增长互相挤压。定容按盘容量折半并夹逼在 [AIRY_ROOT_MIB,
+# 容量 − AIRY_DATA_MIB] 之间；小盘上夹逼区间为空时退回折半，让 /data 仍
+# 拿得到可用空间，而不是把余量全部塞进系统分区。
+airy_root_mib()
+{
+    local avail half lo hi
+
+    avail=$(($1 / 1048576 - ${AIRY_SWAP_MIB:-8192} - 1625))
+    [ "${avail}" -gt 0 ] || avail=1
+    half=$((avail / 2))
+    lo=${AIRY_ROOT_MIB:-20480}
+    hi=$((avail - ${AIRY_DATA_MIB:-10240}))
+    if [ "${hi}" -lt "${lo}" ]; then
+        printf '%s\n' "${half}"
+        return 0
+    fi
+    [ "${half}" -lt "${lo}" ] && half=${lo}
+    [ "${half}" -gt "${hi}" ] && half=${hi}
+    printf '%s\n' "${half}"
+}
+
+# airy_layout <system> <data|""> <uefi|bios> <bytes> — 打印整份存储指令。
 #
 # 布局逐项 --ondisk 钉住，不用 autopart：autopart 的引导设备选取会跨盘寻找
 # 既有 ESP、/boot 与 swap，ignoredisk --only-use 不约束这条路径。
@@ -126,40 +226,43 @@ airy_scan()
 # core.img，缺它时 anaconda 判存储配置无效并退回交互式主菜单，无头安装只能
 # 空耗整轮超时（run 41144010592）。UEFI 从 ESP 引导，多一个 biosboot 是无用
 # 分区，故只在 BIOS 腿生成。
+#
+# /data 恒为独立挂载：有数据盘时系统盘与数据盘各自增长；同盘时系统分区
+# 定容、数据分区增长。数据分区只增不改，扩容它不会移动系统分区的起止扇区，
+# 系统分区 UUID 与 fsck 结果因此保持不变（DISK-01 判据②）。
 airy_layout()
 {
-    local disk="$1" kind="$2" fw="$3" swap=8192 root=1 split=
+    local sys="$1" data="$2" fw="$3" bytes="$4" drives="${1}"
 
-    if [ "${kind}" = split ]; then
-        swap=16384
-        root=71680
-        split=1
-    fi
-    printf 'ignoredisk --only-use=%s\n' "${disk}"
+    [ -n "${data}" ] && drives="${sys},${data}"
+    printf 'ignoredisk --only-use=%s\n' "${drives}"
     printf 'clearpart --all --initlabel --disklabel=gpt --drives=%s\n' \
-        "${disk}"
+        "${drives}"
     if [ "${fw}" != uefi ]; then
         printf 'part biosboot --fstype=biosboot --size=1 --ondisk=%s\n' \
-            "${disk}"
+            "${sys}"
     fi
-    printf 'part /boot/efi --fstype=efi --size=600 --ondisk=%s\n' "${disk}"
-    printf 'part /boot --fstype=ext4 --size=1024 --ondisk=%s\n' "${disk}"
-    printf 'part swap --size=%s --ondisk=%s\n' "${swap}" "${disk}"
-    if [ -n "${split}" ]; then
+    printf 'part /boot/efi --fstype=efi --size=600 --ondisk=%s\n' "${sys}"
+    printf 'part /boot --fstype=ext4 --size=1024 --ondisk=%s\n' "${sys}"
+    printf 'part swap --size=%s --ondisk=%s\n' \
+        "${AIRY_SWAP_MIB:-8192}" "${sys}"
+    if [ -z "${data}" ]; then
         printf 'part / --fstype=ext4 --size=%s --ondisk=%s\n' \
-            "${root}" "${disk}"
-        printf 'part /home --fstype=ext4 --size=1024 --grow --ondisk=%s\n' \
-            "${disk}"
+            "$(airy_root_mib "${bytes}")" "${sys}"
+        printf 'part /data --fstype=ext4 --size=%s --grow --ondisk=%s\n' \
+            "${AIRY_DATA_MIB:-10240}" "${sys}"
     else
-        printf 'part / --fstype=ext4 --size=1 --grow --ondisk=%s\n' "${disk}"
+        printf 'part / --fstype=ext4 --size=1 --grow --ondisk=%s\n' "${sys}"
+        printf 'part /data --fstype=ext4 --size=1 --grow --ondisk=%s\n' \
+            "${data}"
     fi
 }
 
-# airy_rec <out> <disk> <bytes> <bus> <fw> <layout> <medium> — 写选盘记录。
+# airy_rec <out> <disk> <bytes> <bus> <fw> <layout> <medium> <data> — 写选盘记录。
 #
 # 记录是装机后 `airy-disk status` 的比对基准：安装器选了哪块盘、多大、什么
-# 总线、什么固件、哪种布局，都在这里落成一份可被程序读的 JSON。字段只用
-# 安装期确实掌握的事实，schema 由本函数单独定义。
+# 总线、什么固件、哪种布局、数据分区落在哪块盘，都在这里落成一份可被程序
+# 读的 JSON。字段只用安装期确实掌握的事实，schema 由本函数单独定义。
 airy_rec()
 {
     {
@@ -170,6 +273,7 @@ airy_rec()
         printf ',"firmware":"%s"' "$5"
         printf ',"layout":"%s"' "$6"
         printf ',"medium":"%s"' "$7"
+        printf ',"data":"%s"' "${8:-}"
         printf '}\n'
     } >"$1"
 }
@@ -177,11 +281,12 @@ airy_rec()
 # airy_pre <ks-out> <record> — 选盘并落盘分区片段与选盘记录。
 #
 # 容量下限挡住「只剩一块小盘」的现场：装完也放不下桌面闭包与图形栈，与其
-# 装到一半失败，不如在分区之前就明确拒绝。容量充裕时把 /home 拆成独立
-# 分区，避免用户数据与系统增长互相挤压。
+# 装到一半失败，不如在分区之前就明确拒绝。系统盘之外还有空闲内置盘时数据
+# 分区落在那块盘上（dual），没有时同盘切分（single）；两条路径都保证
+# /data 是独立挂载，装成后语义一致（DISK-01）。
 airy_pre()
 {
-    local ks="$1" rec="$2" fw medium pick disk size bus kind line
+    local ks="$1" rec="$2" fw medium pick disk size bus data kind line
 
     fw=$(airy_fw)
     medium=$(airy_medium)
@@ -196,13 +301,17 @@ airy_pre()
 
     [ "${size}" -ge "${AIRY_MIN_BYTES:-34359738368}" ] ||
         airy_fail too-small "bytes=${size}"
+    data=$(airy_data "${medium}" "${disk}")
     kind=single
-    [ "${size}" -lt "${AIRY_SPLIT_BYTES:-171798691840}" ] || kind=split
+    if [ -n "${data}" ]; then
+        kind=dual
+    fi
 
-    airy_layout "${disk}" "${kind}" "${fw}" >"${ks}"
-    airy_rec "${rec}" "${disk}" "${size}" "${bus}" "${fw}" "${kind}" "${medium}"
+    airy_layout "${disk}" "${data}" "${fw}" "${size}" >"${ks}"
+    airy_rec "${rec}" "${disk}" "${size}" "${bus}" "${fw}" "${kind}" \
+        "${medium}" "${data}"
     line="AIRYMAX-DISK-OK disk=${disk} bytes=${size}"
-    airy_mark "${line} bus=${bus} layout=${kind} fw=${fw}"
+    airy_mark "${line} bus=${bus} layout=${kind} fw=${fw} data=${data:--}"
 }
 
 # airy_keep — 把选盘记录复制进目标根。

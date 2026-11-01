@@ -5,7 +5,7 @@
 #
 # 选盘器决定装到哪块盘、怎么分区，装错一块就是不可引导的机器（D-33）。
 # 用例以 PATH 沙箱里的伪 lsblk/findmnt 复刻块层输出面，固件根、介质挂载点
-# 与两个容量阈值全部经环境注入，因此每条判定都能在没有 root、没有真实
+# 与容量注入点全部经环境给出，因此每条判定都能在没有 root、没有真实
 # 磁盘的机器上被驱动。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
@@ -104,35 +104,90 @@ class DiskSelectTest(unittest.TestCase):
         self.assertEqual(self.sh("airy_fw").stdout.strip(), "bios")
 
     def test_layout_uefi_single(self):
-        out = self.sh("airy_layout nvme0n1 single uefi").stdout
+        out = self.sh("airy_layout nvme0n1 '' uefi %d" % (100 * GIB)).stdout
         self.assertNotIn("biosboot", out)
         self.assertIn("ignoredisk --only-use=nvme0n1\n", out)
         self.assertIn("clearpart --all --initlabel --disklabel=gpt "
                       "--drives=nvme0n1\n", out)
+        self.assertIn("part /boot/efi --fstype=efi --size=600 "
+                      "--ondisk=nvme0n1\n", out)
         self.assertIn("part swap --size=8192 --ondisk=nvme0n1\n", out)
-        self.assertIn("part / --fstype=ext4 --size=1 --grow "
+        self.assertIn("part / --fstype=ext4 --size=46291 --ondisk=nvme0n1\n",
+                      out)
+        self.assertIn("part /data --fstype=ext4 --size=10240 --grow "
                       "--ondisk=nvme0n1\n", out)
         self.assertNotIn("/home", out)
 
     def test_layout_bios_single(self):
-        out = self.sh("airy_layout nvme0n1 single bios").stdout
+        out = self.sh("airy_layout nvme0n1 '' bios %d" % (100 * GIB)).stdout
         self.assertIn("part biosboot --fstype=biosboot --size=1 "
                       "--ondisk=nvme0n1\n", out)
 
-    def test_layout_split(self):
-        out = self.sh("airy_layout sda split uefi").stdout
-        self.assertIn("part swap --size=16384 --ondisk=sda\n", out)
-        self.assertIn("part / --fstype=ext4 --size=71680 --ondisk=sda\n", out)
-        self.assertIn("part /home --fstype=ext4 --size=1024 --grow "
+    def test_layout_dual(self):
+        out = self.sh("airy_layout nvme0n1 sda uefi %d" % (100 * GIB)).stdout
+        self.assertIn("ignoredisk --only-use=nvme0n1,sda\n", out)
+        self.assertIn("--drives=nvme0n1,sda\n", out)
+        self.assertIn("part / --fstype=ext4 --size=1 --grow "
+                      "--ondisk=nvme0n1\n", out)
+        self.assertIn("part /data --fstype=ext4 --size=1 --grow "
                       "--ondisk=sda\n", out)
+
+    def test_root_mib_small(self):
+        self.assertEqual(self.sh("airy_root_mib %d" % (32 * GIB)).stdout.strip(),
+                         "11475")
+
+    def test_root_mib_floor(self):
+        self.assertEqual(self.sh("airy_root_mib %d" % (40 * GIB)).stdout.strip(),
+                         "20480")
+
+    def test_root_mib_large(self):
+        self.assertEqual(
+            self.sh("airy_root_mib %d" % (512 * GIB)).stdout.strip(),
+            "257235")
+
+    def test_busy_partition(self):
+        self.table(NVME, ("/dev/nvme0n1p1", "part", 1073741824, 0, "", "", "",
+                          ""))
+        self.assertEqual(self.sh("airy_busy nvme0n1").returncode, 0)
+
+    def test_busy_mounted(self):
+        self.table(NVME, ("/dev/nvme0n1p2", "part", 1073741824, 0, "", "", "",
+                          "/data"))
+        self.assertEqual(self.sh("airy_busy nvme0n1").returncode, 0)
+
+    def test_busy_spare(self):
+        self.table(NVME, ("/dev/nvme0n1p1", "part", 1073741824, 0, "", "", "",
+                          ""), SATA)
+        res = self.sh("airy_busy sda")
+        self.assertEqual(res.returncode, 1)
+        self.assertEqual(res.stdout.strip(), "")
+
+    def test_data_prefers_spare(self):
+        self.table(NVME, ("/dev/nvme0n1p1", "part", 1073741824, 0, "", "", "",
+                          ""), SATA)
+        self.assertEqual(self.sh("airy_data '' nvme0n1").stdout.strip(), "sda")
+
+    def test_data_skips_system(self):
+        self.table(NVME, SATA)
+        self.assertEqual(self.sh("airy_data '' nvme0n1").stdout.strip(), "sda")
+
+    def test_data_none(self):
+        self.table(NVME)
+        self.assertEqual(self.sh("airy_data '' nvme0n1").stdout.strip(), "")
 
     def test_record_schema(self):
         rec = self.work / "rec.json"
-        self.sh(f'airy_rec "{rec}" sda 100 sata uefi split sdb')
+        self.sh(f'airy_rec "{rec}" sda 100 sata uefi dual sdb sdc')
         self.assertEqual(json.loads(rec.read_text(encoding="utf-8")),
                          {"schema": 1, "disk": "sda", "bytes": 100,
                           "bus": "sata", "firmware": "uefi",
-                          "layout": "split", "medium": "sdb"})
+                          "layout": "dual", "medium": "sdb", "data": "sdc"})
+
+    def test_record_no_data(self):
+        rec = self.work / "rec.json"
+        self.sh(f'airy_rec "{rec}" sda 100 sata uefi single sdb')
+        self.assertEqual(json.loads(rec.read_text(encoding="utf-8"))["data"],
+                         "")
 
     def pre(self, **extra):
         ks = self.work / "disk.ks"
@@ -146,21 +201,27 @@ class DiskSelectTest(unittest.TestCase):
         res, ks, rec = self.pre()
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertIn("AIRYMAX-DISK-OK disk=nvme0n1 bytes=%d "
-                      "bus=nvme layout=single fw=bios" % (64 * GIB),
+                      "bus=nvme layout=single fw=bios data=-" % (64 * GIB),
                       res.stdout)
-        self.assertIn("--ondisk=nvme0n1", ks.read_text(encoding="utf-8"))
+        body = ks.read_text(encoding="utf-8")
+        self.assertIn("part /data --fstype=ext4 --size=10240 --grow "
+                      "--ondisk=nvme0n1\n", body)
         self.assertEqual(json.loads(rec.read_text(encoding="utf-8")),
                          {"schema": 1, "disk": "nvme0n1",
                           "bytes": 64 * GIB, "bus": "nvme",
                           "firmware": "bios", "layout": "single",
-                          "medium": ""})
+                          "medium": "", "data": ""})
 
-    def test_pre_split(self):
-        self.table(SATA)
-        res, _, rec = self.pre()
+    def test_pre_dual(self):
+        self.table(NVME, SATA)
+        res, ks, rec = self.pre()
         self.assertEqual(res.returncode, 0, res.stderr)
-        self.assertEqual(json.loads(rec.read_text(encoding="utf-8"))["layout"],
-                         "split")
+        self.assertIn("layout=dual", res.stdout)
+        self.assertIn("data=sda", res.stdout)
+        self.assertIn("part /data --fstype=ext4 --size=1 --grow "
+                      "--ondisk=sda\n", ks.read_text(encoding="utf-8"))
+        self.assertEqual(json.loads(rec.read_text(encoding="utf-8"))["data"],
+                         "sda")
 
     def test_pre_skips_medium(self):
         self.table(MED, MED_P1, SATA)
