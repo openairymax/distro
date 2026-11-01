@@ -353,6 +353,8 @@ rpm -q airymaxos-release >/dev/null 2>&1 || fail release-pkg
 
 # 2) 系统编排单元必须随镜像落盘（OS-OPS-010 的包级前提）
 rpm -q airymaxos-system >/dev/null 2>&1 || fail system-pkg
+#    布局判定入口（M-36）：包在盘上不等于命令可用，两个剖面同一判据
+test -x /usr/bin/airy-disk || fail airy-disk
 
 # 3) 账户自检：没有可登录账户的安装介质不具备「OS 能运行」的前提
 #    root 交付为固定口令（sha512 哈希），Airymax 交付为空口令（empty）。

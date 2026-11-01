@@ -2,10 +2,12 @@
 # ===========================================================================
 # AirymaxOS 0.0.3（x86_64）最小安装 kickstart — 无桌面基线
 #
-# 用途：装机与镜像流水线的可判定基线。最小系统只承担三件事——
+# 用途：装机与镜像流水线的可判定基线。最小系统承担三件事——
 #   1. 可引导（AirymaxOS 内核 + bootloader + 基础用户空间）；
 #   2. 可远程接管（sshd + DHCP 网络）；
 #   3. 可时间同步（chronyd），为后续 rpm-ostree/agent 层提供可信时钟。
+# 另随镜像落盘 airymaxos-system：编排单元按 preset 保持 disabled，但
+# airy-disk 必须在场——装机后的 / 与 /data 布局只有它能取证（M-36）。
 #
 # 与工作站 kickstart 的差异：不含 UKUI、lightdm、输入法与桌面组；
 # 一切桌面能力由 airymaxos-workstation.ks 或首启 bootstrap 叠加。
@@ -76,6 +78,10 @@ firstboot --disable
 @airymax-core
 airymaxos-kernel
 airymaxos-release
+# 编排单元与磁盘工具（airymaxos-system）：与工作站剖面同一包，两个剖面
+# 因此走同一条布局判读代码路径；单元启用边界由 preset 唯一决定，安装段
+# 不启用任何 agentrt 单元。
+airymaxos-system
 
 # 内核与发行版标识唯一（与工作站剖面同口径）：上游包组携带上游 kernel /
 # kernel-tools 与两个 openEuler-release 包，必须显式排除（K017 强制）。
@@ -174,6 +180,10 @@ rpm -q airymaxos-release >/dev/null 2>&1 || fail release-pkg
 # system-release 缺失会让 anaconda 的 GRUB_DISTRIBUTOR 派生失败，grub-mkconfig
 # 在 set -e 下中止，装机结果不可引导；在装机段结束前显式判负。
 [ -r /etc/system-release ] || fail system-release
+# 编排单元随镜像落盘（OS-OPS-010 的包级前提）
+rpm -q airymaxos-system >/dev/null 2>&1 || fail system-pkg
+# 布局判定入口（M-36）：缺它则装机后 / 与 /data 的布局无从取证
+test -x /usr/bin/airy-disk || fail airy-disk
 
 # 账户自检：没有可登录账户的安装介质不具备「OS 能运行」的前提
 # root 交付为固定口令（sha512 哈希），Airymax 交付为空口令（empty）。
