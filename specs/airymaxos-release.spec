@@ -465,7 +465,10 @@ test "${airy_plan}" = 'eDP-1 3840x2160 1920x1080'
 sh -n %{buildroot}%{_sysconfdir}/grub.d/01_airymax_display
 airy_grub=$(%{buildroot}%{_sysconfdir}/grub.d/01_airymax_display)
 printf '%s\n' "${airy_grub}" |
-    grep -qxF '  set gfxmode=1920x1080,1680x1050,1600x900,1280x1024,1024x768,auto'
+    grep -qxF '  set gfxmode=2880x1800,2560x1600,2240x1400,1920x1200,1920x1080,1680x1050,1600x900,1280x1024,1024x768,auto'
+# gfxpayload 与 gfxmode 是一对：前者缺失时内核不沿用 GOP 模式，
+# simpledrm 的 fb0 落在低分辨率，gfxmode 选得再高也白选。
+printf '%s\n' "${airy_grub}" | grep -qxF '  set gfxpayload=keep'
 printf '%s\n' "${airy_grub}" | grep -qxF '  terminal_output gfxterm'
 printf '%s\n' "${airy_grub}" | grep -qxF '  insmod gfxterm'
 printf '%s\n' "${airy_grub}" | grep -qF 'grub_platform'

@@ -17,6 +17,11 @@
 #
 # 模式串不写 x32：GOP 对位深的要求因固件而异，带位深的候选在某些固件上
 # 全部匹配失败，反而退到 auto。末尾保留 auto 作为未知固件的兜底。
+#
+# 候选顺序把高分档放在前面（2880x1800 / 2560x1600 / 2240x1400）：GOP 取
+# 列表中第一个固件支持的模式，0.0.3 从 1920x1080 起选，285H 面板原生
+# 2880x1800 因此从未被使用。set gfxpayload=keep 让内核沿用同一模式，
+# 无 KMS 时 simpledrm/efifb 的 fb0 才会是面板原生分辨率。
 # ===========================================================================
 
 exec 2>/dev/null
@@ -25,7 +30,8 @@ cat <<'EOF'
 if [ "${grub_platform}" = "efi" ] ; then
   insmod all_video
   insmod gfxterm
-  set gfxmode=1920x1080,1680x1050,1600x900,1280x1024,1024x768,auto
+  set gfxmode=2880x1800,2560x1600,2240x1400,1920x1200,1920x1080,1680x1050,1600x900,1280x1024,1024x768,auto
+  set gfxpayload=keep
   terminal_output gfxterm
 fi
 EOF
