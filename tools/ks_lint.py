@@ -8,7 +8,7 @@
 # 明文）、脚本段闭合与失败即停、收尾状态、单例命令、安装界面互斥、
 # 桌面仓库闭包完整性、离线仓库落点、内核包身份、上游身份包排除与命令行
 # 参数语法、嵌入标记。包组引用（@组 / @^环境）由 comps_lint 交叉校验，
-# 此处不重复实现。规则编号 K001~K019 与 tools/tests/test_ks_lint.py
+# 此处不重复实现。规则编号 K001~K020 与 tools/tests/test_ks_lint.py
 # 一一对应。
 #
 # 配方有两种姿态，判据不同：
@@ -272,6 +272,22 @@ def check_biosboot(sects: list[Sect], issues: list[Issue]) -> None:
                             "layout lacks biosboot for BIOS+GPT boot"))
 
 
+def check_datapart(sects: list[Sect], issues: list[Issue]) -> None:
+    """显式布局必须让数据分区独立挂载（K020）。
+
+    DISK-01 要求装机后 / 与 /data 各是一个分区：数据分区单独可扩容，扩容
+    它不会移动系统分区的起止扇区，系统分区 UUID 与 fsck 结果因此保持不变。
+    把 /data 挂在 / 的子目录（或干脆不建）在装机当时看不出差别，却把
+    「系统盘扩容」变成「动系统分区」，判据只能前置在这里。
+
+    与 K018 同源，判据落在 %pre 正文：布局由脚本生成，顶层没有 part 行。
+    """
+    text = pre_text(sects)
+    if "part /boot/efi" in text and "part /data " not in text:
+        issues.append(Issue("K020", 1,
+                            "layout lacks a separate /data partition"))
+
+
 def last_arg(args: str) -> str:
     return next((tok for tok in reversed(args.split())
                  if not tok.startswith("--")), "")
@@ -508,6 +524,7 @@ def lint_text(text: str, base: Path | None = None) -> list[Issue]:
     check_required(cmds, sects, issues)
     check_storage(cmds, sects, issues)
     check_biosboot(sects, issues)
+    check_datapart(sects, issues)
     check_roots(cmds, issues)
     check_urls(cmds, issues)
     check_kernel(sects, issues)

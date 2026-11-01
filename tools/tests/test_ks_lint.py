@@ -173,6 +173,18 @@ class KsLintTest(unittest.TestCase):
                      ks_lint.lint_text(self.embed_pose(), base)]
         self.assertIn("K018", codes)
 
+    def test_datapart_missing(self):
+        src = ks_lint.SHARED_DIR / "disk-select.sh"
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / "disk-select.sh").write_text(
+                src.read_text(encoding="utf-8").replace("part /data ",
+                                                       "part /home "),
+                encoding="utf-8")
+            codes = [item.code for item in
+                     ks_lint.lint_text(self.embed_pose(), base)]
+        self.assertIn("K020", codes)
+
     def test_embed_marker_outside(self):
         text = VALID.replace(
             "bootloader", "# %airy-embed: disk-select.sh\nbootloader")

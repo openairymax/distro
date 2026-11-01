@@ -57,12 +57,13 @@ bootloader --timeout=3 --append="console=tty0 console=ttyS0,115200 console=ttyAM
 # ---- 分区作用域（真机缺陷 D-33）----
 # 安装器没有「自动」盘名：clearpart --all + autopart 会把每一块可用磁盘都
 # 纳入自动布局。B50（2026-10-30）因此把 ESP 与 /boot 放到可插拔 U 盘、把
-# 根与 /home 放到 NVMe：拔盘即不可引导，且 --all 清空了全部接入磁盘。
+# 系统与数据分区放到 NVMe：拔盘即不可引导，且 --all 清空了全部接入磁盘。
 #
 # 选盘、布局与选盘记录只有一份实现（kickstart/disk-select.sh），构建期由
 # tools/ks_embed.py 展开进下面的脚本段，本文件不再手抄规则。anaconda 的
 # preScriptPass 先独立跑一遍 %pre 再解析其余指令，正是为了「脚本生成被
-# include 的片段」；片段把作用域收敛到一块内置盘，%post 与布局语义不变。
+# include 的片段」；片段把作用域收敛到一块内置盘，系统分区（/）与数据
+# 分区（/data）各自独立挂载，%post 与布局语义不变。
 %pre --erroronfail --log=/tmp/airymax-disk.log
 set -eu
 # %airy-embed: disk-select.sh
