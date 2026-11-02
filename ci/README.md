@@ -16,7 +16,7 @@
 | T7 | LSM 注册表 | `airy` 在 `/sys/kernel/security/lsm` 中只登记一次；`airy_lockdown` 在位 | 补充钩子不得重复注册 |
 | T8 | 主机名 | `/etc/hostname` 为配方值 `AIRYMAX_PC`，不是安装器缺省名；运行期名由 `sysctl.d` 写回（systemd 会去掉下划线） | 品牌身份随装机落地 |
 | T9 | 发行版品牌 | `/etc/os-release` 的 `NAME=AirymaxOS`、`ID=airymaxos`、`PRETTY_NAME` 前缀与语义化 `VERSION_ID` 同时成立 | 发行版标识 SSoT 生效 |
-| T10 | 分辨率策略 | 每个 connected 输出的实际模式等于 `display_mode.sh` 在该拓扑上选定的模式（上限 1920x1200，首选优先） | 0.0.3 分辨率自适应 |
+| T10 | 分辨率策略 | 每个 connected 输出的实际模式等于 `display_mode.sh` 在该拓扑上选定的模式（有 EDID 取首选，无 EDID 取阶梯首项） | 0.0.3 分辨率自适应 |
 | T11 | EFI 启动品牌 | ESP 内 `EFI/airymaxos` 的 shim/grub/BOOTX64.CSV 齐全，品牌状态与安装期日志在位，`BootOrder` 首位为本产品（纯 BIOS 目标显式标注 non-EFI） | 品牌归属随装机落地 |
 | T12 | 免密提权 | 交付账户能以 `NOPASSWD` 完成一次非交互提权（离线复核时校验策略行本身） | 空口令账户的提权路径 |
 | T13 | 免密桌面 | 空闲锁屏与锁屏实际关闭，交付账户在 `nopasswdlogin` 组内 | 开机即桌面 |

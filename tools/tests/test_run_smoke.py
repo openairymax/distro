@@ -79,7 +79,7 @@ BLOCKS = ("/dev/sda|disk|268435456000|0|sata|||\n"
           "/dev/sda1|part|1073741824|0|sata|||\n"
           "/dev/sda2|part|267326668800|0|sata|||\n")
 
-# T10 的两份 xrandr --query 拓扑：已在策略模式、以及首选 4K 待下调。
+# T10 的两份 xrandr --query 拓扑：已在策略模式、以及无 EDID 的 4K 待下调。
 TOPO_OK = ("Screen 0: minimum 8 x 8, current 1920 x 1080,"
            " maximum 32767 x 32767\n"
            "eDP-1 connected primary 1920x1080+0+0 (normal) 344mm x 194mm\n"
@@ -87,7 +87,7 @@ TOPO_OK = ("Screen 0: minimum 8 x 8, current 1920 x 1080,"
            "   1280x720      60.00\n")
 TOPO_4K = ("Screen 0: minimum 8 x 8, current 3840 x 2160,"
            " maximum 32767 x 32767\n"
-           "eDP-1 connected primary 3840x2160+0+0 (normal) 344mm x 194mm\n"
+           "eDP-1 connected primary 3840x2160+0+0 (normal) 0mm x 0mm\n"
            "   3840x2160     60.00*+\n"
            "   1920x1080     60.00\n"
            "   1280x720      60.00\n")
@@ -613,7 +613,7 @@ class RunSmokeTest(unittest.TestCase):
 
     def test_display_off_policy(self):
         self.tools()
-        # 首选 4K 已超过 1920x1200 上限，会话停在 3840x2160 即判失败。
+        # 无 EDID 的 4K 首选按阶梯收到 1920x1080，会话仍停在 3840x2160 即判失败。
         self.write_topo(TOPO_4K)
         res = self.run_smoke()
         self.assert_fail(res, 10)
