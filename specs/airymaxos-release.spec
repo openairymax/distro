@@ -11,7 +11,7 @@
 #   3. 提供 /etc/rpm/macros.airymax（文件系统布局宏 SSoT）；
 #   4. 部署桌面会话静态资产：lightdm 座位策略、座位 X server 启动封装、X11
 #      会话输入法环境与分辨率自适应、输入法自启项、UKUI 壁纸注册表与背景
-#      默认值、默认壁纸、桌面调度 slice、user@.service 挂接及登录链就绪探针；
+#      默认值、三张品牌默认壁纸、桌面调度 slice、user@.service 挂接及登录链就绪探针；
 #   5. 部署登录与提权策略：sshd 允许交付账户的空口令登录，sudo 以
 #      NOPASSWD 放开同一账户的非交互提权，桌面侧关闭空闲锁屏（空口令账户
 #      被锁屏拦住只会制造口令框）；
@@ -78,7 +78,7 @@ Source1:        airymax-os.repo
 Source2:        macros.airymax
 Source3:        airymax-desktop.slice
 Source4:        70-airymax-ukui-policy.sh
-Source5:        airymaxos-default.jpg
+Source5:        qilian_photo_from_zhenyi.jpg
 Source6:        LICENSE
 Source7:        50-airymax.conf
 Source8:        70-airymax-im.sh
@@ -110,6 +110,8 @@ Source33:       airy_demo.py
 Source34:       airy_inspect.py
 Source35:       motd
 Source36:       99-airymax.conf
+Source37:       clouds_moonlight_photo_from_lidecheng.jpg
+Source38:       hangzhouxihu_photo_from_lidecheng.jpg
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -296,9 +298,13 @@ install -d -m 0755 %{buildroot}%{_datadir}/glib-2.0/schemas
 install -m 0644 %{SOURCE11} \
     %{buildroot}%{_datadir}/glib-2.0/schemas/99-airymaxos-default.gschema.override
 
-install -d -m 0755 %{buildroot}%{_datadir}/backgrounds/airymaxos
-install -m 0644 %{SOURCE5} \
-    %{buildroot}%{_datadir}/backgrounds/airymaxos/airymaxos-default.jpg
+airy_bgs=%{buildroot}%{_datadir}/backgrounds/airymaxos
+install -d -m 0755 "${airy_bgs}"
+install -m 0644 %{SOURCE5} "${airy_bgs}/qilian_photo_from_zhenyi.jpg"
+install -m 0644 %{SOURCE37} \
+    "${airy_bgs}/clouds_moonlight_photo_from_lidecheng.jpg"
+install -m 0644 %{SOURCE38} \
+    "${airy_bgs}/hangzhouxihu_photo_from_lidecheng.jpg"
 
 install -d -m 0755 %{buildroot}%{_datadir}/airymaxos/distro/desktop
 install -m 0755 %{SOURCE4} \
@@ -585,7 +591,11 @@ grep -qF '<!DOCTYPE wallpapers SYSTEM' \
     %{buildroot}%{_datadir}/ukui-background-properties/airymaxos-default.xml
 grep -qF "picture-filename='" \
     %{buildroot}%{_datadir}/glib-2.0/schemas/99-airymaxos-default.gschema.override
-test -s %{buildroot}%{_datadir}/backgrounds/airymaxos/airymaxos-default.jpg
+# 内置壁纸集合恰为三张（R1-15）：多一张是上游壁纸漏进镜像，少一张是
+# 注册表指向了不存在的文件，两种都在装机后才表现为空背景，故在构建期
+# 直接数目录内容，而不是逐条断言三件存在。
+airy_papers=%{buildroot}%{_datadir}/backgrounds/airymaxos
+test "$(find "${airy_papers}" -maxdepth 1 -type f -name '*.jpg' | wc -l)" -eq 3
 
 %post
 # schema 编译先于策略脚本：内置壁纸默认值（T5 验收项）不能被后续脚本的
@@ -656,7 +666,9 @@ fi
 %{_datadir}/plymouth/themes/default.plymouth
 %{_datadir}/ukui-background-properties/airymaxos-default.xml
 %{_datadir}/glib-2.0/schemas/99-airymaxos-default.gschema.override
-%{_datadir}/backgrounds/airymaxos/airymaxos-default.jpg
+%{_datadir}/backgrounds/airymaxos/qilian_photo_from_zhenyi.jpg
+%{_datadir}/backgrounds/airymaxos/clouds_moonlight_photo_from_lidecheng.jpg
+%{_datadir}/backgrounds/airymaxos/hangzhouxihu_photo_from_lidecheng.jpg
 %{_datadir}/airymaxos/distro/desktop/70-airymax-ukui-policy.sh
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
@@ -685,6 +697,14 @@ fi
   no policy override. The seat, the single sudo rule, the smoke checks
   and the site suffix move with it, and %check pins the same account
   name in all of them
+- Restrict the built-in wallpaper set to the three brand defaults named in
+  lockfile/ukui-wallpapers.yaml and stop shipping the derived
+  airymaxos-default.jpg alias: the registry, the default background and
+  the files on disk were three separate lists, so a change to one of them
+  silently left the other two pointing at a missing file. The registry
+  now lists exactly the three, the schema override selects one of them,
+  and %check counts the directory instead of asserting three separate
+  paths, which also catches an upstream wallpaper package leaking in
 - Version bump to 0.0.4
 * Mon Nov 02 2026 SPHARX <dev@spharx.com> - 0.0.3-27
 - Ship /etc/NetworkManager/conf.d/99-airymax.conf: the desktop policy

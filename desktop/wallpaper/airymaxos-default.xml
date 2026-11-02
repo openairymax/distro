@@ -1,17 +1,36 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE wallpapers SYSTEM "gnome-wp-list.dtd">
 <!--
-  AirymaxOS 系统壁纸注册表。
+  AirymaxOS 系统壁纸注册表（R1-15）。
   部署：airymaxos-release 包安装到 /usr/share/ukui-background-properties/。
   ukui-control-center 启动时扫描该目录下全部 *.xml，重建用户级
   ~/.config/ukui/wallpaper.xml；DOCTYPE 必须保留，生成用户文件时原样继承。
-  字段集合与 ukui-wallpapers 包一致（pcolor/scolor/shade_type）。
+  集合恰为三张品牌默认集，文件名与 lockfile/ukui-wallpapers.yaml 同源；
+  默认背景由 glib schema override 指定，不依赖本文件的条目顺序。
 -->
 <wallpapers>
   <wallpaper deleted="false">
     <name>AirymaxOS</name>
     <name xml:lang="zh_CN">AirymaxOS 默认壁纸</name>
-    <filename>/usr/share/backgrounds/airymaxos/airymaxos-default.jpg</filename>
+    <filename>/usr/share/backgrounds/airymaxos/qilian_photo_from_zhenyi.jpg</filename>
+    <options>zoom</options>
+    <pcolor>#000000</pcolor>
+    <scolor>#000000</scolor>
+    <shade_type>solid</shade_type>
+  </wallpaper>
+  <wallpaper deleted="false">
+    <name>AirymaxOS Clouds Moonlight</name>
+    <name xml:lang="zh_CN">AirymaxOS 云海月光</name>
+    <filename>/usr/share/backgrounds/airymaxos/clouds_moonlight_photo_from_lidecheng.jpg</filename>
+    <options>zoom</options>
+    <pcolor>#000000</pcolor>
+    <scolor>#000000</scolor>
+    <shade_type>solid</shade_type>
+  </wallpaper>
+  <wallpaper deleted="false">
+    <name>AirymaxOS Hangzhou West Lake</name>
+    <name xml:lang="zh_CN">AirymaxOS 杭州西湖</name>
+    <filename>/usr/share/backgrounds/airymaxos/hangzhouxihu_photo_from_lidecheng.jpg</filename>
     <options>zoom</options>
     <pcolor>#000000</pcolor>
     <scolor>#000000</scolor>

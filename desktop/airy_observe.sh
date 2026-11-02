@@ -412,7 +412,8 @@ sched_report() {
 identity_report() {
     os_keys
     emit brand.grub "$(grub_brand)"
-    wallpaper=$(have /usr/share/backgrounds/airymaxos/airymaxos-default.jpg)
+    wallpaper=$(have \
+        /usr/share/backgrounds/airymaxos/qilian_photo_from_zhenyi.jpg)
     emit brand.wallpaper "$wallpaper"
     schema=$(have /usr/share/glib-2.0/schemas/99-airymaxos-default.gschema.override)
     emit brand.schema "$schema"

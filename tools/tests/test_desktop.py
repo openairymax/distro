@@ -27,7 +27,7 @@ import fakes
 
 BASE = Path(__file__).resolve().parents[2]
 SPEC = BASE / "specs" / "airymaxos-release.spec"
-WALLPAPER = "/usr/share/backgrounds/airymaxos/airymaxos-default.jpg"
+WALLPAPER = "/usr/share/backgrounds/airymaxos/qilian_photo_from_zhenyi.jpg"
 
 # 身份夹具按真实命名口径造（PRETTY_NAME = 短名 + 版本号），短名与版本
 # 由 release/os-release 单点派生，避免每次发版都改一批与资产契约无关的
@@ -94,8 +94,14 @@ ASSETS = (
     ("desktop/glib-2.0/schemas/99-airymaxos-default.gschema.override",
      "%{_datadir}/glib-2.0/schemas/"
      "99-airymaxos-default.gschema.override"),
-    ("desktop/wallpaper/airymaxos-default.jpg",
-     "%{_datadir}/backgrounds/airymaxos/airymaxos-default.jpg"),
+    ("release/wallpapers/qilian_photo_from_zhenyi.jpg",
+     "%{_datadir}/backgrounds/airymaxos/qilian_photo_from_zhenyi.jpg"),
+    ("release/wallpapers/clouds_moonlight_photo_from_lidecheng.jpg",
+     "%{_datadir}/backgrounds/airymaxos/"
+     "clouds_moonlight_photo_from_lidecheng.jpg"),
+    ("release/wallpapers/hangzhouxihu_photo_from_lidecheng.jpg",
+     "%{_datadir}/backgrounds/airymaxos/"
+     "hangzhouxihu_photo_from_lidecheng.jpg"),
     ("login/50-airymax-sshd.conf",
      "%{_sysconfdir}/ssh/sshd_config.d/50-airymax-sshd.conf"),
     ("login/90-airymax-sudoers",
@@ -144,7 +150,7 @@ def identity_root(root):
         # 短名段，不取含中文的 NAME。
         "etc/default/grub": f'GRUB_DISTRIBUTOR="{BRAND}"\n',
         "etc/hostname": "airymaxos\n",
-        "usr/share/backgrounds/airymaxos/airymaxos-default.jpg": "",
+        "usr/share/backgrounds/airymaxos/qilian_photo_from_zhenyi.jpg": "",
         "usr/share/glib-2.0/schemas/"
         "99-airymaxos-default.gschema.override": "",
     }
@@ -242,18 +248,34 @@ class DesktopAssetTest(unittest.TestCase):
 
         targets = {rel: expand(dst) for rel, dst in ASSETS}
         self.assertEqual(
-            targets["desktop/wallpaper/airymaxos-default.jpg"], WALLPAPER)
+            targets["release/wallpapers/qilian_photo_from_zhenyi.jpg"],
+            WALLPAPER)
 
     def test_wallpaper_registry(self):
+        # 注册表、lockfile 与实物三处同源：注册表多一条会指向不存在的
+        # 文件，少一条则选择器里少一张；lockfile 是集合的唯一台账，故按
+        # 集合比对而不是逐条断言存在。
         path = self.asset("desktop/wallpaper/airymaxos-default.xml")
         text = path.read_text(encoding="utf-8")
         self.assertIn('<!DOCTYPE wallpapers SYSTEM "gnome-wp-list.dtd">', text)
-        entry = ET.parse(path).getroot().find("wallpaper")
-        self.assertEqual(entry.get("deleted"), "false")
-        self.assertEqual(entry.findtext("name"), "AirymaxOS")
-        self.assertEqual(entry.findtext("options"), "zoom")
-        self.assertTrue((BASE / "desktop" / "wallpaper" /
-                         "airymaxos-default.jpg").is_file())
+        entries = ET.parse(path).getroot().findall("wallpaper")
+        self.assertEqual([e.findtext("name") for e in entries], [
+            "AirymaxOS",
+            "AirymaxOS Clouds Moonlight",
+            "AirymaxOS Hangzhou West Lake",
+        ])
+        files = [Path(e.findtext("filename")).name for e in entries]
+        lock = self.asset("lockfile/ukui-wallpapers.yaml").read_text(
+            encoding="utf-8")
+        shipped = re.findall(r"^  - name: (\S+)$", lock, re.M)
+        self.assertEqual(len(shipped), 3)
+        self.assertEqual(sorted(files), sorted(shipped))
+        disk = sorted(p.name for p in
+                      (BASE / "release" / "wallpapers").iterdir())
+        self.assertEqual(disk, sorted(shipped))
+        for entry in entries:
+            self.assertEqual(entry.get("deleted"), "false")
+            self.assertEqual(entry.findtext("options"), "zoom")
 
     def test_schema_override_minimal(self):
         override = parse_kv(self.asset(
