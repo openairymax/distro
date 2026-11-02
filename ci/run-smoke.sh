@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
 # ===========================================================================
-# run-smoke.sh — distro 组合冒烟（TAP 16）
+# run-smoke.sh — distro 组合冒烟（TAP 17）
 #
 # 用法:
 #   ./run-smoke.sh <被测镜像/系统标识>
@@ -13,6 +13,7 @@
 #   AIRYMAX_SMOKE_ROOT  只读系统视图的根前缀（默认空，即真实 /）。T6–T16 读取
 #                       /boot、/sys、/etc 与 /usr/lib 下的发行版标识与资产，
 #                       单测在沙箱里用该前缀复核判定，装机现场保持默认值。
+#                       T17 读实时块层，不经该前缀。
 #
 # 覆盖:
 #   T1  UKUI X11 会话：loginctl 会话属性、ukui-session 进程、X server 可达
@@ -32,6 +33,7 @@
 #   T14 运行期软件源：已安装系统的每个启用段都指向可解析的基底镜像
 #   T15 启动参数：/etc/default/grub 持有 rhgb quiet，os-prober 已关闭
 #   T16 观测工具：airy-bench / airy-observe / airy-demo 随镜像交付且自检为 ok
+#   T17 系统盘布局：/ 与 /data 各挂在一个分区上，且不是同一个分区
 #
 # 判定语义:
 #   0  — 全部通过
@@ -645,8 +647,47 @@ t16_obs_tools() {
     printf 'bench=ok demo=ok observe=ok\n'
 }
 
+# T17 系统盘布局：安装器把系统与数据放在两个独立分区上，数据分区才能单独
+# 扩容、单独重建而不动系统分区。判据取实际挂载源（findmnt）与设备类型
+# （lsblk），不读安装期写的计划文件：计划与落地不一致正是要抓的回归。
+# btrfs 子卷在 findmnt 里表现为 `/dev/sda2[/@data]`，与系统同一分区，不能
+# 当作独立数据分区，因此还要求挂载源本身是 part。
+t17_disk_layout() {
+    local root data rtype dtype parts
+    need findmnt || return $?
+    need lsblk || return $?
+    root="$(findmnt -n -o SOURCE / 2>&1)" || {
+        echo "findmnt /: ${root:-no source}"
+        return 1
+    }
+    data="$(findmnt -n -o SOURCE /data 2>&1)" || {
+        echo "/data not mounted: ${data:-no source}"
+        return 1
+    }
+    [ "${root}" != "${data}" ] || {
+        printf '/ and /data share %s\n' "${root}"
+        return 1
+    }
+    rtype="$(lsblk -n -o TYPE "${root}" 2>&1)" || {
+        printf 'lsblk %s: %s\n' "${root}" "${rtype:-no type}"
+        return 1
+    }
+    dtype="$(lsblk -n -o TYPE "${data}" 2>&1)" || {
+        printf 'lsblk %s: %s\n' "${data}" "${dtype:-no type}"
+        return 1
+    }
+    expect "${rtype}" part "TYPE ${root}" || return 1
+    expect "${dtype}" part "TYPE ${data}" || return 1
+    parts="$(lsblk -n -o TYPE 2>/dev/null | grep -cx part)" || parts=0
+    [ "${parts}" -ge 2 ] || {
+        echo "lsblk partitions: ${parts} (want >=2)"
+        return 1
+    }
+    printf '%s=part %s=part partitions=%s\n' "${root}" "${data}" "${parts}"
+}
+
 printf 'TAP version 14\n'
-printf '1..16\n'
+printf '1..17\n'
 printf '# AirymaxOS distro smoke: target=%s date=%s\n' \
     "${TARGET}" "$(date -u '+%FT%TZ')"
 
@@ -666,6 +707,7 @@ probe 13 "T13 passwordless desktop" t13_passwordless_desktop
 probe 14 "T14 installed dnf sources" t14_repos
 probe 15 "T15 durable boot arguments" t15_boot_args
 probe 16 "T16 observer tools selfcheck" t16_obs_tools
+probe 17 "T17 system disk layout" t17_disk_layout
 
 printf '# summary: pass=%d fail=%d\n' "${PASS}" "${FAIL}"
 [ "${FAIL}" -eq 0 ]

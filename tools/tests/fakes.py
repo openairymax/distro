@@ -8,7 +8,7 @@
 # 文件各自维护一份而出现语义漂移。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.3
+# Version: 0.0.4
 # ===========================================================================
 
 import shutil
@@ -1073,8 +1073,33 @@ $1 == d { print $3; found = 1; exit }
 END { exit(found ? 0 : 1) }' "$db"
 """
 
+# findmnt 的两种用法：选盘脚本只要一个「当前启动介质」源，冒烟 T17 要按
+# 挂载点分别取证。数据库形式（FAKE_FINDMNT_DB，每行「挂载点|源」）优先；
+# 未给数据库时退回单值形式，保持既有调用方的语义。
 FINDMNT = """\
 #!/bin/sh
+db=${FAKE_FINDMNT_DB:-}
+target=/
+while [ $# -gt 0 ]; do
+    case "$1" in
+    -o|--output) shift ;;
+    --target) shift; target=${1:-} ;;
+    -n|--noheadings) ;;
+    -*) ;;
+    *) target=$1 ;;
+    esac
+    shift
+done
+if [ -n "$db" ]; then
+    [ -r "$db" ] || exit 1
+    awk -F'|' -v t="$target" '
+        $1 == t { print $2; found = 1; exit }
+        END { exit(found ? 0 : 1) }' "$db" || {
+        printf 'findmnt: %s not mounted\\n' "$target" >&2
+        exit 1
+    }
+    exit 0
+fi
 [ -n "${FAKE_FINDMNT_ROOT:-}" ] || exit 1
 printf '%s\\n' "$FAKE_FINDMNT_ROOT"
 """
@@ -1152,7 +1177,8 @@ def smoke_tools(bin_dir, omit=()):
              ("xdpyinfo", XDPYINFO), ("fcitx-remote", FCITX_REMOTE),
              ("pactl", PACTL), ("systemctl", SYSTEMCTL),
              ("gsettings", GSETTINGS), ("sha256sum", SHA256SUM),
-             ("uname", UNAME), ("xrandr", XRANDR))
+             ("uname", UNAME), ("xrandr", XRANDR),
+             ("findmnt", FINDMNT), ("lsblk", LSBLK))
     for name, body in table:
         if name not in omit:
             write(bin_dir, name, body)

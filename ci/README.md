@@ -1,7 +1,7 @@
 # ci — 组合冒烟矩阵
 
 > 目标：每一次"桌面包组 × 内核 RPM"的冻结点滚动/内核指针推进，
-> 都经过同一套可重复的九项最低验收。
+> 都经过同一套可重复的十七项最低验收。
 
 ## 冒烟矩阵
 
@@ -23,6 +23,7 @@
 | T14 | 运行期软件源 | 每个启用段都指向基底镜像的绝对地址（无 `$releasever`、无明文 http、宿主一致） | 装完之后仍可更新 |
 | T15 | 启动参数 | `/etc/default/grub` 持有 `rhgb quiet`，且 `GRUB_DISABLE_OS_PROBER=true` | 启动观感可持久、菜单只列自有内核 |
 | T16 | 观测工具 | `airy-bench --check` 完成一轮 IPC 往返自检、`airy-demo --check` 清点对端与终端、`airy-observe --static` 的资产与品牌字段齐全（三者 status 均为 ok） | 装机后即可现场观测与演示 |
+| T17 | 系统盘布局 | `findmnt` 取证 `/` 与 `/data` 各挂在一个 `part` 上且互不相同；`lsblk` 统计的分区数 ≥2 | DISK-01 双分区落地（不读安装期计划，只看实际块层） |
 | X1 | 内核仓反向门禁 | kernel CI 持续拒绝 Qt/X11/Wayland 头依赖与 KABI 白名单外变更（由 agent-linux CI 承担，此处仅交叉核对报告） | 双向不污染 |
 
 ## 矩阵维度
@@ -62,9 +63,9 @@ lockfile 冻结点（滚动触发） × 内核 RPM（6.6-airymax.n）
 - `run-smoke.sh` 必须在已登录的 UKUI 桌面会话内以该桌面用户运行
   （TV-02 桌面验收），不由宿主机驱动；探测只读系统状态，不改配置。
   `loginctl`/`pgrep`/`xdpyinfo`/`fcitx-remote`/`pactl`/`gsettings`/
-  `sha256sum` 随镜像交付，缺失即判失败：被测系统就是产品镜像本身，
-  工具缺失说明包组合不完整，没有“外部测试机不支持”这一豁免，因此
-  runner 不产生 TAP SKIP。
+  `sha256sum`/`findmnt`/`lsblk` 随镜像交付，缺失即判失败：被测系统就是
+  产品镜像本身，工具缺失说明包组合不完整，没有“外部测试机不支持”这
+  一豁免，因此 runner 不产生 TAP SKIP。
   镜像 CI 只覆盖安装与启动链，不替代桌面冒烟。
   测试机接入：0.0.3 由 GitHub Actions runner 承载安装与冷启动验收
   （`image-ci.yml` 的 `accept` job），不依赖独立测试机；`/dev/kvm` 可用时
@@ -107,7 +108,7 @@ ci/run-image-ci.sh --out /out --iso-base /path/netinst.iso \
 关键链只在此处采集：验收安装 `%post` 已 mask `airymax-desktop-ready.service`，
 同一观测点不设第二个判定者，`osaccrt_bootchain` 据此对账 `boot.service`。
 
-判定要求计划为 `1..16`、十六条 `ok`、无 `not ok`/`Bail out!`/`# SKIP`、
+判定要求计划为 `1..17`、十七条 `ok`、无 `not ok`/`Bail out!`/`# SKIP`、
 `# summary` 的 `fail=0`。会话内 runner 上限 180s，
 report 轮询上限 240s；由于转发先于结论标记，宿主机命中
 `AIRYMAX-SMOKE-PASS` 时 TAP 全文已在串口，`image-ci.yml` 的
