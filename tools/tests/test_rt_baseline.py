@@ -4,8 +4,8 @@
 #
 # 基线工具的风险不在于数字算错，而在于把不该比较的两份数据比出结论：
 # 换内核、换等级、缺标识字段都应判为不可比，而不是通过或失败。用例覆盖
-# 记录（多轮取最坏、超阈值仍如实记录、测量失败即报错）与比较（边界值、
-# 系数覆盖、三类不可比、数据缺失）两条路径。
+# 记录（多轮取最坏、超阈值如实记录并判失败、测量失败即报错）与比较（边界
+# 值、系数覆盖、三类不可比、数据缺失）两条路径。
 
 from __future__ import annotations
 
@@ -100,9 +100,12 @@ class RecordTest(Base):
                 '"max_us":%%s,"limit_us":100}\\n\' "$line"\n') % self.values
         path = self.bin / "gate"
         path.write_text(body, encoding="ascii")
-        done = self.tools("record", "--rounds", "1")
-        self.assertEqual(done.returncode, 0, done.stderr)
+        out = self.base / "bad.json"
+        done = self.tools("record", "--rounds", "1", "--out", str(out))
+        self.assertEqual(done.returncode, 1)
         self.assertEqual(json.loads(done.stdout)["max_us"], 180)
+        self.assertTrue(out.exists(), "不合格的数据仍要落盘，便于现场取证")
+        self.assertIn("不可作为合格基线", done.stderr)
 
     def test_measure_failure(self) -> None:
         body = ('#!/bin/sh\n'

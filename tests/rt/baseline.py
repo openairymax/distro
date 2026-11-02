@@ -145,7 +145,12 @@ def _record(args: argparse.Namespace) -> int:
     if args.out:
         Path(args.out).write_text(text + "\n", encoding="utf-8")
     print(text)
-    return 0
+    bad = [r for r in found["rounds"] if r["verdict"] != "pass"]
+    if not bad:
+        return 0
+    print("rt-baseline: %d/%d 轮未达门禁，数据已记录但不可作为合格基线"
+          % (len(bad), len(found["rounds"])), file=sys.stderr)
+    return 1
 
 
 def _current(args: argparse.Namespace) -> dict | None:
