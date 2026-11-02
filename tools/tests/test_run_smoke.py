@@ -4,15 +4,15 @@
 # test_run_smoke.py — ci/run-smoke.sh 契约回归测试
 #
 # 冒烟脚本必须在已登录的 UKUI 桌面会话内运行，CI 宿主机不具备该环境。
-# 脚本对外契约是：TAP 16 计划、十六项探测的判定，以及“探测工具缺失即失败”
+# 脚本对外契约是：TAP 17 计划、十七项探测的判定，以及“探测工具缺失即失败”
 # 的退出码规则。这里用 PATH 沙箱提供伪 loginctl /
 # pgrep / xdpyinfo / fcitx-remote / pactl / systemctl / gsettings /
-# sha256sum / uname / xrandr，并给 T6–T16 准备一份只读系统视图
-# （AIRYMAX_SMOKE_ROOT），每个用例只破坏一个前提，从而在无桌面环境下判定
-# 真实控制流。
+# sha256sum / uname / xrandr / findmnt / lsblk，并给 T6–T16 准备一份只读
+# 系统视图（AIRYMAX_SMOKE_ROOT），每个用例只破坏一个前提，从而在无桌面
+# 环境下判定真实控制流。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.3
+# Version: 0.0.4
 # ===========================================================================
 
 import shutil
@@ -71,6 +71,14 @@ GRUB_CMDLINE_LINUX="console=tty0 console=ttyS0,115200 rhgb quiet"
 GRUB_DISABLE_OS_PROBER=true
 """
 
+# T17 的挂载视图与块层表：/ 与 /data 各占一个分区。挂载视图每行
+# 「挂载点|源」（与 fakes.FINDMNT 一致），块层表格式由 fakes.LSBLK 定义
+# （path|type|bytes|rm|tran|serial|model|mounts）。
+MOUNTS = "/|/dev/sda1\n/data|/dev/sda2\n"
+BLOCKS = ("/dev/sda|disk|268435456000|0|sata|||\n"
+          "/dev/sda1|part|1073741824|0|sata|||\n"
+          "/dev/sda2|part|267326668800|0|sata|||\n")
+
 # T10 的两份 xrandr --query 拓扑：已在策略模式、以及首选 4K 待下调。
 TOPO_OK = ("Screen 0: minimum 8 x 8, current 1920 x 1080,"
            " maximum 32767 x 32767\n"
@@ -94,6 +102,10 @@ class RunSmokeTest(unittest.TestCase):
         self.sysroot = self.root / "sysroot"
         self.make_sysroot()
         self.install_display()
+        self.mounts = self.root / "mounts"
+        self.blocks = self.root / "blocks"
+        self.write_mounts()
+        self.write_blocks()
 
     def tearDown(self):
         self._tmp.cleanup()
@@ -240,6 +252,14 @@ class RunSmokeTest(unittest.TestCase):
     def write_topo(self, body):
         self.topo.write_text(body, encoding="utf-8")
 
+    def write_mounts(self, body=MOUNTS):
+        """T17 的挂载视图：伪 findmnt 按挂载点取源。"""
+        self.mounts.write_text(body, encoding="utf-8")
+
+    def write_blocks(self, body=BLOCKS):
+        """T17 的块层表：伪 lsblk 给出设备类型与挂载点。"""
+        self.blocks.write_text(body, encoding="utf-8")
+
     def tools(self, omit=()):
         fakes.link_tools(self.bin)
         fakes.smoke_tools(self.bin, omit)
@@ -268,6 +288,8 @@ class RunSmokeTest(unittest.TestCase):
             "XMODIFIERS": "@im=fcitx",
             "FAKE_PROCS": "ukui-session-manager fcitx",
             "FAKE_XRANDR_TOPO": str(self.topo),
+            "FAKE_FINDMNT_DB": str(self.mounts),
+            "FAKE_LSBLK_DB": str(self.blocks),
             "AIRYMAX_SMOKE_WAIT": "0",
             "AIRYMAX_SMOKE_ROOT": str(self.sysroot),
         }
@@ -307,9 +329,9 @@ class RunSmokeTest(unittest.TestCase):
         self.tools()
         res = self.run_smoke()
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res), {"pass": 16, "fail": 0})
+        self.assertEqual(self.summary(res), {"pass": 17, "fail": 0})
         self.assertNotIn("# SKIP", res.stdout)
-        self.assertEqual(len(self.taps(res)), 16)
+        self.assertEqual(len(self.taps(res)), 17)
         for line in self.taps(res):
             self.assertTrue(line.startswith("ok"), line)
 
@@ -317,7 +339,7 @@ class RunSmokeTest(unittest.TestCase):
         self.tools()
         res = self.run_smoke()
         self.assertIn("TAP version 14", res.stdout)
-        self.assertIn("1..16", res.stdout.splitlines())
+        self.assertIn("1..17", res.stdout.splitlines())
         self.assertIn(
             "# AirymaxOS distro smoke: target=airymaxos-0.0.3", res.stdout)
 
@@ -424,7 +446,7 @@ class RunSmokeTest(unittest.TestCase):
         finally:
             timer.cancel()
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res), {"pass": 16, "fail": 0})
+        self.assertEqual(self.summary(res), {"pass": 17, "fail": 0})
 
     def test_slice_wrong(self):
         self.tools()
@@ -484,7 +506,7 @@ class RunSmokeTest(unittest.TestCase):
         self.tools(omit=("loginctl",))
         res = self.run_smoke()
         self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res), {"pass": 15, "fail": 1})
+        self.assertEqual(self.summary(res), {"pass": 16, "fail": 1})
         self.assert_fail(res, 1)
         self.assertIn("loginctl not installed", res.stdout)
         self.assertNotIn("# SKIP", res.stdout)
@@ -823,6 +845,51 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke()
         self.assert_fail(res, 16)
         self.assertIn("status=partial", res.stdout)
+
+    def test_disk_layout_ok(self):
+        self.tools()
+        res = self.run_smoke()
+        self.assertIn("ok 17 - T17 system disk layout", res.stdout)
+        self.assertIn("/dev/sda1=part /dev/sda2=part partitions=2",
+                      res.stdout)
+
+    def test_data_unmounted(self):
+        # 安装期没建数据分区：数据落在系统分区里，扩容只能整盘重建
+        self.tools()
+        self.write_mounts("/|/dev/sda1\n")
+        res = self.run_smoke()
+        self.assert_fail(res, 17)
+        self.assertIn("/data not mounted", res.stdout)
+
+    def test_data_on_root_partition(self):
+        self.tools()
+        self.write_mounts("/|/dev/sda1\n/data|/dev/sda1\n")
+        res = self.run_smoke()
+        self.assert_fail(res, 17)
+        self.assertIn("/ and /data share /dev/sda1", res.stdout)
+
+    def test_data_not_partition(self):
+        # 数据落在 LVM/btrfs 子卷上：与系统共享同一块分区，判据要求 part
+        self.tools()
+        self.write_mounts("/|/dev/sda1\n"
+                          "/data|/dev/mapper/airy-data\n")
+        self.write_blocks(BLOCKS + "/dev/mapper/airy-data|lvm|"
+                          "267000000000|0|||\n")
+        res = self.run_smoke()
+        self.assert_fail(res, 17)
+        self.assertIn("TYPE /dev/mapper/airy-data: lvm", res.stdout)
+
+    def test_findmnt_absent(self):
+        self.tools(omit=("findmnt",))
+        res = self.run_smoke()
+        self.assert_fail(res, 17)
+        self.assertIn("findmnt not installed", res.stdout)
+
+    def test_lsblk_absent(self):
+        self.tools(omit=("lsblk",))
+        res = self.run_smoke()
+        self.assert_fail(res, 17)
+        self.assertIn("lsblk not installed", res.stdout)
 
 
 if __name__ == "__main__":
