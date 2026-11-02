@@ -165,7 +165,7 @@ class KsSpecTest(unittest.TestCase):
         rows = [line.split("\t") for line in res.stdout.splitlines()]
         self.assertEqual(rows[0], ["baseos",
                                    "https://repo.openeuler.org/openEuler-24.03-"
-                                   "LTS-SP2/OS/$basearch/", "1000"])
+                                   "LTS-SP3/OS/$basearch/", "1000"])
         self.assertEqual(len(rows), 5)
 
     def test_cli_pkgs(self):

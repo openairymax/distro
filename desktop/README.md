@@ -1,7 +1,7 @@
 # desktop — UKUI 桌面集成策略
 
 > 决策（2026-09-15）：OS 侧系统桌面 = **UKUI（openKylin/openEuler 线）**。
-> 0.0.4 取基底 openEuler 24.03 LTS-SP2 EPOL/main 的 3.1 组件代；上游
+> 0.0.4 取基底 openEuler 24.03 LTS-SP3 EPOL/main 的 3.1 组件代；上游
 > 4.24 自建闭包顺延，组件清单与 NVRA 见 `lockfile/ukui-components.yaml`。
 > 本目录是该决策在发行版组装层的落地资产；全部静态文件由
 > `airymaxos-release` 的 `%install` 直接安装到最终路径，`%post` 只做运行期
@@ -27,7 +27,7 @@ KylinBot 及其 MCP 桌面控制栈（`kylin-ai*` 包族）**排除 + 屏蔽**�
   `systemctl --root=/ disable` + `mask`（不依赖 systemd 总线，不使用
   `--now`）。
 
-openEuler 24.03 LTS-SP2 冻结点不含任何 `kylin-ai*` 包，脚本中的单元清单
+openEuler 24.03 LTS-SP3 冻结点不含任何 `kylin-ai*` 包，脚本中的单元清单
 是防御式约束：上游以后引入同名单元时屏蔽仍然生效。
 
 ### 3. 调度隔离：桌面低干扰
@@ -287,7 +287,7 @@ multi-user.target，不会触发该单元；workstation kickstart 显式 enable�
 此时 `airy-record --check` 给出 `check status=degraded` 并以非零退出，而不是
 把「装不了」误当「录好了」。
 
-## 冻结点核对结论（openEuler 24.03 LTS-SP2）
+## 冻结点核对结论（openEuler 24.03 LTS-SP3）
 
 | 项 | 模板假设 | 实际结论 | 状态 |
 |---|---|---|---|

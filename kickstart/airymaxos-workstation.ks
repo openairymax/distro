@@ -3,7 +3,7 @@
 # AirymaxOS 0.0.4（x86_64）工作站安装 kickstart — UKUI 桌面
 #
 # 桌面决策（2026-09-15）：OS 侧系统桌面 = UKUI（openKylin/openEuler 线）；
-#           0.0.4 取基底 24.03 LTS-SP2 EPOL/main 的 3.1 组件代
+#           0.0.4 取基底 24.03 LTS-SP3 EPOL/main 的 3.1 组件代
 # 隔离铁律：agent 控制面唯一入口 = Gateway（JSON-RPC 2.0），桌面自带
 #           AI 控制面（KylinBot / kylin-ai*）一律排除，见 desktop/README.md
 #
@@ -19,7 +19,7 @@
 #
 # 离线仓库由 scripts/build-desktop.sh 注入 ISO 根 /airymax，Anaconda 以
 # file:// 直接读取；其 repodata 携带 comps 分组，@^airymax-workstation
-# 才能解析。SP 分支以 lockfile 冻结点为准（当前模板按 SP2 书写）。
+# 才能解析。SP 分支以 lockfile 冻结点为准（当前模板按 SP3 书写）。
 #
 # 本文件是构建期姿态：闭包收割需要上游仓库才能求解全部依赖。写入 ISO 的
 # 安装期配方由 ks_spec.py install 投影得到——安装源改指载荷仓库、剔除全部
@@ -34,11 +34,11 @@ keyboard us
 timezone Asia/Shanghai --utc
 
 # ---- 仓库 ----
-url --url=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/OS/$basearch/
-repo --name=update     --baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/update/$basearch/ --cost=100
-repo --name=epol       --baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/EPOL/main/$basearch/ --cost=100
-repo --name=epol-update --baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/EPOL/update/main/$basearch/ --cost=100
-repo --name=everything --baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/everything/$basearch/ --cost=2000
+url --url=https://repo.openeuler.org/openEuler-24.03-LTS-SP3/OS/$basearch/
+repo --name=update     --baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP3/update/$basearch/ --cost=100
+repo --name=epol       --baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP3/EPOL/main/$basearch/ --cost=100
+repo --name=epol-update --baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP3/EPOL/update/main/$basearch/ --cost=100
+repo --name=everything --baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP3/everything/$basearch/ --cost=2000
 # 安装期仓库集合与运行期客户端配置（repo/airymax-os.repo）分属两层：
 # 前者只求安装闭包可解析，后者是产品自有仓库（docs-linux/
 # 190-distribution/01-rpm-packaging.md §5.2）。

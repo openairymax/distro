@@ -18,27 +18,27 @@ contentOrigin:
   repos:
     # 基础仓库（kickstart 的 url 行）
     - repoid: os
-      baseurl: https://repo.openeuler.org/openEuler-24.03-LTS-SP2/OS/$basearch/
+      baseurl: https://repo.openeuler.org/openEuler-24.03-LTS-SP3/OS/$basearch/
       gpgcheck: false
     # 基础仓库勘误
     - repoid: update
-      baseurl: https://repo.openeuler.org/openEuler-24.03-LTS-SP2/update/$basearch/
+      baseurl: https://repo.openeuler.org/openEuler-24.03-LTS-SP3/update/$basearch/
       cost: 100
       gpgcheck: false
     # 扩展仓库：UKUI 3.1 组件代（全部位于 EPOL/main）与 lightdm
     - repoid: epol
-      baseurl: https://repo.openeuler.org/openEuler-24.03-LTS-SP2/EPOL/main/$basearch/
+      baseurl: https://repo.openeuler.org/openEuler-24.03-LTS-SP3/EPOL/main/$basearch/
       cost: 100
       gpgcheck: false
     # 扩展仓库勘误
     - repoid: epol-update
-      baseurl: https://repo.openeuler.org/openEuler-24.03-LTS-SP2/EPOL/update/main/$basearch/
+      baseurl: https://repo.openeuler.org/openEuler-24.03-LTS-SP3/EPOL/update/main/$basearch/
       cost: 100
       gpgcheck: false
     # 桌面闭包补齐（qt5-qtgraphicaleffects 等仅发布于此）；cost 最高，
     # 只作兜底，不得覆盖主仓库版本
     - repoid: everything
-      baseurl: https://repo.openeuler.org/openEuler-24.03-LTS-SP2/everything/$basearch/
+      baseurl: https://repo.openeuler.org/openEuler-24.03-LTS-SP3/everything/$basearch/
       cost: 2000
       gpgcheck: false
 

@@ -7,11 +7,14 @@
 # repodata 中 UKUI 组件只存在于 EPOL/main，且没有 ukui-shell；元包 ukui 与
 # ukui-desktop-environment 有，但本版不用。因此桌面闭包只能逐组件声明——
 # 本校验器断言台账、comps、冻结输入与内部取证册四者同源，任一环漂移即判红。
+# 基底名不写死在本文件：从 lockfile/base.yaml 的 selected 读取，NVRA 的发行
+# 标记（oe2403sp3）随之复算，换 SP 时台账与本表不会各自为政。
 #
 #   verify --root DIR [--docs DIR]
 #
 # 判据（由 ci/gates/ukui-lock.sh 调用）：
-#   1. 台账 schema：基底、架构、五段、策略与 NVRA 正则；
+#   1. 台账 schema：基底与 base.yaml 同源、架构、五段、策略与 NVRA 正则，
+#      且每个 NVRA 的发行标记属选定基底；
 #   2. 核心四件 present，两个元包 available，ukui-shell absent；
 #   3. comps 的 UKUI 闭包与台账 present 集合相等，且每个组件只登记一次；
 #      闭包集合是 ukui* 命名空间与台账 present 项的并集——认证后端这类
@@ -26,7 +29,8 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-BASE = "openEuler-24.03-LTS-SP2"
+import lineyaml
+
 ARCH = "x86_64"
 SEGS = ["OS", "update", "EPOL/main", "EPOL/update/main", "everything"]
 ENV = "airymax-workstation"
@@ -38,7 +42,8 @@ UNPICKED = ("ukui", "ukui-desktop-environment")
 # 基底全条线不提供的包；一旦回流到闭包，装机求解必然失败。
 GONE = ("ukui-shell",)
 STATES = ("present", "available", "absent")
-NVRA = re.compile(r"^(.+)-0:([^-]+)-([^-]+)\.x86_64$")
+NVRA = re.compile(r"^(.+)-0:([^-]+)-([^-]+)\.(x86_64|noarch)$")
+RELEASE = re.compile(r"^openEuler-(\d+)\.(\d+)-LTS-SP(\d+)$")
 
 
 def say(msg):
@@ -50,37 +55,26 @@ def bad(out, code, msg):
 
 
 def parse_ledger(path):
-    """解析台账的行式 YAML 子集：顶层键、两段列表与策略表。"""
-    dat = {"segments": [], "policy": {}, "components": []}
-    sect, cur = "", None
-    for raw in Path(path).read_text(encoding="utf-8").splitlines():
-        line = raw.rstrip()
-        if not line or line.lstrip().startswith("#"):
-            continue
-        if not line.startswith(" "):
-            key, _, val = line.partition(":")
-            sect = key.strip()
-            if sect in ("base", "arch"):
-                dat[sect] = val.strip()
-            continue
-        if sect == "segments":
-            dat["segments"].append(line.strip().lstrip("- ").strip())
-        elif sect == "policy":
-            key, _, val = line.strip().partition(":")
-            dat["policy"][key.strip()] = val.strip()
-        elif sect == "components":
-            if cur is None or line.startswith("  - "):
-                cur = {}
-                dat["components"].append(cur)
-                line = "    " + line[len("  - "):]
-            key, _, val = line.strip().partition(":")
-            cur[key.strip()] = val.strip()
-    return dat
+    """解析台账；行式 YAML 子集由 lockfile/lineyaml 统一维护。"""
+    return lineyaml.load(path)
 
 
-def check_schema(led, out):
-    if led.get("base") != BASE:
-        bad(out, "schema/base", "%s != %s" % (led.get("base"), BASE))
+def read_base(root):
+    """从 base.yaml 取选定基底；缺失或未选中时返回空串。"""
+    path = Path(root) / "distro/lockfile/base.yaml"
+    return lineyaml.load(path).get("selected", "") if path.is_file() else ""
+
+
+def release_tag(base):
+    """把选定基底归一成 NVRA 里的发行标记，如 oe2403sp3。"""
+    hit = RELEASE.match(base)
+    return "oe%s%ssp%s" % (hit.group(1), hit.group(2), hit.group(3)) \
+        if hit else ""
+
+
+def check_schema(led, base, out):
+    if led.get("base") != base:
+        bad(out, "schema/base", "%s != %s" % (led.get("base"), base))
     if led.get("arch") != ARCH:
         bad(out, "schema/arch", "%s != %s" % (led.get("arch"), ARCH))
     if led.get("segments") != SEGS:
@@ -93,7 +87,7 @@ def check_schema(led, out):
                 % (key, pol.get(key), want))
 
 
-def check_pkg(name, rec, out):
+def check_pkg(name, rec, base, out):
     state = rec.get("state", "")
     if state not in STATES:
         bad(out, "ledger/state", "%s state=%s" % (name, state))
@@ -105,12 +99,15 @@ def check_pkg(name, rec, out):
     if rec.get("segment") not in SEGS:
         bad(out, "ledger/segment", "%s segment=%s"
             % (name, rec.get("segment")))
+    tag = release_tag(base)
     hit = NVRA.match(rec.get("nvra", ""))
     if not hit or hit.group(1) != name:
         bad(out, "ledger/nvra", "%s nvra=%s" % (name, rec.get("nvra")))
+    elif tag and ".%s." % tag not in rec.get("nvra", ""):
+        bad(out, "ledger/tag", "%s nvra 不属 %s" % (name, base))
 
 
-def check_items(led, out):
+def check_items(led, base, out):
     seen = {}
     for rec in led.get("components", []):
         name = rec.get("name", "")
@@ -118,7 +115,7 @@ def check_items(led, out):
             bad(out, "ledger/name", "组件名缺失或重复: %s" % name)
             continue
         seen[name] = rec.get("state", "")
-        check_pkg(name, rec, out)
+        check_pkg(name, rec, base, out)
     for name in CORE:
         if seen.get(name) != "present":
             bad(out, "ledger/core", "%s 未登记为 present" % name)
@@ -238,11 +235,16 @@ def main():
     if not path.is_file():
         sys.stderr.write("ledger/missing: %s\n" % path)
         return 1
+    base = read_base(root)
+    if not base:
+        sys.stderr.write("schema/base-missing: %s\n"
+                         % (root / "distro/lockfile/base.yaml"))
+        return 1
     led = parse_ledger(path)
     out = []
-    check_schema(led, out)
-    check_items(led, out)
-    pres = {c.get("name") for c in led["components"]
+    check_schema(led, base, out)
+    check_items(led, base, out)
+    pres = {c.get("name") for c in led.get("components", [])
             if c.get("state") == "present"}
     try:
         groups, xroot = read_comps(
@@ -254,7 +256,7 @@ def main():
     check_seeds(read_seeds(root / "distro/lockfile/rpms.in.yaml"),
                 pres, want, out)
     if args.docs:
-        check_docs(args.docs, [c for c in led["components"]
+        check_docs(args.docs, [c for c in led.get("components", [])
                                if c.get("state") == "present"], out)
     for line in out:
         sys.stderr.write("%s\n" % line)

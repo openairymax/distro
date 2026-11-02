@@ -3,9 +3,9 @@
 # ===========================================================================
 # cfg_brand.py — 引导菜单品牌化与缺省安装项改写
 #
-# AirymaxOS 的安装 ISO 以 openEuler 24.03-LTS-SP2 netinst 为底座，
+# AirymaxOS 的安装 ISO 以 openEuler 24.03-LTS-SP3 netinst 为底座，
 # mkksiso 注入 kickstart 重建后，引导菜单仍保留底座原文（"Install
-# openEuler 24.03-LTS-SP2"、"Rescue a openEuler system"），且缺省项停在
+# openEuler 24.03-LTS-SP3"、"Rescue a openEuler system"），且缺省项停在
 # "Test this media & install ..."（set default="1"）。无人值守安装会先跑
 # rd.live.check 把整份 3.7 GB 介质从 U 盘读一遍才开始装，既拖慢装机又让
 # 用户看到别家产品名。
@@ -104,8 +104,8 @@ def retitle(text, product):
 
     TITLE_RULES 只覆盖整条标题是标准形状的三种条目。底座还有两类标题
     匹配不到：热键符 ^ 出现在标题中间（"Test this ^media & install
-    openEuler 24.03-LTS-SP2"），以及菜单横幅 "menu title openEuler
-    24.03-LTS-SP2"。两类都退回底座品牌串替换：位置在中间的 ^ 与前后文
+    openEuler 24.03-LTS-SP3"），以及菜单横幅 "menu title openEuler
+    24.03-LTS-SP3"。两类都退回底座品牌串替换：位置在中间的 ^ 与前后文
     一字不动，只换产品名。
     """
     for pat, fmt in TITLE_RULES:
@@ -307,7 +307,7 @@ def i_help(lines, product):
     """改写 text help ... endtext 内的底座品牌串。
 
     帮助正文在 BIOS 菜单里按 Tab/F1 直接显示，底座原文
-    "installing openEuler 24.03-LTS-SP2." 会原样露给用户；只换产品名，
+    "installing openEuler 24.03-LTS-SP3." 会原样露给用户；只换产品名，
     缩进、换行与其余文字一字不动。
     """
     out = list(lines)

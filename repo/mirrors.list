@@ -9,10 +9,10 @@
 # 抽样，按实测吞吐降序排列（本机实测 0.3–2.1 MiB/s，差异近一个数量级）。
 # 增删根只需保证「同一份快照」——不同快照的 NEVRA 组合没有主机保证过，
 # 所以每次求解仍只用一个根，失败才换下一个。
-https://repo.openeuler.org/openEuler-24.03-LTS-SP2
-https://mirrors.nju.edu.cn/openeuler/openEuler-24.03-LTS-SP2
-https://mirrors.tuna.tsinghua.edu.cn/openeuler/openEuler-24.03-LTS-SP2
-https://mirrors.ustc.edu.cn/openeuler/openEuler-24.03-LTS-SP2
-https://mirrors.aliyun.com/openeuler/openEuler-24.03-LTS-SP2
-https://mirrors.cloud.tencent.com/openeuler/openEuler-24.03-LTS-SP2
-https://mirrors.huaweicloud.com/openeuler/openEuler-24.03-LTS-SP2
+https://repo.openeuler.org/openEuler-24.03-LTS-SP3
+https://mirrors.nju.edu.cn/openeuler/openEuler-24.03-LTS-SP3
+https://mirrors.tuna.tsinghua.edu.cn/openeuler/openEuler-24.03-LTS-SP3
+https://mirrors.ustc.edu.cn/openeuler/openEuler-24.03-LTS-SP3
+https://mirrors.aliyun.com/openeuler/openEuler-24.03-LTS-SP3
+https://mirrors.cloud.tencent.com/openeuler/openEuler-24.03-LTS-SP3
+https://mirrors.huaweicloud.com/openeuler/openEuler-24.03-LTS-SP3

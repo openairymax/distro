@@ -62,7 +62,7 @@
 # 基底版本是显式输入，与 distro/repo/airymax-os.repo 及 kickstart 的
 # url/repo 行是三处同源表达。%%check 以本宏断言客户端配置，版本漂移在
 # 构建期失败，而不是等到装机后 dnf 报「找不到仓库」。
-%global oe_base openEuler-24.03-LTS-SP2
+%global oe_base openEuler-24.03-LTS-SP3
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 
 Name:           airymaxos-release
@@ -374,7 +374,7 @@ test "$(grep -cF "https://mirrors.tuna.tsinghua.edu.cn/openeuler/%{oe_base}/" \
     "${airy_repo}")" -eq 5
 test "$(grep -cF "https://mirrors.huaweicloud.com/openeuler/%{oe_base}/" \
     "${airy_repo}")" -eq 5
-# SP2 的软件包与仓库元数据均无 PGP 签名，gpgcheck 若为 1 则 dnf 直接拒绝
+# SP3 的软件包与仓库元数据均无 PGP 签名，gpgcheck 若为 1 则 dnf 直接拒绝
 # 每一个包；两者的取值必须与信任边界一致，而不是留待装机现场发现。
 test "$(grep -c '^gpgcheck=0$' "${airy_repo}")" -eq 5
 test "$(grep -c '^repo_gpgcheck=0$' "${airy_repo}")" -eq 5

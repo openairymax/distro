@@ -9,7 +9,7 @@
 | 项 | 规则 |
 |---|---|
 | 基础仓库 | openEuler 24.03 LTS（SP 分支随内核基线期间选定，不追随滚动版） |
-| 冻结点标签 | `openEuler-24.03-LTS-SPx-YYYYMMDD`（例如 `openEuler-24.03-LTS-SP2-20260915`） |
+| 冻结点标签 | `openEuler-24.03-LTS-SPx-YYYYMMDD`（例如 `openEuler-24.03-LTS-SP3-20260915`） |
 | 冻结范围 | `airymax-workstation` 环境闭包（mandatory + default）在上游五个安装期仓库中的依赖闭包全量 EVR |
 | 不在冻结范围 | `airymaxos-*` 由本仓库 `specs/` 构建、随 ISO 离线仓库分发，版本由源码决定 |
 | 桌面组 | UKUI 3.1 组件代随冻结点进入，逐组件 NVRA 以 `ukui-components.yaml` 为准，不做"latest 追踪" |

@@ -50,19 +50,19 @@ OS_RELEASE = ('NAME="OpenAirymax 开源极境"\n'
 REPO = """\
 [airymaxos-base]
 name=AirymaxOS Base - $basearch
-baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/OS/$basearch/ https://mirrors.tuna.tsinghua.edu.cn/openeuler/openEuler-24.03-LTS-SP2/OS/$basearch/
+baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP3/OS/$basearch/ https://mirrors.tuna.tsinghua.edu.cn/openeuler/openEuler-24.03-LTS-SP3/OS/$basearch/
 enabled=1
 gpgcheck=0
 
 [airymaxos-updates]
 name=AirymaxOS Updates - $basearch
-baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/update/$basearch/ https://mirrors.tuna.tsinghua.edu.cn/openeuler/openEuler-24.03-LTS-SP2/update/$basearch/
+baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP3/update/$basearch/ https://mirrors.tuna.tsinghua.edu.cn/openeuler/openEuler-24.03-LTS-SP3/update/$basearch/
 enabled=1
 gpgcheck=0
 
 [airymaxos-everything]
 name=AirymaxOS Everything - $basearch
-baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/everything/$basearch/
+baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP3/everything/$basearch/
 enabled=0
 gpgcheck=0
 """
@@ -808,7 +808,7 @@ class RunSmokeTest(unittest.TestCase):
     def test_repo_releasever(self):
         # $releasever 在产品系统里展开为 VERSION_ID，基底镜像路径随之失效
         self.tools()
-        self.write_repo(REPO.replace("openEuler-24.03-LTS-SP2",
+        self.write_repo(REPO.replace("openEuler-24.03-LTS-SP3",
                                      "openEuler-$releasever"))
         res = self.run_smoke()
         self.assert_fail(res, 14)
@@ -826,8 +826,8 @@ class RunSmokeTest(unittest.TestCase):
         # 各段落在不同镜像上，说明基址被逐段手改过，必然有一段落伍
         self.tools()
         self.write_repo(REPO.replace(
-            "baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/update/",
-            "baseurl=https://mirror.example.net/openEuler-24.03-LTS-SP2/update/"))
+            "baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP3/update/",
+            "baseurl=https://mirror.example.net/openEuler-24.03-LTS-SP3/update/"))
         res = self.run_smoke()
         self.assert_fail(res, 14)
         self.assertIn("section airymaxos-updates host: mirror.example.net"
