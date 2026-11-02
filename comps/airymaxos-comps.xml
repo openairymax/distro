@@ -86,8 +86,11 @@
       <packagereq type="mandatory">xfsprogs</packagereq>
       <packagereq type="mandatory">yum</packagereq>
       <packagereq type="mandatory">wget</packagereq>
+      <!-- 网络：只装上游默认策略。NetworkManager-config-server 属服务器语义，
+           其 00-server.conf 设置 no-auto-default=* 与 ignore-carrier=*，
+           会关掉有线自动默认连接与载波检测——笔记本插网线后不会自动
+           DHCP。桌面形态的默认策略由本项目的 99-airymax.conf 接管 -->
       <packagereq type="default">NetworkManager</packagereq>
-      <packagereq type="default">NetworkManager-config-server</packagereq>
       <!-- 无线：NetworkManager 的 Wi-Fi 设备插件与 WPA 认证后端必须成组存在，
            缺 NetworkManager-wifi 时 nmcli 报「未发现 Wi-Fi 设备」，缺
            wpa_supplicant 时能扫到 AP 但无法关联；两者都缺失时网卡驱动与
