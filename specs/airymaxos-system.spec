@@ -47,7 +47,7 @@
 # spec-lint: source-bundle ../../system/services/airymax_probe
 
 %global airy_version 0.0.4
-%global airy_release 9
+%global airy_release 10
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -286,6 +286,15 @@ fi
 %{python3_sitelib}/airymax_probe
 
 %changelog
+* Mon Nov 02 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-10
+- Add the real-time capability matrix to airy-rt-cap: probe eight
+  conditions (PREEMPT_RT, RT budget, cgroup accounting, SCHED_DEADLINE,
+  threaded IRQs, CPU isolation, cpufreq governor, clocksource) and grade
+  the machine as ready, soft or none
+- Distinguish "not supported" from "not readable" for every probe, so a
+  denied or missing node is never reported as a kernel without support
+- Reuse the RT bandwidth cgroup detection in the matrix instead of a
+  second layout check, keeping one verdict for one machine
 * Mon Nov 02 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-9
 - Report tracefs nodes as denied instead of raising when the probe runs
   without root: the event directories are 0700 and stat throws EACCES,
