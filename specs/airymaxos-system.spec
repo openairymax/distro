@@ -47,7 +47,7 @@
 # spec-lint: source-bundle ../../system/services/airymax_probe
 
 %global airy_version 0.0.4
-%global airy_release 8
+%global airy_release 9
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -286,6 +286,14 @@ fi
 %{python3_sitelib}/airymax_probe
 
 %changelog
+* Mon Nov 02 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-9
+- Report tracefs nodes as denied instead of raising when the probe runs
+  without root: the event directories are 0700 and stat throws EACCES,
+  which used to abort status with a traceback
+- Advise sudo when any event is denied, so the reader does not conclude
+  that the kernel lacks the tracepoints and go looking for another one
+- Fold the three-way directory check into one helper shared by event
+  discovery, tracefs selection and the sampling window
 * Mon Nov 02 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-8
 - Treat an adapter that is online while the battery still discharges as
   a weak source and fall to the cool profile, so a load above the
