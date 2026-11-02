@@ -181,7 +181,7 @@ class RunSmokeTest(unittest.TestCase):
         """免密提权的落点：与 airymaxos-release 交付的文件同名同内容。"""
         path = self.sysroot / "etc" / "sudoers.d" / "90-airymax"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("Airymax ALL=(ALL) NOPASSWD: ALL\n", encoding="utf-8")
+        path.write_text("amuser ALL=(ALL) NOPASSWD: ALL\n", encoding="utf-8")
         return path
 
     def write_screensaver(self):
@@ -757,7 +757,7 @@ class RunSmokeTest(unittest.TestCase):
         # 文件在但策略被改成要口令：只认有效规则行，不认文件名
         self.tools()
         self.write_sudoers().write_text(
-            "Airymax ALL=(ALL) ALL\n", encoding="utf-8")
+            "amuser ALL=(ALL) ALL\n", encoding="utf-8")
         res = self.run_smoke()
         self.assert_fail(res, 12)
         self.assertIn("policy line absent", res.stdout)

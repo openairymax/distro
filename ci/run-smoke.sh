@@ -478,7 +478,7 @@ t11_efi_brand() {
     }
 }
 
-# T12: 免密提权（Airymax 交付为空口令，而空口令在 sudo 的 PAM 栈里不是可用
+# T12: 免密提权（amuser 交付为空口令，而空口令在 sudo 的 PAM 栈里不是可用
 # 的交互凭据；缺了 NOPASSWD，装机后没有任何非交互提权路径，从桌面上却看不出
 # 异常。这里直接以交付账户身份试一次，不读配置文件）
 t12_passwordless() {
@@ -488,7 +488,7 @@ t12_passwordless() {
             echo "${f} missing"
             return 1
         }
-        grep -qxF 'Airymax ALL=(ALL) NOPASSWD: ALL' "${f}" || {
+        grep -qxF 'amuser ALL=(ALL) NOPASSWD: ALL' "${f}" || {
             echo "policy line absent in ${f}"
             return 1
         }
@@ -530,8 +530,8 @@ t13_passwordless_desktop() {
         "lock-enabled" || return 1
     expect "$(dconf read /org/ukui/screensaver/idle-lock-enabled 2>&1)" false \
         "idle-lock-enabled" || return 1
-    id -nG Airymax 2>/dev/null | tr ' ' '\n' | grep -qxF nopasswdlogin || {
-        echo "Airymax not in nopasswdlogin"
+    id -nG amuser 2>/dev/null | tr ' ' '\n' | grep -qxF nopasswdlogin || {
+        echo "amuser not in nopasswdlogin"
         return 1
     }
 }

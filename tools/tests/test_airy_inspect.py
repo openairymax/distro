@@ -90,7 +90,7 @@ def fixture(root):
             "[airymaxos-baseos]\nname=AirymaxOS BaseOS\n"
             "[airymaxos-appstream]\nname=AirymaxOS AppStream\n",
         "etc/lightdm/lightdm.conf.d/50-airymax.conf":
-            "[Seat:*]\nautologin-user=Airymax\n",
+            "[Seat:*]\nautologin-user=amuser\n",
     }
     for rel, body in files.items():
         path = root / rel
@@ -197,7 +197,7 @@ class InspectStaticTest(unittest.TestCase):
                      "os.variant=workstation",
                      "host.name=airymax-pc",
                      "repo.sections=2",
-                     "session.autologin=Airymax"):
+                     "session.autologin=amuser"):
             self.assertIn("AIRYMAX-OS " + want, lines)
 
     def test_os_hardware_and_packages(self):

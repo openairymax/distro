@@ -291,9 +291,9 @@ class DesktopAssetTest(unittest.TestCase):
         self.assertNotIn("type", conf["Seat:*"])
 
     def test_lightdm_autologin(self):
-        # 0.0.3 口径：本地座位以 Airymax 自动登录，与 shadow 空口令一致
+        # 0.0.4 口径：本地座位以 amuser 自动登录，与 shadow 空口令一致
         conf = parse_kv(self.asset("desktop/lightdm/50-airymax.conf"))
-        self.assertEqual(conf["Seat:*"]["autologin-user"], "Airymax")
+        self.assertEqual(conf["Seat:*"]["autologin-user"], "amuser")
         self.assertEqual(conf["Seat:*"]["autologin-session"], "ukui")
         self.assertEqual(conf["Seat:*"]["autologin-user-timeout"], "0")
 
@@ -321,7 +321,7 @@ class DesktopAssetTest(unittest.TestCase):
             encoding="utf-8")
         rules = [line for line in text.splitlines()
                  if line.strip() and not line.startswith("#")]
-        self.assertEqual(rules, ["Airymax ALL=(ALL) NOPASSWD: ALL"])
+        self.assertEqual(rules, ["amuser ALL=(ALL) NOPASSWD: ALL"])
         spec = SPEC.read_text(encoding="utf-8")
         self.assertIn(
             "install -m 0440 %{SOURCE21} \\\n"
