@@ -8,7 +8,7 @@
 #       startx 走 xinitrc 时同样生效。
 #
 # 编号必须大于 50：imsettings 的 50-xinput.sh 先清空输入法变量，并在 UKUI
-# 不属于其支持桌面时把 XIM 置为 none。本脚本在其之后重新导出 fcitx4 会话
+# 不属于其支持桌面时把 XIM 置为 none。本脚本在其之后重新导出 ibus 会话
 # 环境，是发行版输入法环境变量的唯一事实来源（SSoT）。
 #
 # 输入法进程本身由 /etc/xdg/autostart/airymax-input-method.desktop 拉起，
@@ -18,8 +18,8 @@
 # 影响调用方 shell。
 # ===========================================================================
 
-[ -x /usr/bin/fcitx ] || return 0
+[ -x /usr/bin/ibus-daemon ] || return 0
 
-export GTK_IM_MODULE=fcitx
-export QT_IM_MODULE=fcitx
-export XMODIFIERS=@im=fcitx
+export GTK_IM_MODULE=ibus
+export QT_IM_MODULE=ibus
+export XMODIFIERS=@im=ibus

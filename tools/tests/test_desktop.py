@@ -291,18 +291,19 @@ class DesktopAssetTest(unittest.TestCase):
             line.removeprefix("export ").split("=", 1)
             for line in text.splitlines() if line.startswith("export "))
         self.assertEqual(exports, {
-            "GTK_IM_MODULE": "fcitx",
-            "QT_IM_MODULE": "fcitx",
-            "XMODIFIERS": "@im=fcitx",
+            "GTK_IM_MODULE": "ibus",
+            "QT_IM_MODULE": "ibus",
+            "XMODIFIERS": "@im=ibus",
         })
-        self.assertIn("[ -x /usr/bin/fcitx ]", text)
+        self.assertIn("[ -x /usr/bin/ibus-daemon ]", text)
         self.assertEqual(run(["sh", "-n", str(path)]).returncode, 0)
 
     def test_input_autostart(self):
         entry = parse_kv(
             self.asset("desktop/autostart/airymax-input-method.desktop"))
         self.assertEqual(entry["Desktop Entry"]["Type"], "Application")
-        self.assertEqual(entry["Desktop Entry"]["Exec"], "/usr/bin/fcitx")
+        self.assertEqual(entry["Desktop Entry"]["Exec"],
+                         "/usr/bin/ibus-daemon -drx")
         self.assertEqual(entry["Desktop Entry"]["NoDisplay"], "true")
         self.assertNotIn("OnlyShowIn", entry["Desktop Entry"])
 

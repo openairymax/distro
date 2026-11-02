@@ -8,7 +8,7 @@
 | # | 项 | 验收标准 | 对应决策 |
 |---|---|---|---|
 | T1 | UKUI X11 会话 | `loginctl` 会话 Type=x11、Service=lightdm、Active=yes；`ukui-session` 存活；`xdpyinfo` 可连 X server | R1-01/R1-03 会话链（E2-01 冒烟切片） |
-| T2 | fcitx 4 中文输入 | fcitx 守护进程存活；`fcitx-remote` 可达（状态 0/1/2）；GTK/QT/XMODIFIERS 均指向 fcitx | 冻结点输入法基线（fcitx4） |
+| T2 | ibus 中文输入 | ibus-daemon 存活；`ibus engine` 可达且给出非空全局引擎；GTK/QT/XMODIFIERS 均指向 ibus | 冻结点输入法基线（SP3 只剩 ibus） |
 | T3 | PulseAudio 音频栈 | `pactl info` 握手成功（套接字激活的端到端路径） | 冻结点音频基线（无 PipeWire） |
 | T4 | 桌面隔离 slice | `user@UID.service` 落入 `airymax-desktop.slice`；slice active；CPUWeight=50、IOWeight=50、TasksMax 有限 | R1-04 桌面低干扰 |
 | T5 | 内置壁纸 | `org.mate.background picture-filename` 指向内置路径；图像 sha256 与发行资产一致（图像缺失或 schema 缺失均判失败） | 0.0.3 品牌桌面基线 |
@@ -62,7 +62,7 @@ lockfile 冻结点（滚动触发） × 内核 RPM（6.6-airymax.n）
   语义校验与工具回归测试（Python 标准库，无 `rpmbuild`/`mock` 依赖）；
 - `run-smoke.sh` 必须在已登录的 UKUI 桌面会话内以该桌面用户运行
   （TV-02 桌面验收），不由宿主机驱动；探测只读系统状态，不改配置。
-  `loginctl`/`pgrep`/`xdpyinfo`/`fcitx-remote`/`pactl`/`gsettings`/
+  `loginctl`/`pgrep`/`xdpyinfo`/`ibus`/`pactl`/`gsettings`/
   `sha256sum`/`findmnt`/`lsblk` 随镜像交付，缺失即判失败：被测系统就是
   产品镜像本身，工具缺失说明包组合不完整，没有“外部测试机不支持”这
   一豁免，因此 runner 不产生 TAP SKIP。

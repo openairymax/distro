@@ -572,7 +572,7 @@ test "$(cat "${airy_tmp}/efi/EFI/vendor/fonts/unicode.pf2")" = pf2
     --cfg "${airy_tmp}/efi/EFI/vendor/grub.cfg" \
     --font "${airy_tmp}/absent.pf2" --mkconfig "${airy_tmp}/mk" >/dev/null
 rm -rf "${airy_tmp}"
-grep -qxF 'Exec=/usr/bin/fcitx' \
+grep -qxF 'Exec=/usr/bin/ibus-daemon -drx' \
     %{buildroot}%{_sysconfdir}/xdg/autostart/airymax-input-method.desktop
 grep -qxF 'Slice=airymax-desktop.slice' \
     %{buildroot}%{_sysconfdir}/systemd/system/user@.service.d/50-airymax-desktop.conf

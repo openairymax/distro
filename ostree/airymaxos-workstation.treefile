@@ -30,10 +30,8 @@ packages:
   - pulseaudio
   - peony
   - mate-terminal
-  - fcitx
-  - fcitx-libpinyin
-  - fcitx-configtool
-  - fcitx-qt5
+  - ibus
+  - ibus-libpinyin
 
 # 排除桌面 AI 控制面（agent 入口唯一 = Gateway）
 exclude-packages:

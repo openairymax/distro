@@ -103,10 +103,10 @@ AirymaxOS 系统桌面内置三张品牌默认壁纸，集合由
 不存在 `org.ukui.background` schema，也不使用
 `/usr/share/gnome-background-properties/`（冻结点无此目录）。
 
-## 输入法（决策 2026-10-18）
+## 输入法（决策 2026-10-18，2026-11-02 随基底切 SP3 改版）
 
-冻结点提供 fcitx 4.2.9.7（`fcitx`、`fcitx-libs`、`fcitx-libpinyin`、
-`fcitx-configtool`、`fcitx-qt5`），不提供 fcitx5。落地两件事：
+SP3 冻结点已移除 fcitx 4 全族，只保留 `ibus`（OS 段）与 `ibus-libpinyin`
+（everything 段）；中文拼音引擎由后者提供。落地三件事：
 
 1. `xinitrc.d/70-airymax-im.sh` 安装到 `/etc/X11/xinit/xinitrc.d/`。
    lightdm 的 `session-wrapper` 是 `/etc/X11/xinit/Xsession`，它 source
@@ -114,8 +114,11 @@ AirymaxOS 系统桌面内置三张品牌默认壁纸，集合由
    imsettings 的 `50-xinput.sh` 会先清空输入法变量并在 UKUI 不受支持时把
    `XIM` 置为 `none`。本脚本是该会话环境的唯一事实来源。
 2. `autostart/airymax-input-method.desktop` 安装到 `/etc/xdg/autostart/`，
-   由 ukui-session 的 XDG autostart 拉起 `fcitx`。fcitx 包只提供
-   `NoDisplay=true` 的菜单项，不提供自启文件。
+   由 ukui-session 的 XDG autostart 以 `ibus-daemon -drx` 拉起守护进程。
+   ibus 包不自带任何 autostart 条目，该文件不可省略。
+3. `QT_IM_MODULE=ibus` 依赖 `qt5-qtbase-gui` 的
+   `libibusplatforminputcontextplugin.so`；GTK 侧 im-ibus 模块随 gtk3/gtk4
+   内置。两者均在冻结集内，无需额外选包。
 
 ## 分辨率自适应（决策 2026-10-27）
 
@@ -295,7 +298,7 @@ multi-user.target，不会触发该单元；workstation kickstart 显式 enable�
 | 登录管理器 | lightdm | `lightdm 1.30.0-14` + `ukui-greeter 3.1.2-12` | 已核实 |
 | 会话管理 | ukui-session | `ukui-session-manager 3.1.0-7`，提供 `ukui.desktop` | 已核实 |
 | 分级冻结 | kylin-app-cgroupd | 冻结点无此包；`airymax-desktop.slice` 只做权重制隔离 | 已收敛 |
-| 输入法 | fcitx5 + chinese-addons | 冻结点只有 fcitx 4.2.9.7；按 fcitx4 落地 | 已收敛 |
+| 输入法 | fcitx5 + chinese-addons | SP3 只剩 ibus 1.5.29 + ibus-libpinyin 1.15.5；按 ibus 落地 | 已收敛 |
 | 终端 | ukui-terminal | 冻结点无此包；EPOL 提供 `mate-terminal 1.28.1-1` | 已核实 |
 | kylin-ai* 排除清单 | 通配 `-kylin-ai*` | 冻结点无该包族；kickstart 与策略脚本保留防御 | 已收敛 |
 | 默认壁纸背景 schema | `org.ukui.background` | 实为 `org.mate.background`（`mate-desktop-libs 1.28.2-1`） | 已收敛 |

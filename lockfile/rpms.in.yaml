@@ -86,10 +86,8 @@ packages:
   # airymax-desktop：基础应用与输入法
   - peony
   - mate-terminal
-  - fcitx
-  - fcitx-libpinyin
-  - fcitx-configtool
-  - fcitx-qt5
+  - ibus
+  - ibus-libpinyin
 
 assumeProvides:
   # 本项目自建包，随 ISO 离线仓库提供，不存在于上游仓库

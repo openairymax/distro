@@ -6,7 +6,7 @@
 # 冒烟脚本必须在已登录的 UKUI 桌面会话内运行，CI 宿主机不具备该环境。
 # 脚本对外契约是：TAP 17 计划、十七项探测的判定，以及“探测工具缺失即失败”
 # 的退出码规则。这里用 PATH 沙箱提供伪 loginctl /
-# pgrep / xdpyinfo / fcitx-remote / pactl / systemctl / gsettings /
+# pgrep / xdpyinfo / ibus / pactl / systemctl / gsettings /
 # sha256sum / uname / xrandr / findmnt / lsblk / hostname / hostnamectl，并给
 # T6–T16 准备一份只读系统视图（AIRYMAX_SMOKE_ROOT），每个用例只破坏一个前提，
 # 从而在无桌面环境下判定真实控制流。
@@ -303,10 +303,10 @@ class RunSmokeTest(unittest.TestCase):
             "HOME": str(self.root),
             "DISPLAY": ":0",
             "XDG_SESSION_ID": "2",
-            "GTK_IM_MODULE": "fcitx",
-            "QT_IM_MODULE": "fcitx",
-            "XMODIFIERS": "@im=fcitx",
-            "FAKE_PROCS": "ukui-session-manager fcitx",
+            "GTK_IM_MODULE": "ibus",
+            "QT_IM_MODULE": "ibus",
+            "XMODIFIERS": "@im=ibus",
+            "FAKE_PROCS": "ukui-session-manager ibus-daemon",
             "FAKE_XRANDR_TOPO": str(self.topo),
             "FAKE_FINDMNT_DB": str(self.mounts),
             "FAKE_LSBLK_DB": str(self.blocks),
@@ -406,27 +406,27 @@ class RunSmokeTest(unittest.TestCase):
 
     def test_no_ukui_session(self):
         self.tools()
-        res = self.run_smoke(FAKE_PROCS="fcitx")
+        res = self.run_smoke(FAKE_PROCS="ibus-daemon")
         self.assert_fail(res, 1)
         self.assertIn("ukui-session not running", res.stdout)
 
-    def test_fcitx_down(self):
+    def test_ibus_down(self):
         self.tools()
         res = self.run_smoke(FAKE_PROCS="ukui-session-manager")
         self.assert_fail(res, 2)
-        self.assertIn("fcitx not running", res.stdout)
+        self.assertIn("ibus-daemon not running", res.stdout)
 
-    def test_fcitx_unreachable(self):
+    def test_ibus_unreachable(self):
         self.tools()
-        res = self.run_smoke(FAKE_FCITX_REMOTE="fail")
+        res = self.run_smoke(FAKE_IBUS="fail")
         self.assert_fail(res, 2)
-        self.assertIn("fcitx-remote cannot reach daemon", res.stdout)
+        self.assertIn("ibus engine unavailable", res.stdout)
 
-    def test_fcitx_state_invalid(self):
+    def test_ibus_engine_empty(self):
         self.tools()
-        res = self.run_smoke(FAKE_FCITX_STATE="9")
+        res = self.run_smoke(FAKE_IBUS_ENGINE="")
         self.assert_fail(res, 2)
-        self.assertIn("fcitx-remote state: 9", res.stdout)
+        self.assertIn("ibus engine: empty", res.stdout)
 
     def test_im_variables(self):
         self.tools()
@@ -436,11 +436,11 @@ class RunSmokeTest(unittest.TestCase):
                 self.assert_fail(res, 2)
                 self.assertIn(name, res.stdout)
 
-    def test_fcitx_remote_absent(self):
-        self.tools(omit=("fcitx-remote",))
+    def test_ibus_absent(self):
+        self.tools(omit=("ibus",))
         res = self.run_smoke()
         self.assert_fail(res, 2)
-        self.assertIn("fcitx-remote not installed", res.stdout)
+        self.assertIn("ibus not installed", res.stdout)
 
     def test_pactl_unreachable(self):
         self.tools()

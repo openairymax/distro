@@ -782,13 +782,15 @@ ok) printf 'name of display: %s\\n' "${DISPLAY:-:0}" ;;
 esac
 """
 
-FCITX_REMOTE = """\
+IBUS = """\
 #!/bin/sh
-[ "${FAKE_FCITX_REMOTE:-ok}" = ok ] || {
-    printf 'fcitx-remote: cannot connect to fcitx\\n' >&2
+[ "${FAKE_IBUS:-ok}" = ok ] || {
+    printf 'ibus: cannot connect to ibus-daemon\\n' >&2
     exit 1
 }
-printf '%s\\n' "${FAKE_FCITX_STATE:-2}"
+# 用 - 而不是 :- 取默认值：空串代表「总线上没有全局引擎」，
+# 该状态必须能被断言出来，不能被默认值吞掉。
+printf '%s\\n' "${FAKE_IBUS_ENGINE-libpinyin}"
 """
 
 PACTL = """\
@@ -1203,7 +1205,7 @@ def qemu_tools(bin_dir, arch="x86_64", qemu=True):
 
 def smoke_tools(bin_dir, omit=()):
     table = (("loginctl", LOGINCTL), ("pgrep", PGREP),
-             ("xdpyinfo", XDPYINFO), ("fcitx-remote", FCITX_REMOTE),
+             ("xdpyinfo", XDPYINFO), ("ibus", IBUS),
              ("pactl", PACTL), ("systemctl", SYSTEMCTL),
              ("gsettings", GSETTINGS), ("sha256sum", SHA256SUM),
              ("uname", UNAME), ("xrandr", XRANDR),
