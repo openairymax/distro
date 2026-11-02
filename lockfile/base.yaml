@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
+# ===========================================================================
+# base.yaml — openEuler 基底选型的唯一事实源
+#
+# 职责：把「0.0.4 取哪个 SP」从一句口径变成可复算的台账。repo 五段
+# baseurl、kickstart 的 url/repo 行、%oe_base、comps 与 UKUI 台账都从
+# selected 派生，ci/gates/base-eol.sh 断言它们指向同一个 SP。
+#
+# 选型规则（docs-closed/10-references/openeuler-sp-eol.md）：
+#   1. 大规模使用只取大 SP——小 SP 的支持窗口与大 SP 不在一个量级；
+#   2. 候选的 EOL 必须覆盖本版收口日 deadline，否则发行即过保；
+#   3. 在满足前两条的候选里取 GA 最晚的一个，内核仍须落在 6.6 线。
+# 日期一律 YYYY-MM-DD，取官方生命周期公告的 GA 与 Planned EOL。候选表随
+# 公告更新，选型结论由规则重算，不靠人记。
+# ===========================================================================
+deadline: 2027-09-17
+selected: openEuler-24.03-LTS-SP3
+arch: x86_64
+kernel_line: 6.6
+
+policy:
+  kind: large-sp-only
+  eol-covers: 2027-09-17
+
+candidates:
+  - name: openEuler-24.03-LTS-SP1
+    ga: 2024-12-30
+    kind: large
+    eol: 2026-12-30
+    kernel: 6.6
+  - name: openEuler-24.03-LTS-SP2
+    ga: 2025-06-30
+    kind: small
+    eol: 2026-03-30
+    kernel: 6.6
+  - name: openEuler-24.03-LTS-SP3
+    ga: 2025-12-30
+    kind: large
+    eol: 2027-12-30
+    kernel: 6.6
+  - name: openEuler-24.03-LTS-SP4
+    ga: 2026-06-30
+    kind: small
+    eol: 2027-03-30
+    kernel: 6.6

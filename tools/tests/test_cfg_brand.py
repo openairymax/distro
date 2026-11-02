@@ -35,17 +35,17 @@ GRUB = """\
 set default="1"
 set timeout=60
 
-menuentry 'Install openEuler 24.03-LTS-SP2' {
+menuentry 'Install openEuler 24.03-LTS-SP3' {
     linuxefi /vmlinuz inst.ks=hd:LABEL=AIRYMAXOS:/ks.cfg inst.stage2=hd:LABEL=AIRYMAXOS
 }
-menuentry 'Test this media & install openEuler 24.03-LTS-SP2' {
+menuentry 'Test this media & install openEuler 24.03-LTS-SP3' {
     linuxefi /vmlinuz inst.ks=hd:LABEL=AIRYMAXOS:/ks.cfg inst.stage2=hd:LABEL=AIRYMAXOS rd.live.check
 }
 menuentry 'Rescue a openEuler system' {
     linuxefi /vmlinuz inst.stage2=hd:LABEL=AIRYMAXOS
 }
 submenu 'Troubleshooting -->' {
-    menuentry 'Install openEuler 24.03-LTS-SP2 in basic graphics mode' {
+    menuentry 'Install openEuler 24.03-LTS-SP3 in basic graphics mode' {
         linuxefi /vmlinuz inst.stage2=hd:LABEL=AIRYMAXOS
     }
 }
@@ -56,10 +56,10 @@ default=1
 timeout 600
 
 label 0
-  menu label ^Install openEuler 24.03-LTS-SP2
+  menu label ^Install openEuler 24.03-LTS-SP3
   append inst.ks=hd:LABEL=AIRYMAXOS:/ks.cfg inst.stage2=hd:LABEL=AIRYMAXOS quiet
 label 1
-  menu label Test this media & install openEuler 24.03-LTS-SP2
+  menu label Test this media & install openEuler 24.03-LTS-SP3
   append inst.ks=hd:LABEL=AIRYMAXOS:/ks.cfg inst.stage2=hd:LABEL=AIRYMAXOS rd.live.check quiet
 label 2
   menu label ^Troubleshooting -->
@@ -68,7 +68,7 @@ label 2
 
 NO_KS = """\
 set default="0"
-menuentry 'Install openEuler 24.03-LTS-SP2' {
+menuentry 'Install openEuler 24.03-LTS-SP3' {
     linuxefi /vmlinuz inst.stage2=hd:LABEL=AIRYMAXOS
 }
 """
@@ -80,16 +80,16 @@ ISOLINUX_NETINST = f"""\
 default vesamenu.c32
 timeout 600
 
-menu title openEuler 24.03-LTS-SP2
+menu title openEuler 24.03-LTS-SP3
 menu background splash.png
 
 label linux
-  menu label ^Install openEuler 24.03-LTS-SP2
+  menu label ^Install openEuler 24.03-LTS-SP3
   kernel vmlinuz
   append initrd=initrd.img inst.stage2=hd:LABEL=AIRYMAXOS quiet inst.ks=hd:LABEL=AIRYMAXOS:/ks.cfg
 
 label check
-  menu label Test this ^media & install openEuler 24.03-LTS-SP2
+  menu label Test this ^media & install openEuler 24.03-LTS-SP3
   menu default
   kernel vmlinuz
   append initrd=initrd.img inst.stage2=hd:LABEL=AIRYMAXOS rd.live.check quiet inst.ks=hd:LABEL=AIRYMAXOS:/ks.cfg
@@ -98,7 +98,7 @@ label vesa
   menu label Install {PRODUCT}
   text help
 \tTry this option out if you're having trouble installing
-\topenEuler 24.03-LTS-SP2.
+\topenEuler 24.03-LTS-SP3.
   endtext
   kernel vmlinuz
   append initrd=initrd.img inst.stage2=hd:LABEL=AIRYMAXOS nomodeset quiet inst.ks=hd:LABEL=AIRYMAXOS:/ks.cfg
@@ -123,8 +123,8 @@ TREEINFO = """\
 [general]
 timestamp = 1750912660.4513083
 family = openEuler
-version = 24.03-LTS-SP2
-name = openEuler-24.03-LTS-SP2
+version = 24.03-LTS-SP3
+name = openEuler-24.03-LTS-SP3
 variant = Server
 arch = x86_64
 packagedir = 
@@ -138,17 +138,17 @@ initrd = images/pxeboot/initrd.img
 efiboot.img = images/efiboot.img
 """
 
-BOOTMSG = "\x0c \n\x18splash.lss\n\n -  Welcome to openEuler 24.03-LTS-SP2\n\n"
+BOOTMSG = "\x0c \n\x18splash.lss\n\n -  Welcome to openEuler 24.03-LTS-SP3\n\n"
 BOOTMSG_PLAIN = "\x0c \n\x18splash.lss\n\n -  Press the \x0f01<ENTER>\x0f07 key\n\n"
 
-DISCINFO = "1750912660.4513083\nopenEuler 24.03-LTS-SP2\nx86_64\nServer\n"
+DISCINFO = "1750912660.4513083\nopenEuler 24.03-LTS-SP3\nx86_64\nServer\n"
 
 # 注释行里的底座名是改写器碰不到的构造：幂等断言会把它当成「已合规」，
 # 只有负向断言能拦住，故构建必须在这一行失败。
 GRUB_RESIDUAL = """\
-# derived from the openEuler 24.03-LTS-SP2 tree
+# derived from the openEuler 24.03-LTS-SP3 tree
 set default="0"
-menuentry 'Install openEuler 24.03-LTS-SP2' {
+menuentry 'Install openEuler 24.03-LTS-SP3' {
     linuxefi /vmlinuz inst.ks=hd:LABEL=AIRYMAXOS:/ks.cfg inst.stage2=hd:LABEL=AIRYMAXOS
 }
 """
@@ -157,7 +157,7 @@ menuentry 'Install openEuler 24.03-LTS-SP2' {
 # 按类匹配失效，故按白名单保留而不判失败。
 GRUB_CLASS = """\
 set default="0"
-menuentry 'Install openEuler 24.03-LTS-SP2' --class openEuler --class gnu-linux {
+menuentry 'Install openEuler 24.03-LTS-SP3' --class openEuler --class gnu-linux {
     linuxefi /vmlinuz inst.ks=hd:LABEL=AIRYMAXOS:/ks.cfg inst.stage2=hd:LABEL=AIRYMAXOS
 }
 """
@@ -198,7 +198,7 @@ class CfgBrandTest(unittest.TestCase):
 
     def test_grub_already_default(self):
         path = self.make(GRUB.replace('set default="1"', 'set default="0"')
-                         .replace("openEuler 24.03-LTS-SP2", PRODUCT)
+                         .replace("openEuler 24.03-LTS-SP3", PRODUCT)
                          .replace("Rescue a openEuler system",
                                   f"Rescue {PRODUCT} system"))
         res = self.brand(path)
@@ -265,7 +265,7 @@ class CfgBrandTest(unittest.TestCase):
         self.assertIn("variant = Server", text)
         self.assertIn("mainimage = images/install.img", text)
         self.assertIn(
-            f"general.name=openEuler-24.03-LTS-SP2 -> {BRAND}-{VERSION}",
+            f"general.name=openEuler-24.03-LTS-SP3 -> {BRAND}-{VERSION}",
             res.stderr)
 
     def test_treeinfo_idempotent(self):
@@ -298,7 +298,7 @@ class CfgBrandTest(unittest.TestCase):
         self.assertEqual(path.read_text(encoding="utf-8"),
                          f"1750912660.4513083\n{PRODUCT}\nx86_64\n"
                          "Server\n")
-        self.assertIn(f"openEuler 24.03-LTS-SP2 -> {PRODUCT}",
+        self.assertIn(f"openEuler 24.03-LTS-SP3 -> {PRODUCT}",
                       res.stderr)
         self.assertEqual(self.brand(path).returncode, 3)
 

@@ -14,8 +14,8 @@ ref: airymaxos/0.0.4/x86_64/desktop
 repos:
   - airymaxos-base
   - airymaxos-updates
-  - openEuler-24.03-LTS-SP2
-  - openEuler-24.03-LTS-SP2-EPOL
+  - openEuler-24.03-LTS-SP3
+  - openEuler-24.03-LTS-SP3-EPOL
 
 # 包集：与 kickstart/airymaxos-workstation.ks 的显式条目一致
 packages:

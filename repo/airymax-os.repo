@@ -17,7 +17,7 @@
 # 上游发行版字样出现在这里没有信息增量，只会让人以为装的是别家的系统。
 # 上游域名留在 baseurl 里，因为那是真实取包地址，改写即取不到包。
 #
-# 信任边界：openEuler 24.03 LTS SP2 的软件包不带 PGP 签名
+# 信任边界：openEuler 24.03 LTS SP3 的软件包不带 PGP 签名
 # （rpm -q --qf '%{SIGPGP:pgpsig}' 为 (none)），仓库元数据同样未签名，
 # 故 gpgcheck 与 repo_gpgcheck 关闭，链路完整性只由 HTTPS 保证。
 # 签名密钥与自有仓库随 0.1.x 自有基底引入，届时本文件整体重写。
@@ -25,7 +25,7 @@
 
 [airymaxos-base]
 name=AirymaxOS Base 24.03 - $basearch
-baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/OS/$basearch/ https://mirrors.tuna.tsinghua.edu.cn/openeuler/openEuler-24.03-LTS-SP2/OS/$basearch/ https://mirrors.huaweicloud.com/openeuler/openEuler-24.03-LTS-SP2/OS/$basearch/
+baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP3/OS/$basearch/ https://mirrors.tuna.tsinghua.edu.cn/openeuler/openEuler-24.03-LTS-SP3/OS/$basearch/ https://mirrors.huaweicloud.com/openeuler/openEuler-24.03-LTS-SP3/OS/$basearch/
 enabled=1
 gpgcheck=0
 repo_gpgcheck=0
@@ -34,7 +34,7 @@ skip_if_unavailable=True
 
 [airymaxos-updates]
 name=AirymaxOS Updates 24.03 - $basearch
-baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/update/$basearch/ https://mirrors.tuna.tsinghua.edu.cn/openeuler/openEuler-24.03-LTS-SP2/update/$basearch/ https://mirrors.huaweicloud.com/openeuler/openEuler-24.03-LTS-SP2/update/$basearch/
+baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP3/update/$basearch/ https://mirrors.tuna.tsinghua.edu.cn/openeuler/openEuler-24.03-LTS-SP3/update/$basearch/ https://mirrors.huaweicloud.com/openeuler/openEuler-24.03-LTS-SP3/update/$basearch/
 enabled=1
 gpgcheck=0
 repo_gpgcheck=0
@@ -43,7 +43,7 @@ skip_if_unavailable=True
 
 [airymaxos-epol]
 name=AirymaxOS EPOL 24.03 - $basearch
-baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/EPOL/main/$basearch/ https://mirrors.tuna.tsinghua.edu.cn/openeuler/openEuler-24.03-LTS-SP2/EPOL/main/$basearch/ https://mirrors.huaweicloud.com/openeuler/openEuler-24.03-LTS-SP2/EPOL/main/$basearch/
+baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP3/EPOL/main/$basearch/ https://mirrors.tuna.tsinghua.edu.cn/openeuler/openEuler-24.03-LTS-SP3/EPOL/main/$basearch/ https://mirrors.huaweicloud.com/openeuler/openEuler-24.03-LTS-SP3/EPOL/main/$basearch/
 enabled=1
 gpgcheck=0
 repo_gpgcheck=0
@@ -52,7 +52,7 @@ skip_if_unavailable=True
 
 [airymaxos-epol-updates]
 name=AirymaxOS EPOL Updates 24.03 - $basearch
-baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/EPOL/update/main/$basearch/ https://mirrors.tuna.tsinghua.edu.cn/openeuler/openEuler-24.03-LTS-SP2/EPOL/update/main/$basearch/ https://mirrors.huaweicloud.com/openeuler/openEuler-24.03-LTS-SP2/EPOL/update/main/$basearch/
+baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP3/EPOL/update/main/$basearch/ https://mirrors.tuna.tsinghua.edu.cn/openeuler/openEuler-24.03-LTS-SP3/EPOL/update/main/$basearch/ https://mirrors.huaweicloud.com/openeuler/openEuler-24.03-LTS-SP3/EPOL/update/main/$basearch/
 enabled=1
 gpgcheck=0
 repo_gpgcheck=0
@@ -61,7 +61,7 @@ skip_if_unavailable=True
 
 [airymaxos-everything]
 name=AirymaxOS Everything 24.03 - $basearch
-baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/everything/$basearch/ https://mirrors.tuna.tsinghua.edu.cn/openeuler/openEuler-24.03-LTS-SP2/everything/$basearch/ https://mirrors.huaweicloud.com/openeuler/openEuler-24.03-LTS-SP2/everything/$basearch/
+baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP3/everything/$basearch/ https://mirrors.tuna.tsinghua.edu.cn/openeuler/openEuler-24.03-LTS-SP3/everything/$basearch/ https://mirrors.huaweicloud.com/openeuler/openEuler-24.03-LTS-SP3/everything/$basearch/
 enabled=0
 gpgcheck=0
 repo_gpgcheck=0

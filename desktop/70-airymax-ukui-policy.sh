@@ -16,7 +16,7 @@
 # ===========================================================================
 set -euo pipefail
 
-# openEuler 24.03 LTS-SP2 冻结点不含 kylin-ai 包族（kickstart 已用
+# openEuler 24.03 LTS-SP3 冻结点不含 kylin-ai 包族（kickstart 已用
 # -kylin-ai* 排除）。清单保留为防御式约束：若上游以后引入同名单元，
 # 屏蔽动作仍然生效，保证 agent 控制面唯一入口是 Gateway。
 AIRY_AI_UNITS="kylin-ai-daemon.service

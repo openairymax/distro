@@ -24,8 +24,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent
 
 import ukui_check
 
+BASE = "openEuler-24.03-LTS-SP3"
+
+BASE_YAML = """\
+deadline: 2027-09-17
+selected: openEuler-24.03-LTS-SP3
+arch: x86_64
+kernel_line: 6.6
+"""
+
 LEDGER = """\
-base: openEuler-24.03-LTS-SP2
+base: openEuler-24.03-LTS-SP3
 arch: x86_64
 segments:
   - OS
@@ -43,35 +52,35 @@ components:
   - name: ukui-kwin
     state: present
     segment: EPOL/main
-    nvra: ukui-kwin-0:1.0.5-8.oe2403sp2.x86_64
+    nvra: ukui-kwin-0:1.0.5-8.oe2403sp3.x86_64
   - name: ukui-panel
     state: present
     segment: EPOL/main
-    nvra: ukui-panel-0:3.1.0-14.oe2403sp2.x86_64
+    nvra: ukui-panel-0:3.1.0-14.oe2403sp3.x86_64
   - name: ukui-session-manager
     state: present
     segment: EPOL/main
-    nvra: ukui-session-manager-0:3.1.0-7.oe2403sp2.x86_64
+    nvra: ukui-session-manager-0:3.1.0-7.oe2403sp3.x86_64
   - name: ukui-control-center
     state: present
     segment: EPOL/main
-    nvra: ukui-control-center-0:3.1.2-33.oe2403sp2.x86_64
+    nvra: ukui-control-center-0:3.1.2-33.oe2403sp3.x86_64
   - name: ukui-menu
     state: present
     segment: EPOL/main
-    nvra: ukui-menu-0:3.1.1-14.oe2403sp2.x86_64
+    nvra: ukui-menu-0:3.1.1-14.oe2403sp3.x86_64
   - name: libpam-biometric
     state: present
     segment: EPOL/main
-    nvra: libpam-biometric-0:1.2.4-2.oe2403sp2.x86_64
+    nvra: libpam-biometric-0:1.2.4-2.oe2403sp3.x86_64
   - name: ukui-desktop-environment
     state: available
     segment: EPOL/main
-    nvra: ukui-desktop-environment-0:2.0.2-20.oe2403sp2.x86_64
+    nvra: ukui-desktop-environment-0:2.0.2-20.oe2403sp3.noarch
   - name: ukui
     state: available
     segment: EPOL/main
-    nvra: ukui-0:2.0.2-20.oe2403sp2.x86_64
+    nvra: ukui-0:2.0.2-20.oe2403sp3.noarch
   - name: ukui-shell
     state: absent
     segment: 五段均无
@@ -122,12 +131,12 @@ DELTA = """\
 
 | 组件 | NVRA |
 |---|---|
-| kwin | `ukui-kwin-0:1.0.5-8.oe2403sp2.x86_64` |
-| panel | `ukui-panel-0:3.1.0-14.oe2403sp2.x86_64` |
-| session | `ukui-session-manager-0:3.1.0-7.oe2403sp2.x86_64` |
-| ccc | `ukui-control-center-0:3.1.2-33.oe2403sp2.x86_64` |
-| menu | `ukui-menu-0:3.1.1-14.oe2403sp2.x86_64` |
-| bio | `libpam-biometric-0:1.2.4-2.oe2403sp2.x86_64` |
+| kwin | `ukui-kwin-0:1.0.5-8.oe2403sp3.x86_64` |
+| panel | `ukui-panel-0:3.1.0-14.oe2403sp3.x86_64` |
+| session | `ukui-session-manager-0:3.1.0-7.oe2403sp3.x86_64` |
+| ccc | `ukui-control-center-0:3.1.2-33.oe2403sp3.x86_64` |
+| menu | `ukui-menu-0:3.1.1-14.oe2403sp3.x86_64` |
+| bio | `libpam-biometric-0:1.2.4-2.oe2403sp3.x86_64` |
 
 ```sh
 dnf -q repoquery --repo=epol "ukui-*"
@@ -162,18 +171,18 @@ class LedgerTest(unittest.TestCase):
 
     def test_parse_sections(self):
         led = ukui_check.parse_ledger(self.write("l.yaml", LEDGER))
-        self.assertEqual(led["base"], "openEuler-24.03-LTS-SP2")
+        self.assertEqual(led["base"], BASE)
         self.assertEqual(len(led["segments"]), 5)
         self.assertEqual(led["policy"]["deferred"], "ukui-4.24")
         self.assertEqual(len(led["components"]), 9)
         self.assertEqual(led["components"][0]["nvra"],
-                         "ukui-kwin-0:1.0.5-8.oe2403sp2.x86_64")
+                         "ukui-kwin-0:1.0.5-8.oe2403sp3.x86_64")
 
     def test_schema_rejects_drift(self):
-        bad = LEDGER.replace("SP2", "SP3").replace("generation: 3.1",
+        bad = LEDGER.replace("SP3", "SP2").replace("generation: 3.1",
                                                    "generation: 4.24")
         led = ukui_check.parse_ledger(self.write("l.yaml", bad))
-        self.assertEqual(self.codes(ukui_check.check_schema, led),
+        self.assertEqual(self.codes(ukui_check.check_schema, led, BASE),
                          ["schema/base", "schema/policy"])
 
     def test_schema_rejects_arch_and_segments(self):
@@ -181,7 +190,7 @@ class LedgerTest(unittest.TestCase):
             self.write("l.yaml", LEDGER.replace("arch: x86_64",
                                                 "arch: aarch64")))
         led["segments"] = led["segments"][:-1]
-        self.assertEqual(self.codes(ukui_check.check_schema, led),
+        self.assertEqual(self.codes(ukui_check.check_schema, led, BASE),
                          ["schema/arch", "schema/segments"])
 
     def test_items_core_and_absent(self):
@@ -193,7 +202,7 @@ class LedgerTest(unittest.TestCase):
     segment: EPOL/main
     nvra: ukui-shell-0:1.0-1.x86_64""")
         led = ukui_check.parse_ledger(self.write("l.yaml", bad))
-        got = self.codes(ukui_check.check_items, led)
+        got = self.codes(ukui_check.check_items, led, BASE)
         self.assertIn("ledger/core", got)
         self.assertIn("ledger/absent", got)
         self.assertIn("ledger/segment", got)
@@ -204,16 +213,23 @@ class LedgerTest(unittest.TestCase):
         bad += "  - name: ukui-menu\n    state: present\n" \
                "    segment: EPOL/main\n    nvra: ukui-menu-0:1-1.x86_64\n"
         led = ukui_check.parse_ledger(self.write("l.yaml", bad))
-        got = self.codes(ukui_check.check_items, led)
+        got = self.codes(ukui_check.check_items, led, BASE)
         self.assertIn("ledger/nvra", got)
         self.assertIn("ledger/name", got)
+
+    def test_items_rejects_foreign_release(self):
+        bad = LEDGER.replace("ukui-panel-0:3.1.0-14.oe2403sp3",
+                             "ukui-panel-0:3.1.0-14.oe2403sp2")
+        led = ukui_check.parse_ledger(self.write("l.yaml", bad))
+        self.assertEqual(self.codes(ukui_check.check_items, led, BASE),
+                         ["ledger/tag"])
 
     def test_items_available_must_stay_unpicked(self):
         bad = LEDGER.replace("""  - name: ukui
     state: available""", """  - name: ukui
     state: present""")
         led = ukui_check.parse_ledger(self.write("l.yaml", bad))
-        self.assertEqual(self.codes(ukui_check.check_items, led),
+        self.assertEqual(self.codes(ukui_check.check_items, led, BASE),
                          ["ledger/available"])
 
     def test_items_rejects_bad_state(self):
@@ -222,7 +238,7 @@ class LedgerTest(unittest.TestCase):
     state: gone""").replace(
             "nvra: ukui-0:2.0.2-20", "nvra: ukui-meta-0:2.0.2-20")
         led = ukui_check.parse_ledger(self.write("l.yaml", bad))
-        self.assertEqual(self.codes(ukui_check.check_items, led),
+        self.assertEqual(self.codes(ukui_check.check_items, led, BASE),
                          ["ledger/nvra", "ledger/state", "ledger/absent"])
 
 
@@ -318,7 +334,7 @@ class DocsTest(unittest.TestCase):
         (self.dir / "ukui-delta.md").write_text(DELTA, encoding="utf-8")
         (self.dir / "ukui-424-feasibility.md").write_text(
             FEAS, encoding="utf-8")
-        self.pres = [{"nvra": "ukui-kwin-0:1.0.5-8.oe2403sp2.x86_64"}]
+        self.pres = [{"nvra": "ukui-kwin-0:1.0.5-8.oe2403sp3.x86_64"}]
 
     def codes(self):
         out = []
@@ -354,6 +370,8 @@ class MainTest(unittest.TestCase):
         self.docs = self.root / "docs"
         for sub in ("distro/lockfile", "distro/comps", "docs"):
             (self.root / sub).mkdir(parents=True)
+        (self.root / "distro/lockfile/base.yaml").write_text(
+            BASE_YAML, encoding="utf-8")
         (self.root / "distro/lockfile/ukui-components.yaml").write_text(
             LEDGER, encoding="utf-8")
         (self.root / "distro/comps/airymaxos-comps.xml").write_text(
@@ -391,6 +409,12 @@ class MainTest(unittest.TestCase):
         code, _, err = self.run_main()
         self.assertEqual(code, 1)
         self.assertIn("ledger/missing", err)
+
+    def test_missing_base(self):
+        (self.root / "distro/lockfile/base.yaml").unlink()
+        code, _, err = self.run_main()
+        self.assertEqual(code, 1)
+        self.assertIn("schema/base-missing", err)
 
     def test_unreadable_comps(self):
         (self.root / "distro/comps/airymaxos-comps.xml").write_text(

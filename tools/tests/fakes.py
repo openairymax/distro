@@ -70,28 +70,28 @@ body=$out.body
     printf '=== /isolinux/isolinux.cfg\\n'
     printf 'default=1\\ntimeout 600\\n'
     printf 'label 0\\n'
-    printf '  menu label ^Install openEuler 24.03-LTS-SP2\\n'
+    printf '  menu label ^Install openEuler 24.03-LTS-SP3\\n'
     printf '  append %s inst.stage2=hd:LABEL=%s quiet\\n' "$ksline" "$stage"
     printf 'label 1\\n'
-    printf '  menu label Test this media & install openEuler 24.03-LTS-SP2\\n'
+    printf '  menu label Test this media & install openEuler 24.03-LTS-SP3\\n'
     printf '  append %s inst.stage2=hd:LABEL=%s rd.live.check quiet\\n' \\
         "$ksline" "$stage"
     printf '=== /EFI/BOOT/grub.cfg\\n'
     printf 'set default="1"\\nset timeout=60\\n'
-    printf "menuentry 'Install openEuler 24.03-LTS-SP2' {\\n"
+    printf "menuentry 'Install openEuler 24.03-LTS-SP3' {\\n"
     printf '    linuxefi /vmlinuz %s inst.stage2=hd:LABEL=%s\\n' \\
         "$ksline" "$stage"
     printf '}\\n'
-    printf "menuentry 'Test this media & install openEuler 24.03-LTS-SP2' {\\n"
+    printf "menuentry 'Test this media & install openEuler 24.03-LTS-SP3' {\\n"
     printf '    linuxefi /vmlinuz %s inst.stage2=hd:LABEL=%s rd.live.check\\n' \\
         "$ksline" "$stage"
     printf '}\\n'
     printf '=== /.treeinfo\\n'
-    printf '[general]\\nfamily = openEuler\\nversion = 24.03-LTS-SP2\\n'
-    printf 'name = openEuler-24.03-LTS-SP2\\nvariant = Server\\n\\n'
+    printf '[general]\\nfamily = openEuler\\nversion = 24.03-LTS-SP3\\n'
+    printf 'name = openEuler-24.03-LTS-SP3\\nvariant = Server\\n\\n'
     printf '[stage2]\\nmainimage = images/install.img\\n'
     printf '=== /isolinux/boot.msg\\n'
-    printf ' -  Welcome to openEuler 24.03-LTS-SP2\\n'
+    printf ' -  Welcome to openEuler 24.03-LTS-SP3\\n'
 } > "$body"
 for a in $adds; do
     [ -e "$a" ] || continue
@@ -668,7 +668,7 @@ if [ "$media" -eq 1 ]; then
     payload) printf '安装负载时出现以下错误。这是个致命错误，安装将中止。\\n' \\
             > "$log"
         printf 'Failed to download the following packages:\\n' >> "$log"
-        printf 'ukui-clock-3.1.3-3.oe2403sp2.x86_64: ' >> "$log"
+        printf 'ukui-clock-3.1.3-3.oe2403sp3.x86_64: ' >> "$log"
         printf 'Cannot download, all mirrors were already tried without ' \\
             >> "$log"
         printf 'success\\n按 ENTER 退出:\\n' >> "$log"; exec sleep 60 ;;

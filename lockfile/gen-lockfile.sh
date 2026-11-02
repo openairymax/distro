@@ -5,7 +5,7 @@
 #
 # 用法:
 #   ./gen-lockfile.sh <冻结点标签>
-#   例: ./gen-lockfile.sh openEuler-24.03-LTS-SP2-20260915
+#   例: ./gen-lockfile.sh openEuler-24.03-LTS-SP3-20260915
 #
 # 前置条件:
 #   - 在发布工作区执行（严禁在 airymaxhub 源码区内联网生成）
@@ -17,7 +17,7 @@
 # ===========================================================================
 set -euo pipefail
 
-SNAPSHOT="${1:?用法: gen-lockfile.sh <冻结点标签>，例如 openEuler-24.03-LTS-SP2-20260915}"
+SNAPSHOT="${1:?用法: gen-lockfile.sh <冻结点标签>，例如 openEuler-24.03-LTS-SP3-20260915}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(dirname "${HERE}")"
 IN="${HERE}/rpms.in.yaml"

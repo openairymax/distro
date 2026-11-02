@@ -29,9 +29,9 @@ timezone Asia/Shanghai --utc
 # ---- 仓库 ----
 # 离线仓库由 scripts/build-desktop.sh 注入 ISO 根 /airymax，cost 最低，
 # 保证 airymaxos-kernel 及其 core/modules 子包优先于上游同名能力解析。
-url --url=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/OS/$basearch/
+url --url=https://repo.openeuler.org/openEuler-24.03-LTS-SP3/OS/$basearch/
 repo --name=airymaxos-offline --baseurl=file:///run/install/repo/airymax/Packages --cost=1
-repo --name=update --baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP2/update/$basearch/ --cost=100
+repo --name=update --baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP3/update/$basearch/ --cost=100
 
 # ---- 引导与分区（UEFI + BIOS 双栈）----
 # tty0 在前，本地屏幕保留内核与 systemd 日志；串口留给无头验收与故障
