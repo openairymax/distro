@@ -20,8 +20,9 @@
   leaf repository (Linux 6.6 baseline, ALK);
 - the openEuler 24.03 LTS base repository (hardware driver layer, user-space
  图形栈, toolchain), reusing Euler-verified packages as-is;
-- the **UKUI 4.x desktop** (openKylin / openEuler line) as the default system
-  desktop, consumed as RPMs — never vendored as source;
+- the **UKUI desktop** (openKylin / openEuler line) pinned to the 3.1 component
+  generation shipped in the base repository, consumed as RPMs — never vendored
+  as source;
 - AirymaxOS system-layer components from the other agent-linux leaf
   repositories.
 
@@ -236,7 +237,7 @@ other agent-linux leaf repositories. The aggregating management repo
 - **kernel** — kernel image and modules (consumed as RPM artifacts)
 - **services / system / cloudnative** — system-layer components to package
 - **openEuler 24.03 LTS** — base repository (drivers, desktop stack, toolchain)
-- **openKylin / openEuler UKUI 4.x** — system desktop package set
+- **openKylin / openEuler UKUI 3.1** — system desktop package set
 
 ### Downstream
 
