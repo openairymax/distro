@@ -4,8 +4,13 @@
   SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
   AirymaxOS 包组定义（comps）
 
-  桌面决策（2026-09-15）：OS 侧系统桌面 = UKUI 4.x（openKylin/openEuler 线），
-  以 RPM 形态随 Euler 包生态进入镜像，禁止 vendor 源码。
+  桌面决策（2026-09-15）：OS 侧系统桌面 = UKUI（openKylin/openEuler 线），
+  以 RPM 形态随 Euler 包生态进入镜像，禁止 vendor 源码。0.0.4 取基底
+  openEuler 24.03 LTS-SP2 EPOL/main 的 3.1 组件代；上游 4.24 自建闭包
+  顺延（结论登记在本台账 policy.deferred），本文件不得再以「4.x」表述。
+  UKUI 包名与 NVRA 的唯一事实源是 lockfile/ukui-components.yaml：
+  基底不提供 ukui 元包，桌面闭包必须逐组件显式声明，门禁
+  ci/gates/ukui-lock.sh 断言两侧同集合。
   基础仓库：openEuler 24.03 LTS-SP2 的 OS、update、EPOL/main、
   EPOL/update/main、everything 五个仓库（与 kickstart 配置一致；
   其中 everything 只补齐主仓库缺失的桌面依赖，如 qt5-qtgraphicaleffects、
@@ -131,9 +136,20 @@
       <!-- 发行版标识与桌面策略载体；kickstart %post 校验其存在，
            提供 airymax-desktop.slice、UKUI 策略脚本与默认壁纸 -->
       <packagereq type="mandatory">airymaxos-release</packagereq>
-      <!-- UKUI 元包（EPOL）：Requires 已覆盖会话、窗管、面板、控制中心、
-           截图/归档/图片查看、字体与 ukui-greeter，勿在桌面组重复声明 -->
-      <packagereq type="mandatory">ukui</packagereq>
+      <!-- 会话闭包：基底不提供 ukui 元包（五段 repodata 实测均无），
+           必须逐组件声明；包名与 NVRA 以 lockfile/ukui-components.yaml
+           为准，门禁断言本组与台账同集合。缺任一件都装不出可登录桌面：
+           会话、窗管、面板、开始菜单、控制中心、设置守护、登录界面、
+           主题、通知守护 -->
+      <packagereq type="mandatory">ukui-session-manager</packagereq>
+      <packagereq type="mandatory">ukui-kwin</packagereq>
+      <packagereq type="mandatory">ukui-panel</packagereq>
+      <packagereq type="mandatory">ukui-menu</packagereq>
+      <packagereq type="mandatory">ukui-control-center</packagereq>
+      <packagereq type="mandatory">ukui-settings-daemon</packagereq>
+      <packagereq type="mandatory">ukui-greeter</packagereq>
+      <packagereq type="mandatory">ukui-themes</packagereq>
+      <packagereq type="mandatory">ukui-notification-daemon</packagereq>
       <!-- X11 服务端：真实包名 xorg-x11-server，它 Provides
            xorg-x11-server-Xorg / Xorg（后者不是包名） -->
       <packagereq type="mandatory">xorg-x11-server</packagereq>
@@ -170,7 +186,23 @@
     <default>false</default>
     <uservisible>true</uservisible>
     <packagelist>
-      <!-- 文件管理器（ukui 元包应带入 peony，此处显式声明以防元包漂移） -->
+      <!-- 桌面外壳与托盘：锁屏、侧边栏、搜索、媒体键、电源、蓝牙、
+           时钟、便签、系统监视、窗口切换、polkit 代理、设置接口库。
+           与核心组分开是因为它们缺席时会话仍可登录，只损失对应面板项；
+           集合仍受台账约束，不得引入基底不存在的 ukui 子包 -->
+      <packagereq type="default">ukui-screensaver</packagereq>
+      <packagereq type="default">ukui-sidebar</packagereq>
+      <packagereq type="default">ukui-search</packagereq>
+      <packagereq type="default">ukui-media</packagereq>
+      <packagereq type="default">ukui-power-manager</packagereq>
+      <packagereq type="default">ukui-bluetooth</packagereq>
+      <packagereq type="default">ukui-clock</packagereq>
+      <packagereq type="default">ukui-notebook</packagereq>
+      <packagereq type="default">ukui-system-monitor</packagereq>
+      <packagereq type="default">ukui-window-switch</packagereq>
+      <packagereq type="default">ukui-polkit</packagereq>
+      <packagereq type="default">ukui-interface</packagereq>
+      <!-- 文件管理器：peony 不依赖任何元包，直装（基底无 ukui 元包） -->
       <packagereq type="default">peony</packagereq>
       <!-- 终端：EPOL 提供 mate-terminal（无 ukui-terminal 包） -->
       <packagereq type="default">mate-terminal</packagereq>
@@ -201,8 +233,10 @@
     <default>false</default>
     <uservisible>true</uservisible>
     <packagelist>
+      <!-- 生物识别前端与后端必须成组：只装 manager 时面板有入口但
+           无认证后端，指纹登录静默失效，故两件同列 -->
       <packagereq type="optional">ukui-biometric-manager</packagereq>
-      <packagereq type="optional">ukui-power-manager</packagereq>
+      <packagereq type="optional">ukui-biometric-auth</packagereq>
       <packagereq type="optional">peony-extensions</packagereq>
     </packagelist>
   </group>

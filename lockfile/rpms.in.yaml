@@ -25,7 +25,7 @@ contentOrigin:
       baseurl: https://repo.openeuler.org/openEuler-24.03-LTS-SP2/update/$basearch/
       cost: 100
       gpgcheck: false
-    # 扩展仓库：ukui、lightdm、ukui-greeter
+    # 扩展仓库：UKUI 3.1 组件代（全部位于 EPOL/main）与 lightdm
     - repoid: epol
       baseurl: https://repo.openeuler.org/openEuler-24.03-LTS-SP2/EPOL/main/$basearch/
       cost: 100
@@ -50,8 +50,18 @@ packages:
   - wpa_supplicant
   - wireless-regdb
   - iw
-  # airymax-desktop-core：会话、窗管、登录管理器
-  - ukui
+  # airymax-desktop-core：会话闭包。基底五段 repodata 均无 ukui 元包，
+  # 冻结输入必须逐组件列出；集合与 ukui-components.yaml 的 present 项
+  # 一一对应，少列一件装机就缺对应会话组件
+  - ukui-session-manager
+  - ukui-kwin
+  - ukui-panel
+  - ukui-menu
+  - ukui-control-center
+  - ukui-settings-daemon
+  - ukui-greeter
+  - ukui-themes
+  - ukui-notification-daemon
   - xorg-x11-server
   - lightdm
   # airymax-desktop-core：图形工具、音频栈、驱动、授权
@@ -60,6 +70,19 @@ packages:
   - mesa-dri-drivers
   - dbus-x11
   - polkit
+  # airymax-desktop：桌面外壳与托盘（默认集，缺席只损失对应面板项）
+  - ukui-screensaver
+  - ukui-sidebar
+  - ukui-search
+  - ukui-media
+  - ukui-power-manager
+  - ukui-bluetooth
+  - ukui-clock
+  - ukui-notebook
+  - ukui-system-monitor
+  - ukui-window-switch
+  - ukui-polkit
+  - ukui-interface
   # airymax-desktop：基础应用与输入法
   - peony
   - mate-terminal

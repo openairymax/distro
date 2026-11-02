@@ -12,7 +12,7 @@
 | 冻结点标签 | `openEuler-24.03-LTS-SPx-YYYYMMDD`（例如 `openEuler-24.03-LTS-SP2-20260915`） |
 | 冻结范围 | `airymax-workstation` 环境闭包（mandatory + default）在上游五个安装期仓库中的依赖闭包全量 EVR |
 | 不在冻结范围 | `airymaxos-*` 由本仓库 `specs/` 构建、随 ISO 离线仓库分发，版本由源码决定 |
-| 桌面组 | UKUI 4.x 组件随冻结点进入，不做"latest 追踪" |
+| 桌面组 | UKUI 3.1 组件代随冻结点进入，逐组件 NVRA 以 `ukui-components.yaml` 为准，不做"latest 追踪" |
 | 升级节奏 | 例行每季度一次窗口；安全 CVE 可加急（单独 PR，走 CI 组合冒烟） |
 
 ## 升级流程（每次滚动）
@@ -42,7 +42,12 @@
   `verify` 断言冻结集覆盖 comps 必装包，`diff` 输出增/升/删三段摘要；
 - `ukui-wallpapers.yaml` — **壁纸集合台账**。三张品牌默认壁纸的文件名与
   sha256，以及必须排除的上游壁纸包；`ci/gates/wallpaper-set.sh` 按它比对
-  `release/wallpapers/` 与已安装树，多一件或少一件都判红。
+  `release/wallpapers/` 与已安装树，多一件或少一件都判红；
+- `ukui-components.yaml` — **UKUI 组件台账**。基底五段 repodata 的实测
+  结果：23 个可安装组件逐字钉住 NVRA，`ukui`、`ukui-desktop-environment`、
+  `ukui-shell` 三个不存在包登记为 absent。comps 与 `rpms.in.yaml` 的 UKUI
+  闭包只能取台账 present 项，`ci/gates/ukui-lock.sh` 双向断言；基底不提供
+  `ukui` 元包，因此桌面组必须逐组件声明。
 
 运行期产品自有仓库定义在 `../repo/airymax-os.repo`，面向已装系统的 dnf
 客户端，不参与冻结；安装期闭包只取 `rpms.in.yaml` 中声明的上游仓库。

@@ -19,8 +19,8 @@
   AirymaxOS 内核 RPM（Linux 6.6 基线，ALK）；
 - openEuler 24.03 LTS 基础仓库（硬件驱动层、用户态图形栈、工具链），
   原样复用 Euler 验证过的包；
-- **UKUI 4.x 桌面**（openKylin / openEuler 线）作为默认系统桌面，
-  以 RPM 形式消费——禁止以源码 vendor 方式引入；
+- **UKUI 桌面**（openKylin / openEuler 线）作为默认系统桌面，取基底仓库
+  EPOL/main 的 3.1 组件代，以 RPM 形式消费——禁止以源码 vendor 方式引入；
 - 其余 agent-linux 叶子仓的系统层组件。
 
 ## 初始凭据
@@ -205,7 +205,7 @@ minimal 通过可重复的 `--require` 收窄必需包集合（仅内核三包�
 - **kernel** — 内核镜像与模块（以 RPM 产物形态消费）
 - **services / system / cloudnative** — 待打包的系统层组件
 - **openEuler 24.03 LTS** — 基础仓库（驱动、桌面栈、工具链）
-- **openKylin / openEuler UKUI 4.x** — 系统桌面包组
+- **openKylin / openEuler UKUI 3.1** — 系统桌面包组
 
 ### 下游
 

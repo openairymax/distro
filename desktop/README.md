@@ -1,6 +1,8 @@
 # desktop — UKUI 桌面集成策略
 
-> 决策（2026-09-15）：OS 侧系统桌面 = **UKUI 4.x（openKylin/openEuler 线）**。
+> 决策（2026-09-15）：OS 侧系统桌面 = **UKUI（openKylin/openEuler 线）**。
+> 0.0.4 取基底 openEuler 24.03 LTS-SP2 EPOL/main 的 3.1 组件代；上游
+> 4.24 自建闭包顺延，组件清单与 NVRA 见 `lockfile/ukui-components.yaml`。
 > 本目录是该决策在发行版组装层的落地资产；全部静态文件由
 > `airymaxos-release` 的 `%install` 直接安装到最终路径，`%post` 只做运行期
 > 动作，不复制文件。
@@ -289,7 +291,7 @@ multi-user.target，不会触发该单元；workstation kickstart 显式 enable�
 
 | 项 | 模板假设 | 实际结论 | 状态 |
 |---|---|---|---|
-| 桌面套件 | UKUI 4.x | EPOL `ukui 2.0.2-20`、`ukui-kwin 1.0.5-8`、`peony 3.10.0-8` | 已核实 |
+| 桌面套件 | UKUI 4.x | EPOL 3.1 组件代，23 个组件逐字钉在 `lockfile/ukui-components.yaml`；基底无 `ukui` 元包 | 已收敛 |
 | 登录管理器 | lightdm | `lightdm 1.30.0-14` + `ukui-greeter 3.1.2-12` | 已核实 |
 | 会话管理 | ukui-session | `ukui-session-manager 3.1.0-7`，提供 `ukui.desktop` | 已核实 |
 | 分级冻结 | kylin-app-cgroupd | 冻结点无此包；`airymax-desktop.slice` 只做权重制隔离 | 已收敛 |

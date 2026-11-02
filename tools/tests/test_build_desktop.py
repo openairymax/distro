@@ -288,7 +288,8 @@ class BuildDesktopTest(unittest.TestCase):
                          FAKE_DNF_LOG=str(log))
         self.assertEqual(res.returncode, 0, res.stderr)
         pkgdir = self.out / "payload" / "airymax" / "Packages"
-        for name in ("ukui-1.0-1.noarch.rpm", "grub2-tools-1.0-1.noarch.rpm"):
+        names = ("ukui-kwin-1.0-1.noarch.rpm", "grub2-tools-1.0-1.noarch.rpm")
+        for name in names:
             self.assertTrue((pkgdir / name).is_file())
         self.assertIn(f"闭包收割: 新增 {HARVEST}", res.stdout)
         manifest = (self.out / "payload" / "airymax" /

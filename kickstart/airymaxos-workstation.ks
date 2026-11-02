@@ -2,7 +2,8 @@
 # ===========================================================================
 # AirymaxOS 0.0.4（x86_64）工作站安装 kickstart — UKUI 桌面
 #
-# 桌面决策（2026-09-15）：OS 侧系统桌面 = UKUI 4.x（openKylin/openEuler 线）
+# 桌面决策（2026-09-15）：OS 侧系统桌面 = UKUI（openKylin/openEuler 线）；
+#           0.0.4 取基底 24.03 LTS-SP2 EPOL/main 的 3.1 组件代
 # 隔离铁律：agent 控制面唯一入口 = Gateway（JSON-RPC 2.0），桌面自带
 #           AI 控制面（KylinBot / kylin-ai*）一律排除，见 desktop/README.md
 #
@@ -10,7 +11,7 @@
 #   airymaxos-offline          — ISO 内离线仓库（内核 + distro 包），cost 最低
 #   openEuler OS               — 基础仓库（驱动/图形栈/工具链）
 #   openEuler update           — 基础仓库勘误
-#   openEuler EPOL/main        — 扩展仓库（ukui、lightdm、ukui-greeter）
+#   openEuler EPOL/main        — 扩展仓库（UKUI 组件、lightdm）
 #   openEuler EPOL/update/main — 扩展仓库勘误
 #   openEuler everything       — 桌面闭包补齐（qt5-qtgraphicaleffects、
 #                                qt5-qtquickcontrols 等仅发布于此），

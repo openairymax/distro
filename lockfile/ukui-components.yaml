@@ -12,11 +12,11 @@
 #      ukui-desktop-environment 必须登记为 absent（基底全条线无此包）；
 #   2. comps 与 rpms.in.yaml 中出现的每个 ukui* 包名都必须是本表 present
 #      组件——不存在的包一旦进闭包，装机求解必然失败；
-#   3. 10-references/ukui-delta.md 逐字包含本表全部 nvra；
+#   3. 项目内部取证册逐字包含本表全部 nvra；
 #   4. 4.24 可行性成册，两条路线的取舍与顺延结论明确。
 #
-# 版本线的差异矩阵与复算命令见 10-references/ukui-delta.md；4.24 自建闭包
-# 的工作项、风险与顺延条件见 10-references/ukui-424-feasibility.md。
+# 版本线的差异矩阵与复算命令、4.24 自建闭包的工作项与顺延条件，均记录在
+# 项目内部取证册（docs-closed）；本表只保留可被门禁断言的结论。
 # ===========================================================================
 base: openEuler-24.03-LTS-SP2
 arch: x86_64
