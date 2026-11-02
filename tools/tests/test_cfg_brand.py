@@ -13,7 +13,7 @@
 # 品牌串替换，三者同样要求其余内容逐字节不变、二次运行退出 3。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.3
+# Version: 0.0.4
 # ===========================================================================
 
 import subprocess
@@ -22,8 +22,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import fakes
+
 TOOL = Path(__file__).resolve().parents[1] / "cfg_brand.py"
-PRODUCT = "AirymaxOS 0.0.3"
+
+# 产品串就是 build-iso 传入的 PRETTY_NAME，短名与版本由同一规则拆出；
+# 写死某次发版的字符串会让每次升版本都要改一批与改写器无关的断言。
+PRODUCT = fakes.osrel("PRETTY_NAME")
+BRAND, _, VERSION = PRODUCT.rpartition(" ")
 
 GRUB = """\
 set default="1"
@@ -70,7 +76,7 @@ menuentry 'Install openEuler 24.03-LTS-SP2' {
 # 与 netinst 同形的真实 isolinux.cfg 片段：菜单横幅、热键符居中的
 # "Test this ^media & install"、挂在 check 上的 menu default，以及
 # text help 正文里的产品名。
-ISOLINUX_NETINST = """\
+ISOLINUX_NETINST = f"""\
 default vesamenu.c32
 timeout 600
 
@@ -89,7 +95,7 @@ label check
   append initrd=initrd.img inst.stage2=hd:LABEL=AIRYMAXOS rd.live.check quiet inst.ks=hd:LABEL=AIRYMAXOS:/ks.cfg
 
 label vesa
-  menu label Install AirymaxOS 0.0.3
+  menu label Install {PRODUCT}
   text help
 \tTry this option out if you're having trouble installing
 \topenEuler 24.03-LTS-SP2.
@@ -98,15 +104,15 @@ label vesa
   append initrd=initrd.img inst.stage2=hd:LABEL=AIRYMAXOS nomodeset quiet inst.ks=hd:LABEL=AIRYMAXOS:/ks.cfg
 """
 
-SERIAL = """\
+SERIAL = f"""\
 default=0
 timeout 600
 
 label 0
-  menu label ^Install AirymaxOS 0.0.3
+  menu label ^Install {PRODUCT}
   append inst.ks=hd:LABEL=AIRYMAXOS:/ks.cfg inst.stage2=hd:LABEL=AIRYMAXOS quiet console=tty0 console=ttyS0,115200
 label 1
-  menu label Test this media & install AirymaxOS 0.0.3
+  menu label Test this media & install {PRODUCT}
   append inst.ks=hd:LABEL=AIRYMAXOS:/ks.cfg inst.stage2=hd:LABEL=AIRYMAXOS rd.live.check quiet console=tty0 console=ttyS0,115200
 label 2
   menu label ^Troubleshooting -->
@@ -182,20 +188,19 @@ class CfgBrandTest(unittest.TestCase):
         res = self.brand(path)
         self.assertEqual(res.returncode, 0, res.stderr)
         text = path.read_text(encoding="utf-8")
-        self.assertIn("menuentry 'Install AirymaxOS 0.0.3'", text)
-        self.assertIn("menuentry 'Test this media & install AirymaxOS 0.0.3'",
-                      text)
-        self.assertIn("menuentry 'Rescue AirymaxOS 0.0.3 system'", text)
+        self.assertIn(f"menuentry 'Install {PRODUCT}'", text)
+        self.assertIn(f"menuentry 'Test this media & install {PRODUCT}'", text)
+        self.assertIn(f"menuentry 'Rescue {PRODUCT} system'", text)
         self.assertIn('set default="0"', text)
         self.assertIn("inst.ks=hd:LABEL=AIRYMAXOS:/ks.cfg", text)
         self.assertIn("inst.stage2=hd:LABEL=AIRYMAXOS", text)
-        self.assertIn("default -> Install AirymaxOS 0.0.3", res.stderr)
+        self.assertIn(f"default -> Install {PRODUCT}", res.stderr)
 
     def test_grub_already_default(self):
         path = self.make(GRUB.replace('set default="1"', 'set default="0"')
-                         .replace("openEuler 24.03-LTS-SP2", "AirymaxOS 0.0.3")
+                         .replace("openEuler 24.03-LTS-SP2", PRODUCT)
                          .replace("Rescue a openEuler system",
-                                  "Rescue AirymaxOS 0.0.3 system"))
+                                  f"Rescue {PRODUCT} system"))
         res = self.brand(path)
         self.assertEqual(res.returncode, 3, res.stderr)
         self.assertEqual(res.stderr, "")
@@ -206,9 +211,8 @@ class CfgBrandTest(unittest.TestCase):
         self.assertEqual(res.returncode, 0, res.stderr)
         text = path.read_text(encoding="utf-8")
         self.assertIn("default=0", text)
-        self.assertIn("menu label ^Install AirymaxOS 0.0.3", text)
-        self.assertIn("menu label Test this media & install AirymaxOS 0.0.3",
-                      text)
+        self.assertIn(f"menu label ^Install {PRODUCT}", text)
+        self.assertIn(f"menu label Test this media & install {PRODUCT}", text)
         self.assertIn("menu label ^Troubleshooting -->", text)
 
     def test_untouched_titles(self):
@@ -216,7 +220,7 @@ class CfgBrandTest(unittest.TestCase):
         self.assertEqual(self.brand(path).returncode, 0)
         text = path.read_text(encoding="utf-8")
         self.assertIn("^Troubleshooting -->", text)
-        self.assertNotIn("Troubleshooting AirymaxOS", text)
+        self.assertNotIn(f"Troubleshooting {BRAND}", text)
         self.assertIn("append inst.ks=hd:LABEL=AIRYMAXOS:/ks.cfg", text)
 
     def test_isolinux_serial_console(self):
@@ -255,13 +259,14 @@ class CfgBrandTest(unittest.TestCase):
         res = self.brand(path)
         self.assertEqual(res.returncode, 0, res.stderr)
         text = path.read_text(encoding="utf-8")
-        self.assertIn("family = AirymaxOS", text)
-        self.assertIn("version = 0.0.3", text)
-        self.assertIn("name = AirymaxOS-0.0.3", text)
+        self.assertIn(f"family = {BRAND}", text)
+        self.assertIn(f"version = {VERSION}", text)
+        self.assertIn(f"name = {BRAND}-{VERSION}", text)
         self.assertIn("variant = Server", text)
         self.assertIn("mainimage = images/install.img", text)
-        self.assertIn("general.name=openEuler-24.03-LTS-SP2 -> AirymaxOS-0.0.3",
-                      res.stderr)
+        self.assertIn(
+            f"general.name=openEuler-24.03-LTS-SP2 -> {BRAND}-{VERSION}",
+            res.stderr)
 
     def test_treeinfo_idempotent(self):
         path = self.make(TREEINFO, ".treeinfo")
@@ -276,7 +281,7 @@ class CfgBrandTest(unittest.TestCase):
         self.assertEqual(res.returncode, 0, res.stderr)
         text = path.read_text(encoding="utf-8")
         self.assertTrue(text.startswith("\x0c \n\x18splash.lss\n"))
-        self.assertIn("Welcome to AirymaxOS 0.0.3", text)
+        self.assertIn(f"Welcome to {PRODUCT}", text)
         self.assertNotIn("openEuler", text)
         self.assertEqual(self.brand(path).returncode, 3)
 
@@ -291,9 +296,9 @@ class CfgBrandTest(unittest.TestCase):
         res = self.brand(path)
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertEqual(path.read_text(encoding="utf-8"),
-                         "1750912660.4513083\nAirymaxOS 0.0.3\nx86_64\n"
+                         f"1750912660.4513083\n{PRODUCT}\nx86_64\n"
                          "Server\n")
-        self.assertIn("openEuler 24.03-LTS-SP2 -> AirymaxOS 0.0.3",
+        self.assertIn(f"openEuler 24.03-LTS-SP2 -> {PRODUCT}",
                       res.stderr)
         self.assertEqual(self.brand(path).returncode, 3)
 
@@ -312,10 +317,9 @@ class CfgBrandTest(unittest.TestCase):
         path = self.make(ISOLINUX_NETINST, "isolinux.cfg")
         self.assertEqual(self.brand(path).returncode, 0)
         text = path.read_text(encoding="utf-8")
-        self.assertIn("menu title AirymaxOS 0.0.3", text)
-        self.assertIn("menu label Test this ^media & install AirymaxOS 0.0.3",
-                      text)
-        self.assertIn("\tAirymaxOS 0.0.3.", text)
+        self.assertIn(f"menu title {PRODUCT}", text)
+        self.assertIn(f"menu label Test this ^media & install {PRODUCT}", text)
+        self.assertIn(f"\t{PRODUCT}.", text)
         self.assertNotIn("openEuler", text)
 
     def test_isolinux_netinst_idempotent(self):
@@ -329,9 +333,9 @@ class CfgBrandTest(unittest.TestCase):
         path = self.make(GRUB)
         self.assertEqual(self.brand(path).returncode, 0)
         text = path.read_text(encoding="utf-8")
-        self.assertIn("menuentry 'Install AirymaxOS 0.0.3 in basic graphics "
+        self.assertIn(f"menuentry 'Install {PRODUCT} in basic graphics "
                       "mode'", text)
-        self.assertIn("menuentry 'Rescue AirymaxOS 0.0.3 system'", text)
+        self.assertIn(f"menuentry 'Rescue {PRODUCT} system'", text)
         self.assertNotIn("openEuler", text)
 
     def test_usage_error(self):
@@ -351,8 +355,7 @@ class CfgBrandTest(unittest.TestCase):
         path = self.make(GRUB_CLASS)
         self.assertEqual(self.brand(path).returncode, 0)
         text = path.read_text(encoding="utf-8")
-        self.assertIn("menuentry 'Install AirymaxOS 0.0.3' --class openEuler",
-                      text)
+        self.assertIn(f"menuentry 'Install {PRODUCT}' --class openEuler", text)
         again = self.brand(path)
         self.assertEqual(again.returncode, 3, again.stderr)
         self.assertEqual(again.stderr, "")

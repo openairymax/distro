@@ -10,7 +10,7 @@
 # 用法错误以 2 退出、帮助以 0 退出。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.3
+# Version: 0.0.4
 # ===========================================================================
 
 import hashlib
@@ -21,10 +21,17 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import fakes
+
 BASE = Path(__file__).resolve().parents[2]
 SCRIPT = BASE / "desktop" / "airy_inspect.py"
 REL = "6.6.157-alk"
 IMAGE = b"AirymaxOS test kernel image\n"
+
+# 静态根的 os-release 按真实命名口径造（PRETTY_NAME = 短名 + 版本号），
+# 短名与版本由 release/os-release 单点派生，避免写死某次发版的字符串。
+PRODUCT = fakes.osrel("PRETTY_NAME")
+BRAND, _, VERSION = PRODUCT.rpartition(" ")
 
 # 字段集是契约本身：少一行说明采集退化，多一行说明同一事实被两处各写
 # 了一遍。顺序也一并钉住，输出被人用 diff 比对时才有意义。
@@ -74,9 +81,9 @@ def fixture(root):
             "kernel/drivers/nvme/nvme.ko:\n",
         "boot/System.map-%s" % REL: "ffffffff81000000 T airy_dispatch\n",
         "boot/config-%s" % REL: "\n".join(CFG) + "\n",
-        "usr/lib/os-release": 'ID=airymaxos\nNAME="AirymaxOS"\n'
-                              'PRETTY_NAME="AirymaxOS 0.0.3 (OpenAirymax)"\n'
-                              'VERSION="0.0.3"\nVERSION_ID="0.0.3"\n'
+        "usr/lib/os-release": f'ID=airymaxos\nNAME="{BRAND}"\n'
+                              f'PRETTY_NAME="{PRODUCT}"\n'
+                              f'VERSION="{VERSION}"\nVERSION_ID="{VERSION}"\n'
                               'VARIANT_ID="workstation"\n',
         "etc/hostname": "AIRYMAX_PC\n",
         "etc/yum.repos.d/airymaxos.repo":
@@ -183,10 +190,10 @@ class InspectStaticTest(unittest.TestCase):
     def test_os_identity_and_host(self):
         lines = self.report("airy-os")
         for want in ("os.id=airymaxos",
-                     "os.name=AirymaxOS",
-                     'os.pretty="AirymaxOS 0.0.3 (OpenAirymax)"',
-                     "os.version=0.0.3",
-                     "os.version_id=0.0.3",
+                     f"os.name={BRAND}",
+                     f'os.pretty="{PRODUCT}"',
+                     f"os.version={VERSION}",
+                     f"os.version_id={VERSION}",
                      "os.variant=workstation",
                      "host.name=AIRYMAX_PC",
                      "repo.sections=2",

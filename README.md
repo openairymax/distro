@@ -27,7 +27,7 @@
 
 ## Initial credentials
 
-0.0.3 ships a "boot straight to the desktop" policy: `Airymax` logs in
+0.0.4 ships a "boot straight to the desktop" policy: `Airymax` logs in
 without a password and `root` uses a fixed password, with no forced rotation.
 Both kickstarts still record the values as SHA-512 crypt hashes per
 OS-OPS-009, so an unattended install is login-ready without depending on a

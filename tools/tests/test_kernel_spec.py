@@ -8,7 +8,7 @@
 # 这些不变量前移到秒级门禁，避免把问题留到镜像阶段。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.3
+# Version: 0.0.4
 # ===========================================================================
 
 import sys
@@ -18,6 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 
+import fakes
 import spec_lint
 
 SPEC = ROOT / "specs" / "kernel" / "airymaxos-kernel.spec"
@@ -73,7 +74,8 @@ class KernelSpecTest(unittest.TestCase):
 
     def test_version_matches_os_release(self):
         raw = self.tags["Version"][1]
-        self.assertEqual(spec_lint.expand(raw, self.macros), "0.0.3")
+        self.assertEqual(spec_lint.expand(raw, self.macros),
+                         fakes.osrel("VERSION_ID"))
 
     def test_generated_source_declared(self):
         source = spec_lint.expand(self.tags["Source0"][1], self.macros)

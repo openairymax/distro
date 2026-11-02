@@ -10,7 +10,7 @@
 # 在无 root、无镜像工具的环境下仍可判定。每个用例只破坏一个前提。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.3
+# Version: 0.0.4
 # ===========================================================================
 
 import hashlib
@@ -28,6 +28,13 @@ DISTRO = SCRIPT.parent.parent
 BASH = shutil.which("bash") or "/bin/bash"
 BASELINE = DISTRO / "kickstart" / "airymaxos-minimal.ks"
 APP_OFF = 16 * 2048 + 883
+
+# 镜像名取 VERSION_ID，介质品牌名取 PRETTY_NAME 的短名段——两者都由
+# release/os-release 单点定义，用例断言派生结果而不是写死某次发版的字符串。
+VERSION = fakes.osrel("VERSION_ID")
+PRETTY = fakes.osrel("PRETTY_NAME")
+BRAND = PRETTY.rpartition(" ")[0]
+ISO_NAME = f"airymaxos-{VERSION}-x86_64.iso"
 
 
 def appdata(raw):
@@ -177,16 +184,17 @@ class BuildIsoTest(unittest.TestCase):
         self.full()
         res = self.build("--arch", "x86_64")
         self.assertEqual(res.returncode, 0, res.stderr)
-        iso = self.out / "airymaxos-0.0.3-x86_64.iso"
+        iso = self.out / ISO_NAME
         self.assertTrue(iso.is_file())
         digest = hashlib.sha256(iso.read_bytes()).hexdigest()
         self.assertEqual((iso.parent / f"{iso.name}.sha256").read_text(
             encoding="utf-8"), f"{digest}  {iso.name}\n")
         manifest = (self.out / "iso-manifest.txt").read_text(
             encoding="utf-8")
-        self.assertIn("name=airymaxos-0.0.3-x86_64.iso", manifest)
+        self.assertIn(f"name={ISO_NAME}", manifest)
         self.assertIn("volid=AIRYMAXOS", manifest)
-        self.assertRegex(manifest, r"iso [0-9a-f]{64} airymaxos-0\.0\.3")
+        self.assertRegex(manifest,
+                         rf"iso [0-9a-f]{{64}} airymaxos-{VERSION}")
         self.assertRegex(manifest, r"base [0-9a-f]{64} base\.iso")
         self.assertIn("cmd=console=tty0 console=ttyS0,115200",
                       self.log.read_text(encoding="utf-8"))
@@ -199,13 +207,13 @@ class BuildIsoTest(unittest.TestCase):
         self.full()
         res = self.build("--arch", "x86_64")
         self.assertEqual(res.returncode, 0, res.stderr)
-        iso = self.out / "airymaxos-0.0.3-x86_64.iso"
+        iso = self.out / ISO_NAME
         tree = self.member(iso, ".treeinfo")
-        self.assertIn(b"family = AirymaxOS", tree)
-        self.assertIn(b"name = AirymaxOS-0.0.3", tree)
-        self.assertIn(b"version = 0.0.3", tree)
+        self.assertIn(f"family = {BRAND}".encode(), tree)
+        self.assertIn(f"name = {BRAND}-{VERSION}".encode(), tree)
+        self.assertIn(f"version = {VERSION}".encode(), tree)
         self.assertNotIn(b"openEuler", tree)
-        self.assertIn(b"Welcome to AirymaxOS 0.0.3",
+        self.assertIn(f"Welcome to {PRETTY}".encode(),
                       self.member(iso, "isolinux/boot.msg"))
 
     def test_stale_appdata_replaced(self):
@@ -214,7 +222,7 @@ class BuildIsoTest(unittest.TestCase):
         self.full()
         res = self.build("--arch", "x86_64")
         self.assertEqual(res.returncode, 0, res.stderr)
-        iso = self.out / "airymaxos-0.0.3-x86_64.iso"
+        iso = self.out / ISO_NAME
         record = appdata(iso.read_bytes())
         self.assertNotIn("0" * 32, record)
         self.assertRegex(record, r"ISO MD5SUM = [0-9a-f]{32}")
@@ -231,7 +239,7 @@ class BuildIsoTest(unittest.TestCase):
         self.tools(("mkksiso", fakes.MKKSISO), ("xorriso", fakes.XORRISO))
         res = self.build("--arch", "x86_64", "--no-md5")
         self.assertEqual(res.returncode, 0, res.stderr)
-        iso = self.out / "airymaxos-0.0.3-x86_64.iso"
+        iso = self.out / ISO_NAME
         self.assertNotIn("ISO MD5SUM", iso.read_text(encoding="utf-8"))
 
     def test_gpg_key(self):
@@ -239,7 +247,7 @@ class BuildIsoTest(unittest.TestCase):
         res = self.build("--arch", "x86_64", "--gpg-key", "test")
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertTrue(
-            (self.out / "airymaxos-0.0.3-x86_64.iso.asc").is_file())
+            (self.out / f"{ISO_NAME}.asc").is_file())
 
 
 if __name__ == "__main__":

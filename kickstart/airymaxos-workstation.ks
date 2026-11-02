@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
 # ===========================================================================
-# AirymaxOS 0.0.3（x86_64）工作站安装 kickstart — UKUI 桌面
+# AirymaxOS 0.0.4（x86_64）工作站安装 kickstart — UKUI 桌面
 #
 # 桌面决策（2026-09-15）：OS 侧系统桌面 = UKUI 4.x（openKylin/openEuler 线）
 # 隔离铁律：agent 控制面唯一入口 = Gateway（JSON-RPC 2.0），桌面自带

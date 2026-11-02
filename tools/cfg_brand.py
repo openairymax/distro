@@ -3,7 +3,7 @@
 # ===========================================================================
 # cfg_brand.py — 引导菜单品牌化与缺省安装项改写
 #
-# AirymaxOS 0.0.3 的安装 ISO 以 openEuler 24.03-LTS-SP2 netinst 为底座，
+# AirymaxOS 的安装 ISO 以 openEuler 24.03-LTS-SP2 netinst 为底座，
 # mkksiso 注入 kickstart 重建后，引导菜单仍保留底座原文（"Install
 # openEuler 24.03-LTS-SP2"、"Rescue a openEuler system"），且缺省项停在
 # "Test this media & install ..."（set default="1"）。无人值守安装会先跑
@@ -42,12 +42,12 @@
 # 白名单只收 GRUB 的主题样式类：它不是用户可见文本，改名会让主题按类匹配
 # 失效，属底座必须保留的部分。
 #
-# 用法：cfg_brand.py --product "AirymaxOS 0.0.3" FILE
+# 用法：cfg_brand.py --product "OpenAirymax 0.0.4" FILE
 # 退出码：0 有改写；3 已合规（无变化）；1 无法解析、无法满足（缺 inst.ks
 #         安装项等）或改写后仍有白名单外的底座字样；2 用法错误。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.3
+# Version: 0.0.4
 # ===========================================================================
 
 from __future__ import annotations
@@ -61,7 +61,7 @@ BAD = 1
 ERR = 2
 SAME = 3
 
-USAGE = '用法: cfg_brand.py --product "AirymaxOS 0.0.3" FILE'
+USAGE = '用法: cfg_brand.py --product "OpenAirymax 0.0.4" FILE'
 
 GRUB_RE = re.compile(r"^(menuentry|submenu)\s+(['\"])(.*?)\2")
 GRUB_ANY = re.compile(r"^(\s*)(menuentry|submenu)\s+(['\"])(.*?)\3")

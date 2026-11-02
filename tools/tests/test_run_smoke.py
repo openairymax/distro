@@ -15,6 +15,7 @@
 # Version: 0.0.4
 # ===========================================================================
 
+import re
 import shutil
 import subprocess
 import tempfile
@@ -36,11 +37,14 @@ LEGACY = ("tauri", "webkitwebprocess", "fcitx5", "pipewire",
 KREL = "6.6.157-alk"
 LSM_LIST = "airy_lockdown,lockdown,capability,yama,airy,selinux"
 HOSTNAME = "AIRYMAX_PC"
-OS_RELEASE = ('NAME="AirymaxOS"\n'
-              'VERSION="0.0.3 (OpenAirymax)"\n'
+# 两层展示名：NAME 是人读的完整名（可含中文），PRETTY_NAME 是 ASCII 短名 +
+# 版本号，T9 判定的是二者的派生不变式而不是具体字符串。
+OS_RELEASE = ('NAME="OpenAirymax 开源极境"\n'
+              'VERSION="0.0.4 (OpenAirymax)"\n'
               "ID=airymaxos\n"
-              'VERSION_ID="0.0.3"\n'
-              'PRETTY_NAME="AirymaxOS 0.0.3 (OpenAirymax)"\n')
+              'VERSION_ID="0.0.4"\n'
+              'PRETTY_NAME="OpenAirymax 0.0.4"\n'
+              'VERSION_CODENAME=openairymax\n')
 
 # T14 的客户端源文件形态：多段、三镜像并列、末段关闭。
 REPO = """\
@@ -225,6 +229,17 @@ class RunSmokeTest(unittest.TestCase):
     def write_osrel(self, body):
         path = self.sysroot / "etc" / "os-release"
         path.write_text(body, encoding="utf-8")
+        # /etc/issue 首行与 os-release 是同一事实源，这里复刻发行版包的派生
+        # 规则；派生本身由 spec %check 断言，沙箱只保证两处默认一致。
+        hit = re.search(r'^PRETTY_NAME="([^"]*)"', body, re.M)
+        self.write_issue(hit.group(1) if hit else "")
+        return path
+
+    def write_issue(self, brand):
+        path = self.sysroot / "etc" / "issue"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"{brand}\nKernel \\r on an \\m (\\l)\n",
+                        encoding="utf-8")
         return path
 
     def write_boot(self, kind, body):
@@ -298,7 +313,7 @@ class RunSmokeTest(unittest.TestCase):
                               text=True, capture_output=True)
 
     def run_smoke(self, **extra):
-        return self.run_script("airymaxos-0.0.3", **extra)
+        return self.run_script("airymaxos-0.0.4", **extra)
 
     def taps(self, res):
         return [line for line in res.stdout.splitlines()
@@ -341,7 +356,7 @@ class RunSmokeTest(unittest.TestCase):
         self.assertIn("TAP version 14", res.stdout)
         self.assertIn("1..17", res.stdout.splitlines())
         self.assertIn(
-            "# AirymaxOS distro smoke: target=airymaxos-0.0.3", res.stdout)
+            "# AirymaxOS distro smoke: target=airymaxos-0.0.4", res.stdout)
 
     def test_requires_target(self):
         self.tools()
@@ -587,17 +602,48 @@ class RunSmokeTest(unittest.TestCase):
         self.assert_fail(res, 8)
         self.assertIn("/etc/hostname unreadable", res.stdout)
 
-    def test_brand_name_wrong(self):
+    def test_brand_name_is_base(self):
         self.tools()
-        self.write_osrel(OS_RELEASE.replace('NAME="AirymaxOS"',
-                                            'NAME="openEuler"'))
+        # NAME 允许含中文，但词根必须与 PRETTY_NAME 的短名同源；底座名直接判
+        # 失败，避免只改 os-release 一处就蒙过品牌面。
+        self.write_osrel(OS_RELEASE.replace("OpenAirymax 开源极境", "openEuler"))
         res = self.run_smoke()
         self.assert_fail(res, 9)
         self.assertIn("os-release NAME: openEuler", res.stdout)
 
+    def test_brand_pretty_no_version(self):
+        self.tools()
+        # PRETTY_NAME 少了版本段就不满足「<短名> <VERSION_ID>」，引导菜单与
+        # system-release 的派生会同时错位。
+        self.write_osrel(OS_RELEASE.replace('PRETTY_NAME="OpenAirymax 0.0.4"',
+                                            'PRETTY_NAME="OpenAirymax"'))
+        res = self.run_smoke()
+        self.assert_fail(res, 9)
+        self.assertIn("os-release PRETTY_NAME: OpenAirymax", res.stdout)
+
+    def test_brand_pretty_not_ascii(self):
+        self.tools()
+        # 短名要进引导菜单、ISO 卷标与 NVRAM，全是非 UTF-8 通道；中文名只允许
+        # 出现在 NAME。
+        self.write_osrel(OS_RELEASE.replace('PRETTY_NAME="OpenAirymax 0.0.4"',
+                                            'PRETTY_NAME="开源极境 0.0.4"'))
+        res = self.run_smoke()
+        self.assert_fail(res, 9)
+        self.assertIn("want '<brand> <version>'", res.stdout)
+
+    def test_issue_brand_drift(self):
+        self.tools()
+        # /etc/issue 是登录前最先露出的品牌面，与 os-release 脱钩说明有两处
+        # 事实源。
+        self.write_issue("AirymaxOS 0.0.4")
+        res = self.run_smoke()
+        self.assert_fail(res, 9)
+        self.assertIn("issue 首行: AirymaxOS 0.0.4 (want OpenAirymax 0.0.4)",
+                      res.stdout)
+
     def test_brand_version_not_semver(self):
         self.tools()
-        self.write_osrel(OS_RELEASE.replace('VERSION_ID="0.0.3"',
+        self.write_osrel(OS_RELEASE.replace('VERSION_ID="0.0.4"',
                                             'VERSION_ID="rolling"'))
         res = self.run_smoke()
         self.assert_fail(res, 9)
@@ -745,7 +791,7 @@ class RunSmokeTest(unittest.TestCase):
         self.assertIn("airymaxos.repo unreadable", res.stdout)
 
     def test_repo_releasever(self):
-        # $releasever 在产品系统里展开为 0.0.3，基底镜像路径随之失效
+        # $releasever 在产品系统里展开为 VERSION_ID，基底镜像路径随之失效
         self.tools()
         self.write_repo(REPO.replace("openEuler-24.03-LTS-SP2",
                                      "openEuler-$releasever"))
