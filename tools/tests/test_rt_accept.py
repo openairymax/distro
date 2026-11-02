@@ -49,6 +49,20 @@ class Base(unittest.TestCase):
             f'echo called > "{self.mark}"; printf "%s\\n" "{line}"',
         )
 
+    def lat(self, max_us: int | None = 42, payload: str = "") -> None:
+        if max_us is None:
+            self.tool(
+                "airy-rt-lat",
+                f'echo called > "{self.mark}"; echo "boom"; exit 1',
+            )
+            return
+        line = payload or ('{"tool":"airy-rt-lat","policy":"fifo",'
+                          '"max_us":%d}' % max_us)
+        self.tool(
+            "airy-rt-lat",
+            f'echo called > "{self.mark}"; printf "%s\\n" \'{line}\'',
+        )
+
     def gate(self, *argv: str) -> subprocess.CompletedProcess[str]:
         env = dict(os.environ)
         env["PATH"] = f"{self.bin}:{env['PATH']}"
@@ -152,6 +166,45 @@ class JsonTest(Base):
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertIn('"verdict":"pass"', done.stdout)
         self.assertIn('"max_us":42', done.stdout)
+
+
+class NativeTest(Base):
+    def test_pass(self) -> None:
+        self.matrix('{"grade":"ready","pending":[]}')
+        self.lat(42)
+        done = self.gate()
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("tool=lat", done.stdout)
+        self.assertIn("max=42us", done.stdout)
+
+    def test_preferred_over_cyclictest(self) -> None:
+        self.matrix('{"grade":"ready","pending":[]}')
+        self.lat(42)
+        self.cycle(900)
+        done = self.gate()
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("max=42us", done.stdout)
+
+    def test_over_limit(self) -> None:
+        self.matrix('{"grade":"ready","pending":[]}')
+        self.lat(140)
+        done = self.gate()
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("verdict=fail", done.stdout)
+
+    def test_measurement_error(self) -> None:
+        self.matrix('{"grade":"ready","pending":[]}')
+        self.lat(None)
+        done = self.gate()
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("airy-rt-lat 执行失败", done.stderr)
+
+    def test_bad_json(self) -> None:
+        self.matrix('{"grade":"ready","pending":[]}')
+        self.lat(0, payload="not json")
+        done = self.gate()
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("合法 JSON", done.stderr)
 
 
 if __name__ == "__main__":

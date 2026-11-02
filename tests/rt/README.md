@@ -3,7 +3,7 @@
 # tests/rt — 实时性基线与回归比较
 
 本目录只做两件事：在目标机上把实时性基线记下来，以及在回归时判断是否劣化。
-测量本身由 `ci/gates/rt-accept.sh` 完成，这里不重写 cyclictest 参数与阈值。
+测量本身由 `ci/gates/rt-accept.sh` 完成，这里不重写测量工具参数与阈值。
 
 ## 为什么基线与门禁分开
 
@@ -18,7 +18,9 @@
 
 ## 产出基线
 
-在目标机上（需要 `airy-rt-cap` 与 `rt-tests`，root 权限有利于取到完整能力）：
+在目标机上（需要 `airy-rt-cap` 与 `airy-rt-lat`，两者都由
+`airymaxos-system` 交付；装了 `rt-tests` 的验收环境也可以退回
+`cyclictest`。测量需要 root 才能取到 FIFO 优先级）：
 
 ```bash
 tests/rt/baseline.py record --rounds 3 --duration 30 --out /tmp/rt-285h.json
