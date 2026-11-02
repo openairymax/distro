@@ -16,7 +16,9 @@
 #      启动期分配与人工排查共用同一份带宽判定实现（X-01）；
 #   7. 部署 /usr/bin/airy-power、airymax_power Python 包、电源档位单元
 #      与周期重评定时器，启动期落档、周期复核与人工排查共用同一份判定；
-#   8. 在 %%post/%%postun 内刷新 systemd 单元缓存。
+#   8. 部署 /usr/bin/airy-probe 与 airymax_probe Python 包，十条追踪通道、
+#      两条注入通道与三处静态计数的清点共用同一份证据实现（X-02）；
+#   9. 在 %%post/%%postun 内刷新 systemd 单元缓存。
 #
 # 单元启用（systemctl enable）由安装器在 kickstart 中显式完成，
 # 本包只负责文件到位与缓存刷新（OS-OPS-010）。随包落盘两份 preset：
@@ -42,9 +44,10 @@
 # spec-lint: source-bundle ../../system/services/airyupdate
 # spec-lint: source-bundle ../../system/services/airymax_rt
 # spec-lint: source-bundle ../../system/services/airymax_power
+# spec-lint: source-bundle ../../system/services/airymax_probe
 
 %global airy_version 0.0.4
-%global airy_release 6
+%global airy_release 7
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -96,6 +99,8 @@ Source36:       airy-power
 Source37:       airy-power.service
 Source38:       airy-power.timer
 Source39:       airymax_power-%{version}.tar.gz
+Source40:       airy-probe
+Source41:       airymax_probe-%{version}.tar.gz
 
 BuildRequires:  python3-devel
 Requires:       bash
@@ -119,7 +124,10 @@ and the boot unit that applies the budget before the audio daemons
 share one verdict implementation. The airy-power command with its
 power and thermal package applies the platform profile, CPU governor
 and energy preference on boot and on a one-minute timer, so the
-verdict shown by hand is the verdict the boot applied. Units are
+verdict shown by hand is the verdict the boot applied. The airy-probe
+command with its trace package reports the ten agent tracepoints, the
+two injection channels and the three static counters, so an acceptance
+run has one evidence source instead of three ad hoc reads. Units are
 installed disabled; the installer enables them explicitly so that
 server and desktop profiles can opt out without editing the package
 payload.
@@ -150,12 +158,14 @@ install -m 0755 %{SOURCE22} %{buildroot}%{_bindir}/airy-update
 install -m 0755 %{SOURCE28} %{buildroot}%{_bindir}/airy-model
 install -m 0755 %{SOURCE33} %{buildroot}%{_bindir}/airy-rt-cap
 install -m 0755 %{SOURCE36} %{buildroot}%{_bindir}/airy-power
+install -m 0755 %{SOURCE40} %{buildroot}%{_bindir}/airy-probe
 install -d -m 0755 %{buildroot}%{python3_sitelib}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE25}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE26}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE29}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE34}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE39}
+tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE41}
 
 %check
 test -x %{buildroot}/usr/lib/airymaxos/scripts/firstboot.sh
@@ -165,8 +175,14 @@ test -x %{buildroot}%{_bindir}/airy-update
 test -x %{buildroot}%{_bindir}/airy-model
 test -x %{buildroot}%{_bindir}/airy-rt-cap
 test -x %{buildroot}%{_bindir}/airy-power
-PYTHONPATH=%{buildroot}%{python3_sitelib} python3 -B -c \
-    'import airydisk.cli, airyupdate.cli, airyllm.cli, airymax_rt.cli, airymax_power.cli'
+test -x %{buildroot}%{_bindir}/airy-probe
+PYTHONPATH=%{buildroot}%{python3_sitelib} python3 -B -c '
+import airydisk.cli
+import airyupdate.cli
+import airyllm.cli
+import airymax_rt.cli
+import airymax_power.cli
+import airymax_probe.cli'
 test -f %{buildroot}%{_unitdir}/agentrt.target
 test -f %{buildroot}%{_unitdir}/agentrt-firstboot.service
 test -f %{buildroot}%{_unitdir}/airy-incident@.service
@@ -259,13 +275,24 @@ fi
 %{_bindir}/airy-model
 %{_bindir}/airy-rt-cap
 %{_bindir}/airy-power
+%{_bindir}/airy-probe
 %{python3_sitelib}/airydisk
 %{python3_sitelib}/airyllm
 %{python3_sitelib}/airyupdate
 %{python3_sitelib}/airymax_rt
 %{python3_sitelib}/airymax_power
+%{python3_sitelib}/airymax_probe
 
 %changelog
+* Mon Nov 02 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-7
+- Ship airy-probe and the airymax_probe package so acceptance reads the
+  ten agent tracepoints, the two injection channels and the three
+  static counters through one implementation
+- The ten tracepoints shipped in 0.0.3 had no reader; every check was
+  an ad hoc tracefs read and no run left a recomputable verdict
+- The probe only reads or attempts an empty write, and reports the
+  errno for each channel, so the deferred injection interface is
+  recorded as evidence instead of being guessed at
 * Mon Nov 02 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-6
 - Ship airy-power, the airymax_power package, airy-power.service and
   airy-power.timer so the platform profile, CPU governor and energy
