@@ -14,7 +14,9 @@
 #      资产通道、状态查询与启动判定共用同一份运行层实现（K-20/K-21）；
 #   6. 部署 /usr/bin/airy-rt-cap、airymax_rt Python 包与实时带宽单元，
 #      启动期分配与人工排查共用同一份带宽判定实现（X-01）；
-#   7. 在 %%post/%%postun 内刷新 systemd 单元缓存。
+#   7. 部署 /usr/bin/airy-power、airymax_power Python 包、电源档位单元
+#      与周期重评定时器，启动期落档、周期复核与人工排查共用同一份判定；
+#   8. 在 %%post/%%postun 内刷新 systemd 单元缓存。
 #
 # 单元启用（systemctl enable）由安装器在 kickstart 中显式完成，
 # 本包只负责文件到位与缓存刷新（OS-OPS-010）。随包落盘两份 preset：
@@ -39,9 +41,10 @@
 # spec-lint: source-bundle ../../system/services/airyllm
 # spec-lint: source-bundle ../../system/services/airyupdate
 # spec-lint: source-bundle ../../system/services/airymax_rt
+# spec-lint: source-bundle ../../system/services/airymax_power
 
 %global airy_version 0.0.4
-%global airy_release 5
+%global airy_release 6
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -89,6 +92,10 @@ Source32:       airy-disk-health.timer
 Source33:       airy-rt-cap
 Source34:       airymax_rt-%{version}.tar.gz
 Source35:       airy-rt-bandwidth.service
+Source36:       airy-power
+Source37:       airy-power.service
+Source38:       airy-power.timer
+Source39:       airymax_power-%{version}.tar.gz
 
 BuildRequires:  python3-devel
 Requires:       bash
@@ -109,9 +116,13 @@ scripts they execute, the airy-disk command with its Python package,
 and the airy-model command with the local model runtime package and
 service unit. The airy-rt-cap command with its RT bandwidth package
 and the boot unit that applies the budget before the audio daemons
-share one verdict implementation. Units are installed disabled; the
-installer enables them explicitly so that server and desktop profiles
-can opt out without editing the package payload.
+share one verdict implementation. The airy-power command with its
+power and thermal package applies the platform profile, CPU governor
+and energy preference on boot and on a one-minute timer, so the
+verdict shown by hand is the verdict the boot applied. Units are
+installed disabled; the installer enables them explicitly so that
+server and desktop profiles can opt out without editing the package
+payload.
 
 %prep
 %setup -q -c -T
@@ -125,6 +136,7 @@ install -m 0644 %{SOURCE1} %{SOURCE2} %{SOURCE3} %{SOURCE4} %{SOURCE5} \
     %{SOURCE12} %{SOURCE13} %{SOURCE14} %{SOURCE16} \
     %{SOURCE23} %{SOURCE24} %{SOURCE27} \
     %{SOURCE30} %{SOURCE31} %{SOURCE32} %{SOURCE35} \
+    %{SOURCE37} %{SOURCE38} \
     %{buildroot}%{_unitdir}/
 install -m 0644 %{SOURCE0} %{SOURCE15} %{buildroot}%{_unitdir}/
 install -d -m 0755 %{buildroot}/usr/lib/airymaxos/scripts
@@ -137,11 +149,13 @@ install -m 0755 %{SOURCE21} %{buildroot}%{_bindir}/airy-disk
 install -m 0755 %{SOURCE22} %{buildroot}%{_bindir}/airy-update
 install -m 0755 %{SOURCE28} %{buildroot}%{_bindir}/airy-model
 install -m 0755 %{SOURCE33} %{buildroot}%{_bindir}/airy-rt-cap
+install -m 0755 %{SOURCE36} %{buildroot}%{_bindir}/airy-power
 install -d -m 0755 %{buildroot}%{python3_sitelib}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE25}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE26}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE29}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE34}
+tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE39}
 
 %check
 test -x %{buildroot}/usr/lib/airymaxos/scripts/firstboot.sh
@@ -150,8 +164,9 @@ test -x %{buildroot}%{_bindir}/airy-disk
 test -x %{buildroot}%{_bindir}/airy-update
 test -x %{buildroot}%{_bindir}/airy-model
 test -x %{buildroot}%{_bindir}/airy-rt-cap
+test -x %{buildroot}%{_bindir}/airy-power
 PYTHONPATH=%{buildroot}%{python3_sitelib} python3 -B -c \
-    'import airydisk.cli, airyupdate.cli, airyllm.cli, airymax_rt.cli'
+    'import airydisk.cli, airyupdate.cli, airyllm.cli, airymax_rt.cli, airymax_power.cli'
 test -f %{buildroot}%{_unitdir}/agentrt.target
 test -f %{buildroot}%{_unitdir}/agentrt-firstboot.service
 test -f %{buildroot}%{_unitdir}/airy-incident@.service
@@ -183,6 +198,22 @@ grep -qxF 'ExecStart=/usr/bin/airy-rt-cap apply' \
     %{buildroot}%{_unitdir}/airy-rt-bandwidth.service
 grep -qxF 'Before=agentrt.target rtkit-daemon.service display-manager.service' \
     %{buildroot}%{_unitdir}/airy-rt-bandwidth.service
+test -f %{buildroot}%{_unitdir}/airy-power.service
+grep -qxF 'ExecStart=/usr/bin/airy-power apply' \
+    %{buildroot}%{_unitdir}/airy-power.service
+grep -qxF 'SuccessExitStatus=3' \
+    %{buildroot}%{_unitdir}/airy-power.service
+grep -qxF 'Before=agentrt.target display-manager.service' \
+    %{buildroot}%{_unitdir}/airy-power.service
+test -f %{buildroot}%{_unitdir}/airy-power.timer
+grep -qxF 'OnUnitInactiveSec=60s' \
+    %{buildroot}%{_unitdir}/airy-power.timer
+grep -qxF 'Unit=airy-power.service' \
+    %{buildroot}%{_unitdir}/airy-power.timer
+grep -qxF 'disable airy-power.service' \
+    %{buildroot}%{_presetdir}/90-airymax.preset
+grep -qxF 'disable airy-power.timer' \
+    %{buildroot}%{_presetdir}/90-airymax.preset
 grep -qxF 'disable airy-rt-bandwidth.service' \
     %{buildroot}%{_presetdir}/90-airymax.preset
 grep -qxF 'disable airy-disk-mount.service' \
@@ -227,12 +258,23 @@ fi
 %{_bindir}/airy-update
 %{_bindir}/airy-model
 %{_bindir}/airy-rt-cap
+%{_bindir}/airy-power
 %{python3_sitelib}/airydisk
 %{python3_sitelib}/airyllm
 %{python3_sitelib}/airyupdate
 %{python3_sitelib}/airymax_rt
+%{python3_sitelib}/airymax_power
 
 %changelog
+* Mon Nov 02 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-6
+- Ship airy-power, the airymax_power package, airy-power.service and
+  airy-power.timer so the platform profile, CPU governor and energy
+  preference follow the power source and the thermal headroom
+- The 285H stopped with firmware defaults of performance everywhere and
+  a thermal zone whose critical trip sits at 80 C; without this unit
+  the machine throttles thousands of times in under an hour
+- The timer re-evaluates every minute, so a change of power source or a
+  rising zone is corrected without waiting for the next boot
 * Mon Nov 02 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-5
 - Ship airy-rt-cap, the airymax_rt package and airy-rt-bandwidth.service
   so the RT budget is applied before rtkit-daemon starts; the desktop

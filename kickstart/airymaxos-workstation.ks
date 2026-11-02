@@ -466,10 +466,15 @@ grep -qxF 'autologin-user=amuser' "${seat}" || fail lightdm-autologin
 #    不在此启用则升级通道装完即静默失效，且从任何服务状态都看不出来。
 #    airy-disk-mount.service 与 airy-disk-health.timer 是同一类缺口：单元
 #    装了就位却默认关闭，数据盘不挂载、容量告急也不告警，/data 只剩空目录。
+#    airy-power.service 与 airy-power.timer 同理：285H 实测固件默认把
+#    platform_profile 与 EPP 钉在 performance，热区 critical 只有 80°C，
+#    不启用则装机后 40 分钟即累计上万次 package throttle；桌面与笔记本
+#    档位必须由本清单显式接管，服务器档位保持固件设置。
 systemctl --root=/ preset-all >/dev/null 2>&1 ||
     mark "AIRYMAX-INSTALL-NOTE preset-all rc=$?"
 boot_set="lightdm.service airymax-desktop-ready.service
-airy-rt-bandwidth.service bluetooth.service
+airy-rt-bandwidth.service airy-power.service airy-power.timer
+bluetooth.service
 NetworkManager.service chronyd.service firewalld.service sshd.service
 airymax-update-check.timer
 airy-disk-mount.service airy-disk-health.timer"
