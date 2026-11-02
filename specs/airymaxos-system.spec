@@ -12,7 +12,9 @@
 #      升级通道与装机共用同一份版本身份实现（V-14）；
 #   5. 部署 /usr/bin/airy-model、airyllm Python 包与推理服务单元，模型
 #      资产通道、状态查询与启动判定共用同一份运行层实现（K-20/K-21）；
-#   6. 在 %%post/%%postun 内刷新 systemd 单元缓存。
+#   6. 部署 /usr/bin/airy-rt-cap、airymax_rt Python 包与实时带宽单元，
+#      启动期分配与人工排查共用同一份带宽判定实现（X-01）；
+#   7. 在 %%post/%%postun 内刷新 systemd 单元缓存。
 #
 # 单元启用（systemctl enable）由安装器在 kickstart 中显式完成，
 # 本包只负责文件到位与缓存刷新（OS-OPS-010）。随包落盘两份 preset：
@@ -36,9 +38,10 @@
 # spec-lint: source-bundle ../../system/services/airydisk
 # spec-lint: source-bundle ../../system/services/airyllm
 # spec-lint: source-bundle ../../system/services/airyupdate
+# spec-lint: source-bundle ../../system/services/airymax_rt
 
 %global airy_version 0.0.4
-%global airy_release 4
+%global airy_release 5
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -83,6 +86,9 @@ Source29:       airyllm-%{version}.tar.gz
 Source30:       airy-disk-mount.service
 Source31:       airy-disk-health.service
 Source32:       airy-disk-health.timer
+Source33:       airy-rt-cap
+Source34:       airymax_rt-%{version}.tar.gz
+Source35:       airy-rt-bandwidth.service
 
 BuildRequires:  python3-devel
 Requires:       bash
@@ -101,9 +107,11 @@ boot initialization gate, the boot health self-test, the data
 partition mount and health units with their daily timer, the runtime
 scripts they execute, the airy-disk command with its Python package,
 and the airy-model command with the local model runtime package and
-service unit. Units are installed disabled; the installer enables them
-explicitly so that server and desktop profiles can opt out without
-editing the package payload.
+service unit. The airy-rt-cap command with its RT bandwidth package
+and the boot unit that applies the budget before the audio daemons
+share one verdict implementation. Units are installed disabled; the
+installer enables them explicitly so that server and desktop profiles
+can opt out without editing the package payload.
 
 %prep
 %setup -q -c -T
@@ -116,7 +124,7 @@ install -m 0644 %{SOURCE1} %{SOURCE2} %{SOURCE3} %{SOURCE4} %{SOURCE5} \
     %{SOURCE6} %{SOURCE7} %{SOURCE8} %{SOURCE9} %{SOURCE10} %{SOURCE11} \
     %{SOURCE12} %{SOURCE13} %{SOURCE14} %{SOURCE16} \
     %{SOURCE23} %{SOURCE24} %{SOURCE27} \
-    %{SOURCE30} %{SOURCE31} %{SOURCE32} \
+    %{SOURCE30} %{SOURCE31} %{SOURCE32} %{SOURCE35} \
     %{buildroot}%{_unitdir}/
 install -m 0644 %{SOURCE0} %{SOURCE15} %{buildroot}%{_unitdir}/
 install -d -m 0755 %{buildroot}/usr/lib/airymaxos/scripts
@@ -128,10 +136,12 @@ install -d -m 0755 %{buildroot}%{_bindir}
 install -m 0755 %{SOURCE21} %{buildroot}%{_bindir}/airy-disk
 install -m 0755 %{SOURCE22} %{buildroot}%{_bindir}/airy-update
 install -m 0755 %{SOURCE28} %{buildroot}%{_bindir}/airy-model
+install -m 0755 %{SOURCE33} %{buildroot}%{_bindir}/airy-rt-cap
 install -d -m 0755 %{buildroot}%{python3_sitelib}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE25}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE26}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE29}
+tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE34}
 
 %check
 test -x %{buildroot}/usr/lib/airymaxos/scripts/firstboot.sh
@@ -139,8 +149,9 @@ test -x %{buildroot}/usr/lib/airymaxos/scripts/health_check.sh
 test -x %{buildroot}%{_bindir}/airy-disk
 test -x %{buildroot}%{_bindir}/airy-update
 test -x %{buildroot}%{_bindir}/airy-model
+test -x %{buildroot}%{_bindir}/airy-rt-cap
 PYTHONPATH=%{buildroot}%{python3_sitelib} python3 -B -c \
-    'import airydisk.cli, airyupdate.cli, airyllm.cli'
+    'import airydisk.cli, airyupdate.cli, airyllm.cli, airymax_rt.cli'
 test -f %{buildroot}%{_unitdir}/agentrt.target
 test -f %{buildroot}%{_unitdir}/agentrt-firstboot.service
 test -f %{buildroot}%{_unitdir}/airy-incident@.service
@@ -167,6 +178,13 @@ grep -qxF 'ConditionPathIsMountPoint=/data' \
 test -f %{buildroot}%{_unitdir}/airy-disk-health.timer
 grep -qxF 'OnCalendar=daily' \
     %{buildroot}%{_unitdir}/airy-disk-health.timer
+test -f %{buildroot}%{_unitdir}/airy-rt-bandwidth.service
+grep -qxF 'ExecStart=/usr/bin/airy-rt-cap apply' \
+    %{buildroot}%{_unitdir}/airy-rt-bandwidth.service
+grep -qxF 'Before=agentrt.target rtkit-daemon.service display-manager.service' \
+    %{buildroot}%{_unitdir}/airy-rt-bandwidth.service
+grep -qxF 'disable airy-rt-bandwidth.service' \
+    %{buildroot}%{_presetdir}/90-airymax.preset
 grep -qxF 'disable airy-disk-mount.service' \
     %{buildroot}%{_presetdir}/90-airymax.preset
 grep -qxF 'disable airy-disk-health.timer' \
@@ -208,11 +226,18 @@ fi
 %{_bindir}/airy-disk
 %{_bindir}/airy-update
 %{_bindir}/airy-model
+%{_bindir}/airy-rt-cap
 %{python3_sitelib}/airydisk
 %{python3_sitelib}/airyllm
 %{python3_sitelib}/airyupdate
+%{python3_sitelib}/airymax_rt
 
 %changelog
+* Mon Nov 02 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-5
+- Ship airy-rt-cap, the airymax_rt package and airy-rt-bandwidth.service
+  so the RT budget is applied before rtkit-daemon starts; the desktop
+  release package carried a shell copy of the same policy, which the
+  boot unit could not report on
 * Mon Nov 02 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-4
 - Ship airy-disk-mount.service and the airy-disk-health pair so an
   installed system restores /data before agentrt.target starts and
