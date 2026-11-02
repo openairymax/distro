@@ -29,6 +29,8 @@
 #      符号链接指向 tribar，kickstart 的 rhgb 因此有画面可显示。不改
 #      /etc/plymouth/plymouthd.conf 与 plymouthd.defaults——两者都归
 #      plymouth 包，同名文件被两个包同时持有会让安装事务整体失败。
+#  10. 部署网络全局策略 /etc/NetworkManager/conf.d/99-airymax.conf：桌面
+#      形态的 DNS 管理与连通性探测口径，与镜像的包闭包成对断言。
 #
 # 静态资产一律由 %%install 直接落到最终路径，%%post 不复制文件，同一路径只有
 # 一处事实来源。
@@ -51,7 +53,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.3
-%global airy_release 26
+%global airy_release 27
 # 基底版本是显式输入，与 distro/repo/airymax-os.repo 及 kickstart 的
 # url/repo 行是三处同源表达。%%check 以本宏断言客户端配置，版本漂移在
 # 构建期失败，而不是等到装机后 dnf 报「找不到仓库」。
@@ -103,6 +105,7 @@ Source33:       airy_demo.py
 Source34:       99-airymax-hostname.conf
 Source35:       airy_inspect.py
 Source36:       motd
+Source37:       99-airymax.conf
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -213,6 +216,13 @@ install -m 0644 %{SOURCE7} \
 install -d -m 0755 %{buildroot}%{_sysconfdir}/ssh/sshd_config.d
 install -m 0644 %{SOURCE16} \
     %{buildroot}%{_sysconfdir}/ssh/sshd_config.d/50-airymax-sshd.conf
+
+# 网络全局策略：NetworkManager 按文件名字典序合并 conf.d，99 排在最后，
+# 这里的键即生效值。目录可能由 NetworkManager 包提供，两个包同持一个目录
+# 是允许的；目录本身也由本包声明，避免在未装该包的环境里留下悬空路径。
+install -d -m 0755 %{buildroot}%{_sysconfdir}/NetworkManager/conf.d
+install -m 0644 %{SOURCE37} \
+    %{buildroot}%{_sysconfdir}/NetworkManager/conf.d/99-airymax.conf
 
 # sudo 只接受模式 0440 的 include 文件，其余权限会被静默忽略；因此这里是
 # 权限而不是内容的一部分。改名去掉 -sudoers 后缀，与 /etc/sudoers.d 内
@@ -426,6 +436,24 @@ grep -qxF 'autologin-user=Airymax' \
     %{buildroot}%{_sysconfdir}/lightdm/lightdm.conf.d/50-airymax.conf
 grep -qxF 'PermitEmptyPasswords yes' \
     %{buildroot}%{_sysconfdir}/ssh/sshd_config.d/50-airymax-sshd.conf
+# 网络策略：装机验收只看「首启 60s 内有路 DHCP 成功且网关可达」，而
+# NM 的键写错不会让任何服务启动失败——它只表现为拿不到地址。两组键
+# 逐字断言，段名也断言，避免键被并到别的段里静默失效。
+airy_nm=%{buildroot}%{_sysconfdir}/NetworkManager/conf.d/99-airymax.conf
+grep -qxF '[main]' "${airy_nm}"
+grep -qxF 'dns=default' "${airy_nm}"
+grep -qxF 'rc-manager=symlink' "${airy_nm}"
+grep -qxF '[connectivity]' "${airy_nm}"
+grep -qxF 'enabled=false' "${airy_nm}"
+# 服务器档的键与上面的策略互斥：no-auto-default 会关掉插线自动 DHCP，
+# ignore-carrier 会吞掉载波事件。只匹配生效行（不含注释），镜像里出现
+# 其中任一键都说明依赖又被拉回。
+for airy_key in no-auto-default ignore-carrier; do
+    if grep -rsE "^[[:space:]]*${airy_key}[[:space:]]*=" \
+        %{buildroot}%{_sysconfdir}/NetworkManager/conf.d; then
+        exit 1
+    fi
+done
 # 免密提权：sudo 会静默忽略模式不等于 0440 的 include 文件，所以权限与
 # 内容要分别断言。有效规则必须恰好一条且为 airymax 的 NOPASSWD，防止
 # 后续追加规则把「只放开一个账户」的收敛范围悄悄放宽。
@@ -575,6 +603,8 @@ fi
 %dir %attr(0750, root, root) %{_sysconfdir}/sudoers.d
 %config(noreplace) %attr(0440, root, root) %{_sysconfdir}/sudoers.d/90-airymax
 %config(noreplace) %{_sysconfdir}/sysctl.d/99-airymax-hostname.conf
+%dir %{_sysconfdir}/NetworkManager/conf.d
+%config(noreplace) %{_sysconfdir}/NetworkManager/conf.d/99-airymax.conf
 %config(noreplace) %{_sysconfdir}/dconf/db/local.d/00-airymax-screensaver
 %config(noreplace) %{_sysconfdir}/X11/xinit/xinitrc.d/70-airymax-im.sh
 %config(noreplace) %{_sysconfdir}/X11/xinit/xinitrc.d/60-airymax-display.sh
@@ -613,6 +643,16 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Mon Nov 02 2026 SPHARX <dev@spharx.com> - 0.0.3-27
+- Ship /etc/NetworkManager/conf.d/99-airymax.conf: the desktop policy
+  states dns=default with rc-manager=symlink (no plugin is installed,
+  and a missing plugin leaves resolv.conf unwritten while the lease
+  still succeeds) and disables connectivity probing (isolated install
+  networks are reported as limited and trigger reconnect churn)
+- Drop NetworkManager-config-server from the core group: its
+  no-auto-default and ignore-carrier keys disable automatic wired DHCP
+  and swallow carrier events, so a freshly plugged cable never becomes
+  a default connection. %check rejects either key in the build root
 * Thu Oct 30 2026 SPHARX <dev@spharx.com> - 0.0.3-26
 - List the stock Linux cross-checks in /etc/motd.d/airymax next to the
   six Airymax entry points: uname, os-release, lscpu, free, lsblk, ip,
