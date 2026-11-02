@@ -21,8 +21,9 @@ SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "build-rpms.sh"
 DISTRO = SCRIPT.parent.parent
 BASH = shutil.which("bash") or "/bin/bash"
 
-TOOLS = ("basename", "cat", "cmp", "cp", "dirname", "find", "mkdir",
-         "nproc", "rm", "sed", "sha256sum", "sort", "uname")
+TOOLS = ("basename", "cat", "cmp", "cp", "dirname", "find", "gzip",
+         "mkdir", "nproc", "rm", "sed", "sha256sum", "sort", "tar",
+         "uname")
 
 SPEC = """\
 Name:           airymaxos-demo
@@ -40,6 +41,10 @@ Demo.
 %files
 /etc/demo.conf
 """
+
+BUNDLE = SPEC.replace("Source0:        demo.conf",
+                      "# spec-lint: source-bundle demo-pkg\n"
+                      "Source0:        demo-pkg-0.0.3.tar.gz")
 
 RPMSPEC = """\
 #!/bin/sh
@@ -67,7 +72,8 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$rpmdir" ] || exit 9
 [ -n "$target" ] || exit 9
-[ -f "$sourcedir/demo.conf" ] || exit 8
+[ -f "$sourcedir/demo.conf" ] || [ -f "$sourcedir/demo-pkg-0.0.3.tar.gz" ] ||
+    exit 8
 mkdir -p "$rpmdir/$target"
 printf '%s\\n' "$orig" > "$rpmdir/$target/argv.txt"
 printf 'payload\\n' > "$rpmdir/$target/demo-0.0.3-1.$target.rpm"
@@ -236,6 +242,49 @@ class BuildRpmsTest(unittest.TestCase):
         self.assertTrue((repo / "repodata" / "repomd.xml").is_file())
         self.assertTrue((repo / "repodata" / "repomd.xml.asc").is_file())
         self.assertTrue((repo / "demo-0.0.3-1.x86_64.rpm").is_file())
+
+    def bundle_tree(self):
+        pkg = self.specs / "demo-pkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("x\n", encoding="utf-8")
+        (pkg / "__pycache__").mkdir()
+        (pkg / "__pycache__" / "x.pyc").write_bytes(b"x")
+        self.spec.write_text(BUNDLE, encoding="utf-8")
+
+    def bundle_tar(self):
+        return (self.out / "work" / "rpmbuild" / "SOURCES"
+                / "demo-pkg-0.0.3.tar.gz")
+
+    def names_of(self, tar):
+        res = subprocess.run(["tar", "-tzf", str(tar)], text=True,
+                             capture_output=True, check=True)
+        return res.stdout.split()
+
+    def test_bundle_source(self):
+        self.full()
+        self.bundle_tree()
+        res = self.run_script("--out", str(self.out), "--spec", str(self.spec),
+                              "--arch", "x86_64")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        names = self.names_of(self.bundle_tar())
+        self.assertIn("demo-pkg/__init__.py", names)
+        self.assertFalse(any("__pycache__" in name for name in names))
+
+    def test_bundle_reproducible(self):
+        self.full()
+        self.bundle_tree()
+        args = ("--out", str(self.out), "--spec", str(self.spec),
+                "--arch", "x86_64")
+        self.assertEqual(self.run_script(*args).returncode, 0)
+        first = self.bundle_tar().read_bytes()
+        self.assertEqual(self.run_script(*args).returncode, 0)
+        self.assertEqual(self.bundle_tar().read_bytes(), first)
+
+    def test_bundle_missing_dir(self):
+        self.full()
+        self.spec.write_text(BUNDLE, encoding="utf-8")
+        res = self.run_script("--out", str(self.out), "--spec", str(self.spec))
+        self.assertEqual(res.returncode, 5)
 
 
 if __name__ == "__main__":

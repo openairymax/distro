@@ -155,6 +155,40 @@ class SpecLintTest(unittest.TestCase):
         codes = self.codes(text)
         self.assertEqual(codes.count("E010"), 1)
 
+    def bundler(self, files=("__init__.py",)):
+        path = self.spec.parent / "demo-pkg"
+        path.mkdir(exist_ok=True)
+        for name in files:
+            (path / name).write_text("x\n", encoding="utf-8")
+        return VALID.replace("Source0:        demo.conf",
+                             "# spec-lint: source-bundle demo-pkg\n"
+                             "Source0:        demo-pkg-%{version}.tar.gz")
+
+    def test_source_bundle(self):
+        self.assertEqual(self.codes(self.bundler()), [])
+
+    def test_bundle_missing_dir(self):
+        text = (VALID.replace("Source0:        demo.conf",
+                              "# spec-lint: source-bundle demo-pkg\n"
+                              "Source0:        demo-pkg-%{version}.tar.gz"))
+        self.assertIn("E010", self.codes(text))
+
+    def test_bundle_empty_dir(self):
+        (self.spec.parent / "demo-pkg").mkdir()
+        self.assertIn("E010", self.codes(self.bundler(files=())))
+
+    def test_bundle_unsourced(self):
+        text = self.bundler().replace(
+            "Source0:        demo-pkg-%{version}.tar.gz",
+            "Source0:        demo.conf")
+        self.assertIn("E010", self.codes(text))
+
+    def test_bundle_committed(self):
+        text = self.bundler()
+        (self.spec.parent / "demo-pkg-0.0.3.tar.gz").write_text(
+            "x\n", encoding="utf-8")
+        self.assertIn("E010", self.codes(text))
+
     def test_changelog(self):
         text = VALID.replace("* Sat Oct 17 2026", "* 2026-10-17")
         self.assertIn("E011", self.codes(text))

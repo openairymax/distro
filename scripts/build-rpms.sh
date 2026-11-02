@@ -6,6 +6,10 @@
 # 用法与产出见 usage()。约束：--out 必须在源码区之外（0.0.3 任务方案
 # §3.1）；配方须先通过 ci/run-lint.sh；跨架构构建由 mock profile 承担。
 #
+# 配方可用 `# spec-lint: source-bundle <相对配方目录的路径>` 声明整目录交付，
+# 驱动在 staging 阶段把该目录打成确定性归档（<目录名>-<Version>.tar.gz），
+# 配方以该文件名作为 Source 引用；归档不入库，由本次构建现场生成。
+#
 # 退出码（190-distribution/01-rpm-packaging.md §8）：
 #   0 成功；2 AIRY_EEXIST；5 AIRY_EINVAL；6 AIRY_EIO；
 #   11 AIRY_ENOTSUP；12 AIRY_EPERM。
@@ -246,9 +250,49 @@ source_names()
         's/^(Source|Patch)[0-9]*:[[:space:]]*([^[:space:]]+).*/\2/p' "$1"
 }
 
+bundle_cfg()
+{
+    local spec="$1" expanded="$2" base dir ver
+    base="$(dirname "$spec")"
+    ver="$(sed -n -E \
+        's/^Version:[[:space:]]*([^[:space:]]+).*/\1/p' "$expanded")"
+    ver="${ver%%$'\n'*}"
+    while IFS= read -r dir; do
+        [ -n "$dir" ] || continue
+        if [ -z "$ver" ]; then
+            printf 'build-rpms: 配方缺少 Version: %s\n' "$spec" >&2
+            return 1
+        fi
+        dir="${base}/${dir}"
+        if [ ! -d "$dir" ]; then
+            printf 'build-rpms: 源目录不存在: %s\n' "$dir" >&2
+            return 1
+        fi
+        printf '%s %s\n' "$dir" "$(basename "$dir")-${ver}.tar.gz"
+    done < <(sed -n -E \
+        's/^#[[:space:]]*spec-lint:[[:space:]]*source-bundle[[:space:]]+([^[:space:]]+)[[:space:]]*$/\1/p' \
+        "$spec")
+}
+
+make_bundle()
+{
+    local dir="$1" name="$2" dst="$TOPDIR/SOURCES/$2"
+    need tar
+    need gzip
+    if ! tar -C "$(dirname "$dir")" \
+        --sort=name --mtime="@${SOURCE_DATE_EPOCH}" \
+        --owner=0 --group=0 --numeric-owner \
+        --exclude=__pycache__ --exclude='*.pyc' \
+        -cf - "$(basename "$dir")" | gzip -n > "$dst"; then
+        rm -f "$dst"
+        die "${E_IO}" "生成源归档失败: $name"
+    fi
+}
+
 stage_spec()
 {
-    local spec="$1" base name file stem log
+    local spec="$1" base name file stem log cfg dir bname
+    local -A bundles=()
     base="$(dirname "$spec")"
     stem="$(basename "${spec%.spec}")"
     log="$WORK/logs/${stem}.rpmspec.log"
@@ -256,8 +300,19 @@ stage_spec()
         log_tail "$log"
         die "${E_INVAL}" "rpmspec 展开失败: $spec（日志 ${log}）"
     fi
+    if ! cfg="$(bundle_cfg "$spec" "$WORK/expanded/${stem}.spec")"; then
+        die "${E_INVAL}" "源归档声明无效: $spec"
+    fi
+    while read -r dir bname; do
+        [ -n "$bname" ] || continue
+        bundles["$bname"]="$dir"
+    done <<< "$cfg"
     while IFS= read -r name; do
         name="$(basename "$name")"
+        if [ -n "${bundles[$name]:-}" ]; then
+            make_bundle "${bundles[$name]}" "$name"
+            continue
+        fi
         if ! file="$(find_src "$name" "$base" "${SRC_DIRS[@]}" \
             "$DISTRO_ROOT")"; then
             die "${E_IO}" "找不到 Source: $name（$spec），用 --src-dir 指定"

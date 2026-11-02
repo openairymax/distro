@@ -19,6 +19,11 @@
 #   # spec-lint: source-root <相对配方目录的路径>
 # 校验时与 distro 根一并建立索引；根不存在本身即按 E010 报告。
 #
+# 整目录交付（Python 包等）用归档 Source：
+#   # spec-lint: source-bundle <相对配方目录的路径>
+# 归档名由目录名与配方 Version 拼成（<目录名>-<Version>.tar.gz），必须被某个
+# Source 引用；目录由构建驱动在 staging 时代为归档，因此不得以同名文件入库。
+#
 # 退出码：0 通过；1 存在问题；2 用法或读取错误。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
@@ -59,6 +64,7 @@ BAD = re.compile(r"\b(TODO|FIXME|XXX)\b")
 SRC = re.compile(r"^Source\d+$")
 GEN = re.compile(r"^#\s*spec-lint:\s*generated-source\s+(\S+)$")
 ROOT = re.compile(r"^#\s*spec-lint:\s*source-root\s+(\S+)$")
+BUNDLE = re.compile(r"^#\s*spec-lint:\s*source-bundle\s+(\S+)$")
 CMT = re.compile(r"^\s*#")
 CMT_MACRO = re.compile(r"(?<!%)%(?:\{|\w)")
 
@@ -173,9 +179,46 @@ def parse_roots(lines: list[str], path: Path) -> list[tuple[int, Path]]:
     return out
 
 
-def check_srcs(tags: dict, roots: list[Path], macros: dict[str, str],
-               gen: set[str], issues: list[Issue]) -> None:
-    index = build_index(roots)
+def parse_bundles(lines: list[str], path: Path,
+                  ver: str) -> list[tuple[int, Path, str]]:
+    out = []
+    for num, raw in enumerate(lines, 1):
+        hit = BUNDLE.match(raw.strip())
+        if hit:
+            src = (path.parent / hit.group(1)).resolve()
+            out.append((num, src, f"{src.name}-{ver}.tar.gz"))
+    return out
+
+
+def check_bundles(bundles: list[tuple[int, Path, str]], tags: dict,
+                  index: dict[str, set[Path]], macros: dict[str, str],
+                  issues: list[Issue]) -> set[str]:
+    refs: set[str] = set()
+    for tag in tags:
+        if SRC.match(tag):
+            refs.add(expand(tags[tag][1], macros))
+    names: set[str] = set()
+    for num, src, name in bundles:
+        if not src.is_dir():
+            issues.append(Issue("E010", num, f"missing source bundle: {src}"))
+            continue
+        if not any(item.is_file() for item in src.rglob("*")):
+            issues.append(Issue("E010", num, f"empty source bundle: {src}"))
+        if name in names:
+            issues.append(Issue("E010", num,
+                                f"duplicate source bundle: {name}"))
+        if name not in refs:
+            issues.append(Issue("E010", num, f"bundle not referenced: {name}"))
+        if index.get(name):
+            issues.append(Issue("E010", num,
+                                f"bundle must not be committed: {name}"))
+        names.add(name)
+    return names
+
+
+def check_srcs(tags: dict, index: dict[str, set[Path]],
+               macros: dict[str, str], gen: set[str],
+               issues: list[Issue]) -> None:
     seen: set[str] = set()
     for tag in sorted(tags):
         if not SRC.match(tag):
@@ -297,9 +340,12 @@ def lint_text(text: str, path: Path, root: Path) -> list[Issue]:
             roots.append(extra)
         else:
             issues.append(Issue("E010", num, f"missing source root: {extra}"))
+    index = build_index(roots)
+    gen |= check_bundles(parse_bundles(lines, path, ver), tags, index,
+                         macros, issues)
     check_tags(tags, ver, issues)
     check_name(tags, path, issues)
-    check_srcs(tags, roots, macros, gen, issues)
+    check_srcs(tags, index, macros, gen, issues)
     check_secs(secs, issues)
     check_files(lines, secs, issues)
     check_log(lines, secs, issues)
