@@ -142,11 +142,11 @@ components:
     segment: EPOL/main
     nvra: ukui-biometric-manager-0:3.1.2-5.oe2403sp2.x86_64
     role: 生物识别管理前端（扩展组）
-  - name: ukui-biometric-auth
+  - name: libpam-biometric
     state: present
     segment: EPOL/main
-    nvra: ukui-biometric-auth-0:1.2.4-2.oe2403sp2.x86_64
-    role: 生物识别认证后端（扩展组）
+    nvra: libpam-biometric-0:1.2.4-2.oe2403sp2.x86_64
+    role: 生物识别 PAM 认证后端（扩展组）；ukui-biometric-auth 源包不打同名二进制
   - name: ukui-polkit
     state: present
     segment: EPOL/main

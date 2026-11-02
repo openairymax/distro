@@ -13,8 +13,10 @@
 # 判据（由 ci/gates/ukui-lock.sh 调用）：
 #   1. 台账 schema：基底、架构、五段、策略与 NVRA 正则；
 #   2. 核心四件 present，两个元包 available，ukui-shell absent；
-#   3. comps 的 ukui* 集合与台账 present 集合相等，且每个组件只登记一次；
-#   4. 冻结输入覆盖默认安装集的 ukui* 闭包，且只含 present 项；
+#   3. comps 的 UKUI 闭包与台账 present 集合相等，且每个组件只登记一次；
+#      闭包集合是 ukui* 命名空间与台账 present 项的并集——认证后端这类
+#      组件按上游包名不带 ukui 前缀，只按命名空间过滤会漏判；
+#   4. 冻结输入覆盖默认安装集的同一闭包，且只含 present 项；
 #   5. 取证册逐字包含全部 present NVRA，并保留 4.24 取舍与复算命令。
 # ===========================================================================
 
@@ -159,19 +161,19 @@ def closure(groups, ids):
     return want
 
 
-def ukui_in(groups):
-    """{ukui 包名: 出现的组数}；可选组也计入，重复声明会让归属不可判定。"""
+def ukui_in(groups, pres):
+    """{闭包包名: 出现的组数}；可选组也计入，重复声明会让归属不可判定。"""
     out = {}
     for group in groups.values():
         for req in group.iter("packagereq"):
             name = req.text or ""
-            if name.startswith("ukui"):
+            if name.startswith("ukui") or name in pres:
                 out[name] = out.get(name, 0) + 1
     return out
 
 
 def check_comps(groups, root, pres, out):
-    have = ukui_in(groups)
+    have = ukui_in(groups, pres)
     for name, num in have.items():
         if name not in pres:
             bad(out, "comps/phantom", "%s 不在台账 present 项" % name)
@@ -180,7 +182,8 @@ def check_comps(groups, root, pres, out):
     for name in pres:
         if name not in have:
             bad(out, "comps/missing", "%s 未进入任何组" % name)
-    return {n for n in closure(groups, env_ids(root)) if n.startswith("ukui")}
+    return {n for n in closure(groups, env_ids(root))
+            if n.startswith("ukui") or n in pres}
 
 
 def read_seeds(path):
@@ -195,7 +198,8 @@ def read_seeds(path):
 
 
 def check_seeds(have, pres, want, out):
-    have = {name for name in have if name.startswith("ukui")}
+    have = {name for name in have
+            if name.startswith("ukui") or name in pres}
     for name in sorted(have - pres):
         bad(out, "seeds/phantom", "%s 不在台账 present 项" % name)
     for name in sorted(want - have):
