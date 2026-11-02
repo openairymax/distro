@@ -231,6 +231,8 @@ check_args()
 
 # airymaxos-system 的 Source 位于 distro 之外的 system/ 子树，distro 根内
 # 索引不到；未显式给出 --src-dir 时按仓库布局补齐，避免装机时缺包。
+# 两个 Python 包不在此列：配方以 spec-lint source-bundle 声明整目录，
+# 由 build-rpms 现场归档，目录本身不是 Source 文件。
 default_srcs()
 {
     local dir
@@ -239,8 +241,7 @@ default_srcs()
     fi
     for dir in "${DISTRO_ROOT}/../system/units" \
         "${DISTRO_ROOT}/../system/scripts" \
-        "${DISTRO_ROOT}/../system/bin" \
-        "${DISTRO_ROOT}/../system/services/airydisk"; do
+        "${DISTRO_ROOT}/../system/bin"; do
         if [ -d "${dir}" ]; then
             SRC_DIRS+=("${dir}")
         fi
