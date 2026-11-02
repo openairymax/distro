@@ -33,7 +33,7 @@ STOCK = """\
 GRUB_TIMEOUT=3
 GRUB_DEFAULT=saved
 GRUB_TERMINAL_OUTPUT="console"
-GRUB_CMDLINE_LINUX="console=tty0 console=ttyS0,115200"
+GRUB_CMDLINE_LINUX="console=ttyS0,115200 console=tty0"
 #GRUB_DISABLE_OS_PROBER=true
 GRUB_DISABLE_RECOVERY="true"
 """
@@ -110,9 +110,30 @@ class GrubArgsTest(unittest.TestCase):
         res = self.apply()
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
         self.assertEqual(self.cmdline(),
-                         "console=tty0 console=ttyS0,115200 rhgb quiet")
+                         "console=ttyS0,115200 console=tty0 rhgb quiet")
         self.assertEqual(self.prober(), "true")
         self.assertIn("updated:", res.stdout)
+
+    def test_legacy_order_rewritten(self):
+        # 0.0.3 的安装器把 tty0 写在前面，/dev/console 因此落在串口上，
+        # systemd-vconsole-setup 锁不住它（285H 实测）。改写必须纠正顺序。
+        body = STOCK.replace('GRUB_CMDLINE_LINUX="console=ttyS0,115200 '
+                             'console=tty0"',
+                             'GRUB_CMDLINE_LINUX="console=tty0 '
+                             'console=ttyS0,115200"')
+        self.apply(body=body)
+        self.assertEqual(self.cmdline(),
+                         "console=ttyS0,115200 console=tty0 rhgb quiet")
+
+    def test_ghost_console_dropped(self):
+        # 现场手工加进去的 ARM64 控制台在 x86_64 上是幽灵项，抢占 /dev/console
+        body = STOCK.replace('GRUB_CMDLINE_LINUX="console=ttyS0,115200 '
+                             'console=tty0"',
+                             'GRUB_CMDLINE_LINUX="console=ttyS0,115200 '
+                             'console=ttyAMA0,115200 console=tty0"')
+        self.apply(body=body)
+        self.assertEqual(self.cmdline(),
+                         "console=ttyS0,115200 console=tty0 rhgb quiet")
 
     def test_other_lines_kept(self):
         self.apply()
@@ -133,7 +154,8 @@ class GrubArgsTest(unittest.TestCase):
     def test_unquoted_normalized(self):
         # 手改过的文件可能没有引号；生成器读不出这种行，必须归一化
         self.apply(body='GRUB_TIMEOUT=3\nGRUB_CMDLINE_LINUX=console=tty0\n')
-        self.assertEqual(self.cmdline(), "console=tty0 rhgb quiet")
+        self.assertEqual(self.cmdline(),
+                         "console=ttyS0,115200 console=tty0 rhgb quiet")
         self.assertNotIn("GRUB_CMDLINE_LINUX=console", self.text())
 
     def test_commented_prober_replaced(self):
@@ -149,15 +171,24 @@ class GrubArgsTest(unittest.TestCase):
 
     def test_cmdline_appended_when_absent(self):
         body = STOCK.replace(
-            'GRUB_CMDLINE_LINUX="console=tty0 console=ttyS0,115200"\n', "")
+            'GRUB_CMDLINE_LINUX="console=ttyS0,115200 console=tty0"\n', "")
         self.apply(body=body)
-        self.assertEqual(self.cmdline(), "rhgb quiet")
+        self.assertEqual(self.cmdline(),
+                         "console=ttyS0,115200 console=tty0 rhgb quiet")
 
-    def test_custom_append(self):
-        self.apply("--append", "console=ttyAMA0,115200")
-        self.assertEqual(self.cmdline(), "console=tty0 console=ttyS0,115200 "
-                                         "console=ttyAMA0,115200")
-        self.assertEqual(self.prober(), "true")
+    def test_extra_arg_replaces_set(self):
+        # --append 是「替换附加参数集合」，控制台仍在最前由常量给出
+        self.apply("--append", "audit=0")
+        self.assertEqual(self.cmdline(),
+                         "console=ttyS0,115200 console=tty0 audit=0")
+
+    def test_console_append_rejected(self):
+        # 控制台由脚本持有；--append 塞进来的 console 会排到 tty0 之后并
+        # 抢走 /dev/console，误用必须显式失败而不是静默生效。
+        self.write()
+        res = self.apply("--append", "console=ttyAMA0,115200")
+        self.assertEqual(res.returncode, 2)
+        self.assertIn("usage:", res.stderr)
 
     def test_no_state_without_regen(self):
         # --no-regen 只判定改写；状态文件是安装期落地的凭证，不能由它伪造
@@ -180,13 +211,31 @@ class GrubArgsTest(unittest.TestCase):
     def test_check_prober_off(self):
         body = STOCK.replace("#GRUB_DISABLE_OS_PROBER=true",
                              "GRUB_DISABLE_OS_PROBER=false")
-        body = body.replace('GRUB_CMDLINE_LINUX="console=tty0 '
-                            'console=ttyS0,115200"',
-                            'GRUB_CMDLINE_LINUX="console=tty0 rhgb quiet"')
+        body = body.replace('GRUB_CMDLINE_LINUX="console=ttyS0,115200 '
+                            'console=tty0"',
+                            'GRUB_CMDLINE_LINUX="console=ttyS0,115200 '
+                            'console=tty0 rhgb quiet"')
         self.write(body)
         res = self.check()
         self.assertEqual(res.returncode, 1)
         self.assertIn("GRUB_DISABLE_OS_PROBER is not true", res.stdout)
+
+    def test_check_foreign_console(self):
+        self.write(STOCK.replace("console=tty0",
+                                 "console=ttyAMA0,115200 console=tty0"))
+        res = self.check()
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("foreign: console=ttyAMA0,115200", res.stdout)
+
+    def test_check_console_order(self):
+        self.write(STOCK.replace('GRUB_CMDLINE_LINUX="console=ttyS0,115200 '
+                                 'console=tty0"',
+                                 'GRUB_CMDLINE_LINUX="console=tty0 '
+                                 'console=ttyS0,115200 rhgb quiet"'))
+        res = self.check()
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("order: console=ttyS0,115200 is not the primary console",
+                      res.stdout)
 
     def test_defaults_absent(self):
         res = self.run_args("--defaults", str(self.defaults),
@@ -233,7 +282,8 @@ class GrubArgsTest(unittest.TestCase):
         self.assertIn("regenerated:", res.stdout)
         state = self.state.read_text(encoding="utf-8")
         self.assertIn("cfg=" + str(cfg), state)
-        self.assertIn("args=rhgb quiet", state)
+        self.assertIn("args=console=ttyS0,115200 console=tty0 rhgb quiet",
+                      state)
 
     def test_regen_failure_keeps_previous(self):
         # 生成失败时旧配置是唯一的引导凭据，必须原样留回并显式 skip

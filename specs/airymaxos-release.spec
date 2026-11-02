@@ -58,7 +58,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 2
+%global airy_release 3
 # 基底版本是显式输入，与 distro/repo/airymax-os.repo 及 kickstart 的
 # url/repo 行是三处同源表达。%%check 以本宏断言客户端配置，版本漂移在
 # 构建期失败，而不是等到装机后 dnf 报「找不到仓库」。
@@ -555,16 +555,18 @@ grep -qF 'efibootmgr -o "${order}"' \
     %{buildroot}/usr/lib/airymaxos/boot/efi_brand.sh
 # 启动参数持久化：bootloader --append 只进安装器本次生成的 grub.cfg，不进
 # /etc/default/grub，此后每次 grub2-mkconfig 都会把 rhgb quiet 丢掉（真机
-# B50 的 /proc/cmdline 已复现）。这里用 --no-regen 在临时文件上跑一遍改写，
-# 断言「补参数、去重、覆盖注释行、幂等、check 通过」——这五条任一失效都只会
-# 在装完并重启之后表现成「启动又逐行滚日志」。
+# B50 的 /proc/cmdline 已复现）。控制台顺序同理：/dev/console 落在命令行里
+# 最后一个 console= 上，旧顺序把 VT 让给了串口，systemd-vconsole-setup 在
+# 285H 上因此每个启动周期失败。这里用 --no-regen 在临时文件上跑一遍改写，
+# 断言「补参数、去重、覆盖注释行、控制台按序重放、幂等、check 通过」。
 sh -n %{buildroot}/usr/lib/airymaxos/boot/grub_args.sh
 airy_args=%{buildroot}/usr/lib/airymaxos/boot/grub_args.sh
 airy_tmp=$(mktemp -d)
 printf 'GRUB_TIMEOUT=3\nGRUB_CMDLINE_LINUX="console=tty0 quiet"\n#GRUB_DISABLE_OS_PROBER=true\n' \
     >"${airy_tmp}/grub"
 "${airy_args}" --defaults "${airy_tmp}/grub" --no-regen >/dev/null
-grep -qxF 'GRUB_CMDLINE_LINUX="console=tty0 quiet rhgb"' "${airy_tmp}/grub"
+grep -qxF 'GRUB_CMDLINE_LINUX="console=ttyS0,115200 console=tty0 quiet rhgb"' \
+    "${airy_tmp}/grub"
 grep -qxF 'GRUB_DISABLE_OS_PROBER=true' "${airy_tmp}/grub"
 airy_sum=$(sha256sum <"${airy_tmp}/grub")
 "${airy_args}" --defaults "${airy_tmp}/grub" --no-regen >/dev/null
@@ -693,6 +695,19 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Mon Nov 02 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-3
+- Route /dev/console back to the VT: grub_args.sh now owns the console set
+  and replays it serial-first, tty0-last. kernel binds /dev/console to the
+  last console= on the command line, so the old tty0-first order left a
+  headless machine locking /dev/console through ttyS0; on 285H that made
+  systemd-vconsole-setup fail on every boot and took the desktop-ready
+  gate with it. Rewriting drops consoles added by hand on site (the
+  ARM64 ttyAMA0 on x86_64) instead of carrying them forward, and
+  --append now refuses a console= argument rather than silently ordering
+  it after tty0.
+- Match the installer recipe to the same order so the first boot uses it
+  too, and let the T15 smoke check fail on either a wrong primary console
+  or a foreign console in /etc/default/grub.
 * Mon Nov 02 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-2
 - Move the RT budget out of this package: airymaxos-system now ships
   airy-rt-cap, the airymax_rt package and airy-rt-bandwidth.service,
