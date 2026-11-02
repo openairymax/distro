@@ -83,7 +83,7 @@ gpgcheck=0
 GRUB_DEFAULTS = """\
 GRUB_TIMEOUT=3
 GRUB_DEFAULT=saved
-GRUB_CMDLINE_LINUX="console=tty0 console=ttyS0,115200 rhgb quiet"
+GRUB_CMDLINE_LINUX="console=ttyS0,115200 console=tty0 rhgb quiet"
 GRUB_DISABLE_OS_PROBER=true
 """
 
@@ -887,8 +887,29 @@ class RunSmokeTest(unittest.TestCase):
         self.tools()
         res = self.run_smoke()
         self.assertIn("ok 15 - T15 durable boot arguments", res.stdout)
-        self.assertIn('args="console=tty0 console=ttyS0,115200 rhgb quiet"',
+        self.assertIn('args="console=ttyS0,115200 console=tty0 rhgb quiet"',
                       res.stdout)
+
+    def test_boot_args_console_order(self):
+        # /dev/console 取最后一个 console=；tty0 必须在末位，否则
+        # systemd-vconsole-setup 锁不住 VT（285H 实测）
+        self.tools()
+        self.write_grub(GRUB_DEFAULTS.replace(
+            "console=ttyS0,115200 console=tty0",
+            "console=tty0 console=ttyS0,115200"))
+        res = self.run_smoke()
+        self.assert_fail(res, 15)
+        self.assertIn("primary console is console=ttyS0,115200, not tty0",
+                      res.stdout)
+
+    def test_boot_args_ghost_console(self):
+        # 现场手工加进命令行的控制台会抢占 /dev/console，必须判失败
+        self.tools()
+        self.write_grub(GRUB_DEFAULTS.replace(
+            "console=tty0", "console=ttyAMA0,115200 console=tty0"))
+        res = self.run_smoke()
+        self.assert_fail(res, 15)
+        self.assertIn("carries a foreign console", res.stdout)
 
     def test_boot_args_no_rhgb(self):
         # 参数缺失的现场：图形启动画面消失，开机逐行滚日志

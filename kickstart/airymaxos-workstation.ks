@@ -46,20 +46,28 @@ repo --name=everything --baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-
 repo --name=airymaxos-offline --baseurl=file:///run/install/repo/airymax/Packages --cost=1
 
 # ---- 引导与分区（UEFI + BIOS 双栈）----
-# tty0 在前，本地屏幕保留内核与 systemd 日志；串口留给无头验收与故障
-# 恢复（install-test.sh 依赖 login: 哨兵）。只给串口时真机故障即黑屏，
-# 现场无从取证。
+# 两路控制台都要有：本地屏幕保留内核与 systemd 日志，串口留给无头验收与
+# 故障恢复（install-test.sh 依赖 login: 哨兵）。只给串口时真机故障即黑屏，
+# 现场无从取证；只给 tty0 时无头验收看不到任何输出。
+#
 # rhgb quiet 把本地屏幕交给 plymouth 启动画面，不再逐行滚动内核日志。
 # quiet 只压到 loglevel 4：告警以上仍打印，全部消息照样进 journal 与
 # ttyS0（安装验收依赖的 login: 哨兵来自 agetty，不受影响）。按 Esc 或
 # 删掉这两个参数即可回到逐行日志，现场排障不需要重装。
+#
+# 顺序是语义：kernel 把 /dev/console 路由到命令行里最后一个 console=。
+# 串口在前、tty0 在后，/dev/console 才是 VT；反过来（0.0.3 的写法）在
+# 285H 上实测 /sys/class/tty/console/active = "tty0 ttyS0"，systemd-vconsole-setup
+# 报 "Failed to lock /dev/console: Input/output error"，airymax-desktop-ready
+# 因此每个启动周期都失败。安装器这一份只是首启用的副本，持久来源是
+# boot/grub_args.sh 里的 consoles 常量，两处必须同序。
 #
 # console 集合按架构收敛（D-05）：本配方只产 x86_64，控制台就是 tty0 与
 # 8250 串口 ttyS0。0.0.3 把 ARM64 的 ttyAMA0 一并写进命令行，内核在没有
 # 该设备的机器上把 console= 注册成幽灵项，systemd-vconsole-setup 因此
 # 失败；命令行的 console= 计数也从 2 变成 3。架构分支不允许留在这里——
 # aarch64 由同目录的独立配方按自己的控制台集合产出。
-bootloader --timeout=3 --append="console=tty0 console=ttyS0,115200 rhgb quiet"
+bootloader --timeout=3 --append="console=ttyS0,115200 console=tty0 rhgb quiet"
 
 # ---- 分区作用域（真机缺陷 D-33）----
 # 安装器没有「自动」盘名：clearpart --all + autopart 会把每一块可用磁盘都

@@ -15,6 +15,16 @@
 # 日志」。真机 B50 取证：/proc/cmdline 缺 rhgb quiet，且 grub.cfg 的 linux
 # 行与 /etc/default/grub 完全一致——缺失发生在生成期，不是运行期。
 #
+# 为什么控制台集合也由本脚本持有：kernel 把 /dev/console 路由到命令行里
+# 最后一个 console=，因此顺序本身就是语义。0.0.3 的安装器把 tty0 写在前面，
+# 285H 实测 /sys/class/tty/console/active = "tty0 ttyS0"，/dev/console 落在
+# 串口上，systemd-vconsole-setup 报 "Failed to lock /dev/console: Input/output
+# error"，连带 airymax-desktop-ready 门禁在每个启动周期失败。串口在前、tty0
+# 在后：内核与 systemd 日志同时写两路，本地屏幕拿到 VT 所有权，无头验收仍
+# 可从 ttyS0 取得 getty 与内核消息。bootloader --append 不持久化，这一串
+# 只能写在这里；重新改写时先摘掉全部旧 console=，再按本常量重放——现场被
+# 手工加进去的幽灵控制台（285H 的 ttyAMA0）因此在下一次收敛时消失。
+#
 # 为什么同时收敛菜单范围：未设 GRUB_DISABLE_OS_PROBER 时 os-prober 会把同盘
 # 其他发行版的内核并进本产品菜单（B50 上是 19 个条目，含两个 Ubuntu 内核）。
 # 菜单既长又不属于本产品的归属。站点叠加场景仍可从固件启动菜单选择其他
@@ -39,6 +49,7 @@ esp=
 cfg=
 etc=/etc
 state=/var/lib/airymaxos/grub-args
+consoles='ttyS0,115200 tty0'
 args='rhgb quiet'
 mkconfig=grub2-mkconfig
 font=
@@ -80,6 +91,30 @@ done
 
 [ -r "${defaults}" ] || fail "no ${defaults}"
 
+# console= 是顺序敏感项，不接受从命令行追加：--append 的用法是补普通参数，
+# 塞进来的控制台会排到 tty0 之后并抢走 /dev/console。误用即用法错误，不静默
+# 丢弃——静默丢弃会让调用者以为已经生效。
+for tok in ${args}; do
+    case "${tok}" in
+    console=*) usage; exit 2 ;;
+    esac
+done
+
+# 期望的 console= 串与主控制台各由 consoles 唯一推出，判定与改写都读它。
+console_args()
+{
+    local d out=
+    for d in ${consoles}; do
+        out="${out} console=${d}"
+    done
+    printf '%s\n' "${out# }"
+}
+
+main_console()
+{
+    printf 'console=%s\n' "${consoles##* }"
+}
+
 # 参数行是生成器的输入，判定与改写都读同一个来源，避免「文件里有、生成后
 # 没有」这类只在下次重启才暴露的偏差。
 read_args()
@@ -113,12 +148,47 @@ verify()
         note "missing: ${tok}"
         rc=1
     done
+    check_consoles "${line}" || rc=1
     [ "$(read_prober)" = true ] || {
         note 'GRUB_DISABLE_OS_PROBER is not true'
         rc=1
     }
     [ "${rc}" -eq 0 ] || return 1
-    note "ok: ${defaults} carries '${args}'"
+    note "ok: ${defaults} carries '$(console_args) ${args}'"
+}
+
+# 控制台集合三个方向都要成立：缺项丢一路日志，外来项指向不存在的设备并
+# 抢占 /dev/console（285H 的 ttyAMA0），顺序错则 /dev/console 落到串口。
+check_consoles()
+{
+    local line=$1 got= tok d rc=0 last=
+    for tok in ${line}; do
+        case "${tok}" in
+        console=?*) got="${got} ${tok}" ;;
+        esac
+    done
+    for d in ${consoles}; do
+        case " ${got} " in
+        *" console=${d} "*) continue ;;
+        esac
+        note "missing: console=${d}"
+        rc=1
+    done
+    for tok in ${got}; do
+        case " $(console_args) " in
+        *" ${tok} "*) continue ;;
+        esac
+        note "foreign: ${tok}"
+        rc=1
+    done
+    for tok in ${got}; do
+        last=${tok}
+    done
+    [ "${last}" = "$(main_console)" ] || {
+        note "order: ${last:-none} is not the primary console"
+        rc=1
+    }
+    return "${rc}"
 }
 
 # 改写走 awk 单遍：保留文件其余内容与顺序，只重写参数行与探测开关。写回用
@@ -126,12 +196,14 @@ verify()
 edit()
 {
     local tmp="${defaults}.airy-tmp"
-    awk -v add="${args}" -v prober=true '
-    function emit(v,   i, n, out, tok) {
+    awk -v add="${args}" -v cons="${consoles}" -v prober=true '
+    # 旧 console= 全部摘掉：它们的顺序与集合都属于上一次安装或手工改动，
+    # 保留任何一个都可能抢走 /dev/console。
+    function nocons(v,   i, n, out, tok) {
         n = split(v, tok, /[[:space:]]+/)
         out = ""
         for (i = 1; i <= n; i++) {
-            if (tok[i] == "") continue
+            if (tok[i] == "" || tok[i] ~ /^console=/) continue
             out = (out == "" ? tok[i] : out " " tok[i])
         }
         return out
@@ -149,13 +221,23 @@ edit()
         }
         return v
     }
+    # 控制台按常量重放到最前，末位固定是 tty0。
+    function lead(v,   i, n, tok, out) {
+        n = split(cons, tok, /[[:space:]]+/)
+        out = ""
+        for (i = 1; i <= n; i++) {
+            if (tok[i] == "") continue
+            out = (out == "" ? "console=" tok[i] : out " console=" tok[i])
+        }
+        return (v == "" ? out : out " " v)
+    }
     BEGIN { seen = 0; pseen = 0 }
     /^[[:space:]]*GRUB_CMDLINE_LINUX=/ {
         v = substr($0, index($0, "=") + 1)
         gsub(/"/, "", v)
         sub(/^[[:space:]]+/, "", v)
         sub(/[[:space:]]+$/, "", v)
-        printf "GRUB_CMDLINE_LINUX=\"%s\"\n", merge(emit(v))
+        printf "GRUB_CMDLINE_LINUX=\"%s\"\n", lead(merge(nocons(v)))
         seen = 1
         next
     }
@@ -166,7 +248,7 @@ edit()
     }
     { print }
     END {
-        if (!seen) print "GRUB_CMDLINE_LINUX=\"" add "\""
+        if (!seen) print "GRUB_CMDLINE_LINUX=\"" lead(merge("")) "\""
         if (!pseen) print "GRUB_DISABLE_OS_PROBER=" prober
     }' "${defaults}" >"${tmp}" || fail "rewrite ${defaults} failed"
     if cmp -s "${tmp}" "${defaults}"; then
@@ -288,6 +370,6 @@ sync_font
 regen
 sync_brand
 verify || fail "args not present in ${defaults}"
-printf 'defaults=%s\ncfg=%s\nargs=%s\n' "${defaults}" "${cfg}" "${args}" \
-    >"${state}" || fail "write ${state} failed"
-note "cfg=${cfg} args=${args}"
+printf 'defaults=%s\ncfg=%s\nargs=%s\n' "${defaults}" "${cfg}" \
+    "$(console_args) ${args}" >"${state}" || fail "write ${state} failed"
+note "cfg=${cfg} args=$(console_args) ${args}"

@@ -34,14 +34,15 @@ repo --name=airymaxos-offline --baseurl=file:///run/install/repo/airymax/Package
 repo --name=update --baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP3/update/$basearch/ --cost=100
 
 # ---- 引导与分区（UEFI + BIOS 双栈）----
-# tty0 在前，本地屏幕保留内核与 systemd 日志；串口留给无头验收与故障
-# 恢复（install-test.sh 依赖 login: 哨兵）。只给串口时真机故障即黑屏，
-# 现场无从取证。
+# 顺序是语义：kernel 把 /dev/console 路由到命令行里最后一个 console=。
+# 串口在前、tty0 在后，/dev/console 才是 VT——反过来会让
+# systemd-vconsole-setup 锁不住 /dev/console，桌面就绪门禁随之失败（285H
+# 实测）。本配方不跑 grub_args.sh，这一行是唯一来源；工作站配方同序。
 #
 # console 集合按架构收敛（D-05）：x86_64 为 tty0 + ttyS0，ARM64 的 ttyAMA0
 # 不得出现在本配方——无该设备时 console= 注册成幽灵项并让
 # systemd-vconsole-setup 失败。aarch64 配方各自持有自己的控制台集合。
-bootloader --timeout=3 --append="console=tty0 console=ttyS0,115200"
+bootloader --timeout=3 --append="console=ttyS0,115200 console=tty0"
 
 # 选盘、布局与选盘记录只有一份实现（kickstart/disk-select.sh），构建期由
 # tools/ks_embed.py 展开进下面的脚本段。clearpart --all 加 autopart 会把

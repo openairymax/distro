@@ -646,6 +646,36 @@ t14_repos() {
 # /etc/default/grub 才是此后每次 grub2-mkconfig 的输入。缺参数的表现是
 # 「装完有启动画面、升级一次又逐行滚日志」，所以在默认文件上判定；同时
 # 断言 os-prober 已关闭，否则同盘其他发行版的内核会并进本产品菜单。
+#
+# 控制台顺序一并判定：/dev/console 落在命令行里最后一个 console= 上。
+# 285H 现场的 "tty0 ttyS0" 让 VT 让位给串口，systemd-vconsole-setup 锁不住
+# /dev/console，桌面就绪门禁每个启动周期失败——这条只在默认文件上才看得
+# 出来，装完当天不重启不会暴露。
+t15_console() {
+    local cons
+    cons=$(printf '%s\n' "$1" | tr ' ' '\n' | grep '^console=' |
+        tr '\n' ' ') || {
+        echo "GRUB_CMDLINE_LINUX lacks console="
+        return 1
+    }
+    cons=${cons% }
+    case " ${cons} " in
+    *" console=ttyS0,115200 "*) ;;
+    *)
+        echo "GRUB_CMDLINE_LINUX lacks the serial console"
+        return 1
+        ;;
+    esac
+    [ "${cons##* }" = "console=tty0" ] || {
+        printf 'primary console is %s, not tty0\n' "${cons##* }"
+        return 1
+    }
+    [ "$(printf '%s\n' "${cons}" | wc -w)" -eq 2 ] || {
+        echo "GRUB_CMDLINE_LINUX carries a foreign console"
+        return 1
+    }
+}
+
 t15_boot_args() {
     local file="${SYSROOT}/etc/default/grub" line tok
     [ -r "${file}" ] || {
@@ -661,6 +691,7 @@ t15_boot_args() {
         printf '%s: GRUB_CMDLINE_LINUX lacks %s\n' "${file}" "${tok}"
         return 1
     done
+    t15_console "${line}" || return 1
     grep -qxF 'GRUB_DISABLE_OS_PROBER=true' "${file}" || {
         echo "${file}: os-prober not disabled"
         return 1
