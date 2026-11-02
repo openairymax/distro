@@ -63,6 +63,10 @@
 # url/repo 行是三处同源表达。%%check 以本宏断言客户端配置，版本漂移在
 # 构建期失败，而不是等到装机后 dnf 报「找不到仓库」。
 %global oe_base openEuler-24.03-LTS-SP3
+# 构建来源指纹由构建驱动以 airy_build_id 宏注入（scripts/lib/buildid.sh）。
+# 缺省值 unset 是有意的：绕过驱动直接 rpmbuild 时，%%check 必须失败，而不是
+# 把空 BUILD_ID 写进发行版标识——那样镜像看起来正常，却无法归因到某次构建。
+%{!?airy_build_id:%global airy_build_id unset}
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 
 Name:           airymaxos-release
@@ -146,6 +150,17 @@ install -d -m 0755 %{buildroot}/usr/lib
 install -m 0644 %{SOURCE0} %{buildroot}/usr/lib/os-release
 install -d -m 0755 %{buildroot}%{_sysconfdir}
 ln -s ../usr/lib/os-release %{buildroot}%{_sysconfdir}/os-release
+
+# 来源指纹替换仓库里的占位行：os-release 会被外部工具按键值解析，就地改写
+# 比在 %%install 里重写整份文件更不容易漏掉后续新增字段。指纹字符集不含
+# sed 替换侧的元字符（& 与 \ 与 |），宏值可直接放进替换段。
+# /etc/airymaxos-build 是同一事实的第二份拷贝，供只读根分区或解析器不认
+# os-release 的场景使用；两处逐字相等由 %%check 断言。
+sed -i 's|^BUILD_ID=.*$|BUILD_ID="%{airy_build_id}"|' \
+    %{buildroot}/usr/lib/os-release
+printf 'BUILD_ID=%s\n' '%{airy_build_id}' \
+    > %{buildroot}%{_sysconfdir}/airymaxos-build
+chmod 0644 %{buildroot}%{_sysconfdir}/airymaxos-build
 
 # 单行发行版标识与登录横幅同取 PRETTY_NAME，版本号只在 os-release 出现一次。
 # system-release 格式遵循上游惯例 <distributor> release <版本>，其中 distributor
@@ -331,6 +346,17 @@ airy_vid=$(sed -n 's/^VERSION_ID="\(.*\)"$/\1/p' "${airy_osrel}")
 airy_pretty=$(sed -n 's/^PRETTY_NAME="\(.*\)"$/\1/p' "${airy_osrel}")
 airy_dist=${airy_pretty%% *}
 test "${airy_pretty}" = "${airy_dist} ${airy_vid}"
+# 来源指纹：宏未注入即失败。缺省 unset 能通过安装（文件照样生成），但那样
+# 发布清单与镜像对不上，且只有实机才发现，故在构建期判定。字符集不合法则
+# sed 写出的是无法解析的 os-release；两处逐字相等是发布清单与运行期探针
+# 共用的判据，任一侧漂移都会让 go/no-go 读错指纹。
+test '%{airy_build_id}' != unset
+airy_bid=$(sed -n 's/^BUILD_ID="\(.*\)"$/\1/p' "${airy_osrel}")
+test -n "${airy_bid}"
+printf '%s\n' "${airy_bid}" | LC_ALL=C grep -qxE '[A-Za-z0-9._+-]+'
+grep -qxF "BUILD_ID=${airy_bid}" \
+    %{buildroot}%{_sysconfdir}/airymaxos-build
+test "$(stat -c %a %{buildroot}%{_sysconfdir}/airymaxos-build)" = 644
 # distributor 是 ASCII-only 通道（引导菜单条目名与 NVRAM），含非 ASCII 字节即
 # 判失败；NAME 允许中文全名，故只校验派生产物、不校验 NAME。
 LC_ALL=C grep -qxE '[ -~]+' %{buildroot}%{_sysconfdir}/airymaxos-release
@@ -629,6 +655,7 @@ fi
 %defattr(-, root, root, -)
 %{_sysconfdir}/os-release
 /usr/lib/os-release
+%{_sysconfdir}/airymaxos-build
 %{_sysconfdir}/airymaxos-release
 %{_sysconfdir}/system-release
 %config(noreplace) %{_sysconfdir}/issue

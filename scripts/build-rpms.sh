@@ -29,6 +29,8 @@ readonly DISTRO_ROOT
 . "${DISTRO_ROOT}/scripts/lib/outdir.sh"
 # shellcheck source=lib/arch.sh
 . "${DISTRO_ROOT}/scripts/lib/arch.sh"
+# shellcheck source=lib/buildid.sh
+. "${DISTRO_ROOT}/scripts/lib/buildid.sh"
 # shellcheck source=lib/log.sh
 . "${DISTRO_ROOT}/scripts/lib/log.sh"
 
@@ -47,6 +49,7 @@ DEFS=()
 OUT_ABS=""
 WORK=""
 TOPDIR=""
+BUILD_ID=""
 
 usage()
 {
@@ -73,6 +76,11 @@ usage()
   DIR/RPMS/<arch>/*.rpm        构建产物
   DIR/repo/<stream>/<arch>/    可选 dnf 仓库（repodata 已签名）
   DIR/build-manifest.txt       配方与 RPM 的 SHA-256 清单
+
+构建来源指纹（build-manifest.txt 的 build_id=）按 scripts/lib/buildid.sh 的
+优先级取值：AIRYMAX_BUILD_ID → AIRYMAX_RUN_ID + AIRYMAX_COMMIT → git 短 sha
+→ 配方摘要；同时以 airy_build_id 宏注入 rpmbuild，由 airymaxos-release 写入
+os-release 的 BUILD_ID 与 /etc/airymaxos-build。
 EOF
 }
 
@@ -160,6 +168,17 @@ check_jobs()
 check_out()
 {
     OUT_ABS="$(out_guard build-rpms "$OUT")"
+}
+
+# 来源指纹在配方集合确定之后解析：最末一级取值来源是配方摘要，必须只覆盖
+# 本次真实参与构建的配方，否则同一个指纹会对应不同产物。非法指纹直接失败，
+# 不让空值或说明文字流进 os-release。
+set_build_id()
+{
+    BUILD_ID="$(airy_build_id "$DISTRO_ROOT" "${SPECS[@]}")"
+    airy_bid_ok "$BUILD_ID" ||
+        die "${E_INVAL}" "构建来源指纹非法: ${BUILD_ID}"
+    DEFS+=("airy_build_id ${BUILD_ID}")
 }
 
 collect_specs()
@@ -402,6 +421,7 @@ write_manifest()
         if [ -n "$DIST" ]; then
             printf 'dist=%s\n' "$DIST"
         fi
+        printf 'build_id=%s\n' "$BUILD_ID"
         for def in "${DEFS[@]}"; do
             printf 'define=%s\n' "$def"
         done
@@ -465,6 +485,7 @@ main()
     check_repo
     collect_specs
     uniq_specs
+    set_build_id
     need rpmbuild
     need rpmspec
     need sha256sum

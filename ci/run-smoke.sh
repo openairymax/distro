@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
 # ===========================================================================
-# run-smoke.sh — distro 组合冒烟（TAP 17）
+# run-smoke.sh — distro 组合冒烟（TAP 18）
 #
 # 用法:
 #   ./run-smoke.sh <被测镜像/系统标识>
@@ -10,10 +10,13 @@
 # 环境:
 #   AIRYMAX_SMOKE_WAIT  守护进程就绪等待秒数（默认 30）
 #   AIRYMAX_SMOKE_HOST  期望的主机名（默认 airymax-pc，即配方值）
-#   AIRYMAX_SMOKE_ROOT  只读系统视图的根前缀（默认空，即真实 /）。T5–T16 读取
-#                       /usr/share、/boot、/sys、/etc 下的发行版标识与资产，
-#                       单测在沙箱里用该前缀复核判定，装机现场保持默认值。
-#                       T17 读实时块层，不经该前缀。
+#   AIRYMAX_SMOKE_ROOT  只读系统视图的根前缀（默认空，即真实 /）。T5–T16 与
+#                       T18 读取 /usr/share、/boot、/sys、/etc 下的发行版标识
+#                       与资产，单测在沙箱里用该前缀复核判定，装机现场保持
+#                       默认值。T17 读实时块层，不经该前缀。
+#   AIRYMAX_SMOKE_BUILD_ID  发布清单记录的构建来源指纹。给出时要求与本机
+#                       BUILD_ID 逐字相同，把「装的是这一轮产出的镜像」变成
+#                       可判定事实；缺省只校验机内两处一致。
 #
 # 覆盖:
 #   T1  UKUI X11 会话：loginctl 会话属性、ukui-session 进程、X server 可达
@@ -35,6 +38,8 @@
 #   T15 启动参数：/etc/default/grub 持有 rhgb quiet，os-prober 已关闭
 #   T16 观测工具：airy-bench / airy-observe / airy-demo 随镜像交付且自检为 ok
 #   T17 系统盘布局：/ 与 /data 各挂在一个分区上，且不是同一个分区
+#   T18 构建来源：os-release 的 BUILD_ID 与 /etc/airymaxos-build 逐字相同，
+#       字符集与长度符合驱动写入口径；给出期望值时还要求两者相同
 #
 # 判定语义:
 #   0  — 全部通过
@@ -54,6 +59,7 @@ WALLPAPER=/usr/share/backgrounds/airymaxos/qilian_photo_from_zhenyi.jpg
 PAPER_DIR=/usr/share/backgrounds/airymaxos
 PAPER_COUNT=3
 PAPER_SHA=fee7f439834ac7dacfc75deaf80a1db1c4bc7459583248eecc87125d52a5ef18
+BID_MAX=64
 START_WAIT="${AIRYMAX_SMOKE_WAIT:-30}"
 HOSTNAME_WANT="${AIRYMAX_SMOKE_HOST:-airymax-pc}"
 SYSROOT="${AIRYMAX_SMOKE_ROOT:-}"
@@ -740,8 +746,37 @@ t17_disk_layout() {
     printf '%s=part %s=part partitions=%s\n' "${root}" "${data}" "${parts}"
 }
 
+# T18 构建来源：镜像文件名在下载、改名、经 U 盘传递之后不再可追溯，构建号
+# 是回查「这份系统由哪次构建产出」的唯一机内线索。两处标识由同一个宏写入，
+# 不同即说明有一侧被单独替换或漏写；字符集与长度按驱动写入口径判定，避免
+# 把空串或带引号的畸形值当成有效指纹。
+t18_build_id() {
+    local file="${SYSROOT}/etc/airymaxos-build" id
+    [ -r "${file}" ] || {
+        echo "${file} unreadable"
+        return 1
+    }
+    id="$(sed -n 's/^BUILD_ID=//p' "${file}" | head -n 1)"
+    case "${id}" in
+    ''|*[!A-Za-z0-9._+-]*)
+        echo "airymaxos-build: ${id:-absent} (want [A-Za-z0-9._+-]+)"
+        return 1
+        ;;
+    esac
+    [ "${#id}" -le "${BID_MAX}" ] || {
+        echo "build id length: ${#id} (want <=${BID_MAX})"
+        return 1
+    }
+    expect "$(os_rel BUILD_ID)" "${id}" "os-release BUILD_ID" || return 1
+    if [ -n "${AIRYMAX_SMOKE_BUILD_ID:-}" ]; then
+        expect "${id}" "${AIRYMAX_SMOKE_BUILD_ID}" "release build id" ||
+            return 1
+    fi
+    printf 'build_id=%s\n' "${id}"
+}
+
 printf 'TAP version 14\n'
-printf '1..17\n'
+printf '1..18\n'
 printf '# AirymaxOS distro smoke: target=%s date=%s\n' \
     "${TARGET}" "$(date -u '+%FT%TZ')"
 
@@ -762,6 +797,7 @@ probe 14 "T14 installed dnf sources" t14_repos
 probe 15 "T15 durable boot arguments" t15_boot_args
 probe 16 "T16 observer tools selfcheck" t16_obs_tools
 probe 17 "T17 system disk layout" t17_disk_layout
+probe 18 "T18 build provenance" t18_build_id
 
 printf '# summary: pass=%d fail=%d\n' "${PASS}" "${FAIL}"
 [ "${FAIL}" -eq 0 ]

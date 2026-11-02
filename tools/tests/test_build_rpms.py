@@ -21,7 +21,7 @@ SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "build-rpms.sh"
 DISTRO = SCRIPT.parent.parent
 BASH = shutil.which("bash") or "/bin/bash"
 
-TOOLS = ("basename", "cat", "cmp", "cp", "dirname", "find", "gzip",
+TOOLS = ("basename", "cat", "cmp", "cp", "cut", "dirname", "find", "gzip",
          "mkdir", "nproc", "rm", "sed", "sha256sum", "sort", "tar",
          "uname")
 
@@ -130,8 +130,9 @@ class BuildRpmsTest(unittest.TestCase):
         self.tools(("rpmspec", RPMSPEC), ("rpmbuild", RPMBUILD),
                    ("createrepo_c", CREATEREPO), ("gpg", GPG))
 
-    def run_script(self, *args):
+    def run_script(self, *args, **extra):
         env = {"PATH": str(self.bin), "HOME": str(self.root)}
+        env.update(extra)
         return subprocess.run([BASH, str(SCRIPT), *args], env=env,
                               text=True, capture_output=True)
 
@@ -285,6 +286,53 @@ class BuildRpmsTest(unittest.TestCase):
         self.spec.write_text(BUNDLE, encoding="utf-8")
         res = self.run_script("--out", str(self.out), "--spec", str(self.spec))
         self.assertEqual(res.returncode, 5)
+
+    def manifest(self):
+        return (self.out / "build-manifest.txt").read_text(encoding="utf-8")
+
+    def test_build_id_digest(self):
+        # 沙箱里没有 git，也没有流水线变量：指纹退化为配方摘要，仍可复算。
+        self.full()
+        res = self.run_script("--out", str(self.out), "--spec", str(self.spec),
+                              "--arch", "x86_64")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertRegex(self.manifest(),
+                         r"(?m)^build_id=src-[0-9a-f]{12}$")
+        argv = (self.out / "work" / "rpmbuild" / "RPMS" / "x86_64" /
+                "argv.txt").read_text(encoding="utf-8")
+        self.assertRegex(argv, r"--define airy_build_id src-[0-9a-f]{12}")
+
+    def test_build_id_pipeline(self):
+        # 流水线原生量：run id 加提交短 sha，同一提交可回查到具体那一轮。
+        self.full()
+        res = self.run_script("--out", str(self.out), "--spec", str(self.spec),
+                              "--arch", "x86_64",
+                              AIRYMAX_RUN_ID="12345678",
+                              AIRYMAX_COMMIT="0a1b2c3d4e5f60718293")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("build_id=r12345678-g0a1b2c3d4e5f\n", self.manifest())
+
+    def test_build_id_explicit(self):
+        # 显式值优先于流水线原生量：离线重放与回溯构建用它钉住发布号。
+        self.full()
+        res = self.run_script("--out", str(self.out), "--spec", str(self.spec),
+                              "--arch", "x86_64",
+                              AIRYMAX_BUILD_ID="offline-0.0.4",
+                              AIRYMAX_RUN_ID="12345678",
+                              AIRYMAX_COMMIT="0a1b2c3d4e5f60718293")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("build_id=offline-0.0.4\n", self.manifest())
+
+    def test_build_id_invalid(self):
+        # 空值、含分隔符或超长的值会破坏 os-release 与一行式文件，必须拒绝。
+        self.tools()
+        for value in ("bad id", "x/y", "a" * 65):
+            with self.subTest(value=value):
+                res = self.run_script("--out", str(self.out),
+                                      "--spec", str(self.spec),
+                                      AIRYMAX_BUILD_ID=value)
+                self.assertEqual(res.returncode, 5, res.stderr)
+                self.assertIn("构建来源指纹非法", res.stderr)
 
 
 if __name__ == "__main__":
