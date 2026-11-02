@@ -58,7 +58,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 3
+%global airy_release 4
 # 基底版本是显式输入，与 distro/repo/airymax-os.repo 及 kickstart 的
 # url/repo 行是三处同源表达。%%check 以本宏断言客户端配置，版本漂移在
 # 构建期失败，而不是等到装机后 dnf 报「找不到仓库」。
@@ -695,6 +695,18 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Sun Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-4
+- Sync the brand grub.cfg after every regeneration. On EFI the grub prefix
+  is the directory of the loaded grubx64.efi, so the firmware entry under
+  \EFI\airymaxos\ makes that copy the active configuration while
+  grub2-mkconfig only writes EFI/openEuler. A marker written into both
+  files and read back from /proc/cmdline after a reboot on 285H proved it.
+  Without the sync, a changed command line or a new kernel kept booting
+  the old entry. grub_args.sh now derives the brand directory from the
+  generated config when --esp is absent, copies with install -m 700, and
+  also places unicode.pf2 beside the brand copy, where loadfont actually
+  looks. efi_brand.sh carries fonts and shimx64.hash into the branded
+  directory for the same reason, and T15 fails when the two configs drift.
 * Mon Nov 02 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-3
 - Route /dev/console back to the VT: grub_args.sh now owns the console set
   and replays it serial-first, tty0-last. kernel binds /dev/console to the

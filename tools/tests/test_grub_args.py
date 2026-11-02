@@ -311,14 +311,76 @@ class GrubArgsTest(unittest.TestCase):
         self.assertEqual(copy.read_text(encoding="utf-8"),
                          cfg.read_text(encoding="utf-8"))
 
+    def esp_pair(self):
+        """真机 ESP 形态：生成目录与品牌目录并列，后者才是被加载的 $prefix。"""
+        base = self.root / "boot" / "EFI"
+        gen = base / "openEuler"
+        brand = base / "airymaxos"
+        gen.mkdir(parents=True)
+        brand.mkdir(parents=True)
+        (brand / "grubx64.efi").write_text("efi\n", encoding="utf-8")
+        cfg = gen / "grub.cfg"
+        cfg.write_text("stale\n", encoding="utf-8")
+        copy = brand / "grub.cfg"
+        copy.write_text("older\n", encoding="utf-8")
+        return cfg, copy
+
+    def test_brand_copy_synced_without_esp(self):
+        # 285H 取证：活动配置是品牌副本。未传 --esp 时按兄弟目录推断，
+        # 否则内核升级后菜单与命令行都停在旧值。
+        self.write()
+        cfg, copy = self.esp_pair()
+        res = self.run_args("--defaults", str(self.defaults),
+                            "--state", str(self.state), "--cfg", str(cfg),
+                            "--mkconfig", str(self.fake_mk()))
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("brand copy refreshed:", res.stdout)
+        self.assertEqual(copy.read_text(encoding="utf-8"),
+                         cfg.read_text(encoding="utf-8"))
+        self.assertIn("menuentry", copy.read_text(encoding="utf-8"))
+
+    def test_brand_copy_not_rewritten(self):
+        self.write()
+        cfg, copy = self.esp_pair()
+        args = ("--defaults", str(self.defaults), "--state", str(self.state),
+                "--cfg", str(cfg), "--mkconfig", str(self.fake_mk()))
+        self.run_args(*args)
+        res = self.run_args(*args)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertNotIn("brand copy refreshed:", res.stdout)
+
     def font(self, name="unicode.pf2", body="pf2\n"):
         path = self.root / name
         path.write_text(body, encoding="utf-8")
         return path
 
+    def test_font_in_generated_dir(self):
+        self.write()
+        cfg, _ = self.esp_pair()
+        res = self.run_args("--defaults", str(self.defaults),
+                            "--state", str(self.state), "--cfg", str(cfg),
+                            "--mkconfig", str(self.fake_mk()),
+                            "--font", str(self.font()))
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        font = cfg.parent / "fonts" / "unicode.pf2"
+        self.assertEqual(font.read_text(encoding="utf-8"), "pf2\n")
+        self.assertIn("font placed:", res.stdout)
+
+    def test_font_in_brand_dir(self):
+        # 引导期读的是品牌目录的 fonts/：缺这一份时 loadfont 失败，菜单与
+        # efifb 停在固件默认分辨率（B50 的 800x600）。
+        self.write()
+        cfg, copy = self.esp_pair()
+        res = self.run_args("--defaults", str(self.defaults),
+                            "--state", str(self.state), "--cfg", str(cfg),
+                            "--mkconfig", str(self.fake_mk()),
+                            "--font", str(self.font()))
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        font = copy.parent / "fonts" / "unicode.pf2"
+        self.assertEqual(font.read_text(encoding="utf-8"), "pf2\n")
+
     def test_font_lands_beside_cfg(self):
-        # 字体必须落在生效配置同目录——那正是 grubx64.efi 内嵌的 prefix。
-        # 落到品牌副本旁边时 cfg 断言全绿，屏幕仍是固件默认（B50 的 800x600）。
+        # --cfg 直接给出时，字体随生效配置目录落位，不依赖 ESP 推断。
         res, cfg = self.regen("--mkconfig", str(self.fake_mk()),
                               "--font", str(self.font()))
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)

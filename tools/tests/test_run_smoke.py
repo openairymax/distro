@@ -231,6 +231,7 @@ class RunSmokeTest(unittest.TestCase):
             (esp / name).write_bytes(b"efi\n")
         (esp / "BOOTX64.CSV").write_text(
             "shimx64.efi,airymaxos,,AirymaxOS\n", encoding="utf-8")
+        self.write_boot_cfg(esp)
         state = self.sysroot / "var" / "lib" / "airymaxos" / "efi-brand"
         state.parent.mkdir(parents=True)
         state.write_text("entry=0001\nloader=\\EFI\\airymaxos\\shimx64.efi\n",
@@ -240,6 +241,16 @@ class RunSmokeTest(unittest.TestCase):
         (self.sysroot / "sys" / "firmware" / "efi").mkdir(
             parents=True, exist_ok=True)
         return esp
+
+    def write_boot_cfg(self, esp, body="menuentry 'AirymaxOS' {\n}\n"):
+        """ESP 的两份 grub.cfg：grub2-mkconfig 的生成件与品牌副本。真机上
+        活动的是品牌副本（$prefix 即被加载的 grubx64.efi 所在目录）。"""
+        brand = esp / "grub.cfg"
+        brand.write_text(body, encoding="utf-8")
+        gen = esp.parent / "openEuler" / "grub.cfg"
+        gen.parent.mkdir(parents=True, exist_ok=True)
+        gen.write_text(body, encoding="utf-8")
+        return gen, brand
 
     def write_brand_log(self, body):
         """安装期品牌脚本在目标根内留下的日志，验收失败时读其末行归因。"""
@@ -910,6 +921,18 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke()
         self.assert_fail(res, 15)
         self.assertIn("carries a foreign console", res.stdout)
+
+    def test_boot_args_brand_drift(self):
+        # 品牌副本是活动配置：与生成件不一致时，改参数与内核升级在重启后
+        # 都不生效（285H 实测，D-07）
+        self.tools()
+        esp = self.sysroot / "boot" / "efi" / "EFI" / "airymaxos"
+        (esp / "grub.cfg").write_text("menuentry 'old' {\n}\n",
+                                      encoding="utf-8")
+        res = self.run_smoke()
+        self.assert_fail(res, 15)
+        self.assertIn("brand grub.cfg differs from the generated one",
+                      res.stdout)
 
     def test_boot_args_no_rhgb(self):
         # 参数缺失的现场：图形启动画面消失，开机逐行滚日志

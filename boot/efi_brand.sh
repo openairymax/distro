@@ -18,9 +18,12 @@
 # 条目标签不能改名，只能新建再置顶，因此要独立一条 AirymaxOS 引导项。
 #
 # 为什么搬整套而非只放 shim：shim 只从自己所在目录取 grubx64.efi，签名链
-# 也在同一目录内闭合，EFI/airymaxos 必须是完整的一套二级加载器。grubx64
-# 内嵌 prefix 仍指向 /EFI/openEuler，所以真正生效的菜单配置不变；同目录的
-# grub.cfg 只是品牌一致性副本，老化的风险仅限装饰。
+# 也在同一目录内闭合，EFI/airymaxos 必须是完整的一套二级加载器。EFI 下
+# grub 的 $prefix 取自被固件加载的 grubx64.efi 所在目录，因此本目录的
+# grub.cfg 就是活动配置，不是装饰副本：285H 用两份不同的标记参数重启后只
+# 回来本目录那份（D-07）。grub_args.sh 在生成后把同一份内容同步过来，字体
+# 也落在本目录的 fonts/ 下；否则引导期 loadfont 找不到文件，菜单与 efifb
+# 停在固件默认分辨率。
 #
 # 退出码：0 = 完成，或本机不在可改写范围（非 EFI 固件、此前已品牌化）；
 #         1 = 在可改写范围内但失败（含 ESP 未挂载、缺 efibootmgr）。调用者
@@ -79,10 +82,18 @@ done
 [ -n "${src}" ] || fail "no signed shim under ${esp}/EFI"
 
 install -d -m 0755 "${dst}" || fail "create ${dst} failed"
-for f in shimx64.efi grubx64.efi mmx64.efi fbx64.efi grub.cfg grubenv; do
+for f in shimx64.efi shimx64.hash grubx64.efi mmx64.efi fbx64.efi grub.cfg \
+    grubenv; do
     [ -f "${src}/${f}" ] || continue
     install -m 0644 "${src}/${f}" "${dst}/${f}" || fail "copy ${f} failed"
 done
+# 字体与 grub.cfg 同属活动配置的一部分：$prefix 指向本目录，00_header 的
+# loadfont 读的也是这里。
+if [ -f "${src}/fonts/unicode.pf2" ]; then
+    install -d -m 0755 "${dst}/fonts" || fail "create ${dst}/fonts failed"
+    install -m 0644 "${src}/fonts/unicode.pf2" "${dst}/fonts/unicode.pf2" ||
+        fail "copy font failed"
+fi
 printf 'shimx64.efi,airymaxos,,%s\n' "${label}" >"${dst}/BOOTX64.CSV" ||
     fail "write BOOTX64.CSV failed"
 

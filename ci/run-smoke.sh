@@ -692,11 +692,30 @@ t15_boot_args() {
         return 1
     done
     t15_console "${line}" || return 1
+    t15_brand_cfg || return 1
     grep -qxF 'GRUB_DISABLE_OS_PROBER=true' "${file}" || {
         echo "${file}: os-prober not disabled"
         return 1
     }
     printf 'args="%s"\n' "${line}"
+}
+
+# 引导期读的是品牌副本：EFI 下 grub 的 $prefix 取自被加载的 grubx64.efi
+# 所在目录，NVRAM 指向 \EFI\airymaxos。生成件与副本不一致时，改参数与内核
+# 升级在下一次重启都不生效（285H 取证，D-07）。生成件不在场即非 EFI 装机，
+# 不判定。
+t15_brand_cfg() {
+    local gen="${SYSROOT}/boot/efi/EFI/openEuler/grub.cfg"
+    local brand="${SYSROOT}/boot/efi/EFI/airymaxos/grub.cfg"
+    [ -f "${gen}" ] || return 0
+    [ -f "${brand}" ] || {
+        echo "brand grub.cfg absent"
+        return 1
+    }
+    cmp -s "${gen}" "${brand}" || {
+        echo "brand grub.cfg differs from the generated one"
+        return 1
+    }
 }
 
 # T16 观测工具：airy-bench、airy-observe 与 airy-demo 随发行包装进 /usr/bin。
