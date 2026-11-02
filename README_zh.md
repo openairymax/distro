@@ -25,20 +25,23 @@
 
 ## 初始凭据
 
-0.0.3 的交付口径是「开机即桌面」：`Airymax` 免密，`root` 固定口令，
+0.0.4 的交付口径是「开机即桌面」：`amuser` 免密，`root` 固定口令，
 都不强制改密。两个 kickstart 仍以 OS-OPS-009 要求的 SHA-512 crypt 哈希
 落盘，安装结束即可登录，不依赖尚不存在的首启建号流程：
 
 | 账户 | 交付状态 | 登录边界 |
 |------|----------|----------|
 | `root` | 固定口令 `00000000` | 控制台/SSH 接管；不强制改密 |
-| `Airymax` | 空口令（免密） | `wheel`；lightdm 自动登录 + UKUI 桌面 |
+| `amuser` | 空口令（免密） | `wheel`；lightdm 自动登录 + UKUI 桌面 |
 
-空口令由 kickstart 的 `%post` 执行 `passwd -d Airymax` 落地，`%post` 末尾
-的账户断言把「root 为 sha512、Airymax 为空口令」作为安装成功率的一部分。
+空口令由 kickstart 的 `%post` 执行 `passwd -d amuser` 落地，`%post` 末尾
+的账户断言把「root 为 sha512、amuser 为空口令」作为安装成功率的一部分。
 SSH 侧由 `airymaxos-release` 安装
 `/etc/ssh/sshd_config.d/50-airymax-sshd.conf`（`PermitEmptyPasswords yes`）
-放行；本地座位由 `50-airymax.conf` 的 `autologin-user=Airymax` 免密进入。
+放行；本地座位由 `50-airymax.conf` 的 `autologin-user=amuser` 免密进入。
+账户名只在 kickstart 的 `user --name=` 定义，座位、sudo 唯一规则与冒烟
+断言都从它派生；小写名不需要 `NAME_REGEX` 或大小写敏感文件系统的额外
+约定（0.0.3 交付的 `Airymax` 含大写，家目录可能与其分叉）。
 主机名 `airymax-pc` 由安装器的 `network --hostname` 直接落盘，是合法 RFC 1123
 标签，`/etc/hostname`、`hostname` 与 `hostnamectl --static` 三处因此天然一致；
 0.0.3 曾因产品名含下划线而需 `sysctl.d` 在内核层回写，0.0.4 起该机制删除。

@@ -437,7 +437,7 @@ test -L %{buildroot}%{_bindir}/airy-os
 %{buildroot}%{_bindir}/airy-os --root %{buildroot} |
     grep -qxF 'AIRYMAX-OS os.id=airymaxos'
 %{buildroot}%{_bindir}/airy-os --root %{buildroot} |
-    grep -qxF 'AIRYMAX-OS session.autologin=Airymax'
+    grep -qxF 'AIRYMAX-OS session.autologin=amuser'
 # 类别集合必须同时覆盖 greeter 与 autologin：座位策略启用 autologin 时
 # lightdm 不创建 greeter 会话，只认一类会让另一种镜像永远等不到就绪标记。
 grep -qxF 'SESS_CLASSES="greeter user"' \
@@ -445,7 +445,7 @@ grep -qxF 'SESS_CLASSES="greeter user"' \
 bash -n %{buildroot}%{_datadir}/airymaxos/distro/desktop/70-airymax-ukui-policy.sh
 grep -qxF 'user-session=ukui' \
     %{buildroot}%{_sysconfdir}/lightdm/lightdm.conf.d/50-airymax.conf
-grep -qxF 'autologin-user=Airymax' \
+grep -qxF 'autologin-user=amuser' \
     %{buildroot}%{_sysconfdir}/lightdm/lightdm.conf.d/50-airymax.conf
 grep -qxF 'PermitEmptyPasswords yes' \
     %{buildroot}%{_sysconfdir}/ssh/sshd_config.d/50-airymax-sshd.conf
@@ -473,7 +473,7 @@ done
 test "$(stat -c %a %{buildroot}%{_sysconfdir}/sudoers.d/90-airymax)" = 440
 airy_rule=$(grep -v '^#' %{buildroot}%{_sysconfdir}/sudoers.d/90-airymax |
     sed '/^$/d')
-test "${airy_rule}" = 'Airymax ALL=(ALL) NOPASSWD: ALL'
+test "${airy_rule}" = 'amuser ALL=(ALL) NOPASSWD: ALL'
 # 主机名不再经 sysctl.d 写回：0.0.4 起产品名是合法 RFC 1123 标签，安装器
 # 直接落盘即可，/etc/hostname、hostname 与 hostnamectl --static 三处自然
 # 一致。残留的内核层回写会让静态名与运行名分叉，这里断言它不再被打包。
@@ -678,6 +678,13 @@ fi
   The installer now writes a legal RFC 1123 label, so /etc/hostname,
   hostname and hostnamectl --static agree without a second mechanism.
   %check asserts the drop-in is no longer shipped
+- Rename the delivery account from Airymax to amuser: the mixed-case
+  name was accepted by shadow-utils, but case-sensitive filesystems and
+  per-base NAME_REGEX policies disagree, so the account and its home
+  directory could diverge on a shipped image. The lowercase name needs
+  no policy override. The seat, the single sudo rule, the smoke checks
+  and the site suffix move with it, and %check pins the same account
+  name in all of them
 - Version bump to 0.0.4
 * Mon Nov 02 2026 SPHARX <dev@spharx.com> - 0.0.3-27
 - Ship /etc/NetworkManager/conf.d/99-airymax.conf: the desktop policy

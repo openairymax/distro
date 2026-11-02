@@ -27,7 +27,7 @@
 
 ## Initial credentials
 
-0.0.4 ships a "boot straight to the desktop" policy: `Airymax` logs in
+0.0.4 ships a "boot straight to the desktop" policy: `amuser` logs in
 without a password and `root` uses a fixed password, with no forced rotation.
 Both kickstarts still record the values as SHA-512 crypt hashes per
 OS-OPS-009, so an unattended install is login-ready without depending on a
@@ -36,14 +36,18 @@ first-boot account creation flow that does not exist yet:
 | Account | Delivered state | Login boundary |
 |---------|-----------------|----------------|
 | `root` | fixed password `00000000` | console/SSH takeover; no forced rotation |
-| `Airymax` | empty password (passwordless) | `wheel`; lightdm autologin + UKUI desktop |
+| `amuser` | empty password (passwordless) | `wheel`; lightdm autologin + UKUI desktop |
 
-The empty password is applied by `passwd -d Airymax` in the kickstart
-`%post`, whose trailing account assertions treat "root is sha512, Airymax is
+The empty password is applied by `passwd -d amuser` in the kickstart
+`%post`, whose trailing account assertions treat "root is sha512, amuser is
 empty" as part of install success. For SSH, `airymaxos-release` installs
 `/etc/ssh/sshd_config.d/50-airymax-sshd.conf` (`PermitEmptyPasswords yes`);
-for the local seat, `autologin-user=Airymax` in `50-airymax.conf` skips the
-greeter. The machine name `airymax-pc` is written by the installer from
+for the local seat, `autologin-user=amuser` in `50-airymax.conf` skips the
+greeter. The account name is defined once in the kickstart `user --name=`
+line and derived into the seat, the single sudo rule and the smoke checks;
+the lowercase form needs no `NAME_REGEX` or case-sensitive filesystem
+override (0.0.3 shipped `Airymax` and the home directory could diverge).
+The machine name `airymax-pc` is written by the installer from
 `network --hostname`; it is a legal RFC 1123 label, so `/etc/hostname`,
 `hostname` and `hostnamectl --static` agree without a second mechanism
 (0.0.3 needed a `sysctl.d` kernel write-back because the underscored name
