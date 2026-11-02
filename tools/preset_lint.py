@@ -35,7 +35,7 @@ from pathlib import Path
 from lint_common import Issue, dump, report
 
 DIRECTIVE = re.compile(r"^(enable|disable|ignore)(?:\s+(.*))?$")
-TYPES = (".service", ".target")
+TYPES = (".service", ".target", ".timer")
 ROOT = Path(__file__).resolve().parent.parent
 DIR = ROOT / "presets"
 UNITS = ROOT.parent / "system" / "units"

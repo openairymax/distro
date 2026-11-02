@@ -11,8 +11,11 @@
 # 的显式启用入口。airymaxos-services 交付时，本文件随该版本改写为 enable。
 #
 # airy-incident@.service 没有 [Install] 段，disable 是空操作，故不列入。
+# airymax-update-check.timer 同样钉在 disabled：升级检查会在离线或
+# 无更新源时静默失败，何时启用属于装机策略，由安装器显式 enable。
 # ===========================================================================
 
 disable agentrt.target
 disable agentrt-dsl.target
 disable agentrt-*.service
+disable airymax-update-check.timer
