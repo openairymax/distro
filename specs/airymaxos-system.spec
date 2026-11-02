@@ -18,7 +18,9 @@
 #      与周期重评定时器，启动期落档、周期复核与人工排查共用同一份判定；
 #   8. 部署 /usr/bin/airy-probe 与 airymax_probe Python 包，十条追踪通道、
 #      两条注入通道与三处静态计数的清点共用同一份证据实现（X-02）；
-#   9. 在 %%post/%%postun 内刷新 systemd 单元缓存。
+#   9. 部署 airy-rt-coexist 单元对，把桌面 slice 的运行时权重从基线
+#      抬到保护档，使实时负载与桌面负载按 PSI 证据共存（X-05）；
+#  10. 在 %%post/%%postun 内刷新 systemd 单元缓存。
 #
 # 单元启用（systemctl enable）由安装器在 kickstart 中显式完成，
 # 本包只负责文件到位与缓存刷新（OS-OPS-010）。随包落盘两份 preset：
@@ -47,7 +49,7 @@
 # spec-lint: source-bundle ../../system/services/airymax_probe
 
 %global airy_version 0.0.4
-%global airy_release 11
+%global airy_release 12
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -101,6 +103,8 @@ Source38:       airy-power.timer
 Source39:       airymax_power-%{version}.tar.gz
 Source40:       airy-probe
 Source41:       airymax_probe-%{version}.tar.gz
+Source42:       airy-rt-coexist.service
+Source43:       airy-rt-coexist.timer
 
 BuildRequires:  python3-devel
 Requires:       bash
@@ -121,16 +125,19 @@ scripts they execute, the airy-disk command with its Python package,
 and the airy-model command with the local model runtime package and
 service unit. The airy-rt-cap command with its RT bandwidth package
 and the boot unit that applies the budget before the audio daemons
-share one verdict implementation. The airy-power command with its
-power and thermal package applies the platform profile, CPU governor
-and energy preference on boot and on a one-minute timer, so the
-verdict shown by hand is the verdict the boot applied. The airy-probe
-command with its trace package reports the ten agent tracepoints, the
-two injection channels and the three static counters, so an acceptance
-run has one evidence source instead of three ad hoc reads. Units are
-installed disabled; the installer enables them explicitly so that
-server and desktop profiles can opt out without editing the package
-payload.
+share one verdict implementation. The airy-rt-coexist unit pair raises
+the desktop slice weight on a runtime property when the CPU pressure
+crosses the threshold and leaves the static baseline alone, so a boot
+without a daemon to explain it comes back at the baseline weight. The
+airy-power command with its power and thermal package applies the
+platform profile, CPU governor and energy preference on boot and on a
+one-minute timer, so the verdict shown by hand is the verdict the boot
+applied. The airy-probe command with its trace package reports the ten
+agent tracepoints, the two injection channels and the three static
+counters, so an acceptance run has one evidence source instead of three
+ad hoc reads. Units are installed disabled; the installer enables them
+explicitly so that server and desktop profiles can opt out without
+editing the package payload.
 
 %prep
 %setup -q -c -T
@@ -144,7 +151,7 @@ install -m 0644 %{SOURCE1} %{SOURCE2} %{SOURCE3} %{SOURCE4} %{SOURCE5} \
     %{SOURCE12} %{SOURCE13} %{SOURCE14} %{SOURCE16} \
     %{SOURCE23} %{SOURCE24} %{SOURCE27} \
     %{SOURCE30} %{SOURCE31} %{SOURCE32} %{SOURCE35} \
-    %{SOURCE37} %{SOURCE38} \
+    %{SOURCE37} %{SOURCE38} %{SOURCE42} %{SOURCE43} \
     %{buildroot}%{_unitdir}/
 install -m 0644 %{SOURCE0} %{SOURCE15} %{buildroot}%{_unitdir}/
 install -d -m 0755 %{buildroot}/usr/lib/airymaxos/scripts
@@ -214,6 +221,20 @@ grep -qxF 'ExecStart=/usr/bin/airy-rt-cap apply' \
     %{buildroot}%{_unitdir}/airy-rt-bandwidth.service
 grep -qxF 'Before=agentrt.target rtkit-daemon.service display-manager.service' \
     %{buildroot}%{_unitdir}/airy-rt-bandwidth.service
+test -f %{buildroot}%{_unitdir}/airy-rt-coexist.service
+grep -qxF 'ExecStart=/usr/bin/airy-rt-cap coexist --apply' \
+    %{buildroot}%{_unitdir}/airy-rt-coexist.service
+grep -qxF 'Before=display-manager.service' \
+    %{buildroot}%{_unitdir}/airy-rt-coexist.service
+test -f %{buildroot}%{_unitdir}/airy-rt-coexist.timer
+grep -qxF 'OnUnitInactiveSec=60s' \
+    %{buildroot}%{_unitdir}/airy-rt-coexist.timer
+grep -qxF 'Unit=airy-rt-coexist.service' \
+    %{buildroot}%{_unitdir}/airy-rt-coexist.timer
+grep -qxF 'disable airy-rt-coexist.service' \
+    %{buildroot}%{_presetdir}/90-airymax.preset
+grep -qxF 'disable airy-rt-coexist.timer' \
+    %{buildroot}%{_presetdir}/90-airymax.preset
 test -f %{buildroot}%{_unitdir}/airy-power.service
 grep -qxF 'ExecStart=/usr/bin/airy-power apply' \
     %{buildroot}%{_unitdir}/airy-power.service
@@ -286,6 +307,13 @@ fi
 %{python3_sitelib}/airymax_probe
 
 %changelog
+* Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-12
+- Ship the airy-rt-coexist unit pair and the coexist subcommand so the
+  desktop slice weight follows the CPU pressure instead of a fixed value
+- The RT budget constrains SCHED_FIFO only; desktop stalls under an agent
+  load come from the CFS side, which no existing unit observed
+- Write the weight as a runtime property and keep the static slice at the
+  baseline, so a boot without the timer reflects the declared policy
 * Mon Nov 02 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-11
 - Broadcast a warning at 10% charge and request a controlled poweroff at
   5%, so a machine that cannot be recharged shuts down cleanly instead of

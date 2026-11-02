@@ -24,6 +24,9 @@
 # airy-power.service 与 airy-power.timer 同理：电源档位在服务器上通常由
 # 带外管理或 BIOS 固定，无须用户态周期性改 sysfs；桌面与笔记本档位由
 # kickstart 显式启用。未启用时 sysfs 保持固件默认值，不引入任何写入。
+# airy-rt-coexist.service 与 airy-rt-coexist.timer 同理：服务器档位没有
+# 桌面 slice，评估只会报 absent；桌面档位由 kickstart 显式启用，未启用时
+# 桌面权重恒为 slice 文件里的静态基线，不引入任何运行时写入。
 # ===========================================================================
 
 disable agentrt.target
@@ -34,5 +37,7 @@ disable airy-llm.service
 disable airy-disk-mount.service
 disable airy-disk-health.timer
 disable airy-rt-bandwidth.service
+disable airy-rt-coexist.service
+disable airy-rt-coexist.timer
 disable airy-power.service
 disable airy-power.timer
