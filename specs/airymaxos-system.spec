@@ -47,7 +47,7 @@
 # spec-lint: source-bundle ../../system/services/airymax_probe
 
 %global airy_version 0.0.4
-%global airy_release 10
+%global airy_release 11
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -286,6 +286,16 @@ fi
 %{python3_sitelib}/airymax_probe
 
 %changelog
+* Mon Nov 02 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-11
+- Broadcast a warning at 10% charge and request a controlled poweroff at
+  5%, so a machine that cannot be recharged shuts down cleanly instead of
+  losing power with no shutdown record
+- Restrict the action to battery and weak-adapter sources, and skip it
+  when the charge cannot be read, so charging and unknown machines are
+  never interrupted
+- Record the action level under /run to broadcast once per level, and
+  keep it out of the read-only status path so verification never shuts a
+  machine down
 * Mon Nov 02 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-10
 - Add the real-time capability matrix to airy-rt-cap: probe eight
   conditions (PREEMPT_RT, RT budget, cgroup accounting, SCHED_DEADLINE,
