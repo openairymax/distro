@@ -464,12 +464,15 @@ grep -qxF 'autologin-user=amuser' "${seat}" || fail lightdm-autologin
 #    关掉，表现为「蓝牙不可用」「音频爆音」而不是启动失败，只能靠这里收口。
 #    airymax-update-check.timer 同理：90-airymax.preset 把它钉在 disabled，
 #    不在此启用则升级通道装完即静默失效，且从任何服务状态都看不出来。
+#    airy-disk-mount.service 与 airy-disk-health.timer 是同一类缺口：单元
+#    装了就位却默认关闭，数据盘不挂载、容量告急也不告警，/data 只剩空目录。
 systemctl --root=/ preset-all >/dev/null 2>&1 ||
     mark "AIRYMAX-INSTALL-NOTE preset-all rc=$?"
 boot_set="lightdm.service airymax-desktop-ready.service
 airymax-rt-budget.service bluetooth.service
 NetworkManager.service chronyd.service firewalld.service sshd.service
-airymax-update-check.timer"
+airymax-update-check.timer
+airy-disk-mount.service airy-disk-health.timer"
 for unit in ${boot_set}; do
     systemctl --root=/ enable "${unit}" >/dev/null 2>&1 || :
     state=$(systemctl --root=/ is-enabled "${unit}" 2>/dev/null || true)

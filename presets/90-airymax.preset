@@ -15,6 +15,9 @@
 # 无更新源时静默失败，何时启用属于装机策略，由安装器显式 enable。
 # airy-llm.service 缺清单与模型权重时以 EX_CONFIG(78) 退出，默认拉起
 # 只会让单元进 failed 并触发 incident；何时安装模型同样属于装机策略。
+# airy-disk-mount.service 与 airy-disk-health.timer 同理：是否有数据盘、
+# 何时开始接收容量告警属于装机策略，由安装器 boot_set 显式启用；未启用
+# 时 /data 仍由 fstab 生成器按标准路径挂载，不动系统分区。
 # ===========================================================================
 
 disable agentrt.target
@@ -22,3 +25,5 @@ disable agentrt-dsl.target
 disable agentrt-*.service
 disable airymax-update-check.timer
 disable airy-llm.service
+disable airy-disk-mount.service
+disable airy-disk-health.timer
