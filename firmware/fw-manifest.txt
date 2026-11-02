@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
+# ===========================================================================
+# fw-manifest.txt — AirymaxOS 固件闭包清单（契约）
+#
+# 每条一行，三个字段：<包名> <器件类别> <固件路径模式>
+#
+# 包名     必须由 comps 安装（comps/airymaxos-comps.xml）。清单里出现
+#          comps 不装的包，构建期即判红——清单只能是镜像的投影。
+# 器件类别 小写字母、数字与连字符。同一类别可有多条，用于按器件汇总
+#          核对（D-02/D-03/D-04 要求逐器件可核）。
+# 路径模式 绝对路径，必须位于 /usr/lib/firmware 下，允许通配；尾部 `*`
+#          兼容发行版把固件存成 .xz/.zst 的形态。
+#
+# 判定：ci/gates/fw-closure.sh，两件事。
+#   ① 集合对账：comps 中名称含 firmware 或以 -ucode 结尾的包，必须全部
+#      在本清单出现；清单声明的包必须全部由 comps 安装。
+#   ② 实物核对：给 --root（解包后的镜像根）时，逐条模式必须至少命中一个
+#      文件。包在而内容不在，正是 D-01「构建期与运行期双判」要拦的形态。
+#
+# 只写器件类别与通配路径，不写机型或固件版本号：机型分支会把「换一台同代
+# 笔记本」变成改代码（J-23），而固件文件名随上游 linux-firmware 滚动。
+# 本文件的模式已按 0.0.3 装机实测核对（linux-firmware 20260309）。
+#
+# 0.0.3 真机缺陷 D-03：wireless-regdb 未随镜像安装，regulatory.0 加载
+# 失败（error -2），5GHz 频段受限。该包包名不含 firmware，名称谓词认不
+# 出来，只能由本清单的数据兜底声明。
+# ===========================================================================
+#
+# 无线：Intel Wi-Fi ucode（285H 类机型实测为 gl 家族，模式不锁家族）；
+# 蓝牙：控制器固件 sfi 与设备配置 ddc 成对，缺 ddc 时控制器可枚举但
+#       配置失败；显卡：i915 的 GuC/HuC/DMC 都是 i915/ 下的 .bin；
+# 监管域：regulatory.db 与其签名，签名文件由尾部通配一并覆盖。
+linux-firmware   wifi       /usr/lib/firmware/iwlwifi-*.ucode*
+linux-firmware   bluetooth  /usr/lib/firmware/intel/ibt-*.sfi*
+linux-firmware   bluetooth  /usr/lib/firmware/intel/ibt-*.ddc*
+linux-firmware   gpu        /usr/lib/firmware/i915/*.bin*
+wireless-regdb   regdomain  /usr/lib/firmware/regulatory.db*
