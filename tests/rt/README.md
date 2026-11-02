@@ -28,9 +28,10 @@ tests/rt/baseline.py record --rounds 3 --duration 30 --out /tmp/rt-285h.json
 
 三个要素同时写入：`kernel`（`/proc/sys/kernel/osrelease`）、`machine`
 （DMI `product_name`）、`grade`（能力矩阵等级）。`max_us` 取多轮最大值——
-取均值会把一次抖动抹平，而实时性验收关心的正是那一次抖动。数据落在
-`--out` 指定的位置，不进源码树：机器实测记录属于内部取证材料，归档在
-`docs-closed` 侧，不发往公开仓库。
+取均值会把一次抖动抹平，而实时性验收关心的正是那一次抖动。任一轮未达门禁
+时退出码为 1，数据仍照常落盘：现场需要这份证据，但这样的数字不能当合格
+基线。数据落在 `--out` 指定的位置，不进源码树：机器实测记录属于内部取证
+材料，归档在 `docs-closed` 侧，不发往公开仓库。
 
 ## 回归比较
 

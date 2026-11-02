@@ -3,9 +3,10 @@
 # rt-accept.sh 回归测试
 #
 # 门禁的价值在于「该失败时一定失败」。这里用假 airy-rt-cap 与假 cyclictest
-# 覆盖四种关键路径：ready 通过、soft 超阈值失败、none 直接拒收且不做测量、
-# 依赖缺失时明确报错。最后一类尤其重要：静默跳过会让整条流水线看起来通过，
-# 实际上从未验证过实时性。
+# 覆盖五条关键路径：ready 通过、soft 超阈值失败、none 直接拒收且不做测量、
+# 依赖缺失或执行出错时明确报错、以及 matrix 用退出码表达等级时不误判。
+# 最后两类尤其重要：静默跳过会让整条流水线看起来通过，实际上从未验证过
+# 实时性；把 soft 的退出码 3 当成执行失败，则软实时机器永远无法验收。
 
 from __future__ import annotations
 
@@ -33,8 +34,8 @@ class Base(unittest.TestCase):
         path.write_text("#!/bin/sh\n" + body + "\n", encoding="ascii")
         path.chmod(0o755)
 
-    def matrix(self, payload: str) -> None:
-        self.tool("airy-rt-cap", f"printf '%s\\n' '{payload}'")
+    def matrix(self, payload: str, rc: int = 0) -> None:
+        self.tool("airy-rt-cap", f"printf '%s\\n' '{payload}'; exit {rc}")
 
     def cycle(self, max_us: int | None = 42) -> None:
         if max_us is None:
@@ -104,14 +105,14 @@ class ReadyTest(Base):
 
 class SoftTest(Base):
     def test_within_soft_limit(self) -> None:
-        self.matrix('{"grade":"soft","pending":["realtime"]}')
+        self.matrix('{"grade":"soft","pending":["realtime"]}', rc=3)
         self.cycle(900)
         done = self.gate()
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertIn("limit=1000us", done.stdout)
 
     def test_over_soft_limit(self) -> None:
-        self.matrix('{"grade":"soft","pending":["realtime"]}')
+        self.matrix('{"grade":"soft","pending":["realtime"]}', rc=3)
         self.cycle(1200)
         done = self.gate()
         self.assertEqual(done.returncode, 1)
@@ -120,11 +121,19 @@ class SoftTest(Base):
 
 class RejectTest(Base):
     def test_none_skips_measurement(self) -> None:
-        self.matrix('{"grade":"none","pending":["budget"]}')
+        self.matrix('{"grade":"none","pending":["budget"]}', rc=1)
         self.cycle()
         done = self.gate()
         self.assertEqual(done.returncode, 1)
         self.assertIn("不接受", done.stderr)
+        self.assertFalse(self.called())
+
+    def test_broken_matrix(self) -> None:
+        self.matrix('{"grade":"ready","pending":[]}', rc=2)
+        self.cycle()
+        done = self.gate()
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("matrix 执行失败", done.stderr)
         self.assertFalse(self.called())
 
     def test_missing_cap(self) -> None:

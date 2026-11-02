@@ -68,10 +68,16 @@ else
     fail "找不到 ${LAT}（airymaxos-system）或 ${CYCLE}（rt-tests）"
 fi
 
-matrix="$("${CAP}" matrix --json 2>&1)" ||
-    fail "matrix 执行失败：${matrix}"
+# matrix 的退出码承载等级（0 ready、3 soft、1 none），不是执行成败。
+# 这里只把 0/1/3 之外的返回值当作执行错误，等级本身交给下面的 case 判读。
+matrix_rc=0
+matrix="$("${CAP}" matrix --json 2>&1)" || matrix_rc=$?
+case "${matrix_rc}" in
+    0|1|3) ;;
+    *) fail "matrix 执行失败（rc=${matrix_rc}）：${matrix}" ;;
+esac
 grade="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["grade"])' \
-    <<<"${matrix}" 2>/dev/null)" || fail "matrix 输出不是合法 JSON"
+    <<<"${matrix}" 2>/dev/null)" || fail "matrix 输出不是合法 JSON：${matrix}"
 
 case "${grade}" in
     ready) limit="${HARD_US}" ;;
