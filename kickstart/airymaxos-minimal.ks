@@ -65,7 +65,11 @@ rootpw --iscrypted $6$airy003root0x01$.lY1w9YA54iCwREQZCVZEoQ3xmCjcbkpWmWCrLciZe
 user --name=Airymax --groups=wheel --iscrypted --password=$6$airy003user0x01$s1JW7QjW0kiAW7B51kVB2hNsabAadz4G/h6yBDRvpWzwsV7NO7Kh3ChDjLtapHZ6HGl5WoqNKi.IAY7IT5yRc/
 
 # ---- 服务与防火墙 ----
-services --enabled=sshd,chronyd
+# NetworkManager 与 sshd 同属缺一即失去接管入口的单元：99-airymax-
+# default-disable.preset 的 disable * 会在装包时把两者一并关掉，全靠
+# 本行显式启用。上面已声明 DHCP 引导，单元不启用则装完无 DHCP、sshd
+# 也就没有可达路径。
+services --enabled=sshd,chronyd,NetworkManager
 firewall --enabled --service=ssh
 firstboot --disable
 
