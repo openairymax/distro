@@ -112,6 +112,7 @@ Source35:       motd
 Source36:       99-airymax.conf
 Source37:       clouds_moonlight_photo_from_lidecheng.jpg
 Source38:       hangzhouxihu_photo_from_lidecheng.jpg
+Source39:       airymax-update-notify.desktop
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -269,6 +270,8 @@ install -m 0644 %{SOURCE9} \
     %{buildroot}%{_sysconfdir}/xdg/autostart/airymax-input-method.desktop
 install -m 0644 %{SOURCE24} \
     %{buildroot}%{_sysconfdir}/xdg/autostart/airymax-display.desktop
+install -m 0644 %{SOURCE39} \
+    %{buildroot}%{_sysconfdir}/xdg/autostart/airymax-update-notify.desktop
 
 install -d -m 0755 %{buildroot}%{_sysconfdir}/systemd/system/user@.service.d
 install -m 0644 %{SOURCE12} \
@@ -574,6 +577,11 @@ test "$(cat "${airy_tmp}/efi/EFI/vendor/fonts/unicode.pf2")" = pf2
 rm -rf "${airy_tmp}"
 grep -qxF 'Exec=/usr/bin/ibus-daemon -drx' \
     %{buildroot}%{_sysconfdir}/xdg/autostart/airymax-input-method.desktop
+# 提醒条目必须直接调用子命令：外面再包一层脚本会吞掉 notify-send 的失败，
+# 让「没有桌面会话」既无通知也无日志。去重由 check 写的状态承担，故这里
+# 断言的是入口本身，而不是条目里的参数。
+grep -qxF 'Exec=/usr/bin/airy-update notify' \
+    %{buildroot}%{_sysconfdir}/xdg/autostart/airymax-update-notify.desktop
 grep -qxF 'Slice=airymax-desktop.slice' \
     %{buildroot}%{_sysconfdir}/systemd/system/user@.service.d/50-airymax-desktop.conf
 # 日志留存：取值写错不会让构建失败，只会在重启后表现为「没有上一次启动」，
@@ -639,6 +647,7 @@ fi
 %config(noreplace) %{_sysconfdir}/grub.d/01_airymax_display
 %config(noreplace) %{_sysconfdir}/xdg/autostart/airymax-input-method.desktop
 %config(noreplace) %{_sysconfdir}/xdg/autostart/airymax-display.desktop
+%config(noreplace) %{_sysconfdir}/xdg/autostart/airymax-update-notify.desktop
 %config(noreplace) %{_sysconfdir}/systemd/system/user@.service.d/50-airymax-desktop.conf
 %config(noreplace) %{_sysconfdir}/systemd/journald.conf.d/50-airymax-journald.conf
 %{_unitdir}/airymax-desktop.slice

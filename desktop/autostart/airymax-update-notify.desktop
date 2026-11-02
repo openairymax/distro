@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
+# 部署：airymaxos-release 包安装到 /etc/xdg/autostart/。
+# 提醒属会话、取件属系统：会话启动时只读 check 写下的状态，不发网络请求，
+# 也不因 notify-send 失败而改变退出码。同一 version/build 只提醒一次，
+# 去重状态由 check 维护，本条目因此可以每次登录都跑。
+# 不写 OnlyShowIn：openEuler 冻结点只有 UKUI 一个会话，写死桌面标识反而
+# 会在标识不一致时静默失效。
+[Desktop Entry]
+Type=Application
+Name=AirymaxOS Update Notify
+Comment=Notify the session when a newer AirymaxOS release is available
+Exec=/usr/bin/airy-update notify
+Terminal=false
+NoDisplay=true
