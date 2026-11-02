@@ -9,7 +9,7 @@
 #
 # 环境:
 #   AIRYMAX_SMOKE_WAIT  守护进程就绪等待秒数（默认 30）
-#   AIRYMAX_SMOKE_HOST  期望的主机名（默认 AIRYMAX_PC，即配方值）
+#   AIRYMAX_SMOKE_HOST  期望的主机名（默认 airymax-pc，即配方值）
 #   AIRYMAX_SMOKE_ROOT  只读系统视图的根前缀（默认空，即真实 /）。T6–T16 读取
 #                       /boot、/sys、/etc 与 /usr/lib 下的发行版标识与资产，
 #                       单测在沙箱里用该前缀复核判定，装机现场保持默认值。
@@ -24,7 +24,7 @@
 #   T6  内核归属：运行的内核是包内 ALK，/boot 三件套齐全、配置一致，模块
 #       带签名且内核未被未签名模块污染
 #   T7  LSM 注册表：airy 只登记一次，配套 lockdown LSM 在位
-#   T8  主机名：/etc/hostname 是产品名，不是安装器缺省名
+#   T8  主机名：/etc/hostname、hostname 与 hostnamectl --static 三处一致
 #   T9  品牌：/etc/os-release 的命名不变式（PRETTY_NAME=短名+版本）与
 #       /etc/issue 首行同源，ID/代号指向本产品
 #   T10 分辨率：每个 connected 输出处于 display_mode.sh 定义的策略模式
@@ -53,7 +53,7 @@ TARGET="${1:?usage: run-smoke.sh <target-id>}"
 WALLPAPER=/usr/share/backgrounds/airymaxos/airymaxos-default.jpg
 PAPER_SHA=fee7f439834ac7dacfc75deaf80a1db1c4bc7459583248eecc87125d52a5ef18
 START_WAIT="${AIRYMAX_SMOKE_WAIT:-30}"
-HOSTNAME_WANT="${AIRYMAX_SMOKE_HOST:-AIRYMAX_PC}"
+HOSTNAME_WANT="${AIRYMAX_SMOKE_HOST:-airymax-pc}"
 SYSROOT="${AIRYMAX_SMOKE_ROOT:-}"
 
 PASS=0
@@ -303,14 +303,26 @@ t7_lsm_registry() {
     }
 }
 
-# T8: 主机名（配方不写 hostname 时安装器会留下缺省名，产品身份就丢了）
+# T8: 主机名（三处读取必须同值：静态文件、内核名、hostnamectl 静态字段；
+# 0.0.3 靠 sysctl.d 在内核层回写，任一环脱钩都会让现场看到两个名字）
 t8_hostname() {
-    local file="${SYSROOT}/etc/hostname"
+    local file="${SYSROOT}/etc/hostname" name kern stat
     [ -r "${file}" ] || {
         echo "${file} unreadable"
         return 1
     }
-    expect "$(cat "${file}")" "${HOSTNAME_WANT}" "hostname" || return 1
+    name=$(cat "${file}")
+    expect "${name}" "${HOSTNAME_WANT}" "hostname" || return 1
+    kern=$(hostname) || {
+        echo "hostname probe failed"
+        return 1
+    }
+    expect "${kern}" "${HOSTNAME_WANT}" "kernel hostname" || return 1
+    stat=$(hostnamectl --static) || {
+        echo "hostnamectl probe failed"
+        return 1
+    }
+    expect "${stat}" "${HOSTNAME_WANT}" "static hostname" || return 1
 }
 
 # T9: 品牌（os-release 是发行版身份的唯一载体，桌面与会话代理都读它）

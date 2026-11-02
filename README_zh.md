@@ -39,9 +39,9 @@
 SSH 侧由 `airymaxos-release` 安装
 `/etc/ssh/sshd_config.d/50-airymax-sshd.conf`（`PermitEmptyPasswords yes`）
 放行；本地座位由 `50-airymax.conf` 的 `autologin-user=Airymax` 免密进入。
-主机名 `AIRYMAX_PC` 由配方写入 `/etc/hostname`，运行时再由
-`/etc/sysctl.d/99-airymax-hostname.conf` 在内核层写回：systemd 读该文件时
-按 RFC 1123 去掉下划线，静态名会退化成 `AIRYMAXPC`。
+主机名 `airymax-pc` 由安装器的 `network --hostname` 直接落盘，是合法 RFC 1123
+标签，`/etc/hostname`、`hostname` 与 `hostnamectl --static` 三处因此天然一致；
+0.0.3 曾因产品名含下划线而需 `sysctl.d` 在内核层回写，0.0.4 起该机制删除。
 定制发行时在注入 ISO 前替换 kickstart 中的哈希，禁止写入明文。
 
 ## 仓库结构

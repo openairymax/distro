@@ -43,10 +43,11 @@ The empty password is applied by `passwd -d Airymax` in the kickstart
 empty" as part of install success. For SSH, `airymaxos-release` installs
 `/etc/ssh/sshd_config.d/50-airymax-sshd.conf` (`PermitEmptyPasswords yes`);
 for the local seat, `autologin-user=Airymax` in `50-airymax.conf` skips the
-greeter. The machine name `AIRYMAX_PC` is written to `/etc/hostname` by the
-recipe and written back at the kernel level by
-`/etc/sysctl.d/99-airymax-hostname.conf`: systemd strips the underscore per
-RFC 1123, so the static name degrades to `AIRYMAXPC` without that drop-in.
+greeter. The machine name `airymax-pc` is written by the installer from
+`network --hostname`; it is a legal RFC 1123 label, so `/etc/hostname`,
+`hostname` and `hostnamectl --static` agree without a second mechanism
+(0.0.3 needed a `sysctl.d` kernel write-back because the underscored name
+was stripped on read).
 For a custom build, replace the hashes in the kickstart before
 injecting the ISO; never write plaintext.
 

@@ -830,6 +830,20 @@ case "${1:-}" in
 esac
 """
 
+# 冒烟 T8 判定主机名的三个读取面：静态文件、内核名与 hostnamectl 的静态
+# 字段。沙箱没有真实内核状态，两个探针按只读视图里的 /etc/hostname 作答；
+# 负例在测试里覆盖成异值，判定分叉本身仍被执行。
+HOSTNAME = """\
+#!/bin/sh
+cat "${AIRYMAX_SMOKE_ROOT:-}/etc/hostname"
+"""
+
+HOSTNAMECTL = """\
+#!/bin/sh
+[ "${1:-}" = "--static" ] || exit 1
+cat "${AIRYMAX_SMOKE_ROOT:-}/etc/hostname"
+"""
+
 SYSTEMCTL = """\
 #!/bin/sh
 cmd=""; unit=""; props=""; quiet=0; value=0
@@ -1193,7 +1207,8 @@ def smoke_tools(bin_dir, omit=()):
              ("pactl", PACTL), ("systemctl", SYSTEMCTL),
              ("gsettings", GSETTINGS), ("sha256sum", SHA256SUM),
              ("uname", UNAME), ("xrandr", XRANDR),
-             ("findmnt", FINDMNT), ("lsblk", LSBLK))
+             ("findmnt", FINDMNT), ("lsblk", LSBLK),
+             ("hostname", HOSTNAME), ("hostnamectl", HOSTNAMECTL))
     for name, body in table:
         if name not in omit:
             write(bin_dir, name, body)

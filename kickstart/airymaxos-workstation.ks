@@ -72,11 +72,12 @@ airy_pre /tmp/airymax-disk.ks /tmp/airymax-disk.json
 %include /tmp/airymax-disk.ks
 
 # ---- 网络 ----
-# 这里不写 --hostname：产品名 AIRYMAX_PC 含下划线，不符合 RFC 1123，
-# anaconda 会在落盘时静默改写（B50 实测 /root/anaconda-ks.cfg 记录为
-# --hostname=airymaxos，目标机 /etc/hostname 也随之变成 airymaxos）。
-# 主机名因此由 %post 直接写 /etc/hostname，判据只看落盘结果。
-network --bootproto=dhcp --activate
+# 主机名由安装器按产品口径直接落盘：airymax-pc 是合法 RFC 1123 标签，
+# anaconda 不会改写。0.0.3 的产品名 AIRYMAX_PC 含下划线，B50 实测被静默
+# 改写成 airymaxos，才需要 %post 手工写入并在内核层回写；0.0.4 起那条
+# 回写链整体删除，判据是 /etc/hostname、hostname 与 hostnamectl --static
+# 三者一致（冒烟 T8）。
+network --bootproto=dhcp --activate --hostname=airymax-pc
 
 # ---- 账户 ----
 # OS-OPS-009：口令只以 SHA-512 crypt 哈希落盘，禁止明文。
@@ -86,11 +87,10 @@ network --bootproto=dhcp --activate
 # 空口令由 %post 的 passwd -d 落地（见下），ssh 侧由 airymaxos-release
 # 提供的 /etc/ssh/sshd_config.d/50-airymax-sshd.conf 放行。
 #
-# 账户名与主机名的大小写是产品口径（Airymax / AIRYMAX_PC），不是笔误：
-# shadow-utils 接受大写账户名（B50 实测 useradd AirymaxTmp 返回 0），而
-# /etc/hostname 里的下划线会被 systemd 按 RFC 1123 过滤，故该文件由 %post
-# 按产品口径写入，运行期名再由 /etc/sysctl.d/99-airymax-hostname.conf 在
-# sysinit 后写回内核，见 boot/ 下的同名文件头注释。
+# 账户名的大小写是产品口径（Airymax），不是笔误：shadow-utils 接受大写
+# 账户名（B50 实测 useradd AirymaxTmp 返回 0），而改名会同时打断 lightdm
+# 自动登录、sudo 唯一规则与冒烟断言，故交付口径保持不变。主机名不再与此
+# 绑定：airymax-pc 是小写合法标签，由上面的 network 指令直接落盘。
 rootpw --iscrypted $6$airy003root0x01$.lY1w9YA54iCwREQZCVZEoQ3xmCjcbkpWmWCrLciZeSNYA/T/6lkx4M2yFnhb13xBfbZLZQ64V01cSAkka1r30
 user --name=Airymax --groups=wheel --iscrypted --password=$6$airy003user0x01$s1JW7QjW0kiAW7B51kVB2hNsabAadz4G/h6yBDRvpWzwsV7NO7Kh3ChDjLtapHZ6HGl5WoqNKi.IAY7IT5yRc/
 
@@ -547,11 +547,10 @@ grep -qxF '  set gfxmode=2880x1800,2560x1600,2240x1400,1920x1200,1920x1080,1680x
 grep -qxF '  set gfxpayload=keep' "${grub_cfg}" || fail grub-gfxpayload
 grep -qF '  terminal_output gfxterm' "${grub_cfg}" || fail grub-gfxterm
 
-# 9) 主机名：只认 /etc/hostname 的落盘值。安装器的 network --hostname 会
-#    按 RFC 1123 改写含下划线的名字（B50 实测 AIRYMAX_PC 变成 airymaxos），
-#    因此产品名由配方直接写入，并以读回值作为唯一判据。
-printf 'AIRYMAX_PC\n' >/etc/hostname || fail hostname-write
-[ "$(cat /etc/hostname)" = AIRYMAX_PC ] || fail hostname-value
+# 9) 主机名：安装器已按 network --hostname 落盘，这里只做读回校验。0.0.4
+#    的产品名是合法 RFC 1123 标签，不存在被改写的路径；静态名与运行期名
+#    的一致性由冒烟 T8 在真实系统上判定。
+[ "$(cat /etc/hostname)" = airymax-pc ] || fail hostname-value
 
 mark "AirymaxOS workstation install complete (baseline $(date -u +%Y%m%d))"
 %end
