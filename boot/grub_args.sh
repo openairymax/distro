@@ -34,11 +34,18 @@
 # /etc/default/grub 取参数生成 menuentry，因此改写该文件即对后续生成生效，
 # /boot/loader/entries 不存在也不需要维护。
 #
+# 为什么生成后还要同步品牌副本：EFI 下 grub 的 $prefix 取自被固件加载的
+# grubx64.efi 所在目录，NVRAM 指向 \EFI\airymaxos，因此 /dev/console 与
+# 菜单实际读的是 /boot/efi/EFI/airymaxos/grub.cfg，而 grub2-mkconfig 只写
+# EFI/openEuler 那份。285H（2026-11-03）用两个不同的标记参数分别写进两份
+# cfg 后重启，回来的命令行只含品牌副本的标记——品牌副本才是活动配置。只
+# 重建不复制，改了参数重启后照旧（D-07），内核升级后菜单也停在旧内核。
+#
 # 为什么同时落字体：引导菜单的 gfxmode 段落以 loadfont 成功为前提，而
-# loadfont 解析 $prefix/fonts/unicode.pf2，$prefix 由 grubx64.efi 内嵌、
-# 指向发行版目录（openEuler），不是品牌副本目录。字体缺失时该段落整段消失，
-# 菜单与 efifb 停在固件默认分辨率（真机 B50 的 800x600）。生效配置由
-# pick_cfg 给出，其所在目录即 $prefix，因此字体只需落在它的 fonts/ 下。
+# loadfont 解析 $prefix/fonts/unicode.pf2，$prefix 就是上面那个被加载的
+# 目录。字体缺失时该段落整段消失，菜单与 efifb 停在固件默认分辨率（真机
+# B50 的 800x600）。因此字体在生效配置目录与品牌副本目录都要落一份：前者
+# 是生成侧的一致性，后者才是引导期真正被读到的位置。
 #
 # 退出码：0 = 已收敛（含无需改动）；1 = 参数未能落地；2 = 用法错误。调用者
 #         据 1 中止安装：静默降级只会把观感问题推迟到验收现场。
@@ -323,15 +330,11 @@ font_src()
 
 # 字体缺失只降级不中止：菜单字形与分辨率是观感问题，而退出码 1 会中止整个
 # 安装。note 足以在装机日志里留下归因线索。
-sync_font()
+put_font()
 {
-    local dir src
-    dir=$(dirname "${cfg}")/fonts
-    if ! src=$(font_src); then
-        note "font source absent"
+    local dir=$1 src=$2
+    [ -f "${dir}/unicode.pf2" ] && cmp -s "${src}" "${dir}/unicode.pf2" &&
         return 0
-    fi
-    cmp -s "${src}" "${dir}/unicode.pf2" && return 0
     if install -d -m 0755 "${dir}" &&
         install -m 0644 "${src}" "${dir}/unicode.pf2"; then
         note "font placed: ${dir}/unicode.pf2"
@@ -341,15 +344,42 @@ sync_font()
     return 0
 }
 
-# ESP 内的 grub.cfg 只是品牌一致性副本（grubx64 内嵌 prefix 指向发行版
-# 目录，真正生效的是上面那份）。生成后同步一次，副本就不会逐次升级老化。
+# 品牌副本目录与被加载的 grubx64.efi 同目录，因此它同时是引导期的 $prefix。
+# --esp 显式给出时装机场景使用；未给出时按生效配置的兄弟目录推断。
+brand_dir()
+{
+    if [ -n "${esp}" ]; then
+        printf '%s\n' "${esp}/EFI/airymaxos"
+        return 0
+    fi
+    printf '%s\n' "${cfg%/*}/../airymaxos"
+}
+
+sync_font()
+{
+    local dir src
+    if ! src=$(font_src); then
+        note "font source absent"
+        return 0
+    fi
+    put_font "${cfg%/*}/fonts" "${src}"
+    dir=$(brand_dir)
+    [ -d "${dir}" ] || return 0
+    put_font "${dir}/fonts" "${src}"
+}
+
+# 品牌副本是活动配置：生成后必须整份覆盖，否则下一次引导仍按旧命令行。
+# install 而非 cp，保持项目统一的落位手法与权限；内容相同则不动，重复调用
+# 不产生写放大。
 sync_brand()
 {
-    local copy
-    [ -n "${esp}" ] || return 0
-    copy="${esp}/EFI/airymaxos/grub.cfg"
+    local dir copy
+    dir=$(brand_dir)
+    copy="${dir}/grub.cfg"
     [ -f "${copy}" ] || return 0
-    cp -f "${cfg}" "${copy}" && note "brand copy refreshed: ${copy}" ||
+    cmp -s "${cfg}" "${copy}" && return 0
+    install -m 700 "${cfg}" "${copy}" &&
+        note "brand copy refreshed: ${copy}" ||
         note "brand copy not refreshed: ${copy}"
 }
 
