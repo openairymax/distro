@@ -157,8 +157,13 @@ class RunSmokeTest(unittest.TestCase):
         return path
 
     def write_assets(self):
-        """T16 静态自检读取的发行资产：只有存在性判定，内容不参与。"""
-        for rel in ("usr/share/backgrounds/airymaxos/airymaxos-default.jpg",
+        """T5/T16 读取的发行资产：三张壁纸按目录计数，其余只看存在性。"""
+        for rel in ("usr/share/backgrounds/airymaxos/"
+                    "qilian_photo_from_zhenyi.jpg",
+                    "usr/share/backgrounds/airymaxos/"
+                    "clouds_moonlight_photo_from_lidecheng.jpg",
+                    "usr/share/backgrounds/airymaxos/"
+                    "hangzhouxihu_photo_from_lidecheng.jpg",
                     "usr/share/glib-2.0/schemas/"
                     "99-airymaxos-default.gschema.override",
                     "usr/lib/airymaxos/desktop/desktop_ready.sh",

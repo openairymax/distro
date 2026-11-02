@@ -68,23 +68,35 @@ UKUI 主许可证 GPLv3：集成进发行版即承担开源相应修改的义务
 桌面升级 = lockfile 单独 PR（全量 diff 评审 + CI 组合冒烟）；
 内核换代 = ADR-016 三阶段。两条节奏互不牵连。
 
-## 默认壁纸（决策 2026-10-12）
+## 默认壁纸（决策 2026-10-12，0.0.4 收敛为三张）
 
-AirymaxOS 系统桌面默认壁纸 = `wallpaper/airymaxos-default.jpg`
-（祁连实拍；来源 `.github/AirymaxOS/web/wallpaper/qilian_photo_from_zhenyi.jpg`，
-3197×2399，sha256 `fee7f439834ac7dacfc75deaf80a1db1c4bc7459583248eecc87125d52a5ef18`）。
+AirymaxOS 系统桌面内置三张品牌默认壁纸，集合由
+`lockfile/ukui-wallpapers.yaml` 唯一登记（文件名 + sha256）；实物在
+`release/wallpapers/`，网页资产在
+`agent-linux/.github/AirymaxOS/web/wallpaper/`，三处同名文件必须同 digest。
+
+| 文件 | 主题 | 来源 |
+|---|---|---|
+| `qilian_photo_from_zhenyi.jpg` | 祁连实拍，系统默认背景 | 珍怡 |
+| `clouds_moonlight_photo_from_lidecheng.jpg` | 云海月光 | 力诚 |
+| `hangzhouxihu_photo_from_lidecheng.jpg` | 杭州西湖 | 力诚 |
 
 三处事实必须一致，由 `airymaxos-release` 一次安装完成：
 
-1. 图像落到 `/usr/share/backgrounds/airymaxos/airymaxos-default.jpg`；
+1. 三张图像落到 `/usr/share/backgrounds/airymaxos/`；
 2. 壁纸选择器注册表 `wallpaper/airymaxos-default.xml` 安装到
    `/usr/share/ukui-background-properties/`：`ukui-control-center` 启动时
-   扫描该目录全部 `*.xml` 重建 `~/.config/ukui/wallpaper.xml`，XML 必须
-   保留 `<!DOCTYPE wallpapers SYSTEM "gnome-wp-list.dtd">`；
+   扫描该目录全部 `*.xml` 重建 `~/.config/ukui/wallpaper.xml`，三条
+   `<filename>` 与台账同集合，XML 必须保留
+   `<!DOCTYPE wallpapers SYSTEM "gnome-wp-list.dtd">`；
 3. 系统默认背景由 `glib-2.0/schemas/99-airymaxos-default.gschema.override`
-   覆盖 `org.mate.background` 的 `picture-filename`（schema 由
-   `mate-desktop-libs` 提供，UKUI 桌面背景实际由 `peony-qt-desktop` 按该
-   schema 绘制），`%post` 内 `glib-compile-schemas` 后对新会话生效。
+   覆盖 `org.mate.background` 的 `picture-filename`（指向祁连一张；schema
+   由 `mate-desktop-libs` 提供，UKUI 桌面背景实际由 `peony-qt-desktop` 按
+   该 schema 绘制），`%post` 内 `glib-compile-schemas` 后对新会话生效。
+
+集合边界由 `ci/gates/wallpaper-set.sh` 双向断言：多一件说明上游
+`ukui-wallpapers` / `mate-backgrounds` 漏进镜像，少一件说明注册表指向了
+不存在的文件。上游壁纸包一律排除，不做事后删除。
 
 不存在 `org.ukui.background` schema，也不使用
 `/usr/share/gnome-background-properties/`（冻结点无此目录）。
@@ -325,8 +337,8 @@ multi-user.target，不会触发该单元；workstation kickstart 显式 enable�
   `/etc/systemd/system/user@.service.d/`
 - `wallpaper/airymaxos-default.xml` →
   `/usr/share/ukui-background-properties/`
-- `wallpaper/airymaxos-default.jpg` →
-  `/usr/share/backgrounds/airymaxos/`
+- `wallpaper/airymaxos-default.jpg` 已删除；三张品牌默认图由
+  `release/wallpapers/*.jpg` 安装到 `/usr/share/backgrounds/airymaxos/`
 - `glib-2.0/schemas/99-airymaxos-default.gschema.override` →
   `/usr/share/glib-2.0/schemas/`
 

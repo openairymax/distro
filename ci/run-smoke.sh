@@ -10,8 +10,8 @@
 # 环境:
 #   AIRYMAX_SMOKE_WAIT  守护进程就绪等待秒数（默认 30）
 #   AIRYMAX_SMOKE_HOST  期望的主机名（默认 airymax-pc，即配方值）
-#   AIRYMAX_SMOKE_ROOT  只读系统视图的根前缀（默认空，即真实 /）。T6–T16 读取
-#                       /boot、/sys、/etc 与 /usr/lib 下的发行版标识与资产，
+#   AIRYMAX_SMOKE_ROOT  只读系统视图的根前缀（默认空，即真实 /）。T5–T16 读取
+#                       /usr/share、/boot、/sys、/etc 下的发行版标识与资产，
 #                       单测在沙箱里用该前缀复核判定，装机现场保持默认值。
 #                       T17 读实时块层，不经该前缀。
 #
@@ -50,7 +50,9 @@
 set -uo pipefail
 
 TARGET="${1:?usage: run-smoke.sh <target-id>}"
-WALLPAPER=/usr/share/backgrounds/airymaxos/airymaxos-default.jpg
+WALLPAPER=/usr/share/backgrounds/airymaxos/qilian_photo_from_zhenyi.jpg
+PAPER_DIR=/usr/share/backgrounds/airymaxos
+PAPER_COUNT=3
 PAPER_SHA=fee7f439834ac7dacfc75deaf80a1db1c4bc7459583248eecc87125d52a5ef18
 START_WAIT="${AIRYMAX_SMOKE_WAIT:-30}"
 HOSTNAME_WANT="${AIRYMAX_SMOKE_HOST:-airymax-pc}"
@@ -210,19 +212,26 @@ t4_slice() {
     }
 }
 
-# T5: 内置壁纸（背景键与图像内容）
+# T5: 内置壁纸（默认背景、集合大小与图像内容）
 t5_wallpaper() {
     command -v gsettings >/dev/null 2>&1 || {
         echo "gsettings not installed"
         return 1
     }
-    local path sum
+    local path sum have
     path="$(gsettings get org.mate.background picture-filename 2>&1)" || {
         echo "org.mate.background picture-filename: ${path:-unavailable}"
         return 1
     }
     expect "${path//\'/}" "${WALLPAPER}" "picture-filename" || return 1
-    sum="$(sha256sum "${WALLPAPER}" 2>&1)" || {
+    # 集合多一件说明上游壁纸包漏进镜像，少一件说明注册表指向了不存在的
+    # 文件；两种情况都只在桌面会话里表现为空背景，故按目录事实计数。
+    # 目录与图像按 SYSROOT 取根：schema 里记的是安装路径，单测的沙箱视图
+    # 在别处，两者只在真机上重合。
+    have=$(find "${SYSROOT}${PAPER_DIR}" -maxdepth 1 -type f -name '*.jpg' \
+        2>/dev/null | wc -l)
+    expect "$((have))" "${PAPER_COUNT}" "wallpaper set size" || return 1
+    sum="$(sha256sum "${SYSROOT}${WALLPAPER}" 2>&1)" || {
         echo "wallpaper unreadable: ${WALLPAPER}"
         return 1
     }

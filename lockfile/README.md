@@ -39,7 +39,10 @@
 - `gen-lockfile.sh` — 生成入口（包装 rpm-lockfile-prototype，必须在能访问
   冻结源仓库的环境执行）；
 - `lock_check.py` — 离线校验器，只依赖标准库、不联网：
-  `verify` 断言冻结集覆盖 comps 必装包，`diff` 输出增/升/删三段摘要。
+  `verify` 断言冻结集覆盖 comps 必装包，`diff` 输出增/升/删三段摘要；
+- `ukui-wallpapers.yaml` — **壁纸集合台账**。三张品牌默认壁纸的文件名与
+  sha256，以及必须排除的上游壁纸包；`ci/gates/wallpaper-set.sh` 按它比对
+  `release/wallpapers/` 与已安装树，多一件或少一件都判红。
 
 运行期产品自有仓库定义在 `../repo/airymax-os.repo`，面向已装系统的 dnf
 客户端，不参与冻结；安装期闭包只取 `rpms.in.yaml` 中声明的上游仓库。

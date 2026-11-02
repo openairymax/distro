@@ -807,7 +807,7 @@ GSETTINGS = """\
     exit 1
 }
 printf "'%s'\\n" \\
-    "${FAKE_PAPER:-/usr/share/backgrounds/airymaxos/airymaxos-default.jpg}"
+    "${FAKE_PAPER:-/usr/share/backgrounds/airymaxos/qilian_photo_from_zhenyi.jpg}"
 """
 
 SHA256SUM = """\

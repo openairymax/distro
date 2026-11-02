@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
+# ===========================================================================
+# ukui-wallpapers.yaml — 内置壁纸集合的唯一事实源（R1-15 / §16.4.10）
+#
+# 职责：把「镜像里到底允许存在哪几张壁纸」从一句口径变成可复算的台账。
+# 实物在 release/wallpapers/，网页资产在
+# agent-linux/.github/AirymaxOS/web/wallpaper/；三处同名文件必须同
+# digest，否则说明有一侧被单独替换过。
+#
+# 判据（ci/gates/wallpaper-set.sh）：
+#   1. packages 段恰为三条，文件名与 sha256 逐字比对实物；
+#   2. upstream 段列出的包不得出现在 rpms.in.yaml、comps 与 kickstart；
+#   3. 镜像内 /usr/share/backgrounds/ 只允许 airymaxos/ 一个目录，
+#      /usr/share/ukui-background-properties/ 的每条 filename 都落在本表。
+# ===========================================================================
+packages:
+  - name: clouds_moonlight_photo_from_lidecheng.jpg
+    sha256: 184fd5b0b653fc4b7ec8ec32a0170d41466fa2ec9920e6c0cae56cc9aca505c5
+  - name: hangzhouxihu_photo_from_lidecheng.jpg
+    sha256: 8e0fbd805e1fc4b85fa99a83ef61e4d574d17f432c89337fc817e4b2e90c33e4
+  - name: qilian_photo_from_zhenyi.jpg
+    sha256: fee7f439834ac7dacfc75deaf80a1db1c4bc7459583248eecc87125d52a5ef18
+
+# 上游内置壁纸提供者：任一进闭包都会把整目录壁纸带进镜像，故一律排除。
+upstream:
+  - ukui-wallpapers
+  - mate-backgrounds
