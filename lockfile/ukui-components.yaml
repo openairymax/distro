@@ -1,0 +1,167 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
+# ===========================================================================
+# ukui-components.yaml — UKUI 组件台账与基底实测 NVRA 的唯一事实源
+#
+# 职责：把「0.0.4 的 UKUI 取哪一代、每个组件钉在哪个构建」从一句口径变成
+# 可复算的台账。版本证据只认基底仓库 repodata 实测（J-35），上游发布公告
+# 与发行说明一律不作为版本证据；包名是否存在同样以仓库解析结果为准。
+#
+# 判据（ci/gates/ukui-lock.sh）：
+#   1. 核心四件 ukui-kwin / ukui-panel / ukui-session-manager /
+#      ukui-control-center 必须 present，且 nvra 逐字钉住；
+#      ukui-desktop-environment 必须登记为 absent（基底全条线无此包）；
+#   2. comps 与 rpms.in.yaml 中出现的每个 ukui* 包名都必须是本表 present
+#      组件——不存在的包一旦进闭包，装机求解必然失败；
+#   3. 10-references/ukui-delta.md 逐字包含本表全部 nvra；
+#   4. 4.24 可行性成册，两条路线的取舍与顺延结论明确。
+#
+# 版本线的差异矩阵与复算命令见 10-references/ukui-delta.md；4.24 自建闭包
+# 的工作项、风险与顺延条件见 10-references/ukui-424-feasibility.md。
+# ===========================================================================
+base: openEuler-24.03-LTS-SP2
+arch: x86_64
+segments:
+  - OS
+  - update
+  - EPOL/main
+  - EPOL/update/main
+  - everything
+
+# 0.0.4 选定路线：取基底内最高稳定组件代。4.24 自建闭包顺延，理由与代价
+# 见可行性成册；这里只记录可被门禁断言的选择结果。
+policy:
+  route: base-highest-stable
+  generation: 3.1
+  deferred: ukui-4.24
+
+components:
+  - name: ukui-kwin
+    state: present
+    segment: EPOL/main
+    nvra: ukui-kwin-0:1.0.5-8.oe2403sp2.x86_64
+    role: 窗口管理器；壳层能力在本包，基底不存在 ukui-shell
+  - name: ukui-panel
+    state: present
+    segment: EPOL/main
+    nvra: ukui-panel-0:3.1.0-14.oe2403sp2.x86_64
+    role: 任务栏与开始菜单宿主
+  - name: ukui-session-manager
+    state: present
+    segment: EPOL/main
+    nvra: ukui-session-manager-0:3.1.0-7.oe2403sp2.x86_64
+    role: 会话管理；提供 ukui.desktop 会话入口
+  - name: ukui-control-center
+    state: present
+    segment: EPOL/main
+    nvra: ukui-control-center-0:3.1.2-33.oe2403sp2.x86_64
+    role: 控制中心
+  - name: ukui-settings-daemon
+    state: present
+    segment: EPOL/main
+    nvra: ukui-settings-daemon-0:3.1.2-9.oe2403sp2.x86_64
+    role: 会话级设置守护进程
+  - name: ukui-greeter
+    state: present
+    segment: EPOL/main
+    nvra: ukui-greeter-0:3.1.2-12.oe2403sp2.x86_64
+    role: lightdm 登录界面；自带 95-ukui-greeter.conf
+  - name: ukui-themes
+    state: present
+    segment: EPOL/main
+    nvra: ukui-themes-0:3.0.2-2.oe2403sp2.x86_64
+    role: 桌面主题
+  - name: ukui-screensaver
+    state: present
+    segment: EPOL/main
+    nvra: ukui-screensaver-0:3.1.1-8.oe2403sp2.x86_64
+    role: 锁屏与屏保
+  - name: ukui-menu
+    state: present
+    segment: EPOL/main
+    nvra: ukui-menu-0:3.1.1-14.oe2403sp2.x86_64
+    role: 开始菜单
+  - name: ukui-sidebar
+    state: present
+    segment: EPOL/main
+    nvra: ukui-sidebar-0:3.3.0-5.oe2403sp2.x86_64
+    role: 侧边栏
+  - name: ukui-notification-daemon
+    state: present
+    segment: EPOL/main
+    nvra: ukui-notification-daemon-0:3.3.1-7.oe2403sp2.x86_64
+    role: 通知守护进程
+  - name: ukui-search
+    state: present
+    segment: EPOL/main
+    nvra: ukui-search-0:3.1-5.oe2403sp2.x86_64
+    role: 文件与内容搜索
+  - name: ukui-media
+    state: present
+    segment: EPOL/main
+    nvra: ukui-media-0:3.1.0-5.oe2403sp2.x86_64
+    role: 音量与媒体键控制
+  - name: ukui-power-manager
+    state: present
+    segment: EPOL/main
+    nvra: ukui-power-manager-0:3.1.2-6.oe2403sp2.x86_64
+    role: 电源管理
+  - name: ukui-bluetooth
+    state: present
+    segment: EPOL/main
+    nvra: ukui-bluetooth-0:1.0.3-5.oe2403sp2.x86_64
+    role: 蓝牙面板
+  - name: ukui-clock
+    state: present
+    segment: EPOL/main
+    nvra: ukui-clock-0:3.1.3-3.oe2403sp2.x86_64
+    role: 时钟与闹钟
+  - name: ukui-notebook
+    state: present
+    segment: EPOL/main
+    nvra: ukui-notebook-0:3.1.1-1.oe2403sp2.x86_64
+    role: 便签
+  - name: ukui-system-monitor
+    state: present
+    segment: EPOL/main
+    nvra: ukui-system-monitor-0:3.1.2-5.oe2403sp2.x86_64
+    role: 系统监视器
+  - name: ukui-window-switch
+    state: present
+    segment: EPOL/main
+    nvra: ukui-window-switch-0:3.1.0-2.oe2403sp2.x86_64
+    role: 窗口切换
+  - name: ukui-biometric-manager
+    state: present
+    segment: EPOL/main
+    nvra: ukui-biometric-manager-0:3.1.2-5.oe2403sp2.x86_64
+    role: 生物识别管理前端（扩展组）
+  - name: ukui-biometric-auth
+    state: present
+    segment: EPOL/main
+    nvra: ukui-biometric-auth-0:1.2.4-2.oe2403sp2.x86_64
+    role: 生物识别认证后端（扩展组）
+  - name: ukui-polkit
+    state: present
+    segment: EPOL/main
+    nvra: ukui-polkit-0:1.2.4-2.oe2403sp2.x86_64
+    role: polkit 认证代理
+  - name: ukui-interface
+    state: present
+    segment: EPOL/main
+    nvra: ukui-interface-0:1.0.3-3.oe2403sp2.x86_64
+    role: 桌面设置接口库
+  - name: ukui-desktop-environment
+    state: absent
+    segment: 五段均无
+    role: 上游发行套件元包；基底从未构建
+    reason: 24.03 LTS 及 SP1~SP4、24.09、25.03、25.09 五段 repodata 均无此包
+  - name: ukui
+    state: absent
+    segment: 五段均无
+    role: 上游元包；comps 曾误列为必装
+    reason: 基底不提供元包，闭包必须逐组件显式列出
+  - name: ukui-shell
+    state: absent
+    segment: 五段均无
+    role: 壳层独立包；UK-02 取证对象
+    reason: 基底壳层由 ukui-kwin 承担，无独立 ukui-shell 包
