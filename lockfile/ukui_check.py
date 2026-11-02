@@ -4,18 +4,18 @@
 # ukui_check.py — UKUI 组件台账与消费侧的离线校验
 #
 # 只依赖标准库，不联网。台账是 UKUI 包名与 NVRA 的唯一事实源：基底五段
-# repodata 中 UKUI 组件只存在于 EPOL/main，且没有 ukui 元包、没有
-# ukui-shell。因此桌面闭包只能逐组件声明——本校验器断言台账、comps、
-# 冻结输入与内部取证册四者同源，任一环漂移即判红。
+# repodata 中 UKUI 组件只存在于 EPOL/main，且没有 ukui-shell；元包 ukui 与
+# ukui-desktop-environment 有，但本版不用。因此桌面闭包只能逐组件声明——
+# 本校验器断言台账、comps、冻结输入与内部取证册四者同源，任一环漂移即判红。
 #
 #   verify --root DIR [--docs DIR]
 #
 # 判据（由 ci/gates/ukui-lock.sh 调用）：
 #   1. 台账 schema：基底、架构、五段、策略与 NVRA 正则；
-#   2. 核心四件 present，三个不存在的包 absent；
+#   2. 核心四件 present，两个元包 available，ukui-shell absent；
 #   3. comps 的 ukui* 集合与台账 present 集合相等，且每个组件只登记一次；
 #   4. 冻结输入覆盖默认安装集的 ukui* 闭包，且只含 present 项；
-#   5. 取证册逐字包含全部 NVRA，并保留 4.24 取舍与复算命令。
+#   5. 取证册逐字包含全部 present NVRA，并保留 4.24 取舍与复算命令。
 # ===========================================================================
 
 import argparse
@@ -31,8 +31,11 @@ ENV = "airymax-workstation"
 # 会话可登录的最小集合；缺任一件都进不了桌面。
 CORE = ("ukui-kwin", "ukui-panel", "ukui-session-manager",
         "ukui-control-center")
+# 基底有、本版刻意不选的元包；回流到闭包即失去逐组件钉版。
+UNPICKED = ("ukui", "ukui-desktop-environment")
 # 基底全条线不提供的包；一旦回流到闭包，装机求解必然失败。
-GONE = ("ukui", "ukui-desktop-environment", "ukui-shell")
+GONE = ("ukui-shell",)
+STATES = ("present", "available", "absent")
 NVRA = re.compile(r"^(.+)-0:([^-]+)-([^-]+)\.x86_64$")
 
 
@@ -90,7 +93,7 @@ def check_schema(led, out):
 
 def check_pkg(name, rec, out):
     state = rec.get("state", "")
-    if state not in ("present", "absent"):
+    if state not in STATES:
         bad(out, "ledger/state", "%s state=%s" % (name, state))
         return
     if state == "absent":
@@ -117,6 +120,9 @@ def check_items(led, out):
     for name in CORE:
         if seen.get(name) != "present":
             bad(out, "ledger/core", "%s 未登记为 present" % name)
+    for name in UNPICKED:
+        if seen.get(name) != "available":
+            bad(out, "ledger/available", "%s 未登记为 available" % name)
     for name in GONE:
         if seen.get(name) != "absent":
             bad(out, "ledger/absent", "%s 未登记为 absent" % name)

@@ -6,13 +6,20 @@
 # 可复算的台账。版本证据只认基底仓库 repodata 实测（J-35），上游发布公告
 # 与发行说明一律不作为版本证据；包名是否存在同样以仓库解析结果为准。
 #
+# 三态语义，不是二值开关：
+#   present    本版闭包选中，必须进 comps 与冻结输入，nvra 逐字钉住；
+#   available  基底仓库确有此包，但本版刻意不选，不得进 comps 与冻结输入；
+#   absent     基底五段均无此包，任何消费侧出现即判红。
+# 元包 ukui 与 ukui-desktop-environment 属 available：它们拉的是整代闭包，
+# 与本版逐组件显式钉版的口径冲突，选它等于放弃可复算性。
+#
 # 判据（ci/gates/ukui-lock.sh）：
 #   1. 核心四件 ukui-kwin / ukui-panel / ukui-session-manager /
 #      ukui-control-center 必须 present，且 nvra 逐字钉住；
-#      ukui-desktop-environment 必须登记为 absent（基底全条线无此包）；
+#      ukui 与 ukui-desktop-environment 必须 available，ukui-shell 必须 absent；
 #   2. comps 与 rpms.in.yaml 中出现的每个 ukui* 包名都必须是本表 present
-#      组件——不存在的包一旦进闭包，装机求解必然失败；
-#   3. 项目内部取证册逐字包含本表全部 nvra；
+#      组件——不在闭包的包一旦进依赖求解，版本就不受本表约束；
+#   3. 项目内部取证册逐字包含本表全部 present nvra；
 #   4. 4.24 可行性成册，两条路线的取舍与顺延结论明确。
 #
 # 版本线的差异矩阵与复算命令、4.24 自建闭包的工作项与顺延条件，均记录在
@@ -151,15 +158,17 @@ components:
     nvra: ukui-interface-0:1.0.3-3.oe2403sp2.x86_64
     role: 桌面设置接口库
   - name: ukui-desktop-environment
-    state: absent
-    segment: 五段均无
-    role: 上游发行套件元包；基底从未构建
-    reason: 24.03 LTS 及 SP1~SP4、24.09、25.03、25.09 五段 repodata 均无此包
+    state: available
+    segment: EPOL/main
+    nvra: ukui-desktop-environment-0:2.0.2-20.oe2403sp2.x86_64
+    role: 上游发行套件元包；基底有，本版不选
+    reason: 元包拉整代闭包，与逐组件钉版冲突；NVRA 仅作存在性取证
   - name: ukui
-    state: absent
-    segment: 五段均无
-    role: 上游元包；comps 曾误列为必装
-    reason: 基底不提供元包，闭包必须逐组件显式列出
+    state: available
+    segment: EPOL/main
+    nvra: ukui-0:2.0.2-20.oe2403sp2.x86_64
+    role: 上游元包；基底有，本版不选
+    reason: 元包拉整代闭包，与逐组件钉版冲突；NVRA 仅作存在性取证
   - name: ukui-shell
     state: absent
     segment: 五段均无

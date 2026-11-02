@@ -44,10 +44,11 @@
   sha256，以及必须排除的上游壁纸包；`ci/gates/wallpaper-set.sh` 按它比对
   `release/wallpapers/` 与已安装树，多一件或少一件都判红；
 - `ukui-components.yaml` — **UKUI 组件台账**。基底五段 repodata 的实测
-  结果：23 个可安装组件逐字钉住 NVRA，`ukui`、`ukui-desktop-environment`、
-  `ukui-shell` 三个不存在包登记为 absent。comps 与 `rpms.in.yaml` 的 UKUI
-  闭包只能取台账 present 项，`ci/gates/ukui-lock.sh` 双向断言；基底不提供
-  `ukui` 元包，因此桌面组必须逐组件声明。
+  结果，三态登记：23 个组件 `present` 并逐字钉住 NVRA；元包 `ukui`、
+  `ukui-desktop-environment` 为 `available`（基底有、本版不选，因为它拉
+  整代闭包，版本不受台账约束）；`ukui-shell` 为 `absent`（五段均无）。
+  comps 与 `rpms.in.yaml` 的 UKUI 闭包只能取台账 present 项，
+  `ci/gates/ukui-lock.sh` 双向断言。
 
 运行期产品自有仓库定义在 `../repo/airymax-os.repo`，面向已装系统的 dnf
 客户端，不参与冻结；安装期闭包只取 `rpms.in.yaml` 中声明的上游仓库。
