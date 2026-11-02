@@ -49,7 +49,7 @@
 # spec-lint: source-bundle ../../system/services/airymax_probe
 
 %global airy_version 0.0.4
-%global airy_release 12
+%global airy_release 13
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -59,7 +59,7 @@ Release:        %{airy_release}%{?dist}
 Summary:        AirymaxOS systemd units, targets and runtime scripts
 License:        AGPL-3.0-or-later
 URL:            https://atomgit.com/openairymax/agent-linux
-BuildArch:      noarch
+ExclusiveArch:  x86_64 aarch64
 
 Source0:        agentrt.target
 Source1:        agentrt-firstboot.service
@@ -105,7 +105,9 @@ Source40:       airy-probe
 Source41:       airymax_probe-%{version}.tar.gz
 Source42:       airy-rt-coexist.service
 Source43:       airy-rt-coexist.timer
+Source44:       airy-rt-lat.c
 
+BuildRequires:  gcc
 BuildRequires:  python3-devel
 Requires:       bash
 Requires:       dnf
@@ -135,14 +137,18 @@ one-minute timer, so the verdict shown by hand is the verdict the boot
 applied. The airy-probe command with its trace package reports the ten
 agent tracepoints, the two injection channels and the three static
 counters, so an acceptance run has one evidence source instead of three
-ad hoc reads. Units are installed disabled; the installer enables them
-explicitly so that server and desktop profiles can opt out without
-editing the package payload.
+ad hoc reads. The airy-rt-lat command measures wake-up latency from a
+FIFO periodic thread, so the real-time acceptance gate runs on a machine
+that only installed this package. Units are installed disabled; the
+installer enables them explicitly so that server and desktop profiles
+can opt out without editing the package payload.
 
 %prep
 %setup -q -c -T
 
 %build
+gcc %{optflags} -std=c11 -Wall -Wextra -Werror -o airy-rt-lat \
+    %{SOURCE44} -lpthread
 
 %install
 install -d -m 0755 %{buildroot}%{_unitdir}
@@ -166,6 +172,7 @@ install -m 0755 %{SOURCE28} %{buildroot}%{_bindir}/airy-model
 install -m 0755 %{SOURCE33} %{buildroot}%{_bindir}/airy-rt-cap
 install -m 0755 %{SOURCE36} %{buildroot}%{_bindir}/airy-power
 install -m 0755 %{SOURCE40} %{buildroot}%{_bindir}/airy-probe
+install -m 0755 airy-rt-lat %{buildroot}%{_bindir}/airy-rt-lat
 install -d -m 0755 %{buildroot}%{python3_sitelib}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE25}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE26}
@@ -183,6 +190,7 @@ test -x %{buildroot}%{_bindir}/airy-model
 test -x %{buildroot}%{_bindir}/airy-rt-cap
 test -x %{buildroot}%{_bindir}/airy-power
 test -x %{buildroot}%{_bindir}/airy-probe
+test -x %{buildroot}%{_bindir}/airy-rt-lat
 PYTHONPATH=%{buildroot}%{python3_sitelib} python3 -B -c '
 import airydisk.cli
 import airyupdate.cli
@@ -299,6 +307,7 @@ fi
 %{_bindir}/airy-rt-cap
 %{_bindir}/airy-power
 %{_bindir}/airy-probe
+%{_bindir}/airy-rt-lat
 %{python3_sitelib}/airydisk
 %{python3_sitelib}/airyllm
 %{python3_sitelib}/airyupdate
@@ -307,6 +316,14 @@ fi
 %{python3_sitelib}/airymax_probe
 
 %changelog
+* Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-13
+- Ship airy-rt-lat, a FIFO periodic wake-up latency probe, so an
+  installed machine produces the real-time baseline without rt-tests
+- The acceptance gate depended on cyclictest, which neither the mirror
+  nor the image carries, so the baseline could not be produced at all
+- Refuse to print numbers when SCHED_FIFO cannot be acquired: an
+  unprivileged run measures scheduler unfairness, not RT capability
+- The package now builds one binary, so it is architecture specific
 * Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-12
 - Ship the airy-rt-coexist unit pair and the coexist subcommand so the
   desktop slice weight follows the CPU pressure instead of a fixed value
