@@ -60,6 +60,13 @@ lockfile 冻结点（滚动触发） × 内核 RPM（6.6-airymax.n）
   编排层只写 `image-ci-manifest.txt`，不复制子驱动清单（SSoT）。
 - `run-lint.sh` 是提交前静态门禁：shell 语法、配方/comps/kickstart 三类
   语义校验与工具回归测试（Python 标准库，无 `rpmbuild`/`mock` 依赖）；
+- `gates/rt-accept.sh` 是实时性验收门禁，必须在目标内核上执行：先跑
+  `airy-rt-cap matrix --json` 取等级，`none` 直接拒收且不做测量，
+  `ready`/`soft` 分别以 100µs/1000µs 为上限（`--hard-us`/`--soft-us`
+  可覆盖，`--duration` 改测量时长）跑 `cyclictest -q -m -Sp90 -i200
+  -h400` 并取 `Max:` 比较。依赖 `airy-rt-cap` 与 `rt-tests`，任一缺失
+  即失败、不降级；退出码 0 通过、1 不通过或环境不满足、2 用法错误，
+  `--json` 给出 `verdict`/`grade`/`max_us`/`limit_us`；
 - `run-smoke.sh` 必须在已登录的 UKUI 桌面会话内以该桌面用户运行
   （TV-02 桌面验收），不由宿主机驱动；探测只读系统状态，不改配置。
   `loginctl`/`pgrep`/`xdpyinfo`/`ibus`/`pactl`/`gsettings`/
