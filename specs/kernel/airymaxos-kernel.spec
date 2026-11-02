@@ -63,7 +63,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 1
+%global airy_release 2
 %global kernel_version 6.6.157
 %global kernel_local -alk
 %global kernel_release %{kernel_version}%{kernel_local}
@@ -245,22 +245,11 @@ install -m 0644 %{ksrc}/System.map \
 
 %{kmake} INSTALL_MOD_PATH=%{buildroot}/usr INSTALL_MOD_STRIP=1 \
     modules_install
-# 签名补签（TAINT_UNSIGNED_MODULE）：modules_install 正常应在 strip 之后
-# 调用 scripts/sign-file，但 0.0.3 装机实测模块里只有 .modinfo/.BTF，没有
-# .module_sig，内核因此带上 8192。签名是装机后判断「模块是否本发行版产出」
-# 的唯一凭据，缺失时一旦打开 SIG_FORCE 会拒载全部模块。这里抽样判定是否
-# 漏签，漏签就地对已安装模块补签；正常路径签过则不重复签，避免叠加多份
-# PKCS#7 把模块拖大。
-if grep -qx 'CONFIG_MODULE_SIG_ALL=y' %{ksrc}/.config; then
-    moddir=%{buildroot}/usr/lib/modules/%{kernel_release}
-    sample="$(find "$moddir" -name '*.ko' -print -quit)"
-    if [ -n "$sample" ] &&
-        ! readelf -S "$sample" | grep -q '\.module_sig'; then
-        %{kmake} INSTALL_MOD_PATH=%{buildroot}/usr modules_sign
-        echo "airymaxos-kernel: modules were unsigned after install," \
-            "re-signed $(find "$moddir" -name '*.ko' | wc -l) modules"
-    fi
-fi
+# 此处不再补签。scripts/Makefile.modinst 在 CONFIG_MODULE_SIG_ALL=y 时已按
+# install → strip → sign 的顺序调用 scripts/sign-file，签名随模块一同装入；
+# 0.0.3-7 的补签分支依据 readelf -S 找 .module_sig 段，而真实签名是追加在
+# 文件尾部的 PKCS#7 + module_signature + 魔数，该判据恒为假，补签反而会在已
+# 签模块上再叠一份 PKCS#7。签名是否齐全由 %%check 按尾部结构判定。
 rm -f %{buildroot}/usr/lib/modules/%{kernel_release}/build \
       %{buildroot}/usr/lib/modules/%{kernel_release}/source
 
@@ -345,20 +334,24 @@ test -s %{buildroot}/boot/config-%{kernel_release}
 test -s %{buildroot}/boot/System.map-%{kernel_release}
 test -s %{ksrc}/System.map
 readelf -h %{ksrc}/vmlinux >/dev/null
-# 模块签名门禁：每个 .ko 都必须带 .module_sig，缺一个就中断打包。签名缺失
-# 只在装机后以 taint 8192 的形式显形，打包阶段不查就无法在交付前发现；而
-# 打开 SIG_FORCE 后它直接表现为全部模块拒载。
+# 模块签名门禁：签名不是 ELF 段。scripts/sign-file 把 PKCS#7、12 字节
+# module_signature 与魔数 "~Module signature appended~\n" 依次追加在 .ko
+# 尾部，kernel/module/signing.c 的 module_sig_check() 按同一顺序读取；以
+# readelf -S 找 .module_sig 段的判据对真实模块恒为假，缺一个就中断打包。
+# 签名缺失只在装机后以 taint 8192 显形，打开 SIG_FORCE 后则表现为全部模块
+# 拒载。结构自洽与运行期污染位由 ci/gates/module-signature.sh 在镜像树上
+# 复核，两处判据同源。
 if grep -qx 'CONFIG_MODULE_SIG_ALL=y' %{ksrc}/.config; then
     unsigned=0
     total=0
-    for ko in $(find %{buildroot}/usr/lib/modules/%{kernel_release} \
-        -name '*.ko'); do
+    while IFS= read -r -d '' ko; do
         total=$((total + 1))
-        readelf -S "$ko" | grep -q '\.module_sig' || {
+        if [ "$(tail -c 28 "${ko}")" != '~Module signature appended~' ]; then
             echo "unsigned module: ${ko}"
             unsigned=$((unsigned + 1))
-        }
-    done
+        fi
+    done < <(find %{buildroot}/usr/lib/modules/%{kernel_release} \
+        -name '*.ko' -print0)
     test "${total}" -gt 0
     test "${unsigned}" -eq 0
 fi
@@ -418,6 +411,13 @@ depmod -a %{kernel_release}
 %endif
 
 %changelog
+* Mon Nov 02 2026 SPHARX <dev@spharx.com> - 0.0.4-2
+- kernel：删掉 modules_install 之后的补签分支，%%check 的模块签名判据改按
+  文件尾部结构。签名是追加在 .ko 尾部的 PKCS#7 + 12 字节
+  module_signature + 28 字节魔数，不是 ELF 段；0.0.3-7 以 readelf -S 找
+  .module_sig 段，对真实模块恒为假，使 %%check 必然失败、补签分支必然触发
+  并在已签模块上再叠一份 PKCS#7。MODULE_SIG_ALL=y 时 Makefile.modinst 已在
+  strip 之后签名，补签没有存在前提
 * Mon Nov 02 2026 SPHARX <dev@spharx.com> - 0.0.4-1
 - 产品版本抬到 0.0.4，内核基线不变（仍为 6.6.157-alk），本包无内容变化；
   版本号随发行版整体走，装机侧 airy-kernel 与 os-release 的 VERSION_ID

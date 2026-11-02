@@ -235,9 +235,9 @@ t5_wallpaper() {
     expect "${sum%% *}" "${PAPER_SHA}" "wallpaper sha256" || return 1
 }
 
-# T6: 内核归属（运行内核、/boot 三件套与配置一致）
+# T6: 内核归属（运行内核、/boot 三件套、配置与模块签名）
 t6_kernel_identity() {
-    local rel f mod taint
+    local rel f ko total=0 bad=0 taint
     rel="$(uname -r)"
     # 发行版内核带 -alk 本地版本后缀，这是「跑的是不是自己的内核」最便宜的
     # 判别。上游 openEuler 内核为 6.6.0-*.oe*，不会被误判为通过。
@@ -267,20 +267,36 @@ t6_kernel_identity() {
         echo "System.map-${rel}: start_kernel absent"
         return 1
     }
-    # 模块签名：0.0.3-6 及更早的打包装进镜像的是未签名模块，内核因此带上
-    # 8192（TAINT_UNSIGNED_MODULE）；打开 CONFIG_MODULE_SIG_FORCE 后这些
-    # 模块会被直接拒载。任取一个模块查 .module_sig，再核对运行内核的污染位。
-    mod="$(find "${SYSROOT}/usr/lib/modules/${rel}" -name '*.ko' \
-        -print -quit 2>/dev/null)"
-    [ -n "${mod}" ] || {
+    # 模块签名是追加在 .ko 尾部的 PKCS#7 + 12 字节 module_signature + 28
+    # 字节魔数，不是 ELF 段；0.0.3-6 及更早按 .module_sig 段判签，对真实模块
+    # 恒为假。全量比对尾部魔数：漏签的模块一被加载，内核就带上 8192
+    # （TAINT_UNSIGNED_MODULE），打开 SIG_FORCE 后则直接被拒载。
+    while IFS= read -r -d '' ko; do
+        total=$((total + 1))
+        if [ "$(tail -c 28 "${ko}")" != '~Module signature appended~' ]; then
+            printf 'unsigned module: %s\n' "${ko}"
+            bad=$((bad + 1))
+        fi
+    done < <(find "${SYSROOT}/usr/lib/modules/${rel}" -name '*.ko' \
+        -print0 2>/dev/null)
+    [ "${total}" -gt 0 ] || {
         echo "no module under /usr/lib/modules/${rel}"
         return 1
     }
-    grep -qa '\.module_sig' "${mod}" || {
-        echo "unsigned module: ${mod}"
+    [ "${bad}" -eq 0 ] || {
+        echo "${bad}/${total} modules unsigned"
         return 1
     }
-    taint="$(cat "${SYSROOT}/proc/sys/kernel/tainted" 2>/dev/null)" || taint=0
+    taint="$(cat "${SYSROOT}/proc/sys/kernel/tainted" 2>/dev/null)" || {
+        echo "tainted unreadable: ${SYSROOT}/proc/sys/kernel/tainted"
+        return 1
+    }
+    case "${taint}" in
+    ''|*[!0-9]*)
+        echo "tainted: not a decimal integer (${taint})"
+        return 1
+        ;;
+    esac
     [ $((taint & 8192)) -eq 0 ] || {
         echo "kernel tainted by unsigned module (tainted=${taint})"
         return 1

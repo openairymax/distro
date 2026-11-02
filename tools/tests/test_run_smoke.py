@@ -36,6 +36,14 @@ LEGACY = ("tauri", "webkitwebprocess", "fcitx5", "pipewire",
 # 用户态可见的发行版内核版本；T6 以 -alk 后缀区分产品内核与上游内核。
 KREL = "6.6.157-alk"
 LSM_LIST = "airy_lockdown,lockdown,capability,yama,airy,selinux"
+# scripts/sign-file 的追加构型：正文 + PKCS#7 + struct module_signature +
+# 魔数。id_type=2 即 PKCS#7，此时 signer_len/key_id_len 恒为 0、sig_len 为
+# 32。未签名模块只有 ELF 正文。
+SIG_MARKER = b"~Module signature appended~\n"
+PLAIN_KO = b"\x7fELF\x02\x01\x01" + b"\x00" * 64
+SIGNED_KO = (PLAIN_KO + b"\x30\x82" + b"\x2a" * 30
+             + bytes([0, 4, 2, 0, 0, 0, 0, 0]) + (32).to_bytes(4, "big")
+             + SIG_MARKER)
 HOSTNAME = "airymax-pc"
 # 两层展示名：NAME 是人读的完整名（可含中文），PRETTY_NAME 是 ASCII 短名 +
 # 版本号，T9 判定的是二者的派生不变式而不是具体字符串。
@@ -125,6 +133,7 @@ class RunSmokeTest(unittest.TestCase):
         (boot / f"System.map-{KREL}").write_text(
             "ffffffff81000000 T start_kernel\n", encoding="utf-8")
         self.write_module()
+        self.write_taint(0)
         self.write_lsm(LSM_LIST)
         self.write_product(HOSTNAME, OS_RELEASE)
         self.write_esp()
@@ -134,8 +143,9 @@ class RunSmokeTest(unittest.TestCase):
         self.write_grub()
         self.write_assets()
 
-    def write_module(self, body=b"\x7fELF .module_sig\n"):
-        """T6 签名判定的落点：模块的节名字符串表里带 .module_sig。"""
+    def write_module(self, body=SIGNED_KO):
+        """T6 签名判定的落点：签名是追加在 .ko 尾部的 PKCS#7、12 字节
+        module_signature 与 28 字节魔数，不是 ELF 段。"""
         path = (self.sysroot / "usr" / "lib" / "modules" / KREL /
                 "kernel" / "security" / "airy" / "airy.ko")
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -554,10 +564,22 @@ class RunSmokeTest(unittest.TestCase):
 
     def test_kernel_module_unsigned(self):
         self.tools()
-        mod = self.write_module(b"\x7fELF .modinfo\n")
+        mod = self.write_module(PLAIN_KO)
         res = self.run_smoke()
         self.assert_fail(res, 6)
         self.assertIn(f"unsigned module: {mod}", res.stdout)
+        self.assertIn("1/1 modules unsigned", res.stdout)
+
+    def test_kernel_module_unsigned_among_signed(self):
+        self.tools()
+        bad = (self.sysroot / "usr" / "lib" / "modules" / KREL / "kernel" /
+               "fs" / "ext4" / "ext4.ko")
+        bad.parent.mkdir(parents=True)
+        bad.write_bytes(PLAIN_KO)
+        res = self.run_smoke()
+        self.assert_fail(res, 6)
+        self.assertIn(f"unsigned module: {bad}", res.stdout)
+        self.assertIn("1/2 modules unsigned", res.stdout)
 
     def test_kernel_tainted_by_unsigned_module(self):
         self.tools()
@@ -566,6 +588,14 @@ class RunSmokeTest(unittest.TestCase):
         self.assert_fail(res, 6)
         self.assertIn("kernel tainted by unsigned module (tainted=8192)",
                       res.stdout)
+
+    def test_kernel_taint_unreadable(self):
+        # 污染位读不到不等于零：旧行为把缺失当 0 静默放行，掩盖了未签名模块。
+        self.tools()
+        (self.sysroot / "proc" / "sys" / "kernel" / "tainted").unlink()
+        res = self.run_smoke()
+        self.assert_fail(res, 6)
+        self.assertIn("tainted unreadable", res.stdout)
 
     def test_lsm_duplicate_airy(self):
         self.tools()
