@@ -478,10 +478,13 @@ grep -qxF 'autologin-user=amuser' "${seat}" || fail lightdm-autologin
 #    platform_profile 与 EPP 钉在 performance，热区 critical 只有 80°C，
 #    不启用则装机后 40 分钟即累计上万次 package throttle；桌面与笔记本
 #    档位必须由本清单显式接管，服务器档位保持固件设置。
+#    airy-rt-coexist 单元对同理：它按 PSI 抬升桌面 slice 的运行时权重，
+#    默认关闭时桌面只拿到静态基线，agent 侧重负载下会整机失响应。
 systemctl --root=/ preset-all >/dev/null 2>&1 ||
     mark "AIRYMAX-INSTALL-NOTE preset-all rc=$?"
 boot_set="lightdm.service airymax-desktop-ready.service
 airy-rt-bandwidth.service airy-power.service airy-power.timer
+airy-rt-coexist.service airy-rt-coexist.timer
 bluetooth.service
 NetworkManager.service chronyd.service firewalld.service sshd.service
 airymax-update-check.timer
