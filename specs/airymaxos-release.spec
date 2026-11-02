@@ -107,10 +107,9 @@ Source30:       airy_record.sh
 Source31:       airy_observe.sh
 Source32:       airy_bench.py
 Source33:       airy_demo.py
-Source34:       99-airymax-hostname.conf
-Source35:       airy_inspect.py
-Source36:       motd
-Source37:       99-airymax.conf
+Source34:       airy_inspect.py
+Source35:       motd
+Source36:       99-airymax.conf
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -170,7 +169,7 @@ printf '%s\nKernel \\r on an \\m (\\l)\n' "${airy_pretty}" \
 # 同持一个路径会让安装事务整体失败（与 plymouthd.conf 同一条约束）。目标机
 # 的 pam_motd 1.5.3 会按目录读取 /etc/motd.d 下的全部文件并拼接输出。
 install -d -m 0755 %{buildroot}%{_sysconfdir}/motd.d
-install -m 0644 %{SOURCE36} %{buildroot}%{_sysconfdir}/motd.d/airymax
+install -m 0644 %{SOURCE35} %{buildroot}%{_sysconfdir}/motd.d/airymax
 
 install -d -m 0755 %{buildroot}%{_sysconfdir}/yum.repos.d
 install -m 0644 %{SOURCE1} %{buildroot}%{_sysconfdir}/yum.repos.d/airymaxos.repo
@@ -206,7 +205,7 @@ install -m 0755 %{SOURCE32} \
     %{buildroot}/usr/lib/airymaxos/desktop/airy_bench.py
 install -m 0755 %{SOURCE33} \
     %{buildroot}/usr/lib/airymaxos/desktop/airy_demo.py
-install -m 0755 %{SOURCE35} \
+install -m 0755 %{SOURCE34} \
     %{buildroot}/usr/lib/airymaxos/desktop/airy_inspect.py
 
 # 录屏与观察点以子命令形式对外：实现留在库目录，入口只是符号链接，升级时
@@ -231,7 +230,7 @@ install -m 0644 %{SOURCE16} \
 # 这里的键即生效值。目录可能由 NetworkManager 包提供，两个包同持一个目录
 # 是允许的；目录本身也由本包声明，避免在未装该包的环境里留下悬空路径。
 install -d -m 0755 %{buildroot}%{_sysconfdir}/NetworkManager/conf.d
-install -m 0644 %{SOURCE37} \
+install -m 0644 %{SOURCE36} \
     %{buildroot}%{_sysconfdir}/NetworkManager/conf.d/99-airymax.conf
 
 # sudo 只接受模式 0440 的 include 文件，其余权限会被静默忽略；因此这里是
@@ -240,12 +239,6 @@ install -m 0644 %{SOURCE37} \
 install -d -m 0750 %{buildroot}%{_sysconfdir}/sudoers.d
 install -m 0440 %{SOURCE21} \
     %{buildroot}%{_sysconfdir}/sudoers.d/90-airymax
-
-# 主机名的运行时来源：/etc/hostname 的产品名含下划线，systemd 读取时会按
-# RFC 1123 静默删除，故由 sysctl.d 在内核层写回（理由见该文件头注释）。
-install -d -m 0755 %{buildroot}%{_sysconfdir}/sysctl.d
-install -m 0644 %{SOURCE34} \
-    %{buildroot}%{_sysconfdir}/sysctl.d/99-airymax-hostname.conf
 
 # 锁屏策略与 sudo 策略是同一口径的两半：交付账户既能免密进桌面，就不能被
 # 空闲锁屏拦住。目录由 dconf 包拥有，这里只落键文件。
@@ -481,11 +474,10 @@ test "$(stat -c %a %{buildroot}%{_sysconfdir}/sudoers.d/90-airymax)" = 440
 airy_rule=$(grep -v '^#' %{buildroot}%{_sysconfdir}/sudoers.d/90-airymax |
     sed '/^$/d')
 test "${airy_rule}" = 'Airymax ALL=(ALL) NOPASSWD: ALL'
-# 主机名：/etc/hostname 由配方写入，产品名含下划线，systemd 会按 RFC 1123
-# 删除它，故运行时名由 sysctl.d 在内核层写回。两处都必须逐字断言，否则
-# 「装完主机名少一个下划线」只能等现场发现。
-grep -qxF 'kernel.hostname = AIRYMAX_PC' \
-    %{buildroot}%{_sysconfdir}/sysctl.d/99-airymax-hostname.conf
+# 主机名不再经 sysctl.d 写回：0.0.4 起产品名是合法 RFC 1123 标签，安装器
+# 直接落盘即可，/etc/hostname、hostname 与 hostnamectl --static 三处自然
+# 一致。残留的内核层回写会让静态名与运行名分叉，这里断言它不再被打包。
+! test -e %{buildroot}%{_sysconfdir}/sysctl.d/99-airymax-hostname.conf
 # 锁屏策略：键名拼错或取值被改回 true 都不会让构建失败，只会在装机后以
 # 「每五分钟一次口令框」的形式出现，所以两个键都要逐字断言。
 airy_saver=%{buildroot}%{_sysconfdir}/dconf/db/local.d/00-airymax-screensaver
@@ -629,7 +621,6 @@ fi
 %config(noreplace) %{_sysconfdir}/ssh/sshd_config.d/50-airymax-sshd.conf
 %dir %attr(0750, root, root) %{_sysconfdir}/sudoers.d
 %config(noreplace) %attr(0440, root, root) %{_sysconfdir}/sudoers.d/90-airymax
-%config(noreplace) %{_sysconfdir}/sysctl.d/99-airymax-hostname.conf
 %dir %{_sysconfdir}/NetworkManager/conf.d
 %config(noreplace) %{_sysconfdir}/NetworkManager/conf.d/99-airymax.conf
 %config(noreplace) %{_sysconfdir}/dconf/db/local.d/00-airymax-screensaver
@@ -680,6 +671,13 @@ fi
   consoles. %check now asserts the PRETTY_NAME format invariant, the
   distributor parsed out of system-release and the issue first line,
   rather than a literal brand string
+- Rename the machine name to airymax-pc and drop the sysctl.d kernel
+  write-back: AIRYMAX_PC carried an underscore, which systemd strips per
+  RFC 1123, so the package shipped a drop-in rewriting kernel.hostname
+  after sysinit and the static and runtime names disagreed by design.
+  The installer now writes a legal RFC 1123 label, so /etc/hostname,
+  hostname and hostnamectl --static agree without a second mechanism.
+  %check asserts the drop-in is no longer shipped
 - Version bump to 0.0.4
 * Mon Nov 02 2026 SPHARX <dev@spharx.com> - 0.0.3-27
 - Ship /etc/NetworkManager/conf.d/99-airymax.conf: the desktop policy

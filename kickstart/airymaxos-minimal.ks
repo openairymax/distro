@@ -52,15 +52,16 @@ airy_pre /tmp/airymax-disk.ks /tmp/airymax-disk.json
 %include /tmp/airymax-disk.ks
 
 # ---- 网络 ----
-network --bootproto=dhcp --activate --hostname=AIRYMAX_PC
+network --bootproto=dhcp --activate --hostname=airymax-pc
 
 # ---- 账户 ----
 # OS-OPS-009：口令只以 SHA-512 crypt 哈希落盘，禁止明文。最小系统启用 sshd，
 # 必须留下可远程接管的 wheel 账户，否则安装完成后无任何入口。
 # 交付口径（0.0.3 决策）：Airymax 免密（ssh 侧由 airymaxos-release 的
 # /etc/ssh/sshd_config.d/50-airymax-sshd.conf 放行空口令），root 交付口令
-# 固定 00000000 且不强制首登改密。账户名与主机名的大小写是产品口径
-# （Airymax / AIRYMAX_PC），取值理由见 airymaxos-workstation.ks 账户段。
+# 固定 00000000 且不强制首登改密。账户名的大小写是产品口径（Airymax），
+# 取值理由见 airymaxos-workstation.ks 账户段；主机名 airymax-pc 由上面的
+# network 指令直接落盘，与小写账户名无关。
 rootpw --iscrypted $6$airy003root0x01$.lY1w9YA54iCwREQZCVZEoQ3xmCjcbkpWmWCrLciZeSNYA/T/6lkx4M2yFnhb13xBfbZLZQ64V01cSAkka1r30
 user --name=Airymax --groups=wheel --iscrypted --password=$6$airy003user0x01$s1JW7QjW0kiAW7B51kVB2hNsabAadz4G/h6yBDRvpWzwsV7NO7Kh3ChDjLtapHZ6HGl5WoqNKi.IAY7IT5yRc/
 

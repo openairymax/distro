@@ -85,7 +85,7 @@ def fixture(root):
                               f'PRETTY_NAME="{PRODUCT}"\n'
                               f'VERSION="{VERSION}"\nVERSION_ID="{VERSION}"\n'
                               'VARIANT_ID="workstation"\n',
-        "etc/hostname": "AIRYMAX_PC\n",
+        "etc/hostname": "airymax-pc\n",
         "etc/yum.repos.d/airymaxos.repo":
             "[airymaxos-baseos]\nname=AirymaxOS BaseOS\n"
             "[airymaxos-appstream]\nname=AirymaxOS AppStream\n",
@@ -195,7 +195,7 @@ class InspectStaticTest(unittest.TestCase):
                      f"os.version={VERSION}",
                      f"os.version_id={VERSION}",
                      "os.variant=workstation",
-                     "host.name=AIRYMAX_PC",
+                     "host.name=airymax-pc",
                      "repo.sections=2",
                      "session.autologin=Airymax"):
             self.assertIn("AIRYMAX-OS " + want, lines)

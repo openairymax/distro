@@ -330,19 +330,15 @@ class DesktopAssetTest(unittest.TestCase):
             "%config(noreplace) %attr(0440, root, root) "
             "%{_sysconfdir}/sudoers.d/90-airymax", spec)
 
-    def test_hostname_runtime_source(self):
-        # /etc/hostname 的产品名含下划线，systemd 读取时按 RFC 1123 删除它，
-        # 运行时名只能由 sysctl.d 在内核层写回；有效行必须唯一且逐字一致
-        text = self.asset("boot/99-airymax-hostname.conf").read_text(
-            encoding="utf-8")
-        rules = [line for line in text.splitlines()
-                 if line.strip() and not line.startswith("#")]
-        self.assertEqual(rules, ["kernel.hostname = AIRYMAX_PC"])
-        spec = SPEC.read_text(encoding="utf-8")
-        self.assertIn("Source34:       99-airymax-hostname.conf", spec)
-        self.assertIn(
-            "%config(noreplace) %{_sysconfdir}/sysctl.d/"
-            "99-airymax-hostname.conf", spec)
+    def test_hostname_is_rfc1123_label(self):
+        # 0.0.4 主机名改为合法 RFC 1123 标签，安装器直接落盘；0.0.3 的内核层
+        # 回写（sysctl.d drop-in）整体删除，否则静态名与运行名会再次分叉。
+        # 判据只看交付条款（install 与 %files），changelog 与 %check 的反向
+        # 断言会合法地提到该路径。
+        self.assertFalse((BASE / "boot" / "99-airymax-hostname.conf").exists())
+        ships = [ln for ln in self.spec.splitlines()
+                 if ln.startswith(("install", "%config")) and "sysctl.d" in ln]
+        self.assertEqual(ships, [])
 
     def test_screensaver_policy_disables_idle_lock(self):
         # 锁屏策略与 sudo 策略是免密口径的两半：键名拼错或取值回退到 true

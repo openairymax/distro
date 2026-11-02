@@ -7,9 +7,9 @@
 # 脚本对外契约是：TAP 17 计划、十七项探测的判定，以及“探测工具缺失即失败”
 # 的退出码规则。这里用 PATH 沙箱提供伪 loginctl /
 # pgrep / xdpyinfo / fcitx-remote / pactl / systemctl / gsettings /
-# sha256sum / uname / xrandr / findmnt / lsblk，并给 T6–T16 准备一份只读
-# 系统视图（AIRYMAX_SMOKE_ROOT），每个用例只破坏一个前提，从而在无桌面
-# 环境下判定真实控制流。
+# sha256sum / uname / xrandr / findmnt / lsblk / hostname / hostnamectl，并给
+# T6–T16 准备一份只读系统视图（AIRYMAX_SMOKE_ROOT），每个用例只破坏一个前提，
+# 从而在无桌面环境下判定真实控制流。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
 # Version: 0.0.4
@@ -36,7 +36,7 @@ LEGACY = ("tauri", "webkitwebprocess", "fcitx5", "pipewire",
 # 用户态可见的发行版内核版本；T6 以 -alk 后缀区分产品内核与上游内核。
 KREL = "6.6.157-alk"
 LSM_LIST = "airy_lockdown,lockdown,capability,yama,airy,selinux"
-HOSTNAME = "AIRYMAX_PC"
+HOSTNAME = "airymax-pc"
 # 两层展示名：NAME 是人读的完整名（可含中文），PRETTY_NAME 是 ASCII 短名 +
 # 版本号，T9 判定的是二者的派生不变式而不是具体字符串。
 OS_RELEASE = ('NAME="OpenAirymax 开源极境"\n'
@@ -593,6 +593,16 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke()
         self.assert_fail(res, 8)
         self.assertIn(f"hostname: localhost.localdomain (want {HOSTNAME})",
+                      res.stdout)
+
+    def test_hostname_runtime_diverges(self):
+        self.tools()
+        # 静态文件对、内核名不对：0.0.3 靠 sysctl.d 回写，任一环脱钩都会让
+        # 现场同时看到两个名字，T8 必须分别报出分叉的那一环。
+        fakes.write(self.bin, "hostname", "#!/bin/sh\nprintf 'airymaxos\\n'\n")
+        res = self.run_smoke()
+        self.assert_fail(res, 8)
+        self.assertIn(f"kernel hostname: airymaxos (want {HOSTNAME})",
                       res.stdout)
 
     def test_hostname_absent(self):
