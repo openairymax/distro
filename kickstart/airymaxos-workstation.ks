@@ -53,7 +53,13 @@ repo --name=airymaxos-offline --baseurl=file:///run/install/repo/airymax/Package
 # quiet 只压到 loglevel 4：告警以上仍打印，全部消息照样进 journal 与
 # ttyS0（安装验收依赖的 login: 哨兵来自 agetty，不受影响）。按 Esc 或
 # 删掉这两个参数即可回到逐行日志，现场排障不需要重装。
-bootloader --timeout=3 --append="console=tty0 console=ttyS0,115200 console=ttyAMA0,115200 rhgb quiet"
+#
+# console 集合按架构收敛（D-05）：本配方只产 x86_64，控制台就是 tty0 与
+# 8250 串口 ttyS0。0.0.3 把 ARM64 的 ttyAMA0 一并写进命令行，内核在没有
+# 该设备的机器上把 console= 注册成幽灵项，systemd-vconsole-setup 因此
+# 失败；命令行的 console= 计数也从 2 变成 3。架构分支不允许留在这里——
+# aarch64 由同目录的独立配方按自己的控制台集合产出。
+bootloader --timeout=3 --append="console=tty0 console=ttyS0,115200 rhgb quiet"
 
 # ---- 分区作用域（真机缺陷 D-33）----
 # 安装器没有「自动」盘名：clearpart --all + autopart 会把每一块可用磁盘都

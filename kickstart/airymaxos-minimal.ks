@@ -37,7 +37,11 @@ repo --name=update --baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP3/
 # tty0 在前，本地屏幕保留内核与 systemd 日志；串口留给无头验收与故障
 # 恢复（install-test.sh 依赖 login: 哨兵）。只给串口时真机故障即黑屏，
 # 现场无从取证。
-bootloader --timeout=3 --append="console=tty0 console=ttyS0,115200 console=ttyAMA0,115200"
+#
+# console 集合按架构收敛（D-05）：x86_64 为 tty0 + ttyS0，ARM64 的 ttyAMA0
+# 不得出现在本配方——无该设备时 console= 注册成幽灵项并让
+# systemd-vconsole-setup 失败。aarch64 配方各自持有自己的控制台集合。
+bootloader --timeout=3 --append="console=tty0 console=ttyS0,115200"
 
 # 选盘、布局与选盘记录只有一份实现（kickstart/disk-select.sh），构建期由
 # tools/ks_embed.py 展开进下面的脚本段。clearpart --all 加 autopart 会把
