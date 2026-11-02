@@ -149,6 +149,8 @@ grep -qxF 'ExecStart=/usr/bin/airy-model serve' \
     %{buildroot}%{_unitdir}/airy-llm.service
 grep -qxF 'StateDirectory=airy-llm' \
     %{buildroot}%{_unitdir}/airy-llm.service
+grep -qxF 'ConditionPathExists=/var/lib/airy-llm/manifest.json' \
+    %{buildroot}%{_unitdir}/airy-llm.service
 grep -qxF 'disable airy-llm.service' \
     %{buildroot}%{_presetdir}/90-airymax.preset
 grep -qF 'Requires=sysinit.target ' %{buildroot}%{_unitdir}/agentrt.target
