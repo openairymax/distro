@@ -17,7 +17,7 @@
 #
 # 覆盖:
 #   T1  UKUI X11 会话：loginctl 会话属性、ukui-session 进程、X server 可达
-#   T2  fcitx 4 输入法：守护进程、fcitx-remote 可达、会话输入法变量
+#   T2  ibus 输入法：守护进程、全局引擎、会话输入法变量
 #   T3  PulseAudio 音频栈：pactl 与守护进程握手
 #   T4  桌面隔离 slice：user@UID.service 归属与 slice 资源参数
 #   T5  内置壁纸：背景键指向内置路径，图像 sha256 与发行资产一致
@@ -43,7 +43,7 @@
 # 缺失说明镜像不完整，按失败计；不以 SKIP 掩盖，因为这里没有“不支持的外
 # 部测试机”这一情形。
 #
-# 本脚本自身由 XDG autostart 拉起，与 fcitx、pulseaudio 的 autostart 条目
+# 本脚本自身由 XDG autostart 拉起，与 ibus、pulseaudio 的 autostart 条目
 # 同阶段并发执行，守护进程此刻可能尚未就绪。因此这两项探测做有界等待：
 # AIRYMAX_SMOKE_WAIT 秒内反复探测，超时仍不就绪即判失败（不放宽判定）。
 # ===========================================================================
@@ -150,37 +150,34 @@ t1_x11() {
     }
 }
 
-ime_state() { # ime_state — 打印 fcitx 状态，socket 不可达时返回非零
-    fcitx-remote 2>/dev/null
+ime_engine() { # ime_engine — 打印 ibus 全局引擎名，总线不可达时返回非零
+    ibus engine 2>/dev/null
 }
 
-# T2: 输入法（fcitx 4 守护进程与会话变量）
+# T2: 输入法（ibus 守护进程、引擎可达与会话变量）
 t2_ime() {
     need pgrep || return $?
-    command -v fcitx-remote >/dev/null 2>&1 || {
-        echo "fcitx-remote not installed"
+    command -v ibus >/dev/null 2>&1 || {
+        echo "ibus not installed"
         return 1
     }
-    retry "${START_WAIT}" pgrep -x fcitx || {
-        echo "fcitx not running"
+    retry "${START_WAIT}" pgrep -x ibus-daemon || {
+        echo "ibus-daemon not running"
         return 1
     }
-    retry "${START_WAIT}" ime_state || {
-        echo "fcitx-remote cannot reach daemon"
+    retry "${START_WAIT}" ime_engine || {
+        echo "ibus engine unavailable"
         return 1
     }
-    local state
-    state="$(ime_state)"
-    case "${state}" in
-    0 | 1 | 2) : ;;
-    *)
-        echo "fcitx-remote state: ${state:-empty}"
+    local engine
+    engine="$(ime_engine)"
+    [ -n "${engine}" ] || {
+        echo "ibus engine: empty"
         return 1
-        ;;
-    esac
-    expect "${GTK_IM_MODULE:-}" fcitx "GTK_IM_MODULE" || return 1
-    expect "${QT_IM_MODULE:-}" fcitx "QT_IM_MODULE" || return 1
-    expect "${XMODIFIERS:-}" "@im=fcitx" "XMODIFIERS" || return 1
+    }
+    expect "${GTK_IM_MODULE:-}" ibus "GTK_IM_MODULE" || return 1
+    expect "${QT_IM_MODULE:-}" ibus "QT_IM_MODULE" || return 1
+    expect "${XMODIFIERS:-}" "@im=ibus" "XMODIFIERS" || return 1
 }
 
 # T3: 音频栈（PulseAudio 客户端握手）
@@ -733,7 +730,7 @@ printf '# AirymaxOS distro smoke: target=%s date=%s\n' \
     "${TARGET}" "$(date -u '+%FT%TZ')"
 
 probe 1 "T1 ukui x11 session" t1_x11
-probe 2 "T2 fcitx input method" t2_ime
+probe 2 "T2 ibus input method" t2_ime
 probe 3 "T3 pulseaudio stack" t3_audio
 probe 4 "T4 desktop slice" t4_slice
 probe 5 "T5 built-in wallpaper" t5_wallpaper

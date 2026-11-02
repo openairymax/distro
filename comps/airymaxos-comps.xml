@@ -206,12 +206,10 @@
       <packagereq type="default">peony</packagereq>
       <!-- 终端：EPOL 提供 mate-terminal（无 ukui-terminal 包） -->
       <packagereq type="default">mate-terminal</packagereq>
-      <!-- 输入法：冻结点只有 fcitx 4.x 系列（无 fcitx5），
-           libpinyin 提供中文拼音引擎，configtool/qt5 提供配置与 Qt 支持 -->
-      <packagereq type="default">fcitx</packagereq>
-      <packagereq type="default">fcitx-libpinyin</packagereq>
-      <packagereq type="default">fcitx-configtool</packagereq>
-      <packagereq type="default">fcitx-qt5</packagereq>
+      <!-- 输入法：SP3 冻结点只保留 ibus（fcitx 4 全族已随 SP3 移除），
+           ibus-libpinyin 提供中文拼音引擎 -->
+      <packagereq type="default">ibus</packagereq>
+      <packagereq type="default">ibus-libpinyin</packagereq>
       <!-- 浏览器：firefox 由 openEuler EPOL 提供，列为 optional，
            默认安装集（mandatory + default）不含浏览器 -->
       <packagereq type="optional">firefox</packagereq>
