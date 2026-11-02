@@ -124,6 +124,7 @@ RUN_KEYS = {
     "kernel.release", "kernel.owner", "session.type", "session.display",
     "display.outputs", "desktop.ready", "boot.health", "rt.budget",
     "mem.total_kb", "mem.avail_kb", "cpu.count", "root.used", "net.ipv4",
+    "net.src", "net.gw", "net.dns", "net.link", "net.wifi",
 }
 
 
@@ -530,7 +531,7 @@ class DesktopAssetTest(unittest.TestCase):
                          'os.pretty="AirymaxOS 0.0.3 (OpenAirymax)"',
                          "brand.grub=AirymaxOS"):
                 self.assertIn(f"AIRYMAX-OBSERVE {want}", lines)
-            self.assertIn("AIRYMAX-OBSERVE mode=live fields=25", lines)
+            self.assertIn("AIRYMAX-OBSERVE mode=live fields=30", lines)
             self.assertTrue(
                 any(line.startswith("AIRYMAX-OBSERVE kernel.release=")
                     for line in lines))
@@ -568,7 +569,7 @@ class DesktopAssetTest(unittest.TestCase):
         # 每个主题的字段数是契约：少一行要么是采集退化，要么是版本漂移，
         # 两种都必须在 CI 里看出来，而不是到展示现场才发现屏幕缺一截。
         script = self.asset("desktop/airy_observe.sh")
-        for topic, count in (("kernel", 8), ("boot", 5), ("net", 4),
+        for topic, count in (("kernel", 8), ("boot", 5), ("net", 6),
                              ("sched", 4)):
             out = run(["sh", str(script), "--section", topic])
             self.assertIn(f"AIRYMAX-OBSERVE section={topic} fields={count}",

@@ -210,6 +210,37 @@ net_up() {
     printf '%s' "${v:-0}"
 }
 
+# 地址来源：DHCP 租约在 ip 的输出里带 dynamic 标志，静态配置没有。装机
+# 验收问的是「拿到的是不是租约」而不是「有没有地址」——现场两者看起来都
+# 是有一个 IPv4，区别只在续约时会消失还是不会。
+net_src() {
+    command -v ip >/dev/null 2>&1 || {
+        printf 'absent'
+        return 0
+    }
+    v=$(ip -4 -o addr show scope global 2>/dev/null | awk '
+        { n++; for (i = 1; i <= NF; i++) if ($i == "dynamic") d++ }
+        END {
+            if (!n) print "none"
+            else if (d) print "dhcp"
+            else print "static"
+        }')
+    printf '%s' "${v:-none}"
+}
+
+# 无线设备：内核为该网卡建立 cfg80211 关联时才有 /sys/class/net/<if>/
+# wireless。接口名取自内核，不读 NetworkManager——网络没起来时 NM 可能
+# 尚未发现设备，而验收要回答的恰恰是「硬件在不在」。
+net_wifi() {
+    local d list=
+    for d in /sys/class/net/*/wireless; do
+        [ -d "$d" ] || continue
+        d=${d%/wireless}
+        list=${list:+$list,}${d##*/}
+    done
+    printf '%s' "${list:-none}"
+}
+
 # 内核命令行里的开关：只报「有没有这一项」，取值本身由 kernel.cmdline 给出。
 cmdline_word() {
     [ -r /proc/cmdline ] || {
@@ -363,9 +394,11 @@ boot_report() {
 
 net_report() {
     emit net.ipv4 "$(net_v4)"
+    emit net.src "$(net_src)"
     emit net.gw "$(net_gw)"
     emit net.dns "$(net_dns)"
     emit net.link "$(net_up)"
+    emit net.wifi "$(net_wifi)"
 }
 
 sched_report() {
@@ -451,7 +484,7 @@ run_report() {
     emit mem.avail_kb "$(meminfo MemAvailable)"
     emit cpu.count "$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf absent)"
     emit root.used "$(df -P / 2>/dev/null | awk 'NR == 2 { print $5 }')"
-    emit net.ipv4 "$(net_v4)"
+    net_report
     [ "$failed" = 0 ] || status=partial
     case $ready in
     ready | active | activating) ;;
