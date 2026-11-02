@@ -4,12 +4,12 @@
 # test_run_smoke.py — ci/run-smoke.sh 契约回归测试
 #
 # 冒烟脚本必须在已登录的 UKUI 桌面会话内运行，CI 宿主机不具备该环境。
-# 脚本对外契约是：TAP 17 计划、十七项探测的判定，以及“探测工具缺失即失败”
+# 脚本对外契约是：TAP 18 计划、十八项探测的判定，以及“探测工具缺失即失败”
 # 的退出码规则。这里用 PATH 沙箱提供伪 loginctl /
 # pgrep / xdpyinfo / ibus / pactl / systemctl / gsettings /
 # sha256sum / uname / xrandr / findmnt / lsblk / hostname / hostnamectl，并给
-# T6–T16 准备一份只读系统视图（AIRYMAX_SMOKE_ROOT），每个用例只破坏一个前提，
-# 从而在无桌面环境下判定真实控制流。
+# T6–T16 与 T18 准备一份只读系统视图（AIRYMAX_SMOKE_ROOT），每个用例只破坏
+# 一个前提，从而在无桌面环境下判定真实控制流。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
 # Version: 0.0.4
@@ -45,12 +45,16 @@ SIGNED_KO = (PLAIN_KO + b"\x30\x82" + b"\x2a" * 30
              + bytes([0, 4, 2, 0, 0, 0, 0, 0]) + (32).to_bytes(4, "big")
              + SIG_MARKER)
 HOSTNAME = "airymax-pc"
+# 构建来源指纹：同一版本号会随每次提交产出不同镜像，T18 要求 os-release 的
+# BUILD_ID 与 /etc/airymaxos-build 逐字相同。
+BUILD_ID = "r12345678-g0a1b2c3d4e5f"
 # 两层展示名：NAME 是人读的完整名（可含中文），PRETTY_NAME 是 ASCII 短名 +
 # 版本号，T9 判定的是二者的派生不变式而不是具体字符串。
 OS_RELEASE = ('NAME="OpenAirymax 开源极境"\n'
               'VERSION="0.0.4 (OpenAirymax)"\n'
               "ID=airymaxos\n"
               'VERSION_ID="0.0.4"\n'
+              f'BUILD_ID="{BUILD_ID}"\n'
               'PRETTY_NAME="OpenAirymax 0.0.4"\n'
               'VERSION_CODENAME=openairymax\n')
 
@@ -123,8 +127,9 @@ class RunSmokeTest(unittest.TestCase):
         self._tmp.cleanup()
 
     def make_sysroot(self):
-        """构造 T6–T16 读取的只读视图：/boot 三件套、LSM、产品标识、ESP、
-        sudo 策略、锁屏策略、客户端源文件、引导默认文件、观测工具资产。"""
+        """构造 T6–T16 与 T18 读取的只读视图：/boot 三件套、LSM、产品标识、
+        ESP、sudo 策略、锁屏策略、客户端源文件、引导默认文件、观测工具资产
+        与构建来源指纹。"""
         boot = self.sysroot / "boot"
         boot.mkdir(parents=True)
         (boot / f"vmlinuz-{KREL}").write_bytes(b"vmlinuz\n")
@@ -142,6 +147,14 @@ class RunSmokeTest(unittest.TestCase):
         self.write_repo()
         self.write_grub()
         self.write_assets()
+        self.write_build_id()
+
+    def write_build_id(self, value=BUILD_ID):
+        """T18 的落点：发布包在 %install 里由同一个宏写出的一行式指纹。"""
+        path = self.sysroot / "etc" / "airymaxos-build"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"BUILD_ID={value}\n", encoding="utf-8")
+        return path
 
     def write_module(self, body=SIGNED_KO):
         """T6 签名判定的落点：签名是追加在 .ko 尾部的 PKCS#7、12 字节
@@ -359,9 +372,9 @@ class RunSmokeTest(unittest.TestCase):
         self.tools()
         res = self.run_smoke()
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res), {"pass": 17, "fail": 0})
+        self.assertEqual(self.summary(res), {"pass": 18, "fail": 0})
         self.assertNotIn("# SKIP", res.stdout)
-        self.assertEqual(len(self.taps(res)), 17)
+        self.assertEqual(len(self.taps(res)), 18)
         for line in self.taps(res):
             self.assertTrue(line.startswith("ok"), line)
 
@@ -369,7 +382,7 @@ class RunSmokeTest(unittest.TestCase):
         self.tools()
         res = self.run_smoke()
         self.assertIn("TAP version 14", res.stdout)
-        self.assertIn("1..17", res.stdout.splitlines())
+        self.assertIn("1..18", res.stdout.splitlines())
         self.assertIn(
             "# AirymaxOS distro smoke: target=airymaxos-0.0.4", res.stdout)
 
@@ -476,7 +489,7 @@ class RunSmokeTest(unittest.TestCase):
         finally:
             timer.cancel()
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res), {"pass": 17, "fail": 0})
+        self.assertEqual(self.summary(res), {"pass": 18, "fail": 0})
 
     def test_slice_wrong(self):
         self.tools()
@@ -536,7 +549,7 @@ class RunSmokeTest(unittest.TestCase):
         self.tools(omit=("loginctl",))
         res = self.run_smoke()
         self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res), {"pass": 16, "fail": 1})
+        self.assertEqual(self.summary(res), {"pass": 17, "fail": 1})
         self.assert_fail(res, 1)
         self.assertIn("loginctl not installed", res.stdout)
         self.assertNotIn("# SKIP", res.stdout)
@@ -981,6 +994,57 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke()
         self.assert_fail(res, 17)
         self.assertIn("lsblk not installed", res.stdout)
+
+    def test_build_id_ok(self):
+        self.tools()
+        res = self.run_smoke()
+        self.assertIn("ok 18 - T18 build provenance", res.stdout)
+        self.assertIn(f"build_id={BUILD_ID}", res.stdout)
+
+    def test_build_id_unreadable(self):
+        self.tools()
+        (self.sysroot / "etc" / "airymaxos-build").unlink()
+        res = self.run_smoke()
+        self.assert_fail(res, 18)
+        self.assertIn("/etc/airymaxos-build unreadable", res.stdout)
+
+    def test_build_id_osrel_mismatch(self):
+        # 两处标识由同一个宏写出，只改一处说明另一侧被单独替换或漏写。
+        self.tools()
+        self.write_osrel(OS_RELEASE.replace(
+            f'BUILD_ID="{BUILD_ID}"', 'BUILD_ID="r99999999-gffffffffffff"'))
+        res = self.run_smoke()
+        self.assert_fail(res, 18)
+        self.assertIn("os-release BUILD_ID: r99999999-gffffffffffff",
+                      res.stdout)
+
+    def test_build_id_charset(self):
+        self.tools()
+        self.write_build_id("r1/bad")
+        res = self.run_smoke()
+        self.assert_fail(res, 18)
+        self.assertIn("(want [A-Za-z0-9._+-]+)", res.stdout)
+
+    def test_build_id_empty(self):
+        self.tools()
+        self.write_build_id("")
+        res = self.run_smoke()
+        self.assert_fail(res, 18)
+        self.assertIn("airymaxos-build: absent", res.stdout)
+
+    def test_build_id_too_long(self):
+        self.tools()
+        self.write_build_id("a" * 65)
+        res = self.run_smoke()
+        self.assert_fail(res, 18)
+        self.assertIn("build id length: 65 (want <=64)", res.stdout)
+
+    def test_build_id_release_mismatch(self):
+        # 清单记录的指纹与本机不同：装的是另一轮构建产出的镜像。
+        self.tools()
+        res = self.run_smoke(AIRYMAX_SMOKE_BUILD_ID="r99999999-gffffffffffff")
+        self.assert_fail(res, 18)
+        self.assertIn(f"release build id: {BUILD_ID}", res.stdout)
 
 
 if __name__ == "__main__":

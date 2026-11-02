@@ -14,6 +14,10 @@ VERSION="0.0.4 (OpenAirymax)"
 ID=airymaxos
 ID_LIKE="openeuler"
 VERSION_ID="0.0.4"
+# 构件来源指纹：仓库内为空，组装期由 airymaxos-release 的 %install 按
+# airy_build_id 改写，并与 /etc/airymaxos-build 逐字相同。装好的系统据此
+# 反查「这份镜像由哪次构建产出」，无需再依赖镜像文件名或外部台账。
+BUILD_ID=""
 PRETTY_NAME="OpenAirymax 0.0.4"
 VERSION_CODENAME=openairymax
 VARIANT="Workstation"

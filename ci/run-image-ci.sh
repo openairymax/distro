@@ -528,16 +528,28 @@ sde_get()
     git -C "${DISTRO_ROOT}" log -1 --pretty=%ct 2>/dev/null || true
 }
 
+# 发布清单要能回答「这份 ISO 由哪次构建产出」。指纹由 rpm 阶段解析并写进
+# build-manifest.txt，这里只搬运、不重新推导：两处各自推导在跳过 rpm 阶段
+# 复跑时会给出不同答案，清单就失去了归因价值。
+bid_get()
+{
+    local f="${OUT}/rpms/build-manifest.txt"
+    [ -f "${f}" ] || return 0
+    sed -n 's/^build_id=//p' "${f}" | head -n 1
+}
+
 manifest()
 {
-    local row sde
+    local row sde bid
     sde="$(sde_get)"
+    bid="$(bid_get)"
     {
         printf '# AirymaxOS image CI manifest\n'
         printf 'arch=%s\nprofile=%s\nfirmware=%s\nruns=%s\nmax_boot=%s\n' \
             "${ARCH}" "${PROFILE}" "${FIRMWARE}" "${RUNS}" "${MAX_BOOT:-auto}"
         printf 'acceptance=%s\n' "${ACCEPTANCE}"
         printf 'source_date_epoch=%s\n' "${sde:-unset}"
+        printf 'build_id=%s\n' "${bid:-unset}"
         for row in "${ROWS[@]}"; do
             printf 'stage %s\n' "${row}"
         done
