@@ -58,7 +58,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 1
+%global airy_release 2
 # 基底版本是显式输入，与 distro/repo/airymax-os.repo 及 kickstart 的
 # url/repo 行是三处同源表达。%%check 以本宏断言客户端配置，版本漂移在
 # 构建期失败，而不是等到装机后 dnf 报「找不到仓库」。
@@ -104,19 +104,17 @@ Source23:       50-airymax-journald.conf
 Source24:       airymax-display.desktop
 Source25:       grub_args.sh
 Source26:       xserver.sh
-Source27:       rt_budget.sh
-Source28:       airymax-rt-budget.service
-Source29:       session_env.sh
-Source30:       airy_record.sh
-Source31:       airy_observe.sh
-Source32:       airy_bench.py
-Source33:       airy_demo.py
-Source34:       airy_inspect.py
-Source35:       motd
-Source36:       99-airymax.conf
-Source37:       clouds_moonlight_photo_from_lidecheng.jpg
-Source38:       hangzhouxihu_photo_from_lidecheng.jpg
-Source39:       airymax-update-notify.desktop
+Source27:       session_env.sh
+Source28:       airy_record.sh
+Source29:       airy_observe.sh
+Source30:       airy_bench.py
+Source31:       airy_demo.py
+Source32:       airy_inspect.py
+Source33:       motd
+Source34:       99-airymax.conf
+Source35:       clouds_moonlight_photo_from_lidecheng.jpg
+Source36:       hangzhouxihu_photo_from_lidecheng.jpg
+Source37:       airymax-update-notify.desktop
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -187,7 +185,7 @@ printf '%s\nKernel \\r on an \\m (\\l)\n' "${airy_pretty}" \
 # 同持一个路径会让安装事务整体失败（与 plymouthd.conf 同一条约束）。目标机
 # 的 pam_motd 1.5.3 会按目录读取 /etc/motd.d 下的全部文件并拼接输出。
 install -d -m 0755 %{buildroot}%{_sysconfdir}/motd.d
-install -m 0644 %{SOURCE35} %{buildroot}%{_sysconfdir}/motd.d/airymax
+install -m 0644 %{SOURCE33} %{buildroot}%{_sysconfdir}/motd.d/airymax
 
 install -d -m 0755 %{buildroot}%{_sysconfdir}/yum.repos.d
 install -m 0644 %{SOURCE1} %{buildroot}%{_sysconfdir}/yum.repos.d/airymaxos.repo
@@ -199,8 +197,6 @@ install -d -m 0755 %{buildroot}%{_unitdir}
 install -m 0644 %{SOURCE3} %{buildroot}%{_unitdir}/airymax-desktop.slice
 install -m 0644 %{SOURCE13} \
     %{buildroot}%{_unitdir}/airymax-desktop-ready.service
-install -m 0644 %{SOURCE28} \
-    %{buildroot}%{_unitdir}/airymax-rt-budget.service
 
 install -d -m 0755 %{buildroot}/usr/lib/airymaxos/desktop
 install -m 0755 %{SOURCE14} \
@@ -211,19 +207,17 @@ install -m 0755 %{SOURCE17} \
     %{buildroot}/usr/lib/airymaxos/desktop/display_mode.sh
 install -m 0755 %{SOURCE26} \
     %{buildroot}/usr/lib/airymaxos/desktop/xserver
-install -m 0755 %{SOURCE27} \
-    %{buildroot}/usr/lib/airymaxos/desktop/rt_budget.sh
-install -m 0644 %{SOURCE29} \
+install -m 0644 %{SOURCE27} \
     %{buildroot}/usr/lib/airymaxos/desktop/session_env.sh
-install -m 0755 %{SOURCE30} \
+install -m 0755 %{SOURCE28} \
     %{buildroot}/usr/lib/airymaxos/desktop/airy_record.sh
-install -m 0755 %{SOURCE31} \
+install -m 0755 %{SOURCE29} \
     %{buildroot}/usr/lib/airymaxos/desktop/airy_observe.sh
-install -m 0755 %{SOURCE32} \
+install -m 0755 %{SOURCE30} \
     %{buildroot}/usr/lib/airymaxos/desktop/airy_bench.py
-install -m 0755 %{SOURCE33} \
+install -m 0755 %{SOURCE31} \
     %{buildroot}/usr/lib/airymaxos/desktop/airy_demo.py
-install -m 0755 %{SOURCE34} \
+install -m 0755 %{SOURCE32} \
     %{buildroot}/usr/lib/airymaxos/desktop/airy_inspect.py
 
 # 录屏与观察点以子命令形式对外：实现留在库目录，入口只是符号链接，升级时
@@ -248,7 +242,7 @@ install -m 0644 %{SOURCE16} \
 # 这里的键即生效值。目录可能由 NetworkManager 包提供，两个包同持一个目录
 # 是允许的；目录本身也由本包声明，避免在未装该包的环境里留下悬空路径。
 install -d -m 0755 %{buildroot}%{_sysconfdir}/NetworkManager/conf.d
-install -m 0644 %{SOURCE36} \
+install -m 0644 %{SOURCE34} \
     %{buildroot}%{_sysconfdir}/NetworkManager/conf.d/99-airymax.conf
 
 # sudo 只接受模式 0440 的 include 文件，其余权限会被静默忽略；因此这里是
@@ -285,7 +279,7 @@ install -m 0644 %{SOURCE9} \
     %{buildroot}%{_sysconfdir}/xdg/autostart/airymax-input-method.desktop
 install -m 0644 %{SOURCE24} \
     %{buildroot}%{_sysconfdir}/xdg/autostart/airymax-display.desktop
-install -m 0644 %{SOURCE39} \
+install -m 0644 %{SOURCE37} \
     %{buildroot}%{_sysconfdir}/xdg/autostart/airymax-update-notify.desktop
 
 install -d -m 0755 %{buildroot}%{_sysconfdir}/systemd/system/user@.service.d
@@ -319,9 +313,9 @@ install -m 0644 %{SOURCE11} \
 airy_bgs=%{buildroot}%{_datadir}/backgrounds/airymaxos
 install -d -m 0755 "${airy_bgs}"
 install -m 0644 %{SOURCE5} "${airy_bgs}/qilian_photo_from_zhenyi.jpg"
-install -m 0644 %{SOURCE37} \
+install -m 0644 %{SOURCE35} \
     "${airy_bgs}/clouds_moonlight_photo_from_lidecheng.jpg"
-install -m 0644 %{SOURCE38} \
+install -m 0644 %{SOURCE36} \
     "${airy_bgs}/hangzhouxihu_photo_from_lidecheng.jpg"
 
 install -d -m 0755 %{buildroot}%{_datadir}/airymaxos/distro/desktop
@@ -413,14 +407,6 @@ grep -A3 '^\[airymaxos-everything\]$' "${airy_repo}" | grep -qxF 'enabled=0'
 grep -qF 'airymax_libdir' %{buildroot}%{_sysconfdir}/rpm/macros.airymax
 grep -qF '/usr/lib/airymaxos' %{buildroot}%{_sysconfdir}/rpm/macros.airymax
 grep -qxF 'CPUWeight=50' %{buildroot}%{_unitdir}/airymax-desktop.slice
-# RT 带宽预算：不分配预算时 rtkit-daemon 每次启动都退化为非实时，而桌面
-# 仍能进桌面——缺陷只以音频抖动和高负载卡顿出现，不在任何日志的错误级别。
-# 断言两处契约：单元必须早于 rtkit 与显示管理器，脚本必须按 slice 切分。
-sh -n %{buildroot}/usr/lib/airymaxos/desktop/rt_budget.sh
-grep -qxF 'Before=rtkit-daemon.service display-manager.service' \
-    %{buildroot}%{_unitdir}/airymax-rt-budget.service
-grep -qxF 'SLICES="system.slice user.slice airymax.slice airymax-desktop.slice"' \
-    %{buildroot}/usr/lib/airymaxos/desktop/rt_budget.sh
 grep -qxF 'WantedBy=graphical.target' \
     %{buildroot}%{_unitdir}/airymax-desktop-ready.service
 bash -n %{buildroot}/usr/lib/airymaxos/desktop/desktop_ready.sh
@@ -679,11 +665,9 @@ fi
 %config(noreplace) %{_sysconfdir}/systemd/journald.conf.d/50-airymax-journald.conf
 %{_unitdir}/airymax-desktop.slice
 %{_unitdir}/airymax-desktop-ready.service
-%{_unitdir}/airymax-rt-budget.service
 /usr/lib/airymaxos/desktop/desktop_ready.sh
 /usr/lib/airymaxos/desktop/boot_state.sh
 /usr/lib/airymaxos/desktop/display_mode.sh
-/usr/lib/airymaxos/desktop/rt_budget.sh
 /usr/lib/airymaxos/desktop/xserver
 /usr/lib/airymaxos/desktop/session_env.sh
 /usr/lib/airymaxos/desktop/airy_record.sh
@@ -709,6 +693,11 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Mon Nov 02 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-2
+- Move the RT budget out of this package: airymaxos-system now ships
+  airy-rt-cap, the airymax_rt package and airy-rt-bandwidth.service,
+  which apply the same policy from one implementation instead of a
+  shell copy that only this package could update
 * Mon Nov 02 2026 SPHARX <dev@spharx.com> - 0.0.4-1
 - Adopt the two-layer display-name model: NAME is the human-readable full
   name (may carry Chinese), PRETTY_NAME is the ASCII brand plus VERSION_ID
