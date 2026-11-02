@@ -47,7 +47,7 @@
 # spec-lint: source-bundle ../../system/services/airymax_probe
 
 %global airy_version 0.0.4
-%global airy_release 7
+%global airy_release 8
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -221,6 +221,8 @@ grep -qxF 'SuccessExitStatus=3' \
     %{buildroot}%{_unitdir}/airy-power.service
 grep -qxF 'Before=agentrt.target display-manager.service' \
     %{buildroot}%{_unitdir}/airy-power.service
+grep -qxF 'RuntimeDirectory=airy-power' \
+    %{buildroot}%{_unitdir}/airy-power.service
 test -f %{buildroot}%{_unitdir}/airy-power.timer
 grep -qxF 'OnUnitInactiveSec=60s' \
     %{buildroot}%{_unitdir}/airy-power.timer
@@ -284,6 +286,15 @@ fi
 %{python3_sitelib}/airymax_probe
 
 %changelog
+* Mon Nov 02 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-8
+- Treat an adapter that is online while the battery still discharges as
+  a weak source and fall to the cool profile, so a load above the
+  adapter's capacity no longer drains the battery to a brownout
+- Pace the guard by the throttle counter's growth rate: 285H reported
+  48 C next to tens of thousands of throttles, and temperature alone
+  cannot see the power limit that causes them
+- Give the oneshot a preserved runtime directory: the guard's sample
+  lives in /run and ProtectSystem=strict denies every other write path
 * Mon Nov 02 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-7
 - Ship airy-probe and the airymax_probe package so acceptance reads the
   ten agent tracepoints, the two injection channels and the three
