@@ -483,10 +483,17 @@ grep -qF -- '--settle 10' \
     %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/60-airymax-display.sh
 grep -qxF 'Exec=/usr/lib/airymaxos/desktop/display_mode.sh --guard 180' \
     %{buildroot}%{_sysconfdir}/xdg/autostart/airymax-display.desktop
-# 分辨率策略在构建期以合成拓扑跑一遍：首选 4K 必须被降到 1920x1080。
-# awk 解析若随 xrandr 输出格式漂移而失效，这里而不是装机现场暴露。
-airy_plan=$(printf 'Screen 0: minimum 8 x 8, current 3840 x 2160, maximum 32767 x 32767\neDP-1 connected primary 3840x2160+0+0 (normal) 344mm x 194mm\n   3840x2160     60.00*+\n   1920x1080     60.00\n' | %{buildroot}/usr/lib/airymaxos/desktop/display_mode.sh --plan)
+# 分辨率策略在构建期以合成拓扑跑一遍，钉住 EDID 判定的两个方向：
+# 无 EDID（0mm x 0mm）时 4K 首选按阶梯收到 1920x1080；有 EDID 时首选
+# 模式原样保留，不写死任何机型上限（G-02）。awk 解析若随 xrandr 输出
+# 格式漂移而失效，这里而不是装机现场暴露。
+airy_plan=$(printf 'Screen 0: minimum 8 x 8, current 3840 x 2160, maximum 32767 x 32767\neDP-1 connected primary 3840x2160+0+0 (normal) 0mm x 0mm\n   3840x2160     60.00*+\n   1920x1080     60.00\n' | %{buildroot}/usr/lib/airymaxos/desktop/display_mode.sh --plan)
 test "${airy_plan}" = 'eDP-1 3840x2160 1920x1080'
+airy_native=$(printf 'Screen 0: minimum 8 x 8, current 2880 x 1800, maximum 32767 x 32767\neDP-1 connected primary 2880x1800+0+0 (normal) 301mm x 188mm\n   2880x1800     60.00*+\n   1920x1080     60.00\n' | %{buildroot}/usr/lib/airymaxos/desktop/display_mode.sh --plan)
+test "${airy_native}" = 'eDP-1 2880x1800 2880x1800'
+# 机型绑定常数是 G-02 的收口判据：脚本里出现 CAP_W=/CAP_H= 即回到了
+# 「按 285H 定上限」的老路，必须在构建期失败。
+! grep -qE 'CAP_[WH]=' %{buildroot}/usr/lib/airymaxos/desktop/display_mode.sh
 # 引导期分辨率：这段必须无条件落 gfxmode 与 gfxterm。openEuler 的 00_header
 # 把三行塞进 loadfont 成功的分支，字体缺失时整段静默跳过（D-28），所以这里
 # 断言的是「我们输出的内容」，不是 cfg 里存在某条 gfxmode。

@@ -3,10 +3,11 @@
 # ===========================================================================
 # test_display.py — 分辨率策略（display_mode.sh）行为回归
 #
-# 策略是会话显示的唯一事实来源，这里用合成拓扑把它的两条规则钉死：
-# 在「上限内的首选模式 ∪ 该输出确实广播的常用分辨率」中取最大者（同尺寸
-# 首选优先）、候选为空时回退首选。--plan 从 stdin 读拓扑，因此策略判定本身
-# 不需要 X server；--check 与默认入口再经伪 xrandr 验证退出码与调用面。
+# 策略是会话显示的唯一事实来源，这里用合成拓扑把它的三条规则钉死：
+# EDID 可用时原样保留首选模式；EDID 缺失时取该输出确实广播的常用分辨率
+# 阶梯中的最大者（阶梯降序，首条命中即结果）；候选为空时回退首选。
+# --plan 从 stdin 读拓扑，因此策略判定本身不需要 X server；--check 与默认
+# 入口再经伪 xrandr 验证退出码与调用面。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
 # Version: 0.0.3
@@ -142,17 +143,38 @@ class DisplayModeTest(unittest.TestCase):
                                      capture_output=True)
                 self.assertEqual(res.returncode, 0, res.stderr)
 
-    def test_4k_falls_back_to_1080p(self):
+    def test_4k_without_edid_falls_back_to_1080p(self):
+        # 0mm x 0mm 即无 EDID 的透传拓扑：4K 首选不可信，按阶梯收到 1920x1080。
         rows = self.plan(topo(
             screen(3840, 2160),
-            "eDP-1 connected primary 3840x2160+0+0 (normal) 344mm x 194mm",
+            "eDP-1 connected primary 3840x2160+0+0 (normal) 0mm x 0mm",
             "   3840x2160     60.00*+  48.00",
             "   2560x1440     59.95",
             "   1920x1080     60.00",
             "   1280x720      60.00"))
         self.assertEqual(rows, [["eDP-1", "3840x2160", "1920x1080"]])
 
-    def test_native_within_cap_kept(self):
+    def test_4k_with_edid_keeps_native(self):
+        # 有 EDID 的 4K 面板首选模式就是其原生分辨率，任何上限都会把面板
+        # 压到非原生值，正是 G-02 要禁掉的机型绑定行为。
+        rows = self.plan(topo(
+            screen(3840, 2160),
+            "eDP-1 connected primary 3840x2160+0+0 (normal) 344mm x 194mm",
+            "   3840x2160     60.00*+",
+            "   1920x1080     60.00"))
+        self.assertEqual(rows, [["eDP-1", "3840x2160", "3840x2160"]])
+
+    def test_edid_panel_restored_to_preferred(self):
+        # 会话后期 settings-daemon 可能把有 EDID 的面板回写到低分辨率；
+        # 策略的目标是首选模式而不是当前模式，纠正方向由此确定。
+        rows = self.plan(topo(
+            screen(2880, 1800),
+            "eDP-1 connected primary 2880x1800+0+0 (normal) 301mm x 188mm",
+            "   2880x1800     60.00 +",
+            "   1920x1080     60.00*"))
+        self.assertEqual(rows, [["eDP-1", "1920x1080", "2880x1800"]])
+
+    def test_native_with_edid_kept(self):
         rows = self.plan(topo(
             screen(),
             "eDP-1 connected primary 1920x1080+0+0 (normal) 344mm x 194mm",
@@ -160,7 +182,7 @@ class DisplayModeTest(unittest.TestCase):
             "   1280x720      60.00"))
         self.assertEqual(rows, [["eDP-1", "1920x1080", "1920x1080"]])
 
-    def test_small_panel_kept(self):
+    def test_small_panel_ladder_kept(self):
         rows = self.plan(topo(
             screen(1366, 768),
             "LVDS-1 connected 1366x768+0+0 (normal) 0mm x 0mm",
@@ -168,7 +190,8 @@ class DisplayModeTest(unittest.TestCase):
             "   1024x768      60.00"))
         self.assertEqual(rows, [["LVDS-1", "1366x768", "1366x768"]])
 
-    def test_cap_is_inclusive(self):
+    def test_ladder_order_decides(self):
+        # 阶梯按宽高降序，首条命中即结果：1920x1200 排在 1920x1080 之前。
         rows = self.plan(topo(
             screen(1920, 1200),
             "DP-1 connected 1920x1200+0+0 (normal) 0mm x 0mm",
@@ -197,7 +220,7 @@ class DisplayModeTest(unittest.TestCase):
             "   1280x800      60.00+"))
         self.assertEqual(rows, [["Virtual-1", "5120x2160", "1280x800"]])
 
-    def test_width_over_cap_uses_ladder(self):
+    def test_oversized_preferred_uses_ladder(self):
         rows = self.plan(topo(
             screen(3840, 2160),
             "DP-2 connected 3840x2160+0+0 (normal) 0mm x 0mm",
@@ -207,8 +230,8 @@ class DisplayModeTest(unittest.TestCase):
         self.assertEqual(rows, [["DP-2", "3840x2160", "1920x1080"]])
 
     def test_16x10_ladder_honored(self):
-        # 超上限的 16:10 面板广播 1920x1200 与 1680x1050，两档都是常用分辨率。
-        # 阶梯只列 16:9 时无候选，会回退到超过上限的首选模式，上限形同虚设。
+        # 无 EDID 的 16:10 面板广播 1920x1200 与 1680x1050，两档都是常用
+        # 分辨率；阶梯只列 16:9 时会无候选而回退到首选模式。
         rows = self.plan(topo(
             screen(3200, 2000),
             "DP-2 connected 3200x2000+0+0 (normal) 0mm x 0mm",
@@ -227,9 +250,9 @@ class DisplayModeTest(unittest.TestCase):
         self.assertEqual(rows, [["VGA-1", "3200x2400", "1600x1200"]])
 
     def test_285h_native_kept(self):
-        # 285H 面板原生 2880x1800。0.0.3 的上限是 1920x1200，策略会把它压到
-        # 1920x1080，用户在验收时看到的就是「分辨率不对」。上限抬到原生值后
-        # 首选模式必须原样保留。
+        # 285H 面板原生 2880x1800，EDID 报 301mm x 188mm。0.0.3 的机型上限
+        # 把它压到 1920x1080，用户看到的是「分辨率不对」；G-02 后首选模式
+        # 原样保留，不需要为该机型写任何常数。
         rows = self.plan(topo(
             screen(2880, 1800),
             "eDP-1 connected primary 2880x1800+0+0 (normal) 301mm x 188mm",
