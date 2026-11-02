@@ -9,8 +9,8 @@
   openEuler 24.03 LTS-SP2 EPOL/main 的 3.1 组件代；上游 4.24 自建闭包
   顺延（结论登记在本台账 policy.deferred），本文件不得再以「4.x」表述。
   UKUI 包名与 NVRA 的唯一事实源是 lockfile/ukui-components.yaml：
-  基底不提供 ukui 元包，桌面闭包必须逐组件显式声明，门禁
-  ci/gates/ukui-lock.sh 断言两侧同集合。
+  元包 ukui / ukui-desktop-environment 基底有但本版不选，桌面闭包必须
+  逐组件显式声明，门禁 ci/gates/ukui-lock.sh 断言两侧同集合。
   基础仓库：openEuler 24.03 LTS-SP2 的 OS、update、EPOL/main、
   EPOL/update/main、everything 五个仓库（与 kickstart 配置一致；
   其中 everything 只补齐主仓库缺失的桌面依赖，如 qt5-qtgraphicaleffects、
@@ -136,7 +136,7 @@
       <!-- 发行版标识与桌面策略载体；kickstart %post 校验其存在，
            提供 airymax-desktop.slice、UKUI 策略脚本与默认壁纸 -->
       <packagereq type="mandatory">airymaxos-release</packagereq>
-      <!-- 会话闭包：基底不提供 ukui 元包（五段 repodata 实测均无），
+      <!-- 会话闭包：不取 ukui 元包（它拉整代闭包，版本不受台账约束），
            必须逐组件声明；包名与 NVRA 以 lockfile/ukui-components.yaml
            为准，门禁断言本组与台账同集合。缺任一件都装不出可登录桌面：
            会话、窗管、面板、开始菜单、控制中心、设置守护、登录界面、
@@ -189,7 +189,7 @@
       <!-- 桌面外壳与托盘：锁屏、侧边栏、搜索、媒体键、电源、蓝牙、
            时钟、便签、系统监视、窗口切换、polkit 代理、设置接口库。
            与核心组分开是因为它们缺席时会话仍可登录，只损失对应面板项；
-           集合仍受台账约束，不得引入基底不存在的 ukui 子包 -->
+           集合仍受台账约束，不得引入基底没有或台账未选的 ukui 包 -->
       <packagereq type="default">ukui-screensaver</packagereq>
       <packagereq type="default">ukui-sidebar</packagereq>
       <packagereq type="default">ukui-search</packagereq>
@@ -202,7 +202,7 @@
       <packagereq type="default">ukui-window-switch</packagereq>
       <packagereq type="default">ukui-polkit</packagereq>
       <packagereq type="default">ukui-interface</packagereq>
-      <!-- 文件管理器：peony 不依赖任何元包，直装（基底无 ukui 元包） -->
+      <!-- 文件管理器：peony 不依赖任何元包，直装（元包不进闭包） -->
       <packagereq type="default">peony</packagereq>
       <!-- 终端：EPOL 提供 mate-terminal（无 ukui-terminal 包） -->
       <packagereq type="default">mate-terminal</packagereq>

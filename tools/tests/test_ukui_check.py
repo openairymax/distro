@@ -65,11 +65,13 @@ components:
     segment: EPOL/main
     nvra: ukui-biometric-auth-0:1.2.4-2.oe2403sp2.x86_64
   - name: ukui-desktop-environment
-    state: absent
-    segment: 五段均无
+    state: available
+    segment: EPOL/main
+    nvra: ukui-desktop-environment-0:2.0.2-20.oe2403sp2.x86_64
   - name: ukui
-    state: absent
-    segment: 五段均无
+    state: available
+    segment: EPOL/main
+    nvra: ukui-0:2.0.2-20.oe2403sp2.x86_64
   - name: ukui-shell
     state: absent
     segment: 五段均无
@@ -205,6 +207,23 @@ class LedgerTest(unittest.TestCase):
         got = self.codes(ukui_check.check_items, led)
         self.assertIn("ledger/nvra", got)
         self.assertIn("ledger/name", got)
+
+    def test_items_available_must_stay_unpicked(self):
+        bad = LEDGER.replace("""  - name: ukui
+    state: available""", """  - name: ukui
+    state: present""")
+        led = ukui_check.parse_ledger(self.write("l.yaml", bad))
+        self.assertEqual(self.codes(ukui_check.check_items, led),
+                         ["ledger/available"])
+
+    def test_items_rejects_bad_state(self):
+        bad = LEDGER.replace("""  - name: ukui-shell
+    state: absent""", """  - name: ukui-shell
+    state: gone""").replace(
+            "nvra: ukui-0:2.0.2-20", "nvra: ukui-meta-0:2.0.2-20")
+        led = ukui_check.parse_ledger(self.write("l.yaml", bad))
+        self.assertEqual(self.codes(ukui_check.check_items, led),
+                         ["ledger/nvra", "ledger/state", "ledger/absent"])
 
 
 class CompsTest(unittest.TestCase):
