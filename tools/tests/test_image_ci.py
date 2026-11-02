@@ -8,7 +8,7 @@
 # 以预构建 ISO 和真实 build-iso 两条路径分别验证编排与产物定位。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.3
+# Version: 0.0.4
 # ===========================================================================
 
 import hashlib
@@ -25,9 +25,14 @@ DISTRO = SCRIPT.parent.parent
 BASH = shutil.which("bash") or "/bin/bash"
 BASE_ISO = DISTRO / "kickstart" / "airymaxos-minimal.ks"
 
+# 包名与镜像名都由 release/os-release 单点派生，写死某次发版的字符串
+# 会让每次升版本都要改一批与编排契约无关的断言。
+VERSION = fakes.osrel("VERSION_ID")
+ISO_NAME = f"airymaxos-{VERSION}-x86_64.iso"
+
 CLOSURE = (
-    "airymaxos-release-0.0.3-1.noarch.rpm",
-    "airymaxos-system-0.0.3-1.noarch.rpm",
+    f"airymaxos-release-{VERSION}-1.noarch.rpm",
+    f"airymaxos-system-{VERSION}-1.noarch.rpm",
     "airymaxos-kernel-6.6.0-1.x86_64.rpm",
     "airymaxos-kernel-core-6.6.0-1.x86_64.rpm",
     "airymaxos-kernel-modules-6.6.0-1.x86_64.rpm",
@@ -38,7 +43,7 @@ LIB_SH = ("arch.sh", "iso.sh", "log.sh", "outdir.sh")
 # build-rpms/build-kernel 把成品放在 <root>/RPMS，同时把 rpmbuild 的
 # 中间产物留在 <root>/work/rpmbuild/RPMS。两者同名，编排层若把 <root>
 # 整体交给 build-desktop，汇集时必然冲突而拒绝出镜像。
-FAKE_BUILD = """\
+FAKE_BUILD = f"""\
 #!/bin/sh
 set -eu
 out=""
@@ -50,7 +55,7 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$out" ] || exit 5
 case "$(basename "$out")" in
-rpms) pkg=airymaxos-release-0.0.3-1.noarch.rpm ;;
+rpms) pkg=airymaxos-release-{VERSION}-1.noarch.rpm ;;
 *) pkg=airymaxos-kernel-6.6.0-1.x86_64.rpm ;;
 esac
 for d in "$out/RPMS/x86_64" "$out/work/rpmbuild/RPMS/x86_64"; do
@@ -59,7 +64,7 @@ for d in "$out/RPMS/x86_64" "$out/work/rpmbuild/RPMS/x86_64"; do
 done
 """
 
-FAKE_DESKTOP = """\
+FAKE_DESKTOP = f"""\
 #!/bin/sh
 set -eu
 out=""
@@ -91,10 +96,10 @@ while IFS= read -r f; do
 done < "$list"
 [ -s "$names" ] || exit 5
 mkdir -p "$out/iso"
-printf 'fake iso\\n' > "$out/iso/airymaxos-0.0.3-x86_64.iso"
-printf 'name=airymaxos-0.0.3-x86_64.iso\\n' > "$out/iso/iso-manifest.txt"
-(cd "$out/iso" && sha256sum airymaxos-0.0.3-x86_64.iso \
-    > airymaxos-0.0.3-x86_64.iso.sha256)
+printf 'fake iso\\n' > "$out/iso/{ISO_NAME}"
+printf 'name={ISO_NAME}\\n' > "$out/iso/iso-manifest.txt"
+(cd "$out/iso" && sha256sum {ISO_NAME} \
+    > {ISO_NAME}.sha256)
 """
 
 
@@ -313,7 +318,7 @@ class ImageCiTest(unittest.TestCase):
         self.assertIn("stage iso=pass", manifest)
         self.assertRegex(manifest, r"iso [0-9a-f]{64} airymaxos-")
         self.assertIn("result=pass", manifest)
-        iso = self.out / "iso" / "airymaxos-0.0.3-x86_64.iso"
+        iso = self.out / "iso" / ISO_NAME
         self.assertTrue(iso.is_file())
         body = iso.read_text(encoding="utf-8")
         self.assertIn("airymaxos-offline", body)
@@ -332,7 +337,7 @@ class ImageCiTest(unittest.TestCase):
         manifest = self.manifest()
         self.assertIn("profile=desktop", manifest)
         self.assertIn("stage iso=pass", manifest)
-        iso = self.out / "desktop" / "iso" / "airymaxos-0.0.3-x86_64.iso"
+        iso = self.out / "desktop" / "iso" / ISO_NAME
         self.assertTrue(iso.is_file())
         self.assertIn("airymaxos-offline", iso.read_text(encoding="utf-8"))
         self.assertIn("=== /airymax/payload-manifest.txt",
@@ -374,7 +379,7 @@ class ImageCiTest(unittest.TestCase):
         ks = self.out / "acceptance" / "airymaxos-acceptance.ks"
         self.assertIn("# AIRYMAX-ACCEPTANCE-FIXTURE",
                       ks.read_text(encoding="utf-8"))
-        iso = self.out / "desktop" / "iso" / "airymaxos-0.0.3-x86_64.iso"
+        iso = self.out / "desktop" / "iso" / ISO_NAME
         body = iso.read_text(encoding="utf-8")
         self.assertIn("=== /run-smoke.sh", body)
         self.assertIn("=== /fixture/airymax-smoke-run.sh", body)

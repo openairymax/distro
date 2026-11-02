@@ -45,15 +45,20 @@
 # 该文件。文件缺失时 sed 以非零退出，命令替换的失败在 set -e 下中止整个
 # grub-mkconfig，anaconda 随即抛出 BootLoaderError 并停在交互问句上，无头
 # 安装只能等到超时。上游 release 包被 Obsoletes 排除后，本包必须自己提供
-# 该路径，内容从 os-release 的 NAME/VERSION 派生，版本号不二次书写。
+# 该路径，内容从 os-release 派生，版本号不二次书写。
+#
+# 派生取的是 PRETTY_NAME 而不是 NAME：GRUB_DISTRIBUTOR 会进入引导菜单条目名
+# 与 NVRAM 条目，是 ASCII-only 通道，而 NAME 按 0.0.4 命名口径含中文全名。
+# PRETTY_NAME 的格式由 %%check 断言为「<ASCII 短名> <VERSION_ID>」，短名即
+# 本包的 distributor 名，两处品牌面因此仍是同一事实源。
 #
 # 构建约束：全部 Source 为仓库内裸文件名，由构建流水线 staging 到
 # _sourcedir 后 rpmbuild；配方只在安装期从这些文件派生目标路径与派生素
 # 材，不下载、也不新增任何 Source。
 # ===========================================================================
 
-%global airy_version 0.0.3
-%global airy_release 27
+%global airy_version 0.0.4
+%global airy_release 1
 # 基底版本是显式输入，与 distro/repo/airymax-os.repo 及 kickstart 的
 # url/repo 行是三处同源表达。%%check 以本宏断言客户端配置，版本漂移在
 # 构建期失败，而不是等到装机后 dnf 报「找不到仓库」。
@@ -140,20 +145,25 @@ install -m 0644 %{SOURCE0} %{buildroot}/usr/lib/os-release
 install -d -m 0755 %{buildroot}%{_sysconfdir}
 ln -s ../usr/lib/os-release %{buildroot}%{_sysconfdir}/os-release
 
-# 单行发行版标识：NAME 与 VERSION 从 os-release 派生，格式遵循上游惯例
-# （<发行版> release <版本>），/etc/system-release 以符号链接指向它。
-airy_name=$(sed -n 's/^NAME="\(.*\)"$/\1/p' %{SOURCE0})
-airy_ver=$(sed -n 's/^VERSION="\(.*\)"$/\1/p' %{SOURCE0})
-printf '%s release %s\n' "${airy_name}" "${airy_ver}" \
+# 单行发行版标识与登录横幅同取 PRETTY_NAME，版本号只在 os-release 出现一次。
+# system-release 格式遵循上游惯例 <distributor> release <版本>，其中 distributor
+# 是 PRETTY_NAME 的首词（anaconda 的 sed 正是按 " release " 反切这个词），文件
+# 以符号链接形式由 /etc/system-release 指向。distributor 必须 ASCII：它进入引导
+# 菜单条目名与 NVRAM，取含中文的 NAME 会让菜单在非 UTF-8 控制台输出乱码。
+airy_pretty=$(sed -n 's/^PRETTY_NAME="\(.*\)"$/\1/p' %{SOURCE0})
+airy_vid=$(sed -n 's/^VERSION_ID="\(.*\)"$/\1/p' %{SOURCE0})
+airy_dist=${airy_pretty%% *}
+printf '%s release %s\n' "${airy_dist}" "${airy_vid}" \
     > %{buildroot}%{_sysconfdir}/airymaxos-release
 ln -s airymaxos-release %{buildroot}%{_sysconfdir}/system-release
 
 # /etc/issue 不被任何包持有（目标机 rpm -qf 无归属），本包直接提供：agetty
-# 在登录提示前原样打印它，是控制台与串口上最先出现的品牌面。\\r \\m \\l 是
-# agetty 转义（运行内核版本、机器架构、终端设备），必须原样保留——写死字
-# 符串会让横幅与真实运行的内核脱钩，验收现场无法据此判断引导了哪个内核。
-airy_vid=$(sed -n 's/^VERSION_ID="\(.*\)"$/\1/p' %{SOURCE0})
-printf 'AirymaxOS %s\nKernel \\r on an \\m (\\l)\n' "${airy_vid}" \
+# 在登录提示前原样打印它，是控制台与串口上最先出现的品牌面。首行逐字等于
+# PRETTY_NAME，与 /etc/os-release 的同一字段同值，验收只需比对两处字符串。
+# \\r \\m \\l 是 agetty 转义（运行内核版本、机器架构、终端设备），必须原样
+# 保留——写死字符串会让横幅与真实运行的内核脱钩，现场无法据此判断引导了哪
+# 个内核。
+printf '%s\nKernel \\r on an \\m (\\l)\n' "${airy_pretty}" \
     > %{buildroot}%{_sysconfdir}/issue
 
 # 登录后横幅走 /etc/motd.d 而不是 /etc/motd：后者由 setup 包持有，两个包
@@ -310,21 +320,31 @@ grep -qxF 'ID=airymaxos' %{buildroot}/usr/lib/os-release
 grep -qxF 'VERSION_ID="%{version}"' %{buildroot}/usr/lib/os-release
 grep -qxF 'ID_LIKE="openeuler"' %{buildroot}/usr/lib/os-release
 test -L %{buildroot}%{_sysconfdir}/os-release
+# 命名两层模型在这里被锁定为可执行断言：PRETTY_NAME 的格式必须是
+# 「<ASCII 短名> <VERSION_ID>」，短名即 distributor。ISO 卷标与 .treeinfo、
+# 引导菜单条目名、/etc/system-release、/etc/issue 首行四处都从这一条派生，
+# 格式一旦破坏，四处同时漂移且只在装机现场暴露，故构建期前置判定。
+airy_osrel=%{buildroot}/usr/lib/os-release
+airy_vid=$(sed -n 's/^VERSION_ID="\(.*\)"$/\1/p' "${airy_osrel}")
+airy_pretty=$(sed -n 's/^PRETTY_NAME="\(.*\)"$/\1/p' "${airy_osrel}")
+airy_dist=${airy_pretty%% *}
+test "${airy_pretty}" = "${airy_dist} ${airy_vid}"
+# distributor 是 ASCII-only 通道（引导菜单条目名与 NVRAM），含非 ASCII 字节即
+# 判失败；NAME 允许中文全名，故只校验派生产物、不校验 NAME。
+LC_ALL=C grep -qxE '[ -~]+' %{buildroot}%{_sysconfdir}/airymaxos-release
 # system-release 的存在性与 anaconda 的解析结果一并断言：文件缺失或格式
 # 不符都会让引导配置生成失败，必须在构建期而不是装机期暴露。
-want=$(sed -n 's/^NAME="\(.*\)"$/\1/p' %{SOURCE0})
 test -L %{buildroot}%{_sysconfdir}/system-release
 test "$(readlink %{buildroot}%{_sysconfdir}/system-release)" = airymaxos-release
 test "$(wc -l < %{buildroot}%{_sysconfdir}/airymaxos-release)" -eq 1
 test "$(sed 's, release .*$,,g' \
-    %{buildroot}%{_sysconfdir}/system-release)" = "${want}"
-# 品牌面两处：登录提示前的 /etc/issue 必须自称 AirymaxOS 并保留 agetty 转义
-# （写死内核版本会让横幅与真实引导的内核脱钩），登录后的 /etc/motd.d/airymax
-# 必须列全六个入口，且每个入口都是 /usr/bin 下真实存在的符号链接——横幅
-# 里写了却装不出来的命令，比不写更糟。
+    %{buildroot}%{_sysconfdir}/system-release)" = "${airy_dist}"
+# 品牌面两处：登录提示前的 /etc/issue 首行逐字等于 PRETTY_NAME（与 os-release
+# 同一事实源），第二行保留 agetty 转义（写死内核版本会让横幅与真实引导的内核
+# 脱钩）；登录后的 /etc/motd.d/airymax 必须列全六个入口，且每个入口都是
+# /usr/bin 下真实存在的符号链接——横幅里写了却装不出来的命令，比不写更糟。
 airy_issue=%{buildroot}%{_sysconfdir}/issue
-airy_vid=$(sed -n 's/^VERSION_ID="\(.*\)"$/\1/p' %{buildroot}/usr/lib/os-release)
-test "$(sed -n 1p "${airy_issue}")" = "AirymaxOS ${airy_vid}"
+test "$(sed -n 1p "${airy_issue}")" = "${airy_pretty}"
 grep -qxF 'Kernel \r on an \m (\l)' "${airy_issue}"
 airy_motd=%{buildroot}%{_sysconfdir}/motd.d/airymax
 for airy_cmd in airy-os airy-kernel airy-bench airy-observe airy-demo \
@@ -650,6 +670,17 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Mon Nov 02 2026 SPHARX <dev@spharx.com> - 0.0.4-1
+- Adopt the two-layer display-name model: NAME is the human-readable full
+  name (may carry Chinese), PRETTY_NAME is the ASCII brand plus VERSION_ID
+  and becomes the only source of /etc/system-release, /etc/issue and the
+  ISO / boot-menu product name. Deriving those ASCII channels from NAME
+  made build-iso refuse to assemble the image as soon as NAME stopped
+  being ASCII, and would have put mojibake in the grub menu on non-UTF-8
+  consoles. %check now asserts the PRETTY_NAME format invariant, the
+  distributor parsed out of system-release and the issue first line,
+  rather than a literal brand string
+- Version bump to 0.0.4
 * Mon Nov 02 2026 SPHARX <dev@spharx.com> - 0.0.3-27
 - Ship /etc/NetworkManager/conf.d/99-airymax.conf: the desktop policy
   states dns=default with rc-manager=symlink (no plugin is installed,

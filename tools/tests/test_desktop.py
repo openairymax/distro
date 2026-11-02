@@ -9,7 +9,7 @@
 # 标准库 unittest 编写，可被 pytest 直接收集。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.3
+# Version: 0.0.4
 # ===========================================================================
 
 import configparser
@@ -28,6 +28,12 @@ import fakes
 BASE = Path(__file__).resolve().parents[2]
 SPEC = BASE / "specs" / "airymaxos-release.spec"
 WALLPAPER = "/usr/share/backgrounds/airymaxos/airymaxos-default.jpg"
+
+# 身份夹具按真实命名口径造（PRETTY_NAME = 短名 + 版本号），短名与版本
+# 由 release/os-release 单点派生，避免每次发版都改一批与资产契约无关的
+# 文字。
+PRODUCT = fakes.osrel("PRETTY_NAME")
+BRAND, _, VERSION = PRODUCT.rpartition(" ")
 
 MACROS = {
     "%{_sysconfdir}": "/etc",
@@ -132,9 +138,11 @@ def identity_root(root):
     """铺一份最小的身份文件树，供两份报告共用。"""
     files = {
         "usr/lib/os-release":
-            'ID=airymaxos\nVERSION_ID="0.0.3"\n'
-            'PRETTY_NAME="AirymaxOS 0.0.3 (OpenAirymax)"\n',
-        "etc/default/grub": 'GRUB_DISTRIBUTOR="AirymaxOS"\n',
+            f'ID=airymaxos\nVERSION_ID="{VERSION}"\n'
+            f'PRETTY_NAME="{PRODUCT}"\n',
+        # GRUB_DISTRIBUTOR 与 system-release 同源：菜单名取 PRETTY_NAME 的
+        # 短名段，不取含中文的 NAME。
+        "etc/default/grub": f'GRUB_DISTRIBUTOR="{BRAND}"\n',
         "etc/hostname": "airymaxos\n",
         "usr/share/backgrounds/airymaxos/airymaxos-default.jpg": "",
         "usr/share/glib-2.0/schemas/"
@@ -164,11 +172,11 @@ def keys_of(stdout):
 
 # 观察点与测量的替身只用于验证 demo 的判据，不冒充真实实现：身份正确、
 # 展示项故意缺一项（net.ipv4），用来证明缺字段不会把结论拉成 degraded。
-OBSERVE_STUB = """\
+OBSERVE_STUB = f"""\
 #!/bin/sh
 M=AIRYMAX-OBSERVE
 printf '%s os.id=airymaxos\\n' "$M"
-printf '%s os.pretty="AirymaxOS 0.0.3 (OpenAirymax)"\\n' "$M"
+printf '%s os.pretty="{PRODUCT}"\\n' "$M"
 printf '%s host.name=airymaxos\\n' "$M"
 printf '%s kernel.release=6.6.157-alk\\n' "$M"
 printf '%s kernel.owner=airymaxos-kernel\\n' "$M"
@@ -485,10 +493,9 @@ class DesktopAssetTest(unittest.TestCase):
             lines = out.stdout.splitlines()
             for want in (
                     "AIRYMAX-OBSERVE os.id=airymaxos",
-                    "AIRYMAX-OBSERVE os.version=0.0.3",
-                    'AIRYMAX-OBSERVE os.pretty='
-                    '"AirymaxOS 0.0.3 (OpenAirymax)"',
-                    "AIRYMAX-OBSERVE brand.grub=AirymaxOS",
+                    f"AIRYMAX-OBSERVE os.version={VERSION}",
+                    f'AIRYMAX-OBSERVE os.pretty="{PRODUCT}"',
+                    f"AIRYMAX-OBSERVE brand.grub={BRAND}",
                     "AIRYMAX-OBSERVE brand.wallpaper=present",
                     "AIRYMAX-OBSERVE brand.schema=present",
                     "AIRYMAX-OBSERVE asset.desktop=present",
@@ -526,10 +533,10 @@ class DesktopAssetTest(unittest.TestCase):
             root = identity_root(Path(tmp))
             out = run(["sh", str(script), "--root", str(root)])
             lines = out.stdout.splitlines()
-            for want in ("os.id=airymaxos", "os.version=0.0.3",
+            for want in ("os.id=airymaxos", f"os.version={VERSION}",
                          "host.name=airymaxos",
-                         'os.pretty="AirymaxOS 0.0.3 (OpenAirymax)"',
-                         "brand.grub=AirymaxOS"):
+                         f'os.pretty="{PRODUCT}"',
+                         f"brand.grub={BRAND}"):
                 self.assertIn(f"AIRYMAX-OBSERVE {want}", lines)
             self.assertIn("AIRYMAX-OBSERVE mode=live fields=30", lines)
             self.assertTrue(
@@ -593,10 +600,12 @@ class DesktopAssetTest(unittest.TestCase):
             (root / "etc/default/grub").write_text(
                 'GRUB_DISTRIBUTOR="$(sed \'s, release .*$,,g\' '
                 '/etc/system-release)"\n', encoding="utf-8")
+            # system-release 是 anaconda 写的 "<短名> release <版本号>"，
+            # 报告按同一条 sed 规则从它推菜单名。
             (root / "etc/system-release").write_text(
-                "AirymaxOS release 0.0.3 (OpenAirymax)\n", encoding="utf-8")
+                f"{BRAND} release {VERSION}\n", encoding="utf-8")
             out = run(["sh", str(script), "--root", str(root), "--static"])
-            self.assertIn("AIRYMAX-OBSERVE brand.grub=AirymaxOS",
+            self.assertIn(f"AIRYMAX-OBSERVE brand.grub={BRAND}",
                           out.stdout.splitlines())
 
             (root / "etc/system-release").unlink()

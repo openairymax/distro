@@ -11,14 +11,29 @@
 # Version: 0.0.4
 # ===========================================================================
 
+import re
 import shutil
 from pathlib import Path
+
+DISTRO = Path(__file__).resolve().parents[2]
 
 TOOLS = ("awk", "base64", "basename", "bash", "cat", "cmp", "cp", "cut",
          "date", "dd", "dirname", "find", "git", "grep", "head", "install",
          "mkdir", "mv", "od", "python3", "readlink", "rm", "sed", "seq",
          "sha256sum", "sleep", "sort", "stat", "tail", "tee", "timeout", "tr",
          "truncate", "uname", "wc")
+
+
+def osrel(key):
+    """从 release/os-release 取一个键的值。
+
+    版本号和展示名每个发行周期都会变，沙箱里的产物名必须跟着真实派生规则
+    走；写死某一个小版本会让每次发版都要改一批与契约无关的断言。
+    """
+    text = (DISTRO / "release" / "os-release").read_text(encoding="utf-8")
+    hit = re.search(rf'^{key}="?(.*?)"?$', text, re.M)
+    return hit.group(1) if hit else ""
+
 
 MKKSISO = """\
 #!/bin/sh

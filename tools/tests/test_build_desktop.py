@@ -9,7 +9,7 @@
 # group 元数据与 ISO 回读一致性。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.3
+# Version: 0.0.4
 # ===========================================================================
 
 import gzip
@@ -32,9 +32,12 @@ COMPS = DISTRO / "comps" / "airymaxos-comps.xml"
 MIRROR_LIST = DISTRO / "repo" / "mirrors.list"
 APP_OFF = 16 * 2048 + 883
 
+VERSION = fakes.osrel("VERSION_ID")
+ISO_NAME = f"airymaxos-{VERSION}-x86_64.iso"
+
 CLOSURE = (
-    "airymaxos-release-0.0.3-1.noarch.rpm",
-    "airymaxos-system-0.0.3-1.noarch.rpm",
+    f"airymaxos-release-{VERSION}-1.noarch.rpm",
+    f"airymaxos-system-{VERSION}-1.noarch.rpm",
     "airymaxos-kernel-6.6.0-1.x86_64.rpm",
     "airymaxos-kernel-core-6.6.0-1.x86_64.rpm",
     "airymaxos-kernel-modules-6.6.0-1.x86_64.rpm",
@@ -156,7 +159,7 @@ class BuildDesktopTest(unittest.TestCase):
                                "--rpms", str(self.rpms), *args, **extra)
 
     def iso(self):
-        return self.out / "iso" / "airymaxos-0.0.3-x86_64.iso"
+        return self.out / "iso" / ISO_NAME
 
     def witness_root(self):
         """收割端留档的实际镜像根：载荷出自哪个快照，事后必须可查。"""
@@ -213,7 +216,7 @@ class BuildDesktopTest(unittest.TestCase):
     def test_wrong_rpm_arch(self):
         self.tools()
         self.stock()
-        self.write_rpm(self.rpms, "airymaxos-extra-0.0.3-1.aarch64.rpm")
+        self.write_rpm(self.rpms, "airymaxos-extra-1.0.0-1.aarch64.rpm")
         self.assertEqual(self.build("--arch", "x86_64").returncode, 5)
 
     def test_source_rpm_skipped(self):
@@ -595,11 +598,11 @@ class BuildDesktopTest(unittest.TestCase):
     def test_build_success(self):
         self.tools()
         self.stock()
-        self.write_rpm(self.rpms / "nested", "airymaxos-agent-0.0.3-1.x86_64.rpm")
+        self.write_rpm(self.rpms / "nested", "airymaxos-agent-1.0.0-1.x86_64.rpm")
         res = self.build("--arch", "x86_64")
         self.assertEqual(res.returncode, 0, res.stderr)
         pkgdir = self.out / "payload" / "airymax" / "Packages"
-        self.assertTrue((pkgdir / "airymaxos-agent-0.0.3-1.x86_64.rpm").is_file())
+        self.assertTrue((pkgdir / "airymaxos-agent-1.0.0-1.x86_64.rpm").is_file())
         self.assertTrue((pkgdir / "repodata" / "repomd.xml").is_file())
         self.assertEqual(
             gzip.decompress((pkgdir / "repodata" / "comps.xml.gz").read_bytes()),

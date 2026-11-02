@@ -30,8 +30,8 @@
 # spec-lint: source-root ../../system/bin
 # spec-lint: source-root ../../system/services/airydisk
 
-%global airy_version 0.0.3
-%global airy_release 3
+%global airy_version 0.0.4
+%global airy_release 1
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -160,6 +160,9 @@ fi
 %{python3_sitelib}/airydisk
 
 %changelog
+* Mon Nov 02 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-1
+- Product version bump to 0.0.4; package content unchanged in this
+  commit, 0.0.4 work items land on top of it
 * Mon Nov 02 2026 Liren Wang <wangliren@spharx.cn> - 0.0.3-3
 - Ship airy-disk and the airydisk Python package so the installer and
   the running system judge disk layout with one implementation

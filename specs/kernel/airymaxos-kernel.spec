@@ -59,11 +59,11 @@
 #   /usr/include 文件冲突，使装机事务失败）。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.3
+# Version: 0.0.4
 # ===========================================================================
 
-%global airy_version 0.0.3
-%global airy_release 7
+%global airy_version 0.0.4
+%global airy_release 1
 %global kernel_version 6.6.157
 %global kernel_local -alk
 %global kernel_release %{kernel_version}%{kernel_local}
@@ -418,6 +418,10 @@ depmod -a %{kernel_release}
 %endif
 
 %changelog
+* Mon Nov 02 2026 SPHARX <dev@spharx.com> - 0.0.4-1
+- 产品版本抬到 0.0.4，内核基线不变（仍为 6.6.157-alk），本包无内容变化；
+  版本号随发行版整体走，装机侧 airy-kernel 与 os-release 的 VERSION_ID
+  才能同属一个发行版，不必再靠 Release 号推断镜像批次
 * Sat Oct 31 2026 SPHARX <dev@spharx.com> - 0.0.3-7
 - kernel：modules_install 之后补一次签名检测，漏签就地对已安装模块执行
   modules_sign，%%check 增加全量 .module_sig 门禁。0.0.3 装机实测模块只带

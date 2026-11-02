@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
 # ===========================================================================
-# AirymaxOS 0.0.3（x86_64）最小安装 kickstart — 无桌面基线
+# AirymaxOS 0.0.4（x86_64）最小安装 kickstart — 无桌面基线
 #
 # 用途：装机与镜像流水线的可判定基线。最小系统承担三件事——
 #   1. 可引导（AirymaxOS 内核 + bootloader + 基础用户空间）；

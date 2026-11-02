@@ -69,8 +69,8 @@ usage()
   --volid NAME       ISO 卷标，缺省 AIRYMAXOS
   --arch ARCH        x86_64|aarch64，缺省为宿主
   --version VER      版本号，缺省取 release/os-release 的 VERSION_ID
-  --product TEXT     引导菜单显示的产品名，缺省由 os-release 的 NAME 与
-                     VERSION_ID 拼成（如 "AirymaxOS 0.0.3"）
+  --product TEXT     引导菜单显示的产品名（ASCII），缺省取 release/os-release
+                     的 PRETTY_NAME（"<短名> <版本号>"）
   --kargs TEXT       追加到安装内核命令行的参数，缺省
                      "console=tty0 console=ttyS0,115200"；传空串则不追加
   --add PATH         额外加入 ISO 的文件或目录，可重复
@@ -157,19 +157,22 @@ base_ver()
         "${DISTRO_ROOT}/release/os-release"
 }
 
-base_name()
+base_pretty()
 {
-    sed -n 's/^NAME="\{0,1\}\([^"]*\)"\{0,1\}[[:space:]]*$/\1/p' \
+    sed -n 's/^PRETTY_NAME="\{0,1\}\([^"]*\)"\{0,1\}[[:space:]]*$/\1/p' \
         "${DISTRO_ROOT}/release/os-release"
 }
 
-# 引导菜单只显示产品名，不含发行版代号；缺省取 os-release 的 NAME 与
-# VERSION_ID 拼接，与 manifest 的 version 字段各自独立。字符白名单用正则
-# 而非 case：bash 的 case 模式在方括号里遇到圆括号会按语法解析。
+# 引导菜单只显示产品名，不含发行版代号；缺省直接取 os-release 的 PRETTY_NAME，
+# 与 manifest 的 version 字段各自独立。这里绝不读 NAME：NAME 是按 0.0.4 口径
+# 给人读的完整名（可含中文），而产品名要进 ISO 卷标、.treeinfo、菜单标题与
+# NVRAM 条目，全是 ASCII-only 通道——下面的字符白名单会直接拒绝非 ASCII，
+# 放过它则菜单在非 UTF-8 控制台输出乱码。字符白名单用正则而非 case：bash 的
+# case 模式在方括号里遇到圆括号会按语法解析。
 check_product()
 {
     if [ -z "$PRODUCT" ]; then
-        PRODUCT="$(base_name) $(base_ver)"
+        PRODUCT="$(base_pretty)"
     fi
     if [[ "$PRODUCT" =~ [^A-Za-z0-9\ ._\(\)\&-] ]]; then
         die "${E_INVAL}" "产品名含非法字符: ${PRODUCT}"

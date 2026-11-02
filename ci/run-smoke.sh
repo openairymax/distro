@@ -25,7 +25,8 @@
 #       带签名且内核未被未签名模块污染
 #   T7  LSM 注册表：airy 只登记一次，配套 lockdown LSM 在位
 #   T8  主机名：/etc/hostname 是产品名，不是安装器缺省名
-#   T9  品牌：/etc/os-release 的 NAME/ID/PRETTY_NAME/VERSION_ID 指向本产品
+#   T9  品牌：/etc/os-release 的命名不变式（PRETTY_NAME=短名+版本）与
+#       /etc/issue 首行同源，ID/代号指向本产品
 #   T10 分辨率：每个 connected 输出处于 display_mode.sh 定义的策略模式
 #   T11 EFI 品牌：ESP 内 airymaxos 目录是完整签名套件，BootOrder 首位为本产品
 #   T12 免密提权：交付账户能以 NOPASSWD 完成一次非交互提权
@@ -314,14 +315,13 @@ t8_hostname() {
 
 # T9: 品牌（os-release 是发行版身份的唯一载体，桌面与会话代理都读它）
 t9_brand() {
-    local file="${SYSROOT}/etc/os-release" ver
+    local file="${SYSROOT}/etc/os-release" ver pretty dist
     [ -r "${file}" ] || {
         echo "${file} unreadable"
         return 1
     }
-    expect "$(os_rel NAME)" AirymaxOS "os-release NAME" || return 1
     expect "$(os_rel ID)" airymaxos "os-release ID" || return 1
-    expect_prefix "$(os_rel PRETTY_NAME)" "AirymaxOS " "os-release PRETTY_NAME" ||
+    expect "$(os_rel VERSION_CODENAME)" openairymax "os-release codename" ||
         return 1
     ver="$(os_rel VERSION_ID)"
     case "${ver}" in
@@ -331,6 +331,26 @@ t9_brand() {
         return 1
         ;;
     esac
+    # 两层展示名的可执行不变式：PRETTY_NAME 必须逐字等于「<ASCII 短名> <版本
+    # 号>」。逐字断言品牌串会把某一版的命名写死在探针里，命名调整即整条判定
+    # 失效；断言不变式既锁住格式又随 os-release 一起演进。短名必须 ASCII——
+    # 它同时是引导菜单条目名、ISO 卷标与 NVRAM 的通道。
+    pretty="$(os_rel PRETTY_NAME)"
+    dist="${pretty%% *}"
+    case "${dist}" in
+    ''|*[!A-Za-z0-9._-]*)
+        echo "os-release PRETTY_NAME: ${pretty:-absent} (want '<brand> <version>')"
+        return 1
+        ;;
+    esac
+    expect "${dist} ${ver}" "${pretty}" "os-release PRETTY_NAME" || return 1
+    # NAME 是给人读的完整名（按 0.0.4 口径含中文），只要求以同一短名起头：
+    # 两处品牌面仍是同一个词根，底座名（openEuler）在此判失败。
+    expect_prefix "$(os_rel NAME)" "${dist}" "os-release NAME" || return 1
+    # 登录前的品牌面与 os-release 同一事实源：/etc/issue 首行逐字等于
+    # PRETTY_NAME。文件缺失时 sed 给出空串，由 expect 报出差异。
+    expect "$(sed -n 1p "${SYSROOT}/etc/issue")" "${pretty}" "issue 首行" ||
+        return 1
 }
 
 # T10: 分辨率（会话输出必须处于策略模式，策略单点在 display_mode.sh）
