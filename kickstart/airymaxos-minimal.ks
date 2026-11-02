@@ -69,8 +69,9 @@ user --name=amuser --groups=wheel --iscrypted --password=$6$airy003user0x01$s1JW
 # NetworkManager 与 sshd 同属缺一即失去接管入口的单元：99-airymax-
 # default-disable.preset 的 disable * 会在装包时把两者一并关掉，全靠
 # 本行显式启用。上面已声明 DHCP 引导，单元不启用则装完无 DHCP、sshd
-# 也就没有可达路径。
-services --enabled=sshd,chronyd,NetworkManager
+# 也就没有可达路径。airymax-update-check.timer 同样被 90-airymax.preset
+# 钉在 disabled，不在此启用则升级通道装完即静默失效。
+services --enabled=sshd,chronyd,NetworkManager,airymax-update-check.timer
 firewall --enabled --service=ssh
 firstboot --disable
 
