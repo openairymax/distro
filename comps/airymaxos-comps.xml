@@ -234,9 +234,10 @@
     <uservisible>true</uservisible>
     <packagelist>
       <!-- 生物识别前端与后端必须成组：只装 manager 时面板有入口但
-           无认证后端，指纹登录静默失效，故两件同列 -->
+           无认证后端，指纹登录静默失效，故两件同列。后端是 libpam-biometric，
+           ukui-biometric-auth 只是源包名，仓库里没有同名二进制 -->
       <packagereq type="optional">ukui-biometric-manager</packagereq>
-      <packagereq type="optional">ukui-biometric-auth</packagereq>
+      <packagereq type="optional">libpam-biometric</packagereq>
       <packagereq type="optional">peony-extensions</packagereq>
     </packagelist>
   </group>
