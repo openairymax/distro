@@ -3,8 +3,8 @@
 # airymaxos-system — AirymaxOS 系统编排包
 #
 # 职责：
-#   1. 部署 agentrt.target 及其 12 个 daemon 单元、事件模板与
-#      首启初始化/启动自检单元；
+#   1. 部署 agentrt.target 及其 12 个 daemon 单元、事件模板、首启初始化、
+#      启动自检，以及数据分区挂载与健康检查单元；
 #   2. 部署 /usr/lib/airymaxos/scripts 下的运行时脚本；
 #   3. 部署 /usr/bin/airy-disk 与 airydisk Python 包，装机、升级与
 #      门禁因此共用同一份磁盘判定实现（DISK-01）；
@@ -38,7 +38,7 @@
 # spec-lint: source-bundle ../../system/services/airyupdate
 
 %global airy_version 0.0.4
-%global airy_release 3
+%global airy_release 4
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -80,6 +80,9 @@ Source26:       airyupdate-%{version}.tar.gz
 Source27:       airy-llm.service
 Source28:       airy-model
 Source29:       airyllm-%{version}.tar.gz
+Source30:       airy-disk-mount.service
+Source31:       airy-disk-health.service
+Source32:       airy-disk-health.timer
 
 BuildRequires:  python3-devel
 Requires:       bash
@@ -94,7 +97,8 @@ Requires(postun): systemd
 %description
 AirymaxOS system orchestration package. It owns the agentrt.target
 aggregate, the twelve daemon units, the incident template, the first
-boot initialization gate, the boot health self-test, the runtime
+boot initialization gate, the boot health self-test, the data
+partition mount and health units with their daily timer, the runtime
 scripts they execute, the airy-disk command with its Python package,
 and the airy-model command with the local model runtime package and
 service unit. Units are installed disabled; the installer enables them
@@ -112,6 +116,7 @@ install -m 0644 %{SOURCE1} %{SOURCE2} %{SOURCE3} %{SOURCE4} %{SOURCE5} \
     %{SOURCE6} %{SOURCE7} %{SOURCE8} %{SOURCE9} %{SOURCE10} %{SOURCE11} \
     %{SOURCE12} %{SOURCE13} %{SOURCE14} %{SOURCE16} \
     %{SOURCE23} %{SOURCE24} %{SOURCE27} \
+    %{SOURCE30} %{SOURCE31} %{SOURCE32} \
     %{buildroot}%{_unitdir}/
 install -m 0644 %{SOURCE0} %{SOURCE15} %{buildroot}%{_unitdir}/
 install -d -m 0755 %{buildroot}/usr/lib/airymaxos/scripts
@@ -151,6 +156,21 @@ grep -qxF 'StateDirectory=airy-llm' \
     %{buildroot}%{_unitdir}/airy-llm.service
 grep -qxF 'ConditionPathExists=/var/lib/airy-llm/manifest.json' \
     %{buildroot}%{_unitdir}/airy-llm.service
+test -f %{buildroot}%{_unitdir}/airy-disk-mount.service
+grep -qxF 'ExecStart=/usr/bin/airy-disk mount' \
+    %{buildroot}%{_unitdir}/airy-disk-mount.service
+grep -qxF 'Before=agentrt.target multi-user.target' \
+    %{buildroot}%{_unitdir}/airy-disk-mount.service
+test -f %{buildroot}%{_unitdir}/airy-disk-health.service
+grep -qxF 'ConditionPathIsMountPoint=/data' \
+    %{buildroot}%{_unitdir}/airy-disk-health.service
+test -f %{buildroot}%{_unitdir}/airy-disk-health.timer
+grep -qxF 'OnCalendar=daily' \
+    %{buildroot}%{_unitdir}/airy-disk-health.timer
+grep -qxF 'disable airy-disk-mount.service' \
+    %{buildroot}%{_presetdir}/90-airymax.preset
+grep -qxF 'disable airy-disk-health.timer' \
+    %{buildroot}%{_presetdir}/90-airymax.preset
 grep -qxF 'disable airy-llm.service' \
     %{buildroot}%{_presetdir}/90-airymax.preset
 grep -qF 'Requires=sysinit.target ' %{buildroot}%{_unitdir}/agentrt.target
@@ -193,6 +213,13 @@ fi
 %{python3_sitelib}/airyupdate
 
 %changelog
+* Mon Nov 02 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-4
+- Ship airy-disk-mount.service and the airy-disk-health pair so an
+  installed system restores /data before agentrt.target starts and
+  reports capacity or read-only faults instead of failing silently
+- Pin both to disabled: whether a data partition exists, and when
+  capacity alerts are wanted, is an install-time decision; the
+  kickstart enables them on the boot list
 * Mon Nov 02 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-3
 - Ship airy-model, the airyllm runtime package and airy-llm.service,
   so the local inference endpoint exists on installed systems; the
