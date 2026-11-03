@@ -71,12 +71,15 @@ rootpw --iscrypted $6$airy003root0x01$.lY1w9YA54iCwREQZCVZEoQ3xmCjcbkpWmWCrLciZe
 user --name=amuser --groups=wheel --iscrypted --password=$6$airy003user0x01$s1JW7QjW0kiAW7B51kVB2hNsabAadz4G/h6yBDRvpWzwsV7NO7Kh3ChDjLtapHZ6HGl5WoqNKi.IAY7IT5yRc/
 
 # ---- 服务与防火墙 ----
-# NetworkManager 与 sshd 同属缺一即失去接管入口的单元：99-airymax-
-# default-disable.preset 的 disable * 会在装包时把两者一并关掉，全靠
-# 本行显式启用。上面已声明 DHCP 引导，单元不启用则装完无 DHCP、sshd
-# 也就没有可达路径。airymax-update-check.timer 同样被 90-airymax.preset
-# 钉在 disabled，不在此启用则升级通道装完即静默失效。
-services --enabled=sshd,chronyd,NetworkManager,airymax-update-check.timer
+# 启用清单只有一份：随 airymaxos-system 落盘的 /usr/lib/airymaxos/boot-set，
+# 由同包的 boot_set.sh 在 %post 内以 --root 离线语义落位。不用 anaconda 的
+# services 指令另列一份：99-airymax-default-disable.preset 的 `disable *`
+# 会在装包时把 sshd、NetworkManager 一并关掉，两处各写一份清单时新增一项
+# 治理只在其中一处落地是必然发生的漂移。上面已声明 DHCP 引导，单元不启用
+# 则装完无 DHCP、sshd 也就没有可达路径；airymax-update-check.timer 与电源
+# 热治理同理，装完即静默失效且从服务状态上看不出来。
+# 本剖面没有桌面，lightdm 与 airymax-desktop-ready 不在位，boot_set.sh 把
+# 它们记为 state=absent 而不是失败——清单跨剖面共用，缺项是剖面的正常差异。
 firewall --enabled --service=ssh
 firstboot --disable
 
@@ -185,7 +188,8 @@ acct_req()
     fail "$3"
 }
 
-# sshd 与 chronyd 的启用由 services 指令唯一承担（服务清单 SSoT）。
+# sshd、chronyd、NetworkManager 与治理单元的启用由 boot_set.sh 唯一承担
+# （服务清单 SSoT，见上文「服务与防火墙」段）。
 # 发行版标识：上游 release 包被排除后，system-release 由本包唯一提供
 rpm -q airymaxos-release >/dev/null 2>&1 || fail release-pkg
 # system-release 缺失会让 anaconda 的 GRUB_DISTRIBUTOR 派生失败，grub-mkconfig
@@ -212,6 +216,20 @@ acct_req root sha512 root-account
 acct_req amuser empty airymax-account
 
 set_default multi-user.target
+
+# 启用边界：清单与动作都由 airymaxos-system 提供（boot_set.sh --root 离线
+# 语义）。本段跑在目标根里，systemd 总线不可用，故不看命令行退出码，脚本
+# 内按 is-enabled 回读判据；每项一行打到串口，缺项即可归因。
+boot_tool=/usr/lib/airymaxos/scripts/boot_set.sh
+[ -x "${boot_tool}" ] || fail boot-set-tool
+systemctl --root=/ preset-all >/dev/null 2>&1 ||
+    mark "AIRYMAX-INSTALL-NOTE preset-all rc=$?"
+boot_rc=0
+"${boot_tool}" --root=/ >/tmp/airymax-boot-set.log 2>&1 || boot_rc=$?
+while IFS= read -r line; do
+    mark "AIRYMAX-BOOT-SET ${line}"
+done </tmp/airymax-boot-set.log
+[ "${boot_rc}" -eq 0 ] || fail boot-set-enable
 
 mark "AirymaxOS minimal install complete (baseline $(date -u +%Y%m%d))"
 %end
