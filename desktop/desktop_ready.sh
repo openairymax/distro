@@ -251,7 +251,7 @@ diagnose()
 
 main()
 {
-    ui_step 8 9 桌面就绪
+    ui_begin 桌面就绪
     if ! boot_health; then
         ui_fail 桌面就绪 'reason=boot'
         advise "${BOOT_HINT}"
