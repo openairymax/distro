@@ -29,8 +29,11 @@ airymax-desktop-ready.service
 # 由 airy-rt-cap memcap 补写。不开机执行，长任务换页就没有上界。两者分属
 # 两个单元：带宽依赖登录后才存在的桌面 slice，必然只落一部分；换页上限
 # 只依赖 slice 目录，开机就该完整落地，不能被前者的部分落地连带跳过。
+# 定时器不只做周期重写——systemd 每次 daemon-reload 都把它写回 infinity，
+# 而 systemctl enable 内部就会 reload，所以重写是上限能留住的唯一方式。
 airy-rt-bandwidth.service
 airy-rt-memcap.service
+airy-rt-memcap.timer
 
 # 电源与热治理：285H 实测固件把 platform_profile 与 EPP 钉在 performance，
 # 热区 critical 只有 80°C，不接管则装机后 40 分钟即累计上万次 package
