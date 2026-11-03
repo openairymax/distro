@@ -63,12 +63,24 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 3
+%global airy_release 4
 %global kernel_version 6.6.161
 %global kernel_local -alk
 %global kernel_release %{kernel_version}%{kernel_local}
 %global ksrc %{_builddir}/airymaxos-kernel-%{kernel_version}
 %global debug_package %{nil}
+
+# rpm 在 %%install 收尾执行 __spec_install_post，其中的 brp-strip 按
+# `file` 报出的「ELF ... not stripped」选件，内核模块同样命中：strip -g
+# 重写 ELF 时把追加在文件尾的 PKCS#7、12 字节 module_signature 与魔数
+# 一并丢弃。签名在 %%install 里由 Makefile.modinst 的 sign 步骤正确写入，
+# 随即被这一步删掉，%%check 只看到「全部模块无签名尾部」——症状在
+# %%check，根因在打包后处理，补签只会被同一步再删一次（0.0.3-7 的补签
+# 分支因此无效）。内核自带 scripts/package/kernel.spec 同样覆盖该宏，
+# 只保留 brp-compress。此处取 %%nil 一并跳过去符号与字节码编译：本包无
+# .py/.a/man，模块在 modules_install 已按 INSTALL_MOD_STRIP=1 去过调试
+# 信息，perf 与 bpftool 在 %%install 内显式 strip。
+%global __spec_install_post %{nil}
 %global native %(test "%{_target_cpu}" = "$(uname -m)" && echo 1 || echo 0)
 
 %ifarch x86_64
@@ -101,10 +113,10 @@
 %global kenv ARCH=%{karch} %{?cross_prefix:CROSS_COMPILE=%{cross_prefix}}
 %global kmake make -C %{ksrc} %{kenv}
 
-# rpm 在 %%install 之后以 brp-strip 统一去符号，其可执行文件取自 __strip 与
-# __objdump。交叉构建时这两项必须换成目标架构 binutils，否则主机的
-# /usr/bin/strip 无法解析交叉产物，brp-strip 以非零退出中断打包。原生
-# 构建不定义 cross_prefix，故保持 rpm 缺省值不变。
+# 打包后处理已整体关掉（见文件头 __spec_install_post），brp-strip 不再运行；
+# __strip 的唯一消费者是 %%install 末尾对 airymax-perf 与 airymax-bpftool 的
+# 显式去符号。工具变量仍随交叉前缀切换，使两种构建取同一个变量名而不是
+# 各自写死 /usr/bin/strip。
 %if %{?cross_prefix:1}%{!?cross_prefix:0}
 %global __strip %{cross_prefix}strip
 %global __objdump %{cross_prefix}objdump
@@ -250,6 +262,9 @@ install -m 0644 %{ksrc}/System.map \
 # 0.0.3-7 的补签分支依据 readelf -S 找 .module_sig 段，而真实签名是追加在
 # 文件尾部的 PKCS#7 + module_signature + 魔数，该判据恒为假，补签反而会在已
 # 签模块上再叠一份 PKCS#7。签名是否齐全由 %%check 按尾部结构判定。
+# 曾被误判为「未签名」的第二个原因在打包后处理：brp-strip 会把这里的签名
+# 整段剥掉，已在文件头以 __spec_install_post 关掉，补签在此处写什么都没有
+# 意义——它同样逃不过那一步。
 rm -f %{buildroot}/usr/lib/modules/%{kernel_release}/build \
       %{buildroot}/usr/lib/modules/%{kernel_release}/source
 
@@ -264,7 +279,7 @@ done
 cp -a %{ksrc}/include "$ksrc_devel/include"
 cp -a %{ksrc}/scripts "$ksrc_devel/scripts"
 %if !%{native}
-# 构建机 ELF 不随交叉包发布：目标机无法执行，且会让 brp-strip 失败。
+# 构建机 ELF 不随交叉包发布：目标机无法执行，单个工具就是数兆的载荷。
 find "$ksrc_devel/scripts" -type f -perm -u+x |
 while IFS= read -r prog; do
     if [ "$(od -An -tx1 -N4 "$prog" | tr -d ' \n')" = 7f454c46 ]; then
@@ -292,6 +307,11 @@ install -d -m 0755 %{buildroot}%{_bindir}
 install -m 0755 %{ksrc}/tools/perf/perf \
     %{buildroot}%{_bindir}/airymax-perf
 install -m 0755 %{ksrc}/tools/bpf/bpftool/bpftool \
+    %{buildroot}%{_bindir}/airymax-bpftool
+# 打包后处理已被关掉（见文件头 __spec_install_post 的说明），这两个二进制
+# 的调试信息改为在此处去除：它们进 ISO 载荷，未去符号时单个 perf 就多出
+# 数十兆。
+%{__strip} -g %{buildroot}%{_bindir}/airymax-perf \
     %{buildroot}%{_bindir}/airymax-bpftool
 %endif
 
@@ -346,12 +366,20 @@ if grep -qx 'CONFIG_MODULE_SIG_ALL=y' %{ksrc}/.config; then
     total=0
     while IFS= read -r -d '' ko; do
         total=$((total + 1))
-        if [ "$(tail -c 28 "${ko}")" != '~Module signature appended~' ]; then
-            echo "unsigned module: ${ko}"
+        # tr 先去掉二进制字节里的 NUL 再进命令替换：未签名的模块尾部是
+        # 任意字节，直接替换会让 bash 对每个模块打一行「ignored null byte」，
+        # 两千余条告警把「哪几个模块没签」埋掉。去掉 NUL 不影响判定——魔数
+        # 本身不含 NUL。
+        if [ "$(tail -c 28 "${ko}" | tr -d '\000')" \
+            != '~Module signature appended~' ]; then
             unsigned=$((unsigned + 1))
+            if [ "${unsigned}" -le 3 ]; then
+                echo "unsigned module: ${ko}"
+            fi
         fi
     done < <(find %{buildroot}/usr/lib/modules/%{kernel_release} \
         -name '*.ko' -print0)
+    echo "module signatures: $((total - unsigned))/${total} signed"
     test "${total}" -gt 0
     test "${unsigned}" -eq 0
 fi
@@ -411,6 +439,15 @@ depmod -a %{kernel_release}
 %endif
 
 %changelog
+* Tue Nov 03 2026 SPHARX <dev@spharx.com> - 0.0.4-4
+- kernel：覆盖 __spec_install_post，阻止 brp-strip 在 %%install 收尾去掉
+  模块尾部签名。0.0.4-2 认定「MODULE_SIG_ALL=y 时签名随模块装入」本身
+  没错，但签名之后 rpm 还会对 buildroot 里所有「ELF 且未去符号」的文件
+  跑 strip -g，.ko 在其选件范围内，追加在文件尾的 PKCS#7 与魔数被整段
+  丢弃，于是 %%check 的尾部判据在每一轮都报全部模块未签名（run
+  41643135179）。内核自带 scripts/package/kernel.spec 同样以该宏去掉
+  brp-strip，本次沿用。perf 与 bpftool 改为在 %%install 内显式 strip，
+  避免关掉后处理后退回未去符号的大二进制
 * Tue Nov 03 2026 SPHARX <dev@spharx.com> - 0.0.4-3
 - kernel：内核基线随 kernel/ 工作树推进到 6.6.161-alk，%%global
   kernel_version 同步，源码归档名仍由该宏派生。此前工作树已并入上游
