@@ -49,7 +49,7 @@
 # spec-lint: source-bundle ../../system/services/airymax_probe
 
 %global airy_version 0.0.4
-%global airy_release 20
+%global airy_release 21
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -224,8 +224,12 @@ grep -qxF 'Slice=airymax-agent.slice' \
 test -f %{buildroot}%{_unitdir}/airymax-agent.slice
 grep -qxF 'MemoryMax=90%' \
     %{buildroot}%{_unitdir}/airymax-agent.slice
+grep -qxF 'MemorySwapMax=10%' \
+    %{buildroot}%{_unitdir}/airymax-agent.slice
 test -f %{buildroot}%{_unitdir}/user.slice.d/50-airymax-memory.conf
 grep -qxF 'MemoryMax=85%' \
+    %{buildroot}%{_unitdir}/user.slice.d/50-airymax-memory.conf
+grep -qxF 'MemorySwapMax=15%' \
     %{buildroot}%{_unitdir}/user.slice.d/50-airymax-memory.conf
 test -f %{buildroot}%{_unitdir}/airy-disk-mount.service
 grep -qxF 'ExecStart=/usr/bin/airy-disk mount' \
@@ -333,6 +337,16 @@ fi
 %{python3_sitelib}/airymax_probe
 
 %changelog
+* Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-21
+- Bound the swap side of both memory ceilings. A hard MemoryMax alone does
+  not reject the pages above it; they are swapped out, and on 285H the
+  session scope was charged 13.8G of a 16G swap while the machine spent
+  its time between eviction and refault. memsw accounting is available on
+  the 6.6 target kernel (memory.memsw.limit_in_bytes is writable and the
+  per-group swap counter is non-zero), so MemorySwapMax lands as a real
+  page-out ceiling: 10% on airymax-agent.slice and 15% in the session
+  pool, putting memory plus swap at one physical memory and keeping the
+  resident share at 90% and 85% respectively.
 * Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-20
 - Bound the session pool with a user.slice drop-in: AirymaxRT execs its
   local model runtime from a login session, so the airymax-agent.slice
