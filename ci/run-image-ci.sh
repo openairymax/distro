@@ -60,7 +60,28 @@ PASS=0
 FAIL=0
 ENV_SKIP=0
 ROWS=()
+TIMES=()
 TOTAL=0
+
+now()
+{
+    printf '%s' "${EPOCHSECONDS:-$(date +%s)}"
+}
+
+# 段耗时入账：同一个 180 分钟的组装 step 里，一次 16.5 分钟、一次 45 分钟
+# 仍未结束，混成一步时只有一个总耗时，看不出慢在取闭包还是慢在组 ISO
+# （CI-08）。每段结束即打印一行，按时间顺序就能对上流水线日志。
+seg()
+{
+    local name="$1" t0 elapsed rc=0
+    shift
+    t0="$(now)"
+    "$@" || rc=$?
+    elapsed=$(( $(now) - t0 ))
+    TIMES+=("${name}=${elapsed}")
+    printf '# timing: %s=%ss\n' "${name}" "${elapsed}"
+    return "${rc}"
+}
 
 usage()
 {
@@ -540,9 +561,12 @@ bid_get()
 
 manifest()
 {
-    local row sde bid
+    local row sde bid total=0
     sde="$(sde_get)"
     bid="$(bid_get)"
+    for row in "${TIMES[@]}"; do
+        total=$((total + ${row#*=}))
+    done
     {
         printf '# AirymaxOS image CI manifest\n'
         printf 'arch=%s\nprofile=%s\nfirmware=%s\nruns=%s\nmax_boot=%s\n' \
@@ -553,6 +577,10 @@ manifest()
         for row in "${ROWS[@]}"; do
             printf 'stage %s\n' "${row}"
         done
+        for row in "${TIMES[@]}"; do
+            printf 'time %s\n' "${row}"
+        done
+        printf 'time accounted=%d\n' "${total}"
         if [ -n "${ISO}" ] && [ -f "${ISO}" ]; then
             printf 'iso %s %s\n' "${ISO_SUM}" "$(basename "${ISO}")"
         fi
@@ -586,15 +614,21 @@ main()
     printf 'TAP version 14\n1..5\n'
     printf '# AirymaxOS image CI: arch=%s profile=%s firmware=%s\n' \
         "${ARCH}" "${PROFILE}" "${FIRMWARE}"
-    stage_rpm
-    stage_kern
-    stage_iso
-    stage_sum
+    # 工具链在容器入口装完，耗时由 assemble.sh 经环境变量递进来；本脚本
+    # 自己看不到那一段，重新计时只会得到「从 run-image-ci 起算」的假数。
+    if [ -n "${AIRY_TOOLCHAIN_S:-}" ]; then
+        TIMES+=("toolchain=${AIRY_TOOLCHAIN_S}")
+        printf '# timing: toolchain=%ss\n' "${AIRY_TOOLCHAIN_S}"
+    fi
+    seg rpm stage_rpm
+    seg kern stage_kern
+    seg iso stage_iso
+    seg checksum stage_sum
     ISO_SUM=""
     if [ -n "${ISO}" ] && [ -f "${ISO}" ]; then
         read -r ISO_SUM _ <<<"$(sha256sum "${ISO}")"
     fi
-    stage_inst
+    seg install stage_inst
     manifest
     printf '# summary: pass=%d fail=%d\n' "${PASS}" "${FAIL}"
     if [ "${FAIL}" -gt 0 ]; then
