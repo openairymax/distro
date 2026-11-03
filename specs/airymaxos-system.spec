@@ -25,7 +25,10 @@
 #  10. 部署 airy-rt-coexist 单元对，把桌面 slice 的运行时权重从基线
 #      抬到保护档，使实时负载与桌面负载按 PSI 证据共存（X-05）；
 #  11. 部署 /usr/lib/airymaxos/boot-set，声明开机必须启用的单元清单；
-#  12. 在 %%post/%%postun 内刷新 systemd 单元缓存，在 %%posttrans 内按
+#  12. 部署 airy-boot-mount 单元与 boot_mount.sh，在数据分区之前报出根
+#      是否只读、/boot 与 ESP 是否独立挂载，装机与引导修复的现场诊断
+#      因此不依赖事后翻 fstab 与 mount 输出；
+#  13. 在 %%post/%%postun 内刷新 systemd 单元缓存，在 %%posttrans 内按
 #      该清单启用并启动单元。
 #
 # 单元启用（systemctl enable）只有一条实现：读 /usr/lib/airymaxos/boot-set。
@@ -61,7 +64,7 @@
 # spec-lint: source-bundle ../../system/services/airymax_observe
 
 %global airy_version 0.0.4
-%global airy_release 42
+%global airy_release 43
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -127,6 +130,8 @@ Source51:       airy-rt-memcap.service
 Source52:       airy-rt-memcap.timer
 Source53:       ui.sh
 Source54:       stage_run.sh
+Source55:       airy-boot-mount.service
+Source56:       boot_mount.sh
 
 BuildRequires:  gcc
 BuildRequires:  python3-devel
@@ -192,14 +197,14 @@ install -m 0644 %{SOURCE1} %{SOURCE2} %{SOURCE3} %{SOURCE4} %{SOURCE5} \
     %{SOURCE23} %{SOURCE24} %{SOURCE27} \
     %{SOURCE30} %{SOURCE31} %{SOURCE32} %{SOURCE35} %{SOURCE51} %{SOURCE52} \
     %{SOURCE37} %{SOURCE38} %{SOURCE42} %{SOURCE43} %{SOURCE45} \
-    %{buildroot}%{_unitdir}/
+    %{SOURCE55} %{buildroot}%{_unitdir}/
 install -m 0644 %{SOURCE0} %{SOURCE15} %{buildroot}%{_unitdir}/
 install -d -m 0755 %{buildroot}%{_unitdir}/user.slice.d
 install -m 0644 %{SOURCE46} \
     %{buildroot}%{_unitdir}/user.slice.d/50-airymax-memory.conf
 install -d -m 0755 %{buildroot}/usr/lib/airymaxos/scripts
 install -m 0755 %{SOURCE17} %{SOURCE18} %{SOURCE50} %{SOURCE53} \
-    %{SOURCE54} %{buildroot}/usr/lib/airymaxos/scripts/
+    %{SOURCE54} %{SOURCE56} %{buildroot}/usr/lib/airymaxos/scripts/
 install -d -m 0755 %{buildroot}%{_presetdir}
 install -m 0644 %{SOURCE19} %{SOURCE20} %{buildroot}%{_presetdir}/
 install -m 0644 %{SOURCE49} %{buildroot}/usr/lib/airymaxos/boot-set
@@ -226,9 +231,11 @@ test -x %{buildroot}/usr/lib/airymaxos/scripts/health_check.sh
 test -x %{buildroot}/usr/lib/airymaxos/scripts/boot_set.sh
 test -x %{buildroot}/usr/lib/airymaxos/scripts/ui.sh
 test -x %{buildroot}/usr/lib/airymaxos/scripts/stage_run.sh
+test -x %{buildroot}/usr/lib/airymaxos/scripts/boot_mount.sh
 bash -n %{buildroot}/usr/lib/airymaxos/scripts/boot_set.sh
 bash -n %{buildroot}/usr/lib/airymaxos/scripts/ui.sh
 bash -n %{buildroot}/usr/lib/airymaxos/scripts/stage_run.sh
+bash -n %{buildroot}/usr/lib/airymaxos/scripts/boot_mount.sh
 test "$(bash -c '. %{buildroot}/usr/lib/airymaxos/scripts/ui.sh; ui_total')" = 9
 test -x %{buildroot}%{_bindir}/airy-disk
 test -x %{buildroot}%{_bindir}/airy-update
@@ -275,8 +282,17 @@ grep -qxF 'MemoryMax=85%' \
     %{buildroot}%{_unitdir}/user.slice.d/50-airymax-memory.conf
 grep -qxF 'MemorySwapMax=15%' \
     %{buildroot}%{_unitdir}/user.slice.d/50-airymax-memory.conf
+test -f %{buildroot}%{_unitdir}/airy-boot-mount.service
+grep -qxF 'ExecStart=/usr/lib/airymaxos/scripts/stage_run.sh 基础挂载 3 root,boot,efi /usr/lib/airymaxos/scripts/boot_mount.sh' \
+    %{buildroot}%{_unitdir}/airy-boot-mount.service
+grep -qxF 'Before=airy-disk-mount.service agentrt.target multi-user.target' \
+    %{buildroot}%{_unitdir}/airy-boot-mount.service
+grep -qxF 'SuccessExitStatus=3' \
+    %{buildroot}%{_unitdir}/airy-boot-mount.service
+grep -qxF 'disable airy-boot-mount.service' \
+    %{buildroot}%{_presetdir}/90-airymax.preset
 test -f %{buildroot}%{_unitdir}/airy-disk-mount.service
-grep -qxF 'ExecStart=/usr/bin/airy-disk mount' \
+grep -qxF 'ExecStart=/usr/lib/airymaxos/scripts/stage_run.sh 数据分区 4 - /usr/bin/airy-disk mount' \
     %{buildroot}%{_unitdir}/airy-disk-mount.service
 grep -qxF 'Before=agentrt.target multi-user.target' \
     %{buildroot}%{_unitdir}/airy-disk-mount.service
@@ -287,7 +303,7 @@ test -f %{buildroot}%{_unitdir}/airy-disk-health.timer
 grep -qxF 'OnCalendar=daily' \
     %{buildroot}%{_unitdir}/airy-disk-health.timer
 test -f %{buildroot}%{_unitdir}/airy-rt-bandwidth.service
-grep -qxF 'ExecStart=/usr/bin/airy-rt-cap apply' \
+grep -qxF 'ExecStart=/usr/lib/airymaxos/scripts/stage_run.sh 运行时带宽 3 state,applied /usr/bin/airy-rt-cap apply' \
     %{buildroot}%{_unitdir}/airy-rt-bandwidth.service
 grep -qxF 'SuccessExitStatus=3' \
     %{buildroot}%{_unitdir}/airy-rt-bandwidth.service
@@ -296,7 +312,7 @@ grep -qxF 'SuccessExitStatus=3' \
 grep -qxF 'Before=agentrt.target rtkit-daemon.service display-manager.service' \
     %{buildroot}%{_unitdir}/airy-rt-bandwidth.service
 test -f %{buildroot}%{_unitdir}/airy-rt-memcap.service
-grep -qxF 'ExecStart=/usr/bin/airy-rt-cap memcap --apply' \
+grep -qxF 'ExecStart=/usr/lib/airymaxos/scripts/stage_run.sh 换页上限 3 layout,steps /usr/bin/airy-rt-cap memcap --apply' \
     %{buildroot}%{_unitdir}/airy-rt-memcap.service
 grep -qxF 'SuccessExitStatus=3' \
     %{buildroot}%{_unitdir}/airy-rt-memcap.service
@@ -312,7 +328,7 @@ grep -qxF 'disable airy-rt-memcap.timer' \
 ! grep -q '^RemainAfterExit=' \
     %{buildroot}%{_unitdir}/airy-rt-memcap.service
 test -f %{buildroot}%{_unitdir}/airy-rt-coexist.service
-grep -qxF 'ExecStart=/usr/bin/airy-rt-cap coexist --apply' \
+grep -qxF 'ExecStart=/usr/lib/airymaxos/scripts/stage_run.sh 桌面与 RT 共存 - mode,weight,current,applied /usr/bin/airy-rt-cap coexist --apply' \
     %{buildroot}%{_unitdir}/airy-rt-coexist.service
 grep -qxF 'Before=display-manager.service' \
     %{buildroot}%{_unitdir}/airy-rt-coexist.service
@@ -375,7 +391,8 @@ test -z "$(grep -Ev '^[[:space:]]*(#|$)' %{buildroot}/usr/lib/airymaxos/boot-set
 for unit in airy-rt-bandwidth.service airy-rt-memcap.service \
     airy-rt-memcap.timer airy-power.service airy-power.timer \
     airy-rt-coexist.service airy-rt-coexist.timer airy-disk-mount.service \
-    airy-disk-health.timer airymax-update-check.timer; do
+    airy-disk-health.timer airymax-update-check.timer \
+    airy-boot-mount.service; do
     grep -qxF "${unit}" %{buildroot}/usr/lib/airymaxos/boot-set || exit 1
 done
 
@@ -431,6 +448,21 @@ fi
 %{python3_sitelib}/airymax_observe
 
 %changelog
+* Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-43
+- Add the base mount stage, the first of the nine boot stages. The stage
+  reads /proc/self/mountinfo and reports whether the root is writable and
+  whether /boot and the ESP are independently mounted, so a live image that
+  silently wrote into a directory on the root instead of the ESP is visible
+  at boot rather than after a reboot with no new boot entry.
+- A read-only root is reported as a note, not a failure: rescue and recovery
+  boots mount the root read-only on purpose and the machine still comes up.
+  The consequences surface at the first stage that writes.
+- The unit is ordered before the data partition unit so a mount failure can
+  be attributed to the root or to the disk, not to both.
+- Install the unit, the script, the preset entry and the boot-set entry, and
+  pin the exact ExecStart in %check. Also refresh the five ExecStart
+  assertions that still expected the pre-runner form and therefore could
+  never have matched after the runner migration.
 * Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-42
 - Route five boot-time units through one stage runner. The stage line used to
   be assembled by a per-tool script, so changing the verdict ladder or the key
