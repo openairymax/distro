@@ -12,8 +12,9 @@
 #      升级通道与装机共用同一份版本身份实现（V-14）；
 #   5. 部署 /usr/bin/airy-model、airyllm Python 包与推理服务单元，模型
 #      资产通道、状态查询与启动判定共用同一份运行层实现（K-20/K-21）；
-#   6. 部署 /usr/bin/airy-rt-cap、airymax_rt Python 包与实时带宽、换页
-#      上限两个单元，启动期分配与人工排查共用同一份带宽判定实现（X-01）；
+#   6. 部署 /usr/bin/airy-rt-cap、airymax_rt Python 包、实时带宽与换页上限
+#      两个单元及上限的重写定时器，启动期分配与人工排查共用同一份带宽判定
+#      实现（X-01）；
 #   7. 部署 /usr/bin/airy-power、airymax_power Python 包、电源档位单元
 #      与周期重评定时器，启动期落档、周期复核与人工排查共用同一份判定；
 #   8. 部署 /usr/bin/airy-probe 与 airymax_probe Python 包，十条追踪通道、
@@ -60,7 +61,7 @@
 # spec-lint: source-bundle ../../system/services/airymax_observe
 
 %global airy_version 0.0.4
-%global airy_release 29
+%global airy_release 30
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -123,6 +124,7 @@ Source48:       airymax_observe-%{version}.tar.gz
 Source49:       boot-set
 Source50:       boot_set.sh
 Source51:       airy-rt-memcap.service
+Source52:       airy-rt-memcap.timer
 
 BuildRequires:  gcc
 BuildRequires:  python3-devel
@@ -149,6 +151,9 @@ of its own rather than a post step of the bandwidth unit: it only needs
 the slice directories, which exist at boot, while the bandwidth budget
 needs the desktop slice, which only exists after login, so a partial
 budget used to skip the ceiling entirely and leave swap unbounded. The
+ceiling is also the one value systemd resets to infinity on reload, so a
+timer rewrites it every minute and retries what a busy slice rejected at
+boot. The
 airy-rt-coexist unit pair raises
 the desktop slice weight on a runtime property when the CPU pressure
 crosses the threshold and leaves the static baseline alone, so a boot
@@ -183,7 +188,7 @@ install -m 0644 %{SOURCE1} %{SOURCE2} %{SOURCE3} %{SOURCE4} %{SOURCE5} \
     %{SOURCE6} %{SOURCE7} %{SOURCE8} %{SOURCE9} %{SOURCE10} %{SOURCE11} \
     %{SOURCE12} %{SOURCE13} %{SOURCE14} %{SOURCE16} \
     %{SOURCE23} %{SOURCE24} %{SOURCE27} \
-    %{SOURCE30} %{SOURCE31} %{SOURCE32} %{SOURCE35} %{SOURCE51} \
+    %{SOURCE30} %{SOURCE31} %{SOURCE32} %{SOURCE35} %{SOURCE51} %{SOURCE52} \
     %{SOURCE37} %{SOURCE38} %{SOURCE42} %{SOURCE43} %{SOURCE45} \
     %{buildroot}%{_unitdir}/
 install -m 0644 %{SOURCE0} %{SOURCE15} %{buildroot}%{_unitdir}/
@@ -288,6 +293,15 @@ grep -qxF 'SuccessExitStatus=3' \
     %{buildroot}%{_unitdir}/airy-rt-memcap.service
 grep -qxF 'disable airy-rt-memcap.service' \
     %{buildroot}%{_presetdir}/90-airymax.preset
+test -f %{buildroot}%{_unitdir}/airy-rt-memcap.timer
+grep -qxF 'Unit=airy-rt-memcap.service' \
+    %{buildroot}%{_unitdir}/airy-rt-memcap.timer
+grep -qxF 'OnUnitInactiveSec=60s' \
+    %{buildroot}%{_unitdir}/airy-rt-memcap.timer
+grep -qxF 'disable airy-rt-memcap.timer' \
+    %{buildroot}%{_presetdir}/90-airymax.preset
+! grep -q '^RemainAfterExit=' \
+    %{buildroot}%{_unitdir}/airy-rt-memcap.service
 test -f %{buildroot}%{_unitdir}/airy-rt-coexist.service
 grep -qxF 'ExecStart=/usr/bin/airy-rt-cap coexist --apply' \
     %{buildroot}%{_unitdir}/airy-rt-coexist.service
@@ -350,7 +364,7 @@ test -s %{buildroot}/usr/lib/airymaxos/boot-set
 test -z "$(grep -Ev '^[[:space:]]*(#|$)' %{buildroot}/usr/lib/airymaxos/boot-set |
     sort | uniq -d)"
 for unit in airy-rt-bandwidth.service airy-rt-memcap.service \
-    airy-power.service airy-power.timer \
+    airy-rt-memcap.timer airy-power.service airy-power.timer \
     airy-rt-coexist.service airy-rt-coexist.timer airy-disk-mount.service \
     airy-disk-health.timer airymax-update-check.timer; do
     grep -qxF "${unit}" %{buildroot}/usr/lib/airymaxos/boot-set || exit 1
@@ -408,6 +422,20 @@ fi
 %{python3_sitelib}/airymax_observe
 
 %changelog
+* Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-30
+- Re-apply the swap ceiling on a timer. The write itself succeeds, but
+  systemd on cgroup v1 does not manage memory.memsw.limit_in_bytes and
+  rewrites it to infinity on every daemon-reload; systemctl enable runs
+  a reload internally, so the boot write survived only until the next
+  enable, install or update. 285H measured both sides: applying the
+  ceiling then running daemon-reload put the file back to
+  9223372036854771712, while rewriting memory.limit_in_bytes by hand
+  left the ceiling untouched, which pins the reset on systemd rather
+  than the kernel. airy-rt-memcap.timer now rewrites it every 60s and
+  also retries the slices the boot run had to skip because their usage
+  already exceeded the target, which is exactly the state a machine
+  reaches under a long local-model task. The service drops
+  RemainAfterExit so the timer has an inactive moment to schedule from.
 * Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-29
 - Give the swap ceiling a unit of its own. It used to run from
   ExecStartPost of airy-rt-bandwidth.service, and ExecStartPost only runs

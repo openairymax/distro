@@ -51,6 +51,7 @@ UPSTREAM = {
 GOVERNANCE = {
     "airy-rt-bandwidth.service",
     "airy-rt-memcap.service",
+    "airy-rt-memcap.timer",
     "airy-power.service",
     "airy-power.timer",
     "airy-rt-coexist.service",
