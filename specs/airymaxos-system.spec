@@ -18,9 +18,11 @@
 #      与周期重评定时器，启动期落档、周期复核与人工排查共用同一份判定；
 #   8. 部署 /usr/bin/airy-probe 与 airymax_probe Python 包，十条追踪通道、
 #      两条注入通道与三处静态计数的清点共用同一份证据实现（X-02）；
-#   9. 部署 airy-rt-coexist 单元对，把桌面 slice 的运行时权重从基线
+#   9. 部署 /usr/bin/airy-observe 与 airymax_observe Python 包，整机硬件
+#      清点只读 sysfs，缺失、关断与在位三种结论共用同一份判定（I-24）；
+#  10. 部署 airy-rt-coexist 单元对，把桌面 slice 的运行时权重从基线
 #      抬到保护档，使实时负载与桌面负载按 PSI 证据共存（X-05）；
-#  10. 在 %%post/%%postun 内刷新 systemd 单元缓存。
+#  11. 在 %%post/%%postun 内刷新 systemd 单元缓存。
 #
 # 单元启用（systemctl enable）由安装器在 kickstart 中显式完成，
 # 本包只负责文件到位与缓存刷新（OS-OPS-010）。随包落盘两份 preset：
@@ -47,9 +49,10 @@
 # spec-lint: source-bundle ../../system/services/airymax_rt
 # spec-lint: source-bundle ../../system/services/airymax_power
 # spec-lint: source-bundle ../../system/services/airymax_probe
+# spec-lint: source-bundle ../../system/services/airymax_observe
 
 %global airy_version 0.0.4
-%global airy_release 24
+%global airy_release 25
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -108,6 +111,8 @@ Source43:       airy-rt-coexist.timer
 Source44:       airy-rt-lat.c
 Source45:       airymax-agent.slice
 Source46:       50-airymax-memory.conf
+Source47:       airy-observe
+Source48:       airymax_observe-%{version}.tar.gz
 
 BuildRequires:  gcc
 BuildRequires:  python3-devel
@@ -139,8 +144,12 @@ one-minute timer, so the verdict shown by hand is the verdict the boot
 applied. The airy-probe command with its trace package reports the ten
 agent tracepoints, the two injection channels and the three static
 counters, so an acceptance run has one evidence source instead of three
-ad hoc reads. The airy-rt-lat command measures wake-up latency from a
-FIFO periodic thread, so the real-time acceptance gate runs on a machine
+ad hoc reads. The airy-observe command with its survey package reports what
+the machine actually has: a class with no sysfs node is absent, a device
+state is copied verbatim, and an rfkill switch left off is blocked, with
+cpu, block and net mandatory and every other class optional. The
+airy-rt-lat command measures wake-up latency from a FIFO periodic thread,
+so the real-time acceptance gate runs on a machine
 that only installed this package. Units are installed disabled; the
 installer enables them explicitly so that server and desktop profiles
 can opt out without editing the package payload.
@@ -178,6 +187,7 @@ install -m 0755 %{SOURCE28} %{buildroot}%{_bindir}/airy-model
 install -m 0755 %{SOURCE33} %{buildroot}%{_bindir}/airy-rt-cap
 install -m 0755 %{SOURCE36} %{buildroot}%{_bindir}/airy-power
 install -m 0755 %{SOURCE40} %{buildroot}%{_bindir}/airy-probe
+install -m 0755 %{SOURCE47} %{buildroot}%{_bindir}/airy-observe
 install -m 0755 airy-rt-lat %{buildroot}%{_bindir}/airy-rt-lat
 install -d -m 0755 %{buildroot}%{python3_sitelib}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE25}
@@ -186,6 +196,7 @@ tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE29}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE34}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE39}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE41}
+tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE48}
 
 %check
 test -x %{buildroot}/usr/lib/airymaxos/scripts/firstboot.sh
@@ -196,6 +207,7 @@ test -x %{buildroot}%{_bindir}/airy-model
 test -x %{buildroot}%{_bindir}/airy-rt-cap
 test -x %{buildroot}%{_bindir}/airy-power
 test -x %{buildroot}%{_bindir}/airy-probe
+test -x %{buildroot}%{_bindir}/airy-observe
 test -x %{buildroot}%{_bindir}/airy-rt-lat
 PYTHONPATH=%{buildroot}%{python3_sitelib} python3 -B -c '
 import airydisk.cli
@@ -203,7 +215,8 @@ import airyupdate.cli
 import airyllm.cli
 import airymax_rt.cli
 import airymax_power.cli
-import airymax_probe.cli'
+import airymax_probe.cli
+import airymax_observe.cli'
 test -f %{buildroot}%{_unitdir}/agentrt.target
 test -f %{buildroot}%{_unitdir}/agentrt-firstboot.service
 test -f %{buildroot}%{_unitdir}/airy-incident@.service
@@ -330,6 +343,7 @@ fi
 %{_bindir}/airy-rt-cap
 %{_bindir}/airy-power
 %{_bindir}/airy-probe
+%{_bindir}/airy-observe
 %{_bindir}/airy-rt-lat
 %{python3_sitelib}/airydisk
 %{python3_sitelib}/airyllm
@@ -337,8 +351,20 @@ fi
 %{python3_sitelib}/airymax_rt
 %{python3_sitelib}/airymax_power
 %{python3_sitelib}/airymax_probe
+%{python3_sitelib}/airymax_observe
 
 %changelog
+* Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-25
+- Ship airy-observe and the airymax_observe package so one command answers
+  what the machine actually has. The survey reads sysfs only: a class with
+  no node is absent, a device state is copied verbatim (online, operstate,
+  temp, status), and an rfkill switch left off is blocked. cpu, block and
+  net are mandatory, every other class is optional so ARM and RISC-V boards
+  do not fail the gate for lacking a TPM. The first run on 285H found that
+  x86 has no /sys/class/cpu, that DRM connectors sit next to the card node,
+  and that two rfkill entries can share the same type, so the CPU class
+  reads devices/system/cpu/cpu*, only cardN counts as a GPU, and the node
+  name is kept apart from the device label.
 * Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-24
 - Report the cooling devices instead of pretending to drive them. The four
   Fan objects on 285H are ACPI PNP0C0B devices whose firmware never
