@@ -138,6 +138,10 @@ readonly -a CL_DNF_OPTS=(
     --setopt=retries=10
 )
 
+# 候选池的校验、回填与漂移判定收敛在 payload_cache.sh：这套判据同时被
+# 本库的离线重放与在线求解两条路径使用，写在两处必然漂移。
+. "${CL_ROOT}/scripts/lib/payload_cache.sh"
+
 CL_SPECS=()
 CL_EXCL=()
 CL_ARGS=()
@@ -539,7 +543,7 @@ cl_try()
             if [ "$rc" -ne 0 ]; then
                 # 未完成也把已校验的包收进缓存池：下一轮只在池外补缺，
                 # 失败的次数不再等价于从零重来。
-                cl_pool_keep "${work}/dl"
+                pc_absorb "$CL_POOL" "${work}/dl"
             fi
             [ "$rc" -eq 0 ] && return 0
             if cl_fatal "${work}/dl" "$log" "$(( $(date +%s) - t0 ))"; then
@@ -601,26 +605,6 @@ cl_pool_init()
     return 0
 }
 
-cl_pool_keep()
-{
-    local dir="$1" rpm base kept=0
-    [ -n "$CL_POOL" ] || return 0
-    [ -d "$dir" ] || return 0
-    while IFS= read -r rpm; do
-        base="$(basename "$rpm")"
-        [ -f "${CL_POOL}/${base}" ] && continue
-        # 被 KILL 的 dnf 可能留下写了一半的包；摘要不符的包一旦进池，下一轮
-        # 会以「本地已有」为由跳过下载，把损坏带进载荷。
-        rpm -K --nosignature "$rpm" >/dev/null 2>&1 || continue
-        cp -p "$rpm" "${CL_POOL}/${base}" || continue
-        kept=$(( kept + 1 ))
-    done < <(find "$dir" -maxdepth 1 -type f -name '*.rpm' 2>/dev/null)
-    if [ "$kept" -gt 0 ]; then
-        printf 'closure: 缓存池新增 %d 个 RPM（共 %s）\n' "$kept" "$CL_POOL"
-    fi
-    return 0
-}
-
 cl_harvest()
 {
     local dl="$1" pkg="$2" rpm base
@@ -636,28 +620,6 @@ cl_harvest()
     # 载荷已含全部包时新增数为 0，这不是失败：重放与重跑都会走到这里。
     # 事务本身是否成立由 cl_has_dl 与 cl_audit 判定。
     return 0
-}
-
-# 命中率与耗时是一对：耗时说明某一段慢，命中率说明慢在取包还是慢在别处。
-# 池里有同名文件不足以判命中——dnf 会从 cost=1 的池仓库取，但只有内容一致
-# 才谈得上「没走公网」。先比尺寸再逐字节比，尺寸不同就不读整包；两处读的
-# 都是本地盘，代价与随后 cl_pool_keep 的一次拷贝同量级。
-cl_rate()
-{
-    local dl="$1" rpm base n=0 hit=0 pct
-    [ -n "$CL_POOL" ] || return 0
-    while IFS= read -r rpm; do
-        n=$((n + 1))
-        base="$(basename "$rpm")"
-        [ -f "${CL_POOL}/${base}" ] || continue
-        [ "$(stat -c %s "$rpm")" = "$(stat -c %s "${CL_POOL}/${base}")" ] ||
-            continue
-        cmp -s "$rpm" "${CL_POOL}/${base}" || continue
-        hit=$((hit + 1))
-    done < <(find "$dl" -maxdepth 1 -type f -name '*.rpm' 2>/dev/null)
-    [ "$n" -gt 0 ] || return 0
-    pct=$((hit * 100 / n))
-    printf 'closure: 缓存池命中 %d/%d（%d%%）\n' "$hit" "$n" "$pct"
 }
 
 # 空事务也会返回 0：dnf 一个包都没解出来时，收割与审计都对着空目录真空
@@ -697,24 +659,26 @@ cl_lock_write()
 # 重放解出的事务会与钉住的那次不同——回落在线的代价远小于带病镜像。
 cl_lock_load()
 {
-    local lock="$1" sum base nev miss=0
-    [ -s "$lock" ] || return 1
+    local lock="$1" base nev i miss=0
     [ -n "$CL_POOL" ] || return 1
+    pc_read "$lock" || return 1
     CL_ARGS=()
-    while read -r sum base nev; do
+    for i in "${!PC_BASE[@]}"; do
+        base="${PC_BASE[$i]}"
+        nev="${PC_NEV[$i]}"
         [ -n "$nev" ] || continue
         if [ ! -f "${CL_POOL}/${base}" ]; then
             printf 'closure: 池缺 %s\n' "$base" >&2
             miss=$((miss + 1))
             continue
         fi
-        if [ "$(sha256sum "${CL_POOL}/${base}" | cut -d' ' -f1)" != "$sum" ]; then
+        if ! pc_verify "${CL_POOL}/${base}" "${PC_SUM[$i]}"; then
             printf 'closure: 池内 %s 摘要不符\n' "$base" >&2
             miss=$((miss + 1))
             continue
         fi
         CL_ARGS+=("$nev")
-    done <"$lock"
+    done
     [ "$miss" -eq 0 ] && [ "${#CL_ARGS[@]}" -gt 0 ]
 }
 
@@ -797,7 +761,8 @@ closure_fetch()
     # 在线求解在一段预算内根本走不完（见文件头）。命中即返回，不碰任何远端。
     if cl_replay "$arch" "$pkg" "$work" "$log"; then
         printf 'closure: 离线重放命中，未访问远端（%s）\n' "$CL_LOCK"
-        printf 'closure: 缓存池命中 %d/%d（100%%）\n' \
+        # 重放按清单点名、池已逐项校验，命中数即清单包数：这里不重复读盘。
+        printf 'payload cache: hit %d/%d\n' \
             "${#CL_ARGS[@]}" "${#CL_ARGS[@]}"
         rm -rf "${work}/root"
         return 0
@@ -814,18 +779,26 @@ closure_fetch()
     closure_specs "$ks" || return 1
     cl_args "$arch" || return 1
     # 池必须在求解前建好索引：reposdir 里所有 *.repo 都参与同一次求解，
-    # 池以 cost=1 优先提供已有 NEVRA，远端只补差异。
+    # 池以 cost=1 优先提供已有 NEVRA，远端只补差异。索引之前先按清单核对
+    # 池内字节，污染项当场删除——createrepo_c 的校验和取自池里那一份，先建
+    # 索引就等于把损坏登记成「正确」，dnf 之后不会再动它。
+    # 池核对的结果不是本步的成败：缺清单或池不完整都只意味着回落全量收割，
+    # pc_seed 已按固定格式打印了原因，这里不因它中断构建。
+    pc_seed "$CL_POOL" "$CL_LOCK" || true
     cl_pool_init "${work}/repos/pool.repo"
     cl_try "$ks" "$arch" "$pkg" "$work" "$log" || return 1
     cl_harvest "${work}/dl" "$pkg" || return 1
     cl_has_dl "$work" || return 1
     cl_audit "${work}/dl" "$pkg" || return 1
-    # 命中率必须在 cl_pool_keep 之前结算：把本轮新下载的包写进池之后，
-    # 一切都成了「命中」，读数恒为 100%，等于没测。
-    cl_rate "${work}/dl"
+    # 漂移判定在回填之前：本轮取到的字节若与清单不符，那是上游或本仓不可
+    # 复现，先失败再谈缓存，避免把不同字节写进可信集合。
+    pc_drift "$CL_LOCK" "${work}/dl" "$pkg" || return 1
+    # 命中率必须在回填之前结算：把本轮新下载的包写进池之后，一切都成了
+    # 「命中」，读数恒为 100%，等于没测。
+    pc_stat "$CL_POOL" "${work}/dl"
     # 本轮完整下完的包也入池：下一轮（换版本、换架构、重跑）不必再走
     # 公网。放在审计之后，只有通过审计的事务才扩大池的可信集合。
-    cl_pool_keep "${work}/dl"
+    pc_absorb "$CL_POOL" "${work}/dl"
     # 清单只在显式要求时写。构建端默认不开：源码树里那份是人工 review 过
     # 的输入，每轮用当轮求解结果覆盖它，等于把「钉住」退化成「跟着漂」。
     # CI 把 CLOSURE_LOCK 指进可写的池目录时才会打开写，那一份随池缓存
