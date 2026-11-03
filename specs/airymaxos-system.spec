@@ -61,7 +61,7 @@
 # spec-lint: source-bundle ../../system/services/airymax_observe
 
 %global airy_version 0.0.4
-%global airy_release 40
+%global airy_release 41
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -126,6 +126,7 @@ Source50:       boot_set.sh
 Source51:       airy-rt-memcap.service
 Source52:       airy-rt-memcap.timer
 Source53:       ui.sh
+Source54:       power_stage.sh
 
 BuildRequires:  gcc
 BuildRequires:  python3-devel
@@ -198,7 +199,7 @@ install -m 0644 %{SOURCE46} \
     %{buildroot}%{_unitdir}/user.slice.d/50-airymax-memory.conf
 install -d -m 0755 %{buildroot}/usr/lib/airymaxos/scripts
 install -m 0755 %{SOURCE17} %{SOURCE18} %{SOURCE50} %{SOURCE53} \
-    %{buildroot}/usr/lib/airymaxos/scripts/
+    %{SOURCE54} %{buildroot}/usr/lib/airymaxos/scripts/
 install -d -m 0755 %{buildroot}%{_presetdir}
 install -m 0644 %{SOURCE19} %{SOURCE20} %{buildroot}%{_presetdir}/
 install -m 0644 %{SOURCE49} %{buildroot}/usr/lib/airymaxos/boot-set
@@ -224,8 +225,10 @@ test -x %{buildroot}/usr/lib/airymaxos/scripts/firstboot.sh
 test -x %{buildroot}/usr/lib/airymaxos/scripts/health_check.sh
 test -x %{buildroot}/usr/lib/airymaxos/scripts/boot_set.sh
 test -x %{buildroot}/usr/lib/airymaxos/scripts/ui.sh
+test -x %{buildroot}/usr/lib/airymaxos/scripts/power_stage.sh
 bash -n %{buildroot}/usr/lib/airymaxos/scripts/boot_set.sh
 bash -n %{buildroot}/usr/lib/airymaxos/scripts/ui.sh
+bash -n %{buildroot}/usr/lib/airymaxos/scripts/power_stage.sh
 test "$(bash -c '. %{buildroot}/usr/lib/airymaxos/scripts/ui.sh; ui_total')" = 9
 test -x %{buildroot}%{_bindir}/airy-disk
 test -x %{buildroot}%{_bindir}/airy-update
@@ -323,7 +326,7 @@ grep -qxF 'disable airy-rt-coexist.service' \
 grep -qxF 'disable airy-rt-coexist.timer' \
     %{buildroot}%{_presetdir}/90-airymax.preset
 test -f %{buildroot}%{_unitdir}/airy-power.service
-grep -qxF 'ExecStart=/usr/bin/airy-power apply' \
+grep -qxF 'ExecStart=/usr/lib/airymaxos/scripts/power_stage.sh' \
     %{buildroot}%{_unitdir}/airy-power.service
 grep -qxF 'SuccessExitStatus=3' \
     %{buildroot}%{_unitdir}/airy-power.service
