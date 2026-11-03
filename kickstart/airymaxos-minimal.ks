@@ -37,7 +37,9 @@ repo --name=update --baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP3/
 # 顺序是语义：kernel 把 /dev/console 路由到命令行里最后一个 console=。
 # 串口在前、tty0 在后，/dev/console 才是 VT——反过来会让
 # systemd-vconsole-setup 锁不住 /dev/console，桌面就绪门禁随之失败（285H
-# 实测）。本配方不跑 grub_args.sh，这一行是唯一来源；工作站配方同序。
+# 实测）。这里的 --append 只覆盖首次安装；%post 末尾由 grub_args.sh 把同一
+# 集合写进 /etc/default/grub，后续每次重建才不丢参数（D-30）。工作站配方
+# 同序。
 #
 # console 集合按架构收敛（D-05）：x86_64 为 tty0 + ttyS0，ARM64 的 ttyAMA0
 # 不得出现在本配方——无该设备时 console= 注册成幽灵项并让
@@ -230,6 +232,22 @@ while IFS= read -r line; do
     mark "AIRYMAX-BOOT-SET ${line}"
 done </tmp/airymax-boot-set.log
 [ "${boot_rc}" -eq 0 ] || fail boot-set-enable
+
+# 引导参数不能只留在 bootloader --append 里（D-30）：那一行只进安装器本次
+# 生成的 grub.cfg，/etc/default/grub 仍是空的。此后任何一次 grub2-mkconfig
+# （内核升级、grub2 包升级）都会把 console= 一并丢掉，装好的机器重启即失去
+# 串口日志，而无头验收只剩一个「起不来」。
+#
+# 本剖面没有图形启动，--append 传空串：只收敛控制台集合与菜单范围，不给
+# 系统加 rhgb quiet——那会把最小系统唯一可用的串口日志藏进 splash。
+grub_args=/usr/lib/airymaxos/boot/grub_args.sh
+[ -x "${grub_args}" ] || fail grub-args-tool
+grub_rc=0
+"${grub_args}" --append '' >/tmp/airymax-grub.log 2>&1 || grub_rc=$?
+while IFS= read -r line; do
+    mark "AIRYMAX-GRUB ${line}"
+done </tmp/airymax-grub.log
+[ "${grub_rc}" -eq 0 ] || fail grub-args
 
 mark "AirymaxOS minimal install complete (baseline $(date -u +%Y%m%d))"
 %end

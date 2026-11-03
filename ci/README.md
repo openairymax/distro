@@ -21,7 +21,7 @@
 | T12 | 免密提权 | 交付账户能以 `NOPASSWD` 完成一次非交互提权（离线复核时校验策略行本身） | 空口令账户的提权路径 |
 | T13 | 免密桌面 | 空闲锁屏与锁屏实际关闭，交付账户在 `nopasswdlogin` 组内 | 开机即桌面 |
 | T14 | 运行期软件源 | 每个启用段都指向基底镜像的绝对地址（无 `$releasever`、无明文 http、宿主一致） | 装完之后仍可更新 |
-| T15 | 启动参数 | `/etc/default/grub` 持有 `rhgb quiet`，且 `GRUB_DISABLE_OS_PROBER=true` | 启动观感可持久、菜单只列自有内核 |
+| T15 | 启动参数 | `/etc/default/grub` 持有双控制台且 `GRUB_DISABLE_OS_PROBER=true`；桌面剖面另需 `rhgb quiet`，最小剖面不得有 | 启动观感可持久、菜单只列自有内核；最小系统的串口日志不被 splash 藏住 |
 | T16 | 观测工具 | `airy-bench --check` 完成一轮 IPC 往返自检、`airy-demo --check` 清点对端与终端、`airy-observe --static` 的资产与品牌字段齐全（三者 status 均为 ok） | 装机后即可现场观测与演示 |
 | T17 | 系统盘布局 | `findmnt` 取证 `/` 与 `/data` 各挂在一个 `part` 上且互不相同；`lsblk` 统计的分区数 ≥2 | DISK-01 双分区落地（不读安装期计划，只看实际块层） |
 | X1 | 内核仓反向门禁 | kernel CI 持续拒绝 Qt/X11/Wayland 头依赖与 KABI 白名单外变更（由 agent-linux CI 承担，此处仅交叉核对报告） | 双向不污染 |

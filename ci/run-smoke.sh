@@ -647,6 +647,9 @@ t14_repos() {
 # 「装完有启动画面、升级一次又逐行滚日志」，所以在默认文件上判定；同时
 # 断言 os-prober 已关闭，否则同盘其他发行版的内核会并进本产品菜单。
 #
+# 期望按剖面分：桌面剖面要 rhgb quiet，最小剖面不要——那会把无图形系统唯一
+# 可用的串口日志藏进 splash。剖面按显示管理器是否在位判定。
+#
 # 控制台顺序一并判定：/dev/console 落在命令行里最后一个 console= 上。
 # 285H 现场的 "tty0 ttyS0" 让 VT 让位给串口，systemd-vconsole-setup 锁不住
 # /dev/console，桌面就绪门禁每个启动周期失败——这条只在默认文件上才看得
@@ -684,13 +687,18 @@ t15_boot_args() {
     }
     line=$(sed -n 's/^GRUB_CMDLINE_LINUX="\(.*\)"$/\1/p' "${file}" |
         head -n 1)
-    for tok in rhgb quiet; do
-        case " ${line} " in
-        *" ${tok} "*) continue ;;
-        esac
-        printf '%s: GRUB_CMDLINE_LINUX lacks %s\n' "${file}" "${tok}"
-        return 1
-    done
+    # 启动画面参数只属于桌面剖面：最小剖面不装图形，rhgb quiet 只会把唯一
+    # 可用的串口日志藏起来。剖面按显示管理器是否在位判定，与配方里的差异
+    # 同源；两个剖面共同要求的是控制台集合与菜单范围（D-30）。
+    if [ -e "${SYSROOT}/usr/bin/lightdm" ]; then
+        for tok in rhgb quiet; do
+            case " ${line} " in
+            *" ${tok} "*) continue ;;
+            esac
+            printf '%s: GRUB_CMDLINE_LINUX lacks %s\n' "${file}" "${tok}"
+            return 1
+        done
+    fi
     t15_console "${line}" || return 1
     t15_brand_cfg || return 1
     grep -qxF 'GRUB_DISABLE_OS_PROBER=true' "${file}" || {

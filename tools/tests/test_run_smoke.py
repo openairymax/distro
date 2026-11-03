@@ -318,6 +318,18 @@ class RunSmokeTest(unittest.TestCase):
         fakes.link_tools(self.bin)
         fakes.smoke_tools(self.bin, omit)
         self.contest(omit)
+        # 沙箱默认代表桌面剖面：显示管理器在位，T15 因此要求 rhgb quiet。
+        # 最小剖面用 set_profile(False) 摘掉它，只查控制台与菜单范围（D-30）。
+        self.set_profile()
+
+    def set_profile(self, desktop=True):
+        path = self.sysroot / "usr" / "bin" / "lightdm"
+        if not desktop:
+            if path.exists():
+                path.unlink()
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("#!/bin/sh\n", encoding="utf-8")
 
     def contest(self, omit=()):
         """把真实的 airy-bench / airy-observe / airy-demo 放进 PATH：T16 判定
@@ -948,6 +960,17 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke()
         self.assert_fail(res, 15)
         self.assertIn("GRUB_CMDLINE_LINUX lacks quiet", res.stdout)
+
+    def test_boot_args_minimal_profile(self):
+        # 最小剖面不装图形：启动画面参数不在期望里，两个剖面共同要求的是
+        # 控制台集合与菜单范围。判定若只认桌面，最小装机要么被误判失败，
+        # 要么反过来把串口日志藏进 splash（D-30）。
+        self.tools()
+        self.set_profile(desktop=False)
+        self.write_grub(GRUB_DEFAULTS.replace(" rhgb quiet", ""))
+        res = self.run_smoke()
+        self.assertIn("ok 15 - T15 durable boot arguments", res.stdout)
+        self.assertIn('args="console=ttyS0,115200 console=tty0"', res.stdout)
 
     def test_boot_args_prober_enabled(self):
         # os-prober 未关：同盘其他发行版的内核会并进本产品启动菜单
