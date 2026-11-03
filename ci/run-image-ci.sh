@@ -559,6 +559,21 @@ bid_get()
     sed -n 's/^build_id=//p' "${f}" | head -n 1
 }
 
+# 命中率与段耗时成对入账（T-GOV-10）：光有耗时，读者只知道这一段慢，
+# 不知道慢在取包还是慢在别处。闭包段已把结算行写进 build-desktop.log，
+# 这里只取最后一行搬运，不重算——重算要么再读一遍 2.5 GB，要么换一套
+# 判据而与日志里那一行对不上。
+hit_row()
+{
+    local log="${LOGS}/build-desktop.log" h t p
+    [ -f "${log}" ] || return 0
+    read -r h t p < <(sed -n \
+        's/^closure: 缓存池命中 \([0-9]*\)\/\([0-9]*\)（\([0-9]*\)%）$/\1 \2 \3/p' \
+        "${log}" | tail -n 1)
+    [ -n "${p:-}" ] || return 0
+    printf 'hit closure=%s/%s pct=%s\n' "$h" "$t" "$p"
+}
+
 manifest()
 {
     local row sde bid total=0
@@ -581,6 +596,7 @@ manifest()
             printf 'time %s\n' "${row}"
         done
         printf 'time accounted=%d\n' "${total}"
+        hit_row
         if [ -n "${ISO}" ] && [ -f "${ISO}" ]; then
             printf 'iso %s %s\n' "${ISO_SUM}" "$(basename "${ISO}")"
         fi

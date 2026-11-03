@@ -638,6 +638,28 @@ cl_harvest()
     return 0
 }
 
+# 命中率与耗时是一对：耗时说明某一段慢，命中率说明慢在取包还是慢在别处。
+# 池里有同名文件不足以判命中——dnf 会从 cost=1 的池仓库取，但只有内容一致
+# 才谈得上「没走公网」。先比尺寸再逐字节比，尺寸不同就不读整包；两处读的
+# 都是本地盘，代价与随后 cl_pool_keep 的一次拷贝同量级。
+cl_rate()
+{
+    local dl="$1" rpm base n=0 hit=0 pct
+    [ -n "$CL_POOL" ] || return 0
+    while IFS= read -r rpm; do
+        n=$((n + 1))
+        base="$(basename "$rpm")"
+        [ -f "${CL_POOL}/${base}" ] || continue
+        [ "$(stat -c %s "$rpm")" = "$(stat -c %s "${CL_POOL}/${base}")" ] ||
+            continue
+        cmp -s "$rpm" "${CL_POOL}/${base}" || continue
+        hit=$((hit + 1))
+    done < <(find "$dl" -maxdepth 1 -type f -name '*.rpm' 2>/dev/null)
+    [ "$n" -gt 0 ] || return 0
+    pct=$((hit * 100 / n))
+    printf 'closure: 缓存池命中 %d/%d（%d%%）\n' "$hit" "$n" "$pct"
+}
+
 # 空事务也会返回 0：dnf 一个包都没解出来时，收割与审计都对着空目录真空
 # 通过，镜像带着空闭包出门，装机现场才缺包。把「什么都没解」从成功里摘
 # 出来。
@@ -775,6 +797,8 @@ closure_fetch()
     # 在线求解在一段预算内根本走不完（见文件头）。命中即返回，不碰任何远端。
     if cl_replay "$arch" "$pkg" "$work" "$log"; then
         printf 'closure: 离线重放命中，未访问远端（%s）\n' "$CL_LOCK"
+        printf 'closure: 缓存池命中 %d/%d（100%%）\n' \
+            "${#CL_ARGS[@]}" "${#CL_ARGS[@]}"
         rm -rf "${work}/root"
         return 0
     fi
@@ -796,6 +820,9 @@ closure_fetch()
     cl_harvest "${work}/dl" "$pkg" || return 1
     cl_has_dl "$work" || return 1
     cl_audit "${work}/dl" "$pkg" || return 1
+    # 命中率必须在 cl_pool_keep 之前结算：把本轮新下载的包写进池之后，
+    # 一切都成了「命中」，读数恒为 100%，等于没测。
+    cl_rate "${work}/dl"
     # 本轮完整下完的包也入池：下一轮（换版本、换架构、重跑）不必再走
     # 公网。放在审计之后，只有通过审计的事务才扩大池的可信集合。
     cl_pool_keep "${work}/dl"
