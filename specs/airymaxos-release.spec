@@ -58,7 +58,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 6
+%global airy_release 7
 # 基底版本是显式输入，与 distro/repo/airymax-os.repo 及 kickstart 的
 # url/repo 行是三处同源表达。%%check 以本宏断言客户端配置，版本漂移在
 # 构建期失败，而不是等到装机后 dnf 报「找不到仓库」。
@@ -131,6 +131,10 @@ Requires:       efibootmgr
 # 自检报 degraded。这里用弱依赖而不是 Requires——ffmpeg 在 EPOL 而非基线
 # 仓库，硬依赖会让一次元数据缺失直接中止装机；有它就装上，没有也不阻断。
 Recommends:     ffmpeg
+# 桌面就绪探针（第 8 阶段）与 boot_state 的打印契约来自 airymaxos-system 的
+# ui.sh。缺它探针会以 reason=ui-lib 硬失败——与其让每台机器在图形目标上
+# 报一次无法归因的失败，不如在安装期就把两个包绑定。
+Requires:       airymaxos-system >= %{version}
 
 %description
 AirymaxOS release identity package. It owns the distribution version
