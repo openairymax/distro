@@ -61,7 +61,7 @@
 # spec-lint: source-bundle ../../system/services/airymax_observe
 
 %global airy_version 0.0.4
-%global airy_release 32
+%global airy_release 33
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -424,6 +424,23 @@ fi
 %{python3_sitelib}/airymax_observe
 
 %changelog
+* Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-33
+- Stop reporting a never-provisioned data partition as a failure. mount.judge()
+  folded "this system has no data partition at all" and "the data partition
+  exists but its fstab row is gone" into one no-entry verdict. Only the second
+  is a fault. 285H is an anaconda install from the 0.0.3 line: / plus /home,
+  no /data row, no install-disk.json. Every boot therefore left a red
+  airy-disk-mount, which dragged airymax-desktop-ready red with it and fired
+  airy-incident@ noise over a machine that had nothing to fix.
+- Split the verdict by the install-time disk record: the record is written by
+  %pre and copied by %post --nochroot, both under set -eu, so its presence
+  proves the system was provisioned with the 0.0.4 layout and the row must be
+  there. Present and missing row stays no-entry (exit 3); absent gives the new
+  unset verdict (exit 4), which the unit accepts via SuccessExitStatus=4 --
+  the same stance airy-disk-health already takes with ConditionPathIsMountPoint.
+- The gap stays visible instead of becoming a fault: mount unset prints that
+  /data lands on the root filesystem, and airy-disk status still reports the
+  install record as absent.
 * Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-32
 - Gate the failure handler on the payload it drives. Every OnFailure= in
   this package points at airy-incident@, which execs /usr/sbin/airyctl as
