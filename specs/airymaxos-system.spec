@@ -61,7 +61,7 @@
 # spec-lint: source-bundle ../../system/services/airymax_observe
 
 %global airy_version 0.0.4
-%global airy_release 35
+%global airy_release 36
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -424,6 +424,14 @@ fi
 %{python3_sitelib}/airymax_observe
 
 %changelog
+* Tue Nov 03 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-36
+- Keep the restart policy from fighting the admission verdict. 75 is a
+  decision, not a malfunction: restarting it five seconds later meets the
+  same memory and only adds another start attempt inside the window that is
+  already short of memory. 78 is the same kind of answer for missing assets.
+- RestartPreventExitStatus=75 78 stops the unit at the verdict. OnFailure
+  still records the event, so the refusal stays visible without a retry loop
+  and the start limit is no longer what has to catch it.
 * Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-35
 - Put the admission verdict on the launch path. The check existed but nothing
   called it, so a service unit could still start an instance the machine could
