@@ -61,7 +61,7 @@
 # spec-lint: source-bundle ../../system/services/airymax_observe
 
 %global airy_version 0.0.4
-%global airy_release 31
+%global airy_release 32
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -242,6 +242,8 @@ PYTHONPATH=%{buildroot}%{python3_sitelib} python3 -B -m airymax_observe --help >
 test -f %{buildroot}%{_unitdir}/agentrt.target
 test -f %{buildroot}%{_unitdir}/agentrt-firstboot.service
 test -f %{buildroot}%{_unitdir}/airy-incident@.service
+grep -qxF 'ConditionPathExists=/usr/sbin/airyctl' \
+    %{buildroot}%{_unitdir}/airy-incident@.service
 test -f %{buildroot}%{_unitdir}/airymax-update-check.timer
 grep -qxF 'OnCalendar=daily' \
     %{buildroot}%{_unitdir}/airymax-update-check.timer
@@ -422,6 +424,18 @@ fi
 %{python3_sitelib}/airymax_observe
 
 %changelog
+* Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-32
+- Gate the failure handler on the payload it drives. Every OnFailure= in
+  this package points at airy-incident@, which execs /usr/sbin/airyctl as
+  the airy account. Neither exists in a 0.0.4 image: airyctl and the
+  account belong to the agentrt payload, which is not part of this
+  package yet. 285H showed the consequence: a data-disk mount failure
+  started the handler, the handler failed with 217/USER, and boot
+  readiness then counted two failed units instead of one. The template
+  now carries ConditionPathExists=/usr/sbin/airyctl, so an absent
+  payload is a skip rather than a second failure; the original unit
+  stays visible in systemctl --failed. The unit contract test rejects
+  removal of the condition.
 * Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-31
 - Cap an overcommitted slice instead of leaving it uncapped. The guard
   refused to write whenever current usage exceeded the target, which on
