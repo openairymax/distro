@@ -61,7 +61,7 @@
 # spec-lint: source-bundle ../../system/services/airymax_observe
 
 %global airy_version 0.0.4
-%global airy_release 41
+%global airy_release 42
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -126,7 +126,7 @@ Source50:       boot_set.sh
 Source51:       airy-rt-memcap.service
 Source52:       airy-rt-memcap.timer
 Source53:       ui.sh
-Source54:       power_stage.sh
+Source54:       stage_run.sh
 
 BuildRequires:  gcc
 BuildRequires:  python3-devel
@@ -225,10 +225,10 @@ test -x %{buildroot}/usr/lib/airymaxos/scripts/firstboot.sh
 test -x %{buildroot}/usr/lib/airymaxos/scripts/health_check.sh
 test -x %{buildroot}/usr/lib/airymaxos/scripts/boot_set.sh
 test -x %{buildroot}/usr/lib/airymaxos/scripts/ui.sh
-test -x %{buildroot}/usr/lib/airymaxos/scripts/power_stage.sh
+test -x %{buildroot}/usr/lib/airymaxos/scripts/stage_run.sh
 bash -n %{buildroot}/usr/lib/airymaxos/scripts/boot_set.sh
 bash -n %{buildroot}/usr/lib/airymaxos/scripts/ui.sh
-bash -n %{buildroot}/usr/lib/airymaxos/scripts/power_stage.sh
+bash -n %{buildroot}/usr/lib/airymaxos/scripts/stage_run.sh
 test "$(bash -c '. %{buildroot}/usr/lib/airymaxos/scripts/ui.sh; ui_total')" = 9
 test -x %{buildroot}%{_bindir}/airy-disk
 test -x %{buildroot}%{_bindir}/airy-update
@@ -326,7 +326,7 @@ grep -qxF 'disable airy-rt-coexist.service' \
 grep -qxF 'disable airy-rt-coexist.timer' \
     %{buildroot}%{_presetdir}/90-airymax.preset
 test -f %{buildroot}%{_unitdir}/airy-power.service
-grep -qxF 'ExecStart=/usr/lib/airymaxos/scripts/power_stage.sh' \
+grep -qxF 'ExecStart=/usr/lib/airymaxos/scripts/stage_run.sh 电源与热治理 3 landed,cap,severity,charge /usr/bin/airy-power apply' \
     %{buildroot}%{_unitdir}/airy-power.service
 grep -qxF 'SuccessExitStatus=3' \
     %{buildroot}%{_unitdir}/airy-power.service
@@ -431,6 +431,19 @@ fi
 %{python3_sitelib}/airymax_observe
 
 %changelog
+* Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-42
+- Route five boot-time units through one stage runner. The stage line used to
+  be assembled by a per-tool script, so changing the verdict ladder or the key
+  order meant editing several near-identical copies, and the copy that was
+  missed printed a differently shaped line on that machine.
+- The runner takes the stage name, the exit codes that mean "note" and the
+  keys to lift from the tool's first line, so a unit file now states its own
+  stage contract while wording, numbering and column width stay in ui.sh.
+- Wire the data partition, runtime bandwidth, swap ceiling, power and desktop
+  coexistence stages through it; the swap ceiling, power and coexistence units
+  are timer-driven and now print once per boot instead of once a minute.
+- Take the stage number from the table instead of the caller: a script that
+  repeated "step N of M" could disagree with the table after a reorder.
 * Tue Nov 03 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-37
 - Join the only continuous actuator this machine has to the guard. On 285H
   every cooling device is firmware-managed, so governors and EPP are the
