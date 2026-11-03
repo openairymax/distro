@@ -61,7 +61,7 @@
 # spec-lint: source-bundle ../../system/services/airymax_observe
 
 %global airy_version 0.0.4
-%global airy_release 34
+%global airy_release 35
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -424,6 +424,21 @@ fi
 %{python3_sitelib}/airymax_observe
 
 %changelog
+* Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-35
+- Put the admission verdict on the launch path. The check existed but nothing
+  called it, so a service unit could still start an instance the machine could
+  not hold and let the restart policy turn "does not fit" into "starts, thrashes,
+  starts again". airy-model serve now derives the resident size from the same
+  manifest read it uses for its arguments and asks the one admit implementation
+  before exec.
+- The size is the asset bytes plus a 2GiB engine floor, measured on 285H where
+  a 27B single-slot instance held 18.5G resident against roughly 16.5G of
+  weights. Concurrency above that is not guessed; the slice ceiling stays the
+  backstop. A refusal exits 75 and prints need, free and short, which keeps it
+  apart from the 78 used for missing assets.
+- An unreadable meminfo passes with one recorded line instead of blocking: a
+  machine that cannot read its own memory should not be left unable to start a
+  model, and a real overshoot is still bounded by the swap ceiling.
 * Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-34
 - Refuse a new inference instance that does not fit instead of letting the
   machine run past its physical memory. The memory and swap ceilings only
