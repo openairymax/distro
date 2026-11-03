@@ -36,15 +36,20 @@ first-boot account creation flow that does not exist yet:
 
 | Account | Delivered state | Login boundary |
 |---------|-----------------|----------------|
-| `root` | fixed password `00000000` | console/SSH takeover; no forced rotation |
-| `amuser` | empty password (passwordless) | `wheel`; lightdm autologin + UKUI desktop |
+| `root` | fixed password `00000000` | console takeover; SSH by key only |
+| `amuser` | empty password (passwordless) | `wheel`; lightdm autologin + UKUI desktop, SSH empty password |
 
 The empty password is applied by `passwd -d amuser` in the kickstart
 `%post`, whose trailing account assertions treat "root is sha512, amuser is
 empty" as part of install success. For SSH, `airymaxos-release` installs
-`/etc/ssh/sshd_config.d/50-airymax-sshd.conf` (`PermitEmptyPasswords yes`);
-for the local seat, `autologin-user=amuser` in `50-airymax.conf` skips the
-greeter. The account name is defined once in the kickstart `user --name=`
+`/etc/ssh/sshd_config.d/50-airymax-sshd.conf`: `PermitEmptyPasswords yes`,
+`PasswordAuthentication no` globally and `PasswordAuthentication yes` inside
+`Match User amuser`. The delivery account keeps its passwordless entry;
+accounts that do have a password never enter password authentication, because
+every connection probes PAM with an empty password and that probe would be
+counted as a failure by `pam_faillock`. For the local seat,
+`autologin-user=amuser` in `50-airymax.conf` skips the greeter. The account
+name is defined once in the kickstart `user --name=`
 line and derived into the seat, the single sudo rule and the smoke checks;
 the lowercase form needs no `NAME_REGEX` or case-sensitive filesystem
 override (0.0.3 shipped `Airymax` and the home directory could diverge).
