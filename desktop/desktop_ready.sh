@@ -41,6 +41,10 @@
 # journal 与 console 外再镜像到当前活动 VT：带串口的机器上 /dev/console
 # 被 cmdline 里最后一个 console= 拿走，本地屏收不到单元的用户态输出。
 #
+# 屏幕上的一行由九阶段契约提供（ui.sh 第 8 阶段「桌面就绪」）：AIRYMAX-*
+# 标记是给宿主与验收脚本判读的，ui_ok/ui_fail 是给人看的同一结论，两者
+# 结论必须一致——因此 ui 行放在判定之后，用同一组变量，不做第二次判断。
+#
 # 部署：airymaxos-release 包安装到 /usr/lib/airymaxos/desktop/。
 # 调用：airymax-desktop-ready.service（WantedBy=graphical.target）。
 # ===========================================================================
@@ -53,6 +57,14 @@ if [ ! -r "${BOOT_STATE}" ]; then
 fi
 # shellcheck source=boot_state.sh
 . "${BOOT_STATE}"
+
+UI_LIB="${AIRYMAX_UI_LIB:-${0%/*}/../scripts/ui.sh}"
+if [ ! -r "${UI_LIB}" ]; then
+    printf 'AIRYMAX-DESKTOP-FAIL reason=ui-lib path=%s\n' "${UI_LIB}"
+    exit 1
+fi
+# shellcheck source=../../system/scripts/ui.sh
+. "${UI_LIB}"
 
 READY_WAIT="${AIRYMAX_READY_WAIT:-90}"
 POLL="${AIRYMAX_READY_POLL:-2}"
@@ -239,22 +251,29 @@ diagnose()
 
 main()
 {
+    ui_step 8 9 桌面就绪
     if ! boot_health; then
+        ui_fail 桌面就绪 'reason=boot'
         advise "${BOOT_HINT}"
         say 'AIRYMAX-DESKTOP-FAIL reason=boot\n'
         return 1
     fi
     if ! session_exec; then
+        ui_fail 桌面就绪 "reason=session path=${UKUI_SESSION}"
         diagnose
         advise "${DESK_HINT}"
         say 'AIRYMAX-DESKTOP-FAIL reason=session path=%s\n' "${UKUI_SESSION}"
         return 1
     fi
     if wait_ready; then
+        ui_ok 桌面就绪 "unit=${SESS_SVC}" \
+            "class=$(session_field "${READY_ID}" Class)" \
+            "session=${READY_ID}"
         say 'AIRYMAX-DESKTOP-READY unit=%s class=%s type=%s\n' \
             "${SESS_SVC}" "$(session_field "${READY_ID}" Class)" "${SESS_TYPE}"
         return 0
     fi
+    ui_fail 桌面就绪 "unit=${SESS_SVC} wait=${READY_WAIT}s"
     diagnose
     advise "${DESK_HINT}"
     say 'AIRYMAX-DESKTOP-FAIL unit=%s wait=%ss\n' \

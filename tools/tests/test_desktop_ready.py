@@ -24,6 +24,7 @@ import fakes
 BASE = Path(__file__).resolve().parents[2]
 SCRIPT = BASE / "desktop" / "desktop_ready.sh"
 UNIT = BASE / "desktop" / "airymax-desktop-ready.service"
+UI = BASE.parent / "system" / "scripts" / "ui.sh"
 BASH = shutil.which("bash") or "/bin/bash"
 READY = "AIRYMAX-DESKTOP-READY"
 FAIL = "AIRYMAX-DESKTOP-FAIL"
@@ -87,6 +88,8 @@ class DesktopReadyTest(unittest.TestCase):
                "AIRYMAX_LIGHTDM_LOG": str(self.logs),
                "AIRYMAX_CONSOLE_ACTIVE": str(self.console_active),
                "AIRYMAX_VT_ACTIVE": str(self.vt_active),
+               "AIRYMAX_UI_LIB": str(UI),
+               "UI_CONSOLE": str(self.root / "console"),
                "AIRYMAX_VT_DIR": str(self.vt_dir)}
         env.update(extra)
         return subprocess.run([BASH, str(SCRIPT), *args], env=env,
@@ -100,6 +103,13 @@ class DesktopReadyTest(unittest.TestCase):
             f"{READY} unit=lightdm class=greeter type=x11", res.stdout)
         self.assertNotIn(FAIL, res.stdout)
         self.assertNotIn("AIRYMAX-UNIT-STATE|", res.stdout)
+        self.assertIn("[ 8/9 ] 桌面就绪        ok   unit=lightdm "
+                      "class=greeter session=1", res.stdout)
+
+    def test_stage_line_follows_the_verdict(self):
+        res = self.run_probe(FAKE_FAILED_UNITS="sssd.service")
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("[ 8/9 ] 桌面就绪        FAIL reason=boot", res.stdout)
 
     def test_degraded_units(self):
         res = self.run_probe(FAKE_FAILED_UNITS="sssd.service upower.service")
