@@ -61,7 +61,7 @@
 # spec-lint: source-bundle ../../system/services/airymax_observe
 
 %global airy_version 0.0.4
-%global airy_release 30
+%global airy_release 31
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -422,6 +422,23 @@ fi
 %{python3_sitelib}/airymax_observe
 
 %changelog
+* Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-31
+- Cap an overcommitted slice instead of leaving it uncapped. The guard
+  refused to write whenever current usage exceeded the target, which on
+  285H is permanent: the declared ceiling is 32583151616 bytes while
+  user.slice already carries 43597242368 bytes of memsw, fifteen of them
+  swapped out. Swapped pages do not shrink under reclaim, so every round
+  reported tight and the machine kept no ceiling at all exactly when it
+  needed one, which is the state that ends in a whole-machine reclaim
+  stall. apply now writes max(target, usage + 5% of the declared ceiling)
+  and reports held. Three invariants keep a configuration step from
+  becoming an incident: the written value is never below current usage,
+  so no reclaim fires at apply time; the limit only tightens, never
+  raises, so repeated rounds cannot grow the ceiling; and once usage
+  falls below the target minus the headroom the next round writes the
+  declared target, so held converges to applied. Inspect still reports
+  tight because the limit is not at target, and both states exit 3 so no
+  gate reads a partial landing as success.
 * Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-30
 - Re-apply the swap ceiling on a timer. The write itself succeeds, but
   systemd on cgroup v1 does not manage memory.memsw.limit_in_bytes and
