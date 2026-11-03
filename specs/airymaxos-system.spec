@@ -49,7 +49,7 @@
 # spec-lint: source-bundle ../../system/services/airymax_probe
 
 %global airy_version 0.0.4
-%global airy_release 22
+%global airy_release 23
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -339,6 +339,14 @@ fi
 %{python3_sitelib}/airymax_probe
 
 %changelog
+* Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-23
+- Align the memory ceilings to the page size. A field apply on the target
+  machine wrote 29324840140 to memory.limit_in_bytes and read back
+  29324836864, because the kernel rounds the limit down to a page
+  boundary; the executor took that for a failed write and reported
+  absent while the ceiling was in place. The target is now floored at
+  conversion, so the declaration, the written value and the read-back
+  agree, and each half of the memsw sum is floored before they are added.
 * Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-22
 - Enforce the memsw ceiling that systemd leaves unwritten. On the hybrid
   hierarchy a transient service reports MemorySwapMax=314572800 through
