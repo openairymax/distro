@@ -58,7 +58,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 5
+%global airy_release 6
 # 基底版本是显式输入，与 distro/repo/airymax-os.repo 及 kickstart 的
 # url/repo 行是三处同源表达。%%check 以本宏断言客户端配置，版本漂移在
 # 构建期失败，而不是等到装机后 dnf 报「找不到仓库」。
@@ -699,6 +699,18 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Tue Nov 03 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-6
+- Stop counting every SSH connection as a password failure. With
+  PermitEmptyPasswords yes, sshd probes PAM with an empty password before it
+  looks at the method the client offered; for an account that does have a
+  password that probe fails and pam_faillock records it, while pam_unix is
+  sufficient so the success path never reaches pam_faillock authsucc to
+  reset the tally. root was locked out on 285H after a few key-only logins.
+- PasswordAuthentication is now off in the global scope and turned back on
+  inside Match User amuser. The delivery account keeps its passwordless
+  entry, and accounts that do have a password never enter password
+  authentication at all. Verified on 285H with a test sshd: four key logins,
+  no mm_auth_password in the log, no new faillock record.
 * Sun Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-5
 - Give the hardware survey a home inside the one observe command. The
   system package had started installing a second /usr/bin/airy-observe,

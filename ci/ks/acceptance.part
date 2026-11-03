@@ -45,6 +45,14 @@ if ! grep -qx 'PermitEmptyPasswords yes' "${sshd_dropin}" 2>/dev/null; then
     exit 1
 fi
 
+#    口令认证只留给 amuser。全局开着会让每次连接先以空口令走一次 PAM，
+#    有口令的账户因此被 pam_faillock 记账，公钥登录几次之后就被锁定。
+if ! grep -qx 'PasswordAuthentication no' "${sshd_dropin}" 2>/dev/null ||
+   ! grep -qx 'Match User amuser' "${sshd_dropin}" 2>/dev/null; then
+    echo "AIRYMAX-ACCEPT-FAIL sshd password policy" >&2
+    exit 1
+fi
+
 # 4) 冒烟结果目录：会话用户写入，root 报告单元读取。
 install -d -o amuser -g amuser -m 0755 /var/log/airymax
 

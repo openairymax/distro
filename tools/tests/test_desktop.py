@@ -316,22 +316,23 @@ class DesktopAssetTest(unittest.TestCase):
         self.assertEqual(conf["Seat:*"]["autologin-session"], "ukui")
         self.assertEqual(conf["Seat:*"]["autologin-user-timeout"], "0")
 
-    def test_sshd_empty_password(self):
+    def test_sshd_password_policy(self):
         # 空口令账户要能过 sshd，必须显式放开 PermitEmptyPasswords；
-        # 只放开这一项，认证方式集合保持发行版默认
+        # 有口令的账户一律不进口令认证：每个连接的空口令探测都会失败，
+        # 而 PAM 栈里 pam_unix 是 sufficient，成功路径走不到 faillock 的
+        # authsucc，探测计数只增不减（285H 上 root 因此被锁）
         text = self.asset("login/50-airymax-sshd.conf").read_text(
             encoding="utf-8")
-        directives = {}
-        for line in text.splitlines():
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            key, _, value = line.partition(" ")
-            directives[key] = value.strip()
-        self.assertEqual(directives, {
-            "PermitEmptyPasswords": "yes",
-            "KbdInteractiveAuthentication": "no",
-        })
+        body = [line.strip() for line in text.splitlines()
+                if line.strip() and not line.startswith("#")]
+        self.assertEqual(body.index("Match User amuser"), 3)
+        global_scope, match_scope = body[:3], body[4:]
+        self.assertEqual(global_scope, [
+            "PermitEmptyPasswords yes",
+            "PasswordAuthentication no",
+            "KbdInteractiveAuthentication no",
+        ])
+        self.assertEqual(match_scope, ["PasswordAuthentication yes"])
 
     def test_sudoers_policy_is_single_grant(self):
         # sudo 静默忽略非 0440 的 include 文件，权限与内容同样是契约；

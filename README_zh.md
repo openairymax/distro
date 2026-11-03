@@ -31,14 +31,18 @@
 
 | 账户 | 交付状态 | 登录边界 |
 |------|----------|----------|
-| `root` | 固定口令 `00000000` | 控制台/SSH 接管；不强制改密 |
-| `amuser` | 空口令（免密） | `wheel`；lightdm 自动登录 + UKUI 桌面 |
+| `root` | 固定口令 `00000000` | 控制台接管；SSH 仅公钥 |
+| `amuser` | 空口令（免密） | `wheel`；lightdm 自动登录 + UKUI 桌面、SSH 空口令 |
 
 空口令由 kickstart 的 `%post` 执行 `passwd -d amuser` 落地，`%post` 末尾
 的账户断言把「root 为 sha512、amuser 为空口令」作为安装成功率的一部分。
 SSH 侧由 `airymaxos-release` 安装
-`/etc/ssh/sshd_config.d/50-airymax-sshd.conf`（`PermitEmptyPasswords yes`）
-放行；本地座位由 `50-airymax.conf` 的 `autologin-user=amuser` 免密进入。
+`/etc/ssh/sshd_config.d/50-airymax-sshd.conf`：`PermitEmptyPasswords yes`、
+全局 `PasswordAuthentication no`，并在 `Match User amuser` 内单独放开
+`PasswordAuthentication yes`。交付账户因此保留免密入口；有口令的账户不进入
+口令认证，原因是每个连接都会以空口令做一次 PAM 探测，这次探测会被
+`pam_faillock` 记成失败。本地座位由 `50-airymax.conf` 的
+`autologin-user=amuser` 免密进入。
 账户名只在 kickstart 的 `user --name=` 定义，座位、sudo 唯一规则与冒烟
 断言都从它派生；小写名不需要 `NAME_REGEX` 或大小写敏感文件系统的额外
 约定（0.0.3 交付的 `Airymax` 含大写，家目录可能与其分叉）。
