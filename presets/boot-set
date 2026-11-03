@@ -46,6 +46,12 @@ airy-power.timer
 airy-rt-coexist.service
 airy-rt-coexist.timer
 
+# 基础挂载：九阶段的第一段。不启用时开机打印从 2/9 起跳，现场就看不到
+# 根是否只读、ESP 是否真的挂上——这两件事恰好是装机失败最常见的两个起点，
+# 而它们都不会让启动本身失败，只会在后续写盘时才暴露。排在数据分区之前，
+# 数据盘挂载失败时才能分清是根的问题还是盘的问题。
+airy-boot-mount.service
+
 # 数据盘：单元就位却默认关闭时，数据盘不挂载、容量告急也不告警，/data 只剩
 # 空目录。
 airy-disk-mount.service

@@ -57,6 +57,7 @@ GOVERNANCE = {
     "airy-rt-coexist.service",
     "airy-rt-coexist.timer",
     "airy-disk-mount.service",
+    "airy-boot-mount.service",
     "airy-disk-health.timer",
     "airymax-update-check.timer",
 }
