@@ -14,12 +14,16 @@
 # 可比性优先于结论：内核版本或能力等级不同的两份数据不是同一个被测对象，
 # 此时给出 incomparable 与退出码 3，而不是把差异算成性能回归或改进。
 #
+# 没有数字与数字不好也是两件事。门禁报 blocked（等级 none、工具缺失、工具
+# 执行失败）时这里同样给 blocked 与退出码 4：这台机器没有给出实时性结论，
+# 既不能记为合格基线，也不能记成回归。
+#
 # 用法：
 #   baseline.py record [--out FILE] [--rounds N] [--duration S]
 #   baseline.py check --baseline FILE [--current FILE] [--percent 120]
 #
 # 两个子命令的 stdout 都是一行 JSON，便于归档与批量比对。
-# 退出码：0 通过；1 不通过或测量失败；2 用法错误；3 不可比。
+# 退出码：0 通过；1 不通过或测量失败；2 用法错误；3 不可比；4 未测量。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
 # Version: 0.0.4
@@ -37,6 +41,7 @@ from pathlib import Path
 SCHEMA = 1
 EINVAL = 2
 ENOCMP = 3
+EBLOCK = 4
 GATE = Path(__file__).resolve().parents[2] / "ci" / "gates" / "rt-accept.sh"
 
 
@@ -72,8 +77,11 @@ def _last_json(text: str) -> dict | None:
 
 
 def run_gate(gate: str, duration: int) -> dict:
-    proc = subprocess.run([gate, "--json", "--duration", str(duration)],
-                          capture_output=True, text=True)
+    try:
+        proc = subprocess.run([gate, "--json", "--duration", str(duration)],
+                              capture_output=True, text=True)
+    except OSError as err:
+        raise Probe("无法执行门禁 %s：%s" % (gate, err)) from err
     found = _last_json(proc.stdout)
     if found is None:
         raise Probe(proc.stderr.strip() or proc.stdout.strip() or "无输出")
@@ -207,7 +215,9 @@ def main(argv: list[str] | None = None) -> int:
         return _record(args) if args.cmd == "record" else _check(args)
     except Probe as err:
         print("rt-baseline: %s" % err, file=sys.stderr)
-        return 1
+        print(json.dumps({"verdict": "blocked", "reason": str(err)},
+                         ensure_ascii=False, sort_keys=True))
+        return EBLOCK
 
 
 if __name__ == "__main__":
