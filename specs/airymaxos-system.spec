@@ -49,7 +49,7 @@
 # spec-lint: source-bundle ../../system/services/airymax_probe
 
 %global airy_version 0.0.4
-%global airy_release 19
+%global airy_release 20
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -107,6 +107,7 @@ Source42:       airy-rt-coexist.service
 Source43:       airy-rt-coexist.timer
 Source44:       airy-rt-lat.c
 Source45:       airymax-agent.slice
+Source46:       50-airymax-memory.conf
 
 BuildRequires:  gcc
 BuildRequires:  python3-devel
@@ -162,6 +163,9 @@ install -m 0644 %{SOURCE1} %{SOURCE2} %{SOURCE3} %{SOURCE4} %{SOURCE5} \
     %{SOURCE37} %{SOURCE38} %{SOURCE42} %{SOURCE43} %{SOURCE45} \
     %{buildroot}%{_unitdir}/
 install -m 0644 %{SOURCE0} %{SOURCE15} %{buildroot}%{_unitdir}/
+install -d -m 0755 %{buildroot}%{_unitdir}/user.slice.d
+install -m 0644 %{SOURCE46} \
+    %{buildroot}%{_unitdir}/user.slice.d/50-airymax-memory.conf
 install -d -m 0755 %{buildroot}/usr/lib/airymaxos/scripts
 install -m 0755 %{SOURCE17} %{SOURCE18} \
     %{buildroot}/usr/lib/airymaxos/scripts/
@@ -220,6 +224,9 @@ grep -qxF 'Slice=airymax-agent.slice' \
 test -f %{buildroot}%{_unitdir}/airymax-agent.slice
 grep -qxF 'MemoryMax=90%' \
     %{buildroot}%{_unitdir}/airymax-agent.slice
+test -f %{buildroot}%{_unitdir}/user.slice.d/50-airymax-memory.conf
+grep -qxF 'MemoryMax=85%' \
+    %{buildroot}%{_unitdir}/user.slice.d/50-airymax-memory.conf
 test -f %{buildroot}%{_unitdir}/airy-disk-mount.service
 grep -qxF 'ExecStart=/usr/bin/airy-disk mount' \
     %{buildroot}%{_unitdir}/airy-disk-mount.service
@@ -305,6 +312,8 @@ fi
 /usr/lib/airymaxos/scripts/*.sh
 %{_unitdir}/*.service
 %{_unitdir}/*.slice
+%dir %{_unitdir}/user.slice.d
+%{_unitdir}/user.slice.d/*.conf
 %{_unitdir}/*.target
 %{_unitdir}/*.timer
 %{_presetdir}/90-airymax.preset
@@ -324,6 +333,14 @@ fi
 %{python3_sitelib}/airymax_probe
 
 %changelog
+* Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-20
+- Bound the session pool with a user.slice drop-in: AirymaxRT execs its
+  local model runtime from a login session, so the airymax-agent.slice
+  ceiling never applied to the three instances that reached 29.5G of 30G
+  physical memory. user.slice is the common parent of every session scope,
+  so a hard 85% MemoryMax there covers any spawn path and keeps 15% for
+  the kernel, system.slice and writeback. Only MemoryMax is declared, for
+  the same cgroup v1 hybrid reason as the agent slice.
 * Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-19
 - Bound model and agent workloads in airymax-agent.slice: on 285H three
   inference instances reached 29.5G of 30G physical memory and pushed the
