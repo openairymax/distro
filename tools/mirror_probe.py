@@ -17,9 +17,12 @@
 # 用法：
 #   mirror_probe.py [--timeout S] [--floor KIB] [--span BYTES] ROOT...
 #
-# 输出：stdout 每行一个入选根的 URL，按实测速率降序；stderr 是完整测速表。
-# 全部低于 --floor 时仍输出最快的一个——宁可比预期慢，也不猜地址——并以
-# 退出码 3 告知调用方「没有根达标」。用法错误退出码 2。
+# 输出：stdout 每行一个根的 URL，按实测速率降序，一个都不丢；stderr 是完整
+# 测速表。低于 --floor 的根只是排到后面，不再从候选里删除——它们是慢，不是
+# 不可用。删减曾把「慢」变成「没有备用」：run 41616948930 里探测只留下腾讯云
+# 一根，该根对 EPOL/update 返回 HTTP 567，求解随即没有任何根可换，整段构建
+# 以「All mirrors were tried」告终，而其余五根当时都返回 200。没有任何根达标
+# 时以退出码 3 告知调用方，排序照常输出。用法错误退出码 2。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
 # Version: 0.0.3
@@ -80,11 +83,9 @@ def sample(root, timeout, span):
     return int(got / 1024 / spent), got, why
 
 
-def rank(rows, floor):
-    """按速率降序排列 (速率, 根)；达标者全出，全不达标时只留最快的一个。"""
-    rows = sorted(rows, key=lambda row: row[0], reverse=True)
-    keep = [row for row in rows if row[0] >= floor]
-    return keep or rows[:1]
+def rank(rows):
+    """按速率降序排列 (速率, 根)；只排序，不删除任何根。"""
+    return sorted(rows, key=lambda row: row[0], reverse=True)
 
 
 def main(argv):
@@ -126,11 +127,12 @@ def main(argv):
         rows.append((rate, root))
         print("%6d KiB/s  %8d B  %s%s"
               % (rate, got, root, "  (%s)" % why if why else ""), file=sys.stderr)
-    picked = rank(rows, floor)
+    picked = rank(rows)
     for _, root in picked:
         print(root)
-    if picked and picked[0][0] < floor:
-        print("没有镜像根达到 %d KiB/s，只用最快的一个" % floor, file=sys.stderr)
+    if picked[0][0] < floor:
+        print("没有镜像根达到 %d KiB/s，按实测速率降序全部保留" % floor,
+              file=sys.stderr)
         return 3
     return 0
 
