@@ -49,7 +49,7 @@
 # spec-lint: source-bundle ../../system/services/airymax_probe
 
 %global airy_version 0.0.4
-%global airy_release 14
+%global airy_release 15
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -145,10 +145,11 @@ can opt out without editing the package payload.
 
 %prep
 %setup -q -c -T
+install -m 0644 %{SOURCE44} airy-rt-lat.c
 
 %build
 gcc %{optflags} -std=c11 -Wall -Wextra -Werror -o airy-rt-lat \
-    %{SOURCE44} -lpthread
+    airy-rt-lat.c -lpthread
 
 %install
 install -d -m 0755 %{buildroot}%{_unitdir}
@@ -316,6 +317,11 @@ fi
 %{python3_sitelib}/airymax_probe
 
 %changelog
+* Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-15
+- Copy airy-rt-lat.c into the build tree before compiling, so
+  find-debuginfo can attribute the object back to a source file and
+  openEuler's debugsource subpackage is not left with an empty file
+  list, which failed the install phase on the 285H build host
 * Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-14
 - Fold whole-machine load into the power policy: PSI some avg10 when
   available, loadavg and meminfo otherwise, with swap usage scored on
