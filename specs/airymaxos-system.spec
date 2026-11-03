@@ -61,7 +61,7 @@
 # spec-lint: source-bundle ../../system/services/airymax_observe
 
 %global airy_version 0.0.4
-%global airy_release 36
+%global airy_release 37
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -424,6 +424,20 @@ fi
 %{python3_sitelib}/airymax_observe
 
 %changelog
+* Tue Nov 03 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-37
+- Join the only continuous actuator this machine has to the guard. On 285H
+  every cooling device is firmware-managed, so governors and EPP are the
+  discrete knobs and intel_pstate max_perf_pct plus no_turbo are the only
+  continuous ones; a thermal squeeze needs a continuous shrink, not another
+  governor step.
+- The four-rung ladder (50/70/90/100 percent, turbo off below 90) takes the
+  worst of thermal margin, throttle growth and whole-machine load. Battery
+  and weak-supply shift one rung down; an unknown supply does not, because
+  treating "cannot read" as battery capped an idle 285H at 50 percent.
+- Tightening lands at once, relaxing needs three consecutive relaxed rounds
+  recorded in /run/airy-power/ceiling. The 285H run showed full load tighten
+  100 to 90 within one cycle and recovery after exactly three rounds, with
+  the firmware throttle count untouched the whole time.
 * Tue Nov 03 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-36
 - Keep the restart policy from fighting the admission verdict. 75 is a
   decision, not a malfunction: restarting it five seconds later meets the
