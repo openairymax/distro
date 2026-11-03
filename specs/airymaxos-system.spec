@@ -49,7 +49,7 @@
 # spec-lint: source-bundle ../../system/services/airymax_probe
 
 %global airy_version 0.0.4
-%global airy_release 21
+%global airy_release 22
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -245,6 +245,8 @@ grep -qxF 'OnCalendar=daily' \
 test -f %{buildroot}%{_unitdir}/airy-rt-bandwidth.service
 grep -qxF 'ExecStart=/usr/bin/airy-rt-cap apply' \
     %{buildroot}%{_unitdir}/airy-rt-bandwidth.service
+grep -qxF 'ExecStartPost=/usr/bin/airy-rt-cap memcap --apply' \
+    %{buildroot}%{_unitdir}/airy-rt-bandwidth.service
 grep -qxF 'Before=agentrt.target rtkit-daemon.service display-manager.service' \
     %{buildroot}%{_unitdir}/airy-rt-bandwidth.service
 test -f %{buildroot}%{_unitdir}/airy-rt-coexist.service
@@ -337,13 +339,24 @@ fi
 %{python3_sitelib}/airymax_probe
 
 %changelog
+* Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-22
+- Enforce the memsw ceiling that systemd leaves unwritten. On the hybrid
+  hierarchy a transient service reports MemorySwapMax=314572800 through
+  systemctl show while memory.memsw.limit_in_bytes stays infinity, so the
+  declarations from 0.0.4-21 bounded nothing on the swap side. The RT
+  package now reads those same declarations, converts the percentages
+  against MemTotal and writes the memsw limit directly, reading it back
+  because cgroupfs clamps silently. airy-rt-bandwidth.service runs it as
+  an ExecStartPost so both ceilings exist before a login session can
+  allocate, and a target below the current charge is refused instead of
+  being turned into an OOM event on a running model.
 * Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-21
 - Bound the swap side of both memory ceilings. A hard MemoryMax alone does
   not reject the pages above it; they are swapped out, and on 285H the
   session scope was charged 13.8G of a 16G swap while the machine spent
   its time between eviction and refault. memsw accounting is available on
   the 6.6 target kernel (memory.memsw.limit_in_bytes is writable and the
-  per-group swap counter is non-zero), so MemorySwapMax lands as a real
+  per-group swap counter is non-zero), so MemorySwapMax states the
   page-out ceiling: 10% on airymax-agent.slice and 15% in the session
   pool, putting memory plus swap at one physical memory and keeping the
   resident share at 90% and 85% respectively.
