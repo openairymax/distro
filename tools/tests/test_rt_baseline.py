@@ -109,21 +109,24 @@ class RecordTest(Base):
 
     def test_measure_failure(self) -> None:
         body = ('#!/bin/sh\n'
-                'printf \'{"verdict":"fail","reason":"no rt-tests"}\\n\'\n'
-                "exit 1\n")
+                'echo "rt-accept: no rt-tests" >&2\n'
+                'printf \'{"verdict":"blocked","reason":"no rt-tests"}\\n\'\n'
+                "exit 4\n")
         path = self.bin / "gate"
         path.write_text(body, encoding="ascii")
         path.chmod(0o755)
         done = self.tools("record", "--rounds", "1")
-        self.assertEqual(done.returncode, 1)
+        self.assertEqual(done.returncode, 4)
         self.assertIn("rt-tests", done.stderr)
+        self.assertEqual(json.loads(done.stdout)["verdict"], "blocked")
 
     def test_missing_gate(self) -> None:
         done = subprocess.run(
             [sys.executable, str(TOOL), "record", "--rounds", "1",
              "--gate", str(self.base / "nope")],
             capture_output=True, text=True, check=False)
-        self.assertEqual(done.returncode, 1)
+        self.assertEqual(done.returncode, 4)
+        self.assertEqual(json.loads(done.stdout)["verdict"], "blocked")
 
     def test_usage(self) -> None:
         done = self.tools("record", "--rounds", "0")
@@ -181,6 +184,12 @@ class CheckTest(Base):
         done = self.check()
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(json.loads(done.stdout)["current_us"], 40)
+
+    def test_live_blocked(self) -> None:
+        self.gate(self.values, '{"verdict":"blocked","reason":"no budget"}')
+        done = self.check()
+        self.assertEqual(done.returncode, 4)
+        self.assertEqual(json.loads(done.stdout)["verdict"], "blocked")
 
 
 if __name__ == "__main__":

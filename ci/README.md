@@ -66,8 +66,11 @@ lockfile 冻结点（滚动触发） × 内核 RPM（6.6-airymax.n）
   可覆盖，`--duration` 改测量时长）。测量优先用产品自带的 `airy-rt-lat`
   （FIFO 90、200µs 周期），没有时才退回 `cyclictest -q -m -Sp90 -i200
   -h400` 并取 `Max:` 比较：镜像不带 rt-tests，验收不能建立在外部软件包上。
-  两者都缺失即失败、不降级；退出码 0 通过、1 不通过或环境不满足、2 用法
-  错误，`--json` 给出 `verdict`/`grade`/`tool`/`max_us`/`limit_us`；
+  两者都缺失即失败、不降级；退出码 0 通过、1 超阈值、2 用法错误、
+  4 环境不满足而未测量（等级 `none`、缺工具、工具执行出错），`--json` 给出
+  `verdict`/`grade`/`tool`/`max_us`/`limit_us`，`blocked` 时只给 `reason`。
+  超阈值与测不了必须分开：前者是实时性结论为否，后者是本次没有结论，
+  合成一个码会让不具备实时能力的机型被当成回归，也会诱使流水线放宽阈值；
 - `run-smoke.sh` 必须在已登录的 UKUI 桌面会话内以该桌面用户运行
   （TV-02 桌面验收），不由宿主机驱动；探测只读系统状态，不改配置。
   `loginctl`/`pgrep`/`xdpyinfo`/`ibus`/`pactl`/`gsettings`/

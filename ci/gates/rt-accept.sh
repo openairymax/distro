@@ -19,9 +19,13 @@
 # 阈值可用 --hard-us / --soft-us 覆盖，缺省按 0.0.4 基线：
 #   ready  完整实时：最大延迟 <= 100 us
 #   soft   软实时：  最大延迟 <= 1000 us
-# 超阈值即失败；测量本身出错（无输出、非数字）同样失败。
 #
-# 退出码：0 通过；1 不通过或环境不满足；2 用法错误。
+# 「系统不达标」与「这台机器测不了」必须分开。前者是超阈值，说明实时性
+# 结论为否；后者是没有实时带宽、缺测量工具或工具执行失败，说明这次没有
+# 结论。把两者都报成失败，会让一台根本不具备实时能力的机器被当成回归，
+# 也会让流水线为了变绿而放宽阈值。因此后者单列为 blocked。
+#
+# 退出码：0 通过；1 超阈值；2 用法错误；4 环境不满足，未测量。
 # ===========================================================================
 set -euo pipefail
 
@@ -50,22 +54,22 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-fail() {
+blocked() {
     echo "rt-accept: $*" >&2
     if [ "${JSON}" -eq 1 ]; then
-        printf '{"verdict":"fail","reason":"%s"}\n' "$*"
+        printf '{"verdict":"blocked","reason":"%s"}\n' "$*"
     fi
-    exit 1
+    exit 4
 }
 
 command -v "${CAP}" >/dev/null 2>&1 ||
-    fail "找不到 ${CAP}，先安装 airymaxos-system"
+    blocked "找不到 ${CAP}，先安装 airymaxos-system"
 if command -v "${LAT}" >/dev/null 2>&1; then
     kind=lat
 elif command -v "${CYCLE}" >/dev/null 2>&1; then
     kind=cyclictest
 else
-    fail "找不到 ${LAT}（airymaxos-system）或 ${CYCLE}（rt-tests）"
+    blocked "找不到 ${LAT}（airymaxos-system）或 ${CYCLE}（rt-tests）"
 fi
 
 # matrix 的退出码承载等级（0 ready、3 soft、1 none），不是执行成败。
@@ -74,31 +78,31 @@ matrix_rc=0
 matrix="$("${CAP}" matrix --json 2>&1)" || matrix_rc=$?
 case "${matrix_rc}" in
     0|1|3) ;;
-    *) fail "matrix 执行失败（rc=${matrix_rc}）：${matrix}" ;;
+    *) blocked "matrix 执行失败（rc=${matrix_rc}）：${matrix}" ;;
 esac
 grade="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["grade"])' \
-    <<<"${matrix}" 2>/dev/null)" || fail "matrix 输出不是合法 JSON：${matrix}"
+    <<<"${matrix}" 2>/dev/null)" || blocked "matrix 输出不是合法 JSON：${matrix}"
 
 case "${grade}" in
     ready) limit="${HARD_US}" ;;
     soft) limit="${SOFT_US}" ;;
-    *) fail "等级 ${grade} 不接受，拒绝测量" ;;
+    *) blocked "等级 ${grade} 不接受，拒绝测量" ;;
 esac
 
 if [ "${kind}" = lat ]; then
     out="$("${LAT}" -p 90 -i 200 -D "${DURATION}" -j 2>&1)" ||
-        fail "airy-rt-lat 执行失败：${out}"
+        blocked "airy-rt-lat 执行失败：${out}"
     max="$(python3 -c 'import json,sys
 print(int(json.load(sys.stdin)["max_us"]))' <<<"${out}" 2>/dev/null)" ||
-        fail "airy-rt-lat 输出不是合法 JSON：${out}"
+        blocked "airy-rt-lat 输出不是合法 JSON：${out}"
 else
     log="$(mktemp)"
     trap 'rm -f "${log}"' EXIT
     "${CYCLE}" -q -m -Sp90 -i200 -h400 -D "${DURATION}s" >"${log}" 2>&1 ||
-        fail "cyclictest 执行失败"
+        blocked "cyclictest 执行失败"
     max="$(sed -n 's/.*Max:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "${log}" |
         tail -n 1)"
-    [ -n "${max}" ] || fail "cyclictest 未输出最大延迟"
+    [ -n "${max}" ] || blocked "cyclictest 未输出最大延迟"
 fi
 
 verdict=pass

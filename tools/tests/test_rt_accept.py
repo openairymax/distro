@@ -7,9 +7,14 @@
 # 依赖缺失或执行出错时明确报错、以及 matrix 用退出码表达等级时不误判。
 # 最后两类尤其重要：静默跳过会让整条流水线看起来通过，实际上从未验证过
 # 实时性；把 soft 的退出码 3 当成执行失败，则软实时机器永远无法验收。
+#
+# 拒收与测量出错都退出 4（blocked），与超阈值的 1（fail）分开：前者说明
+# 这台机器没有给出结论，后者说明结论是否。混成一个码就无法区分「机器不
+# 具备实时能力」和「实时性回归」，而这两种情况要做的处置完全不同。
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import tempfile
@@ -124,7 +129,7 @@ class RejectTest(Base):
         self.matrix('{"grade":"none","pending":["budget"]}', rc=1)
         self.cycle()
         done = self.gate()
-        self.assertEqual(done.returncode, 1)
+        self.assertEqual(done.returncode, 4)
         self.assertIn("不接受", done.stderr)
         self.assertFalse(self.called())
 
@@ -132,34 +137,34 @@ class RejectTest(Base):
         self.matrix('{"grade":"ready","pending":[]}', rc=2)
         self.cycle()
         done = self.gate()
-        self.assertEqual(done.returncode, 1)
+        self.assertEqual(done.returncode, 4)
         self.assertIn("matrix 执行失败", done.stderr)
         self.assertFalse(self.called())
 
     def test_missing_cap(self) -> None:
         self.cycle()
         done = self.gate()
-        self.assertEqual(done.returncode, 1)
+        self.assertEqual(done.returncode, 4)
         self.assertIn("airy-rt-cap", done.stderr)
 
     def test_missing_cyclictest(self) -> None:
         self.matrix('{"grade":"ready","pending":[]}')
         done = self.gate()
-        self.assertEqual(done.returncode, 1)
+        self.assertEqual(done.returncode, 4)
         self.assertIn("rt-tests", done.stderr)
 
     def test_measurement_error(self) -> None:
         self.matrix('{"grade":"ready","pending":[]}')
         self.cycle(None)
         done = self.gate()
-        self.assertEqual(done.returncode, 1)
+        self.assertEqual(done.returncode, 4)
         self.assertIn("cyclictest 执行失败", done.stderr)
 
     def test_bad_matrix_json(self) -> None:
         self.matrix("not json")
         self.cycle()
         done = self.gate()
-        self.assertEqual(done.returncode, 1)
+        self.assertEqual(done.returncode, 4)
         self.assertIn("合法 JSON", done.stderr)
 
     def test_usage(self) -> None:
@@ -175,6 +180,15 @@ class JsonTest(Base):
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertIn('"verdict":"pass"', done.stdout)
         self.assertIn('"max_us":42', done.stdout)
+
+    def test_blocked_shape(self) -> None:
+        self.matrix('{"grade":"none","pending":["budget"]}', rc=1)
+        self.cycle()
+        done = self.gate("--json")
+        self.assertEqual(done.returncode, 4)
+        found = json.loads(done.stdout.strip().splitlines()[-1])
+        self.assertEqual(found["verdict"], "blocked")
+        self.assertIn("none", found["reason"])
 
 
 class NativeTest(Base):
@@ -205,14 +219,14 @@ class NativeTest(Base):
         self.matrix('{"grade":"ready","pending":[]}')
         self.lat(None)
         done = self.gate()
-        self.assertEqual(done.returncode, 1)
+        self.assertEqual(done.returncode, 4)
         self.assertIn("airy-rt-lat 执行失败", done.stderr)
 
     def test_bad_json(self) -> None:
         self.matrix('{"grade":"ready","pending":[]}')
         self.lat(0, payload="not json")
         done = self.gate()
-        self.assertEqual(done.returncode, 1)
+        self.assertEqual(done.returncode, 4)
         self.assertIn("合法 JSON", done.stderr)
 
 
