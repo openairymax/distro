@@ -49,7 +49,7 @@
 # spec-lint: source-bundle ../../system/services/airymax_probe
 
 %global airy_version 0.0.4
-%global airy_release 17
+%global airy_release 18
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -317,6 +317,12 @@ fi
 %{python3_sitelib}/airymax_probe
 
 %changelog
+* Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-18
+- Fall back to per-core load average when PSI is unavailable: the 285H
+  kernel has no PSI, so the coexistence policy sat at the baseline weight
+  on the only machine we can validate. Use a separate threshold for the
+  fallback because load average counts uninterruptible sleep, and report
+  which signal produced the verdict
 * Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-17
 - Cap cpuidle depth against the real-time budget: on AC below the hot
   zone, disable idle states whose exit latency exceeds 1000us, and
