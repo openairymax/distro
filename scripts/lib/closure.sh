@@ -47,11 +47,13 @@
 # 同样换根（CLOSURE_FLOOR，见 cl_watch）。
 #
 # 先试哪个根不再取决于镜像表的书写顺序：求解前用 tools/mirror_probe.py 对
-# 每个根做一次定长抽样，按实测吞吐降序排列并丢掉不达标的根（cl_probe）。
-# 行序是人工维护的，与此刻哪台主机快无关，按行序尝试等于把最慢的根放在
-# 第一位，而每一根都要花掉数分钟才轮到下一根（run 41039410608 三根共耗
-# 15 分钟，日志里没有一行数字）。探测是优化而非前提：取不到样本时保持
-# 原序继续，CLOSURE_PROBE=0 可整体关闭。
+# 每个根做一次定长抽样，按实测吞吐降序排列（cl_probe）。行序是人工维护的，
+# 与此刻哪台主机快无关，按行序尝试等于把最慢的根放在第一位，而每一根都要
+# 花掉数分钟才轮到下一根（run 41039410608 三根共耗 15 分钟，日志里没有一行
+# 数字）。探测是优化而非前提：取不到样本时保持原序继续，CLOSURE_PROBE=0 可
+# 整体关闭；且只排序、不删减——候选集合恒等于镜像表，否则「慢」会被静默改写
+# 成「没有备用」（run 41616948930：探测只留下对 EPOL/update 返回 567 的那一
+# 根，其余五根本可接替）。
 #
 # 跨轮复用走缓存池（CLOSURE_POOL 指向的目录）：池内 RPM 由本地仓库以
 # cost=1 参与同一次求解，远端只补差异；未完成的轮次也会把已校验的包留进
@@ -244,7 +246,7 @@ cl_probe()
     [ "${#roots[@]}" -gt 1 ] || return 0
     if ! out="$(python3 "$CL_PROBE_TOOL" --timeout "$CL_PTIME" \
         --floor "$(( CL_FLOOR / 1024 ))" "${roots[@]}")"; then
-        # 全部低于下限时探测仍给出最快的一个，只是用退出码 3 声明这件事。
+        # 探测只排序不删减；退出码 3 只声明「没有根达标」，排序结果照样可用。
         [ -n "$out" ] || return 0
     fi
     [ -n "$out" ] || return 0
@@ -500,8 +502,11 @@ cl_fatal()
         2>/dev/null)" ] || return 1
     line="$(cl_reason "$log")"
     [ -n "$line" ] || return 1
-    printf 'closure: %s 秒内失败且零下载，跳过重试：%s\n' "$el" "$line" >&2
-    if [ "$(id -u)" -ne 0 ]; then
+    printf 'closure: %s 秒内失败且零下载，本根不再重试，换下一个镜像根：%s\n' \
+        "$el" "$line" >&2
+    # EUID 直接取 shell 变量：测试沙箱把 PATH 收窄到只剩被测命令，id 不可用，
+    # 而这条提示只是给「非 root」这一最常见原因的旁注，不该自己再抛一行错。
+    if [ "${EUID}" -ne 0 ]; then
         printf 'closure: 当前非 root；dnf --installroot 要求超级用户\n' >&2
     fi
     return 0
@@ -513,10 +518,12 @@ cl_fatal()
 cl_try()
 {
     local ks="$1" arch="$2" pkg="$3" work="$4" log="$5"
-    local root label n rc t0 pid
+    local root label n rc t0 pid idx=0 total="${#CL_ROOTS[@]}"
     : >"$log"
     for root in "${CL_ROOTS[@]}"; do
+        idx=$((idx + 1))
         label="${root:-<配方原址>}"
+        printf 'closure: 求解 %d/%d 根 %s\n' "$idx" "$total" "$label" >&2
         cl_repos "$ks" "${work}/repos/closure.repo" "$root" || return 1
         printf '%s\n' "$label" >"${work}/mirror-root.txt"
         rm -rf "${work}/dl"
@@ -558,7 +565,8 @@ cl_try()
             n=$((n + 1))
             sleep "$CL_WAIT"
         done
-        printf 'closure: 镜像根 %s 求解失败，换下一个根\n' "$label" >&2
+        printf 'closure: 镜像根 %s 求解失败（已试 %d/%d）\n' \
+            "$label" "$idx" "$total" >&2
     done
     return 1
 }

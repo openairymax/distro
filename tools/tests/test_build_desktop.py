@@ -432,9 +432,11 @@ class BuildDesktopTest(unittest.TestCase):
                          FAKE_DNF_MODE="deny", CLOSURE_WAIT="0",
                          CLOSURE_MIRRORS="https://a.example/oe https://b.example/oe")
         self.assertEqual(res.returncode, 6)
-        self.assertIn("跳过重试", res.stderr)
+        self.assertIn("本根不再重试", res.stderr)
         self.assertIn("superuser privileges", res.stderr)
         self.assertNotIn("求解未完成", res.stderr)
+        # 换根是硬要求：确定性故障只否掉这一根，不是整次求解。
+        self.assertIn("求解 2/2 根", res.stderr)
 
     def test_closure_fatal_reports_reason(self):
         # dnf 的 Error 行只有一个冒号时，抬到控制台的必须是能指到具体包的
@@ -444,7 +446,7 @@ class BuildDesktopTest(unittest.TestCase):
         res = self.build("--arch", "x86_64", "--closure",
                          FAKE_DNF_MODE="blankerr", CLOSURE_WAIT="0")
         self.assertEqual(res.returncode, 6)
-        self.assertIn("跳过重试", res.stderr)
+        self.assertIn("本根不再重试", res.stderr)
         self.assertIn("filtered out by exclude filtering", res.stderr)
 
     def test_closure_retries_link(self):

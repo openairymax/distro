@@ -4,8 +4,9 @@
 # test_mirror_probe.py — 闭包镜像根探测契约
 #
 # 探测决定闭包收割先试哪个根。它只在两点上提供价值：能把快的根排在前面，
-# 以及在全部根都不达标时仍给出一个可用的根（宁可比预期慢，也不猜地址）。
-# 二者都用本地 HTTP 服务验证，不依赖任何公网镜像。
+# 以及无论快慢都不缩减候选集合（慢根排到后面，而不是被删掉）。后者是硬约束：
+# 候选集合一旦缩到一根，那根不可用就等于整个求解没有备用。二者都用本地 HTTP
+# 服务验证，不依赖任何公网镜像。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
 # Version: 0.0.3
@@ -82,12 +83,14 @@ class MirrorProbeTest(unittest.TestCase):
 
     def test_rank_prefers_fastest(self):
         rows = [(10, "slow"), (900, "fast"), (400, "mid")]
-        self.assertEqual(mirror_probe.rank(rows, 256),
-                         [(900, "fast"), (400, "mid")])
+        self.assertEqual(mirror_probe.rank(rows),
+                         [(900, "fast"), (400, "mid"), (10, "slow")])
 
-    def test_rank_keeps_fastest_when_none_pass(self):
+    def test_rank_never_drops_a_root(self):
+        """慢根只降位，不消失：删掉它等于把「慢」改写成「没有备用」。"""
         rows = [(10, "slow"), (30, "less-slow")]
-        self.assertEqual(mirror_probe.rank(rows, 256), [(30, "less-slow")])
+        self.assertEqual(mirror_probe.rank(rows),
+                         [(30, "less-slow"), (10, "slow")])
 
     def test_usage_errors(self):
         self.assertEqual(self.cli().returncode, 2)
@@ -109,7 +112,7 @@ class MirrorProbeTest(unittest.TestCase):
         res = self.cli("--timeout", "5", "--span", "65536", "--floor", "1",
                        dead, fast)
         self.assertEqual(res.returncode, 0, res.stderr)
-        self.assertEqual(res.stdout.split(), [fast])
+        self.assertEqual(res.stdout.split(), [fast, dead])
         self.assertIn(dead, res.stderr)
 
     def test_samples_zst_primary_index(self):
@@ -121,12 +124,12 @@ class MirrorProbeTest(unittest.TestCase):
         res = self.cli("--timeout", "5", "--span", "65536", "--floor", "1",
                        base + "/b", base + "/z")
         self.assertEqual(res.returncode, 0, res.stderr)
-        self.assertEqual(res.stdout.split(), [base + "/z"])
+        self.assertEqual(res.stdout.split(), [base + "/z", base + "/b"])
         line = [row for row in res.stderr.splitlines() if row.endswith("/z")]
         self.assertEqual(len(line), 1, res.stderr)
         self.assertNotIn("(repomd)", line[0])
 
-    def test_all_below_floor_still_picks_one(self):
+    def test_all_below_floor_keeps_every_root(self):
         stage(self.root / "a", payload=1 << 18)
         (self.root / "b").mkdir()
         base, stop = serve(self.root)
@@ -134,7 +137,7 @@ class MirrorProbeTest(unittest.TestCase):
         res = self.cli("--timeout", "5", "--span", "65536",
                        "--floor", "1048576", base + "/b", base + "/a")
         self.assertEqual(res.returncode, 3)
-        self.assertEqual(res.stdout.split(), [base + "/a"])
+        self.assertEqual(res.stdout.split(), [base + "/a", base + "/b"])
 
 
 if __name__ == "__main__":
