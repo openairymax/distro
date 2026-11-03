@@ -78,9 +78,11 @@ class KernelSpecTest(unittest.TestCase):
                          fakes.osrel("VERSION_ID"))
 
     def test_generated_source_declared(self):
+        """归档名由宏派生，声明也按同一张宏表展开后比对。"""
         source = spec_lint.expand(self.tags["Source0"][1], self.macros)
-        self.assertIn("spec-lint: generated-source " + source,
-                      self.text)
+        declared = {spec_lint.expand(item, self.macros)
+                    for item in spec_lint.parse_gen(self.text.splitlines())}
+        self.assertIn(source, declared)
 
     def test_three_step_config(self):
         build = body(self.text, "build")

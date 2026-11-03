@@ -49,6 +49,7 @@ OUT_ABS=""
 SRC=""
 KV=""
 TARBALL=""
+VERIFY=0
 
 readonly SPEC="${DISTRO_ROOT}/specs/kernel/airymaxos-kernel.spec"
 
@@ -67,6 +68,7 @@ usage()
   --repo             构建后生成 dnf 仓库元数据
   --stream NAME      BaseOS|AppStream|updates，缺省 BaseOS
   --gpg-key KEYID    仓库签名密钥（--repo 时必填）
+  --check-version    只校验内核树与配方的版本一致，打印版本号后退出
   -h, --help         显示本帮助
 
 产出:
@@ -110,6 +112,7 @@ parse_args()
         --stream) optarg "$1" "$#"; STREAM="$2"; shift 2 ;;
         --gpg-key) optarg "$1" "$#"; GPG_KEY="$2"; shift 2 ;;
         --repo) REPO=1; shift ;;
+        --check-version) VERIFY=1; shift ;;
         -h|--help) usage; exit 0 ;;
         *) die "${E_INVAL}" "未知参数: $1" ;;
         esac
@@ -271,6 +274,12 @@ run_build()
 main()
 {
     parse_args "$@"
+    if [ "$VERIFY" -eq 1 ]; then
+        check_kdir
+        check_ver
+        printf '%s\n' "$KV"
+        return 0
+    fi
     check_arch
     check_cross
     check_kdir

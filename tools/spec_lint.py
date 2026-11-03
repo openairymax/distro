@@ -10,10 +10,13 @@
 # E015 检查注释中的裸 % 宏：rpm 在剥离注释前展开宏，若宏体带续行反斜杠
 # （如 openEuler 的 %install），续行会吞掉后续 preamble，报 Name 等字段缺失。
 # 注释中的宏必须写成 %%。
+# 例外是 spec-lint 自己的元数据行：它们先被本工具展开，只允许标量宏。
 #
 # 源码包由构建驱动现场生成的配方（如内核 tarball）可在文件头注释中声明
 #   # spec-lint: generated-source <文件名>
-# 该声明只豁免 E010 的存在性与唯一性检查，文件名形式与去重仍然校验。
+# 该声明只豁免 E010 的存在性与唯一性检查，文件名形式与去重仍然校验。文件名
+# 可含本配方的 % 宏（如 %{kernel_version}），比较前按同一张宏表展开——否则
+# 抬基线时声明与 Source 会各写一遍版本号，成为第二个真相源。
 #
 # Source 位于本仓库其它子树（如 system/units）的配方可声明额外的搜索根：
 #   # spec-lint: source-root <相对配方目录的路径>
@@ -62,9 +65,12 @@ LOG = re.compile(r"^\*\s+[A-Z][a-z]{2}\s+[A-Z][a-z]{2}\s+\d{1,2}\s+"
 MACRO = re.compile(r"^%(?:global|define)\s+(\w+)\s+(.+)$")
 BAD = re.compile(r"\b(TODO|FIXME|XXX)\b")
 SRC = re.compile(r"^Source\d+$")
-GEN = re.compile(r"^#\s*spec-lint:\s*generated-source\s+(\S+)$")
-ROOT = re.compile(r"^#\s*spec-lint:\s*source-root\s+(\S+)$")
-BUNDLE = re.compile(r"^#\s*spec-lint:\s*source-bundle\s+(\S+)$")
+# 校验器自己的元数据行，由本工具读取，rpm 只当作普通注释。
+DIRECTIVE = "spec-lint:"
+GEN = re.compile(rf"^#\s*{DIRECTIVE}\s*generated-source\s+(\S+)$")
+ROOT = re.compile(rf"^#\s*{DIRECTIVE}\s*source-root\s+(\S+)$")
+BUNDLE = re.compile(rf"^#\s*{DIRECTIVE}\s*source-bundle\s+(\S+)$")
+DIRECTIVE_LINE = re.compile(rf"^\s*#\s*{DIRECTIVE}")
 CMT = re.compile(r"^\s*#")
 CMT_MACRO = re.compile(r"(?<!%)%(?:\{|\w)")
 
@@ -286,7 +292,7 @@ def check_log(lines: list[str], secs: list[tuple[str, str, int]],
 
 def check_cmt(lines: list[str], issues: list[Issue]) -> None:
     for num, raw in enumerate(lines, 1):
-        if not CMT.match(raw):
+        if not CMT.match(raw) or DIRECTIVE_LINE.match(raw):
             continue
         hit = CMT_MACRO.search(raw)
         if hit:
@@ -330,9 +336,9 @@ def lint_text(text: str, path: Path, root: Path) -> list[Issue]:
     macros = collect_macros(lines)
     tags = parse_tags(lines)
     secs = parse_secs(lines)
-    gen = parse_gen(lines)
     ver = expand(tags.get("Version", (0, ""))[1], macros)
     macros["version"] = ver
+    gen = {expand(item, macros) for item in parse_gen(lines)}
     issues: list[Issue] = []
     roots = [root]
     for num, extra in parse_roots(lines, path):
