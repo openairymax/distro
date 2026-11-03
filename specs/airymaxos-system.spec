@@ -52,7 +52,7 @@
 # spec-lint: source-bundle ../../system/services/airymax_observe
 
 %global airy_version 0.0.4
-%global airy_release 25
+%global airy_release 26
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -354,6 +354,18 @@ fi
 %{python3_sitelib}/airymax_observe
 
 %changelog
+* Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-26
+- Record whole-machine stalls from the one clock that keeps moving while
+  everything is stopped: the periodic check expects to wake 60 seconds
+  after the last pass but wakes 200 seconds after it, and the 110 seconds
+  it overshot the 90 second budget by are a lower bound on the stall.
+  CLOCK_BOOTTIME is used so a suspend counts the same as a freeze, the 30
+  second slack covers the timer accuracy and the run itself, and the
+  evidence lands in /run so a reboot clears it. Nothing is written to the
+  machine in response: the stall is already over and any write at that
+  moment is a second disturbance. This exists because the 285H stalls
+  left no trace at all, not even a journal line, since every process able
+  to write one was waiting too.
 * Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-25
 - Ship airy-observe and the airymax_observe package so one command answers
   what the machine actually has. The survey reads sysfs only: a class with
