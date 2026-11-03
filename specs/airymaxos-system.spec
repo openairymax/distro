@@ -49,7 +49,7 @@
 # spec-lint: source-bundle ../../system/services/airymax_probe
 
 %global airy_version 0.0.4
-%global airy_release 18
+%global airy_release 19
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -106,6 +106,7 @@ Source41:       airymax_probe-%{version}.tar.gz
 Source42:       airy-rt-coexist.service
 Source43:       airy-rt-coexist.timer
 Source44:       airy-rt-lat.c
+Source45:       airymax-agent.slice
 
 BuildRequires:  gcc
 BuildRequires:  python3-devel
@@ -158,7 +159,7 @@ install -m 0644 %{SOURCE1} %{SOURCE2} %{SOURCE3} %{SOURCE4} %{SOURCE5} \
     %{SOURCE12} %{SOURCE13} %{SOURCE14} %{SOURCE16} \
     %{SOURCE23} %{SOURCE24} %{SOURCE27} \
     %{SOURCE30} %{SOURCE31} %{SOURCE32} %{SOURCE35} \
-    %{SOURCE37} %{SOURCE38} %{SOURCE42} %{SOURCE43} \
+    %{SOURCE37} %{SOURCE38} %{SOURCE42} %{SOURCE43} %{SOURCE45} \
     %{buildroot}%{_unitdir}/
 install -m 0644 %{SOURCE0} %{SOURCE15} %{buildroot}%{_unitdir}/
 install -d -m 0755 %{buildroot}/usr/lib/airymaxos/scripts
@@ -214,6 +215,11 @@ grep -qxF 'StateDirectory=airy-llm' \
     %{buildroot}%{_unitdir}/airy-llm.service
 grep -qxF 'ConditionPathExists=/var/lib/airy-llm/manifest.json' \
     %{buildroot}%{_unitdir}/airy-llm.service
+grep -qxF 'Slice=airymax-agent.slice' \
+    %{buildroot}%{_unitdir}/airy-llm.service
+test -f %{buildroot}%{_unitdir}/airymax-agent.slice
+grep -qxF 'MemoryMax=90%' \
+    %{buildroot}%{_unitdir}/airymax-agent.slice
 test -f %{buildroot}%{_unitdir}/airy-disk-mount.service
 grep -qxF 'ExecStart=/usr/bin/airy-disk mount' \
     %{buildroot}%{_unitdir}/airy-disk-mount.service
@@ -298,6 +304,7 @@ fi
 %dir /usr/lib/airymaxos/scripts
 /usr/lib/airymaxos/scripts/*.sh
 %{_unitdir}/*.service
+%{_unitdir}/*.slice
 %{_unitdir}/*.target
 %{_unitdir}/*.timer
 %{_presetdir}/90-airymax.preset
@@ -317,6 +324,16 @@ fi
 %{python3_sitelib}/airymax_probe
 
 %changelog
+* Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-19
+- Bound model and agent workloads in airymax-agent.slice: on 285H three
+  inference instances reached 29.5G of 30G physical memory and pushed the
+  whole machine into direct reclaim, stalling desktop and SSH. MemoryMax
+  at 90% keeps one tenth of RAM for the kernel and the interactive path,
+  so oversubscription fails the workload instead of the machine; the
+  percentage scales with the host. MemoryHigh and MemorySwapMax are
+  deliberately absent: the target image runs the hybrid cgroup v1
+  hierarchy where systemd does not write soft limits and memsw accounting
+  needs swapaccount=1, so those directives would only look enforced
 * Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-18
 - Fall back to per-core load average when PSI is unavailable: the 285H
   kernel has no PSI, so the coexistence policy sat at the baseline weight
