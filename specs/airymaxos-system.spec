@@ -49,7 +49,7 @@
 # spec-lint: source-bundle ../../system/services/airymax_probe
 
 %global airy_version 0.0.4
-%global airy_release 13
+%global airy_release 14
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -316,6 +316,17 @@ fi
 %{python3_sitelib}/airymax_probe
 
 %changelog
+* Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-14
+- Fold whole-machine load into the power policy: PSI some avg10 when
+  available, loadavg and meminfo otherwise, with swap usage scored on
+  its own because the 285H stalled with 14G still available
+- Keep the AC profile at balanced instead of low-power while load is
+  high and raise the energy preference to balance_performance, so the
+  run queue drains instead of growing under a long local model task
+- Broadcast one warning when reclaim pressure turns hot, and reset it
+  after the pressure falls so a later episode is not muted
+- Share the one-shot notice path between the low battery duty and the
+  pressure warning instead of keeping two copies of the same logic
 * Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-13
 - Ship airy-rt-lat, a FIFO periodic wake-up latency probe, so an
   installed machine produces the real-time baseline without rt-tests
