@@ -58,7 +58,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 4
+%global airy_release 5
 # 基底版本是显式输入，与 distro/repo/airymax-os.repo 及 kickstart 的
 # url/repo 行是三处同源表达。%%check 以本宏断言客户端配置，版本漂移在
 # 构建期失败，而不是等到装机后 dnf 报「找不到仓库」。
@@ -430,6 +430,10 @@ grep -qxF 'MARK=AIRYMAX-OBSERVE' \
     --root %{buildroot} --static | grep -qxF 'AIRYMAX-OBSERVE os.id=airymaxos'
 test -L %{buildroot}%{_bindir}/airy-record
 test -L %{buildroot}%{_bindir}/airy-observe
+# hardware 是转交给 airymax_observe 的子命令，本包不带那个模块；构建期能
+# 断言的是入口把用法写清楚——装了 hardware 却不写进用法，等于没有这个入口。
+%{buildroot}/usr/lib/airymaxos/desktop/airy_observe.sh --help |
+    grep -qF 'airy-observe hardware'
 # 基准脚本是 python3 而非 sh，语法断言改用 ast 解析（不产生 __pycache__），
 # 再在 buildroot 上真跑一次 --check：管道与 socketpair 建不起来时这里失败，
 # 而不是等到用户在机器上看到一串 traceback。
@@ -695,6 +699,16 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Sun Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-5
+- Give the hardware survey a home inside the one observe command. The
+  system package had started installing a second /usr/bin/airy-observe,
+  so the two packages could not be installed together: rpm reported a file
+  conflict on every machine that had both, and neither package could be
+  upgraded alone to fix it. airy-observe now dispatches its hardware
+  subcommand to the airymax_observe module and keeps the name to itself;
+  when the module is missing it reports reason=no-hw-package and exits 2
+  instead of printing a traceback the caller would take for a report. The
+  help text names the subcommand, and the check asserts that line is there.
 * Sun Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-4
 - Sync the brand grub.cfg after every regeneration. On EFI the grub prefix
   is the directory of the loaded grubx64.efi, so the firmware entry under
