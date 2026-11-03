@@ -5,13 +5,15 @@
 #
 # 归档确定性与版本对齐是内核配方的两个前提，一旦漂移要到数小时构建后
 # 才会暴露。用例以微型 git 内核树为夹具，用 PATH 沙箱替换 rpm 工具链，
-# 每个用例只破坏一个前提，断言对应退出码或归档属性。
+# 每个用例只破坏一个前提，断言对应退出码或归档属性。期望版本取自配方的
+# %global kernel_version，测试不另存一份版本真值。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
 # Version: 0.0.3
 # ===========================================================================
 
 import hashlib
+import re
 import shutil
 import subprocess
 import tarfile
@@ -21,11 +23,25 @@ from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "build-kernel.sh"
 DISTRO = SCRIPT.parent.parent
+SPEC = DISTRO / "specs" / "kernel" / "airymaxos-kernel.spec"
 BASH = shutil.which("bash") or "/bin/bash"
 GIT = shutil.which("git") or "/usr/bin/git"
 
-KVER = "6.6.157"
+KVER = re.search(r"^%global\s+kernel_version\s+(\S+)",
+                 SPEC.read_text(encoding="utf-8"), re.M).group(1)
 PREFIX = "airymaxos-kernel-{}/".format(KVER)
+
+
+def versions(kver, extra=""):
+    """按三点版本号渲染内核 Makefile 的四个版本字段。"""
+    return "VERSION = {}\nPATCHLEVEL = {}\nSUBLEVEL = {}\n" \
+           "EXTRAVERSION = {}\n".format(*kver.split("."), extra)
+
+
+def shift(kver, delta=1):
+    v, p, s = kver.split(".")
+    return "{}.{}.{}".format(v, p, int(s) + delta)
+
 
 TOOLS = ("bash", "basename", "cat", "cmp", "cp", "dirname", "find", "git",
          "gzip", "mkdir", "mv", "nproc", "rm", "sed", "sha256sum", "sort",
@@ -71,7 +87,7 @@ class BuildKernelTest(unittest.TestCase):
         self.kdir = self.root / "kernel"
         self.bin = self.root / "bin"
         self.bin.mkdir()
-        self.repo("157")
+        self.repo(KVER)
 
     def tearDown(self):
         self._tmp.cleanup()
@@ -84,11 +100,9 @@ class BuildKernelTest(unittest.TestCase):
         if res.returncode != 0:
             raise AssertionError(res.stderr)
 
-    def repo(self, sublevel):
+    def repo(self, kver):
         self.kdir.mkdir()
-        (self.kdir / "Makefile").write_text(
-            "VERSION = 6\nPATCHLEVEL = 6\nSUBLEVEL = {}\n"
-            "EXTRAVERSION =\n".format(sublevel), encoding="utf-8")
+        (self.kdir / "Makefile").write_text(versions(kver), encoding="utf-8")
         (self.kdir / "Kconfig").write_text("mainmenu \"Airy\"\n",
                                            encoding="utf-8")
         (self.kdir / "arch").mkdir()
@@ -125,6 +139,22 @@ class BuildKernelTest(unittest.TestCase):
         res = self.run_script("--help")
         self.assertEqual(res.returncode, 0)
         self.assertIn("用法", res.stdout)
+
+    def test_check_version(self):
+        self.tools()
+        res = self.run_script("--check-version", "--kernel", str(self.kdir))
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(res.stdout.strip(), KVER)
+        self.assertFalse(self.out.exists())
+
+    def test_check_version_drift(self):
+        self.tools()
+        self.kdir.joinpath("Makefile").write_text(
+            versions(shift(KVER)), encoding="utf-8")
+        self.git("commit", "-q", "-am", "drift")
+        res = self.run_script("--check-version", "--kernel", str(self.kdir))
+        self.assertEqual(res.returncode, 5)
+        self.assertIn("版本漂移", res.stderr)
 
     def test_missing_out(self):
         self.tools()
@@ -168,8 +198,7 @@ class BuildKernelTest(unittest.TestCase):
     def test_version_drift(self):
         self.tools()
         self.kdir.joinpath("Makefile").write_text(
-            "VERSION = 6\nPATCHLEVEL = 6\nSUBLEVEL = 156\n"
-            "EXTRAVERSION =\n", encoding="utf-8")
+            versions(shift(KVER)), encoding="utf-8")
         self.git("commit", "-q", "-am", "drift")
         res = self.base()
         self.assertEqual(res.returncode, 5)
@@ -177,8 +206,7 @@ class BuildKernelTest(unittest.TestCase):
     def test_extraversion(self):
         self.tools()
         self.kdir.joinpath("Makefile").write_text(
-            "VERSION = 6\nPATCHLEVEL = 6\nSUBLEVEL = 157\n"
-            "EXTRAVERSION = -local\n", encoding="utf-8")
+            versions(KVER, "-local"), encoding="utf-8")
         self.git("commit", "-q", "-am", "local")
         res = self.base()
         self.assertEqual(res.returncode, 5)

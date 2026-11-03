@@ -135,6 +135,22 @@ class SpecLintTest(unittest.TestCase):
                              "Source0:        demo.tar.gz")
         self.assertEqual(self.codes(text), [])
 
+    def test_generated_macro(self):
+        text = VALID.replace(
+            "Source0:        demo.conf",
+            "%global demo_ver 1.2.3\n"
+            "# spec-lint: generated-source demo-%{demo_ver}.tar.gz\n"
+            "Source0:        demo-%{demo_ver}.tar.gz")
+        self.assertEqual(self.codes(text), [])
+
+    def test_generated_macro_mismatch(self):
+        text = VALID.replace(
+            "Source0:        demo.conf",
+            "%global demo_ver 1.2.3\n"
+            "# spec-lint: generated-source demo-1.2.2.tar.gz\n"
+            "Source0:        demo-%{demo_ver}.tar.gz")
+        self.assertIn("E010", self.codes(text))
+
     def test_source_root(self):
         with tempfile.TemporaryDirectory() as extra:
             (Path(extra) / "demo.conf").write_text("x\n", encoding="utf-8")

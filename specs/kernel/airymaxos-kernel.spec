@@ -22,7 +22,7 @@
 # 与 190-distribution/01-rpm-packaging.md 的口径差异（已在 M-25 注记登记）：
 #   - 文档 §3.1 的 Source1/Source2、patches/、services/ 在 kernel/ 中不存在，
 #     本配方只消费真实存在的工作树内容；
-#   - 文档使用 6.6.0，实际内核 Makefile 为 6.6.157，以工作树为准；
+#   - 文档使用 6.6.0，实际内核 Makefile 的稳定版更高，以工作树为准；
 #   - 文档 §1.4 的 debuginfo 包与 §3.1/§3.5 的包矩阵冲突，本配方按后者
 #     产出 core/modules/headers/devel/tools，不拆 debuginfo；
 #   - initramfs 是安装期产物，任何子包都不拥有它，只由 %%post 生成并校验。
@@ -63,8 +63,8 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 2
-%global kernel_version 6.6.157
+%global airy_release 3
+%global kernel_version 6.6.161
 %global kernel_local -alk
 %global kernel_release %{kernel_version}%{kernel_local}
 %global ksrc %{_builddir}/airymaxos-kernel-%{kernel_version}
@@ -118,7 +118,7 @@ License:        GPL-2.0-only OR AGPL-3.0-or-later
 URL:            https://atomgit.com/openairymax/agent-linux
 ExclusiveArch:  x86_64 aarch64 riscv64 loongarch64
 
-# spec-lint: generated-source airymaxos-kernel-6.6.157.tar.gz
+# spec-lint: generated-source airymaxos-kernel-%{kernel_version}.tar.gz
 Source0:        airymaxos-kernel-%{kernel_version}.tar.gz
 
 BuildRequires:  bc
@@ -411,6 +411,12 @@ depmod -a %{kernel_release}
 %endif
 
 %changelog
+* Tue Nov 03 2026 SPHARX <dev@spharx.com> - 0.0.4-3
+- kernel：内核基线随 kernel/ 工作树推进到 6.6.161-alk，%%global
+  kernel_version 同步，源码归档名仍由该宏派生。此前工作树已并入上游
+  6.6.161，配方停在 6.6.157，build-kernel 的版本漂移检查在镜像组装阶段
+  才失败；生成式源码声明也改为引用 %%{kernel_version}，此后抬基线只动
+  这一行
 * Mon Nov 02 2026 SPHARX <dev@spharx.com> - 0.0.4-2
 - kernel：删掉 modules_install 之后的补签分支，%%check 的模块签名判据改按
   文件尾部结构。签名是追加在 .ko 尾部的 PKCS#7 + 12 字节
