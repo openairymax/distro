@@ -125,6 +125,7 @@ Source49:       boot-set
 Source50:       boot_set.sh
 Source51:       airy-rt-memcap.service
 Source52:       airy-rt-memcap.timer
+Source53:       ui.sh
 
 BuildRequires:  gcc
 BuildRequires:  python3-devel
@@ -196,7 +197,7 @@ install -d -m 0755 %{buildroot}%{_unitdir}/user.slice.d
 install -m 0644 %{SOURCE46} \
     %{buildroot}%{_unitdir}/user.slice.d/50-airymax-memory.conf
 install -d -m 0755 %{buildroot}/usr/lib/airymaxos/scripts
-install -m 0755 %{SOURCE17} %{SOURCE18} %{SOURCE50} \
+install -m 0755 %{SOURCE17} %{SOURCE18} %{SOURCE50} %{SOURCE53} \
     %{buildroot}/usr/lib/airymaxos/scripts/
 install -d -m 0755 %{buildroot}%{_presetdir}
 install -m 0644 %{SOURCE19} %{SOURCE20} %{buildroot}%{_presetdir}/
@@ -222,7 +223,10 @@ tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE48}
 test -x %{buildroot}/usr/lib/airymaxos/scripts/firstboot.sh
 test -x %{buildroot}/usr/lib/airymaxos/scripts/health_check.sh
 test -x %{buildroot}/usr/lib/airymaxos/scripts/boot_set.sh
+test -x %{buildroot}/usr/lib/airymaxos/scripts/ui.sh
 bash -n %{buildroot}/usr/lib/airymaxos/scripts/boot_set.sh
+bash -n %{buildroot}/usr/lib/airymaxos/scripts/ui.sh
+test "$(bash -c '. %{buildroot}/usr/lib/airymaxos/scripts/ui.sh; ui_total')" = 9
 test -x %{buildroot}%{_bindir}/airy-disk
 test -x %{buildroot}%{_bindir}/airy-update
 test -x %{buildroot}%{_bindir}/airy-model
