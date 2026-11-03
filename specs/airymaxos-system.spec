@@ -61,7 +61,7 @@
 # spec-lint: source-bundle ../../system/services/airymax_observe
 
 %global airy_version 0.0.4
-%global airy_release 33
+%global airy_release 34
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -424,6 +424,18 @@ fi
 %{python3_sitelib}/airymax_observe
 
 %changelog
+* Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-34
+- Refuse a new inference instance that does not fit instead of letting the
+  machine run past its physical memory. The memory and swap ceilings only
+  decide which instance dies first; on 285H three instances still added up to
+  29.5G on a 30G machine with 11G swapped, and two of fifteen coexistence
+  rounds went over the soft budget with 463,721 pages written out in the same
+  window while no direct-reclaim counter moved.
+- airy-rt-cap admit compares the requested size with MemAvailable minus the
+  reserve, where the reserve is the physical total minus the agent-side
+  ceiling read from the same slice units memcap uses. A request that does not
+  fit exits 3 and reports its shortfall; nothing already running is evicted.
+  Missing --need exits 2, an unreadable meminfo reports unknown.
 * Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-33
 - Stop reporting a never-provisioned data partition as a failure. mount.judge()
   folded "this system has no data partition at all" and "the data partition
