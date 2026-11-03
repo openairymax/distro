@@ -49,7 +49,7 @@
 # spec-lint: source-bundle ../../system/services/airymax_probe
 
 %global airy_version 0.0.4
-%global airy_release 16
+%global airy_release 17
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -317,6 +317,12 @@ fi
 %{python3_sitelib}/airymax_probe
 
 %changelog
+* Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-17
+- Cap cpuidle depth against the real-time budget: on AC below the hot
+  zone, disable idle states whose exit latency exceeds 1000us, and
+  restore the firmware default on battery or when the package is already
+  hot. The 285H measured 1048us on C3_ACPI, which alone pushed wakeup
+  latency past the soft real-time limit
 * Tue Nov 03 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-16
 - Trigger the load notice from the same strain verdict the profile uses,
   so a machine that is only swapping still gets one broadcast instead of
