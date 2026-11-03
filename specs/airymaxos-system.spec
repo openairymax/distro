@@ -61,7 +61,7 @@
 # spec-lint: source-bundle ../../system/services/airymax_observe
 
 %global airy_version 0.0.4
-%global airy_release 37
+%global airy_release 38
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
