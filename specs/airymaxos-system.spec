@@ -49,7 +49,7 @@
 # spec-lint: source-bundle ../../system/services/airymax_probe
 
 %global airy_version 0.0.4
-%global airy_release 23
+%global airy_release 24
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -339,6 +339,18 @@ fi
 %{python3_sitelib}/airymax_probe
 
 %changelog
+* Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-24
+- Report the cooling devices instead of pretending to drive them. The four
+  Fan objects on 285H are ACPI PNP0C0B devices whose firmware never
+  implemented \_TZ.FNCL: a write of 1 to cur_state returns ENODEV, leaves
+  an ACPI error in dmesg and makes the node unreadable afterwards, while
+  the fans keep turning exactly as the EC wants. airy-power now lists every
+  cooling device with its class, limit and current state, keeps unreadable
+  ones visible, and never opens cur_state for writing; heat is shed through
+  platform_profile, governor/EPP and idle depth, which are the interfaces
+  the platform does implement. The name ordering helper also parses the
+  trailing digits of a name rather than the tail after the last
+  underscore, so thermal_zone2 precedes thermal_zone10.
 * Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-23
 - Align the memory ceilings to the page size. A field apply on the target
   machine wrote 29324840140 to memory.limit_in_bytes and read back
