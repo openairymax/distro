@@ -12,8 +12,8 @@
 #      升级通道与装机共用同一份版本身份实现（V-14）；
 #   5. 部署 /usr/bin/airy-model、airyllm Python 包与推理服务单元，模型
 #      资产通道、状态查询与启动判定共用同一份运行层实现（K-20/K-21）；
-#   6. 部署 /usr/bin/airy-rt-cap、airymax_rt Python 包与实时带宽单元，
-#      启动期分配与人工排查共用同一份带宽判定实现（X-01）；
+#   6. 部署 /usr/bin/airy-rt-cap、airymax_rt Python 包与实时带宽、换页
+#      上限两个单元，启动期分配与人工排查共用同一份带宽判定实现（X-01）；
 #   7. 部署 /usr/bin/airy-power、airymax_power Python 包、电源档位单元
 #      与周期重评定时器，启动期落档、周期复核与人工排查共用同一份判定；
 #   8. 部署 /usr/bin/airy-probe 与 airymax_probe Python 包，十条追踪通道、
@@ -23,10 +23,17 @@
 #      判定（I-24）。命令本身归发行包，本包不再安装同名入口；
 #  10. 部署 airy-rt-coexist 单元对，把桌面 slice 的运行时权重从基线
 #      抬到保护档，使实时负载与桌面负载按 PSI 证据共存（X-05）；
-#  11. 在 %%post/%%postun 内刷新 systemd 单元缓存。
+#  11. 部署 /usr/lib/airymaxos/boot-set，声明开机必须启用的单元清单；
+#  12. 在 %%post/%%postun 内刷新 systemd 单元缓存，在 %%posttrans 内按
+#      该清单启用并启动单元。
 #
-# 单元启用（systemctl enable）由安装器在 kickstart 中显式完成，
-# 本包只负责文件到位与缓存刷新（OS-OPS-010）。随包落盘两份 preset：
+# 单元启用（systemctl enable）只有一条实现：读 /usr/lib/airymaxos/boot-set。
+# 装机由 kickstart 按清单下启用位（镜像内无法启用未来会在目标机跑的单元），
+# 已运行机器升级由 %%posttrans 按同一份清单补启用并启动（OS-OPS-010）。
+# 两处各写一份清单必然漂移，症状是「某台机器治理静默缺席」——换页无上界、
+# 电源与热治理不接管，从任何服务状态都看不出来。
+#
+# 随包落盘两份 preset：
 # 90-airymax.preset 把自有栈钉在 disabled，防止 systemctl preset-all 的
 # 默认 enable 语义提前拉起尚未交付二进制的单元；99-airymax-default-disable.preset
 # 补齐上游 openEuler-release 被 Obsoletes 接管后丢失的「默认关闭」兜底，
@@ -53,7 +60,7 @@
 # spec-lint: source-bundle ../../system/services/airymax_observe
 
 %global airy_version 0.0.4
-%global airy_release 27
+%global airy_release 29
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -113,6 +120,9 @@ Source44:       airy-rt-lat.c
 Source45:       airymax-agent.slice
 Source46:       50-airymax-memory.conf
 Source48:       airymax_observe-%{version}.tar.gz
+Source49:       boot-set
+Source50:       boot_set.sh
+Source51:       airy-rt-memcap.service
 
 BuildRequires:  gcc
 BuildRequires:  python3-devel
@@ -134,7 +144,12 @@ scripts they execute, the airy-disk command with its Python package,
 and the airy-model command with the local model runtime package and
 service unit. The airy-rt-cap command with its RT bandwidth package
 and the boot unit that applies the budget before the audio daemons
-share one verdict implementation. The airy-rt-coexist unit pair raises
+share one verdict implementation. The memory and swap ceiling is a unit
+of its own rather than a post step of the bandwidth unit: it only needs
+the slice directories, which exist at boot, while the bandwidth budget
+needs the desktop slice, which only exists after login, so a partial
+budget used to skip the ceiling entirely and leave swap unbounded. The
+airy-rt-coexist unit pair raises
 the desktop slice weight on a runtime property when the CPU pressure
 crosses the threshold and leaves the static baseline alone, so a boot
 without a daemon to explain it comes back at the baseline weight. The
@@ -168,7 +183,7 @@ install -m 0644 %{SOURCE1} %{SOURCE2} %{SOURCE3} %{SOURCE4} %{SOURCE5} \
     %{SOURCE6} %{SOURCE7} %{SOURCE8} %{SOURCE9} %{SOURCE10} %{SOURCE11} \
     %{SOURCE12} %{SOURCE13} %{SOURCE14} %{SOURCE16} \
     %{SOURCE23} %{SOURCE24} %{SOURCE27} \
-    %{SOURCE30} %{SOURCE31} %{SOURCE32} %{SOURCE35} \
+    %{SOURCE30} %{SOURCE31} %{SOURCE32} %{SOURCE35} %{SOURCE51} \
     %{SOURCE37} %{SOURCE38} %{SOURCE42} %{SOURCE43} %{SOURCE45} \
     %{buildroot}%{_unitdir}/
 install -m 0644 %{SOURCE0} %{SOURCE15} %{buildroot}%{_unitdir}/
@@ -176,10 +191,11 @@ install -d -m 0755 %{buildroot}%{_unitdir}/user.slice.d
 install -m 0644 %{SOURCE46} \
     %{buildroot}%{_unitdir}/user.slice.d/50-airymax-memory.conf
 install -d -m 0755 %{buildroot}/usr/lib/airymaxos/scripts
-install -m 0755 %{SOURCE17} %{SOURCE18} \
+install -m 0755 %{SOURCE17} %{SOURCE18} %{SOURCE50} \
     %{buildroot}/usr/lib/airymaxos/scripts/
 install -d -m 0755 %{buildroot}%{_presetdir}
 install -m 0644 %{SOURCE19} %{SOURCE20} %{buildroot}%{_presetdir}/
+install -m 0644 %{SOURCE49} %{buildroot}/usr/lib/airymaxos/boot-set
 install -d -m 0755 %{buildroot}%{_bindir}
 install -m 0755 %{SOURCE21} %{buildroot}%{_bindir}/airy-disk
 install -m 0755 %{SOURCE22} %{buildroot}%{_bindir}/airy-update
@@ -200,6 +216,8 @@ tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE48}
 %check
 test -x %{buildroot}/usr/lib/airymaxos/scripts/firstboot.sh
 test -x %{buildroot}/usr/lib/airymaxos/scripts/health_check.sh
+test -x %{buildroot}/usr/lib/airymaxos/scripts/boot_set.sh
+bash -n %{buildroot}/usr/lib/airymaxos/scripts/boot_set.sh
 test -x %{buildroot}%{_bindir}/airy-disk
 test -x %{buildroot}%{_bindir}/airy-update
 test -x %{buildroot}%{_bindir}/airy-model
@@ -257,10 +275,19 @@ grep -qxF 'OnCalendar=daily' \
 test -f %{buildroot}%{_unitdir}/airy-rt-bandwidth.service
 grep -qxF 'ExecStart=/usr/bin/airy-rt-cap apply' \
     %{buildroot}%{_unitdir}/airy-rt-bandwidth.service
-grep -qxF 'ExecStartPost=/usr/bin/airy-rt-cap memcap --apply' \
+grep -qxF 'SuccessExitStatus=3' \
+    %{buildroot}%{_unitdir}/airy-rt-bandwidth.service
+! grep -q '^ExecStartPost=' \
     %{buildroot}%{_unitdir}/airy-rt-bandwidth.service
 grep -qxF 'Before=agentrt.target rtkit-daemon.service display-manager.service' \
     %{buildroot}%{_unitdir}/airy-rt-bandwidth.service
+test -f %{buildroot}%{_unitdir}/airy-rt-memcap.service
+grep -qxF 'ExecStart=/usr/bin/airy-rt-cap memcap --apply' \
+    %{buildroot}%{_unitdir}/airy-rt-memcap.service
+grep -qxF 'SuccessExitStatus=3' \
+    %{buildroot}%{_unitdir}/airy-rt-memcap.service
+grep -qxF 'disable airy-rt-memcap.service' \
+    %{buildroot}%{_presetdir}/90-airymax.preset
 test -f %{buildroot}%{_unitdir}/airy-rt-coexist.service
 grep -qxF 'ExecStart=/usr/bin/airy-rt-cap coexist --apply' \
     %{buildroot}%{_unitdir}/airy-rt-coexist.service
@@ -312,6 +339,22 @@ grep -qxF 'disable agentrt-*.service' \
 test -f %{buildroot}%{_presetdir}/99-airymax-default-disable.preset
 grep -qxF 'disable *' \
     %{buildroot}%{_presetdir}/99-airymax-default-disable.preset
+# 启用清单只断言格式与本包自有治理项：清单里的兄弟包单元（发行包的
+# airymax-desktop-ready、上游的 lightdm 等）在本 buildroot 内不存在，
+# 逐项存在性由源码级用例 tools/tests/test_boot_set.py 跨包核对。
+test -s %{buildroot}/usr/lib/airymaxos/boot-set
+! grep -q "$(printf '\r')" %{buildroot}/usr/lib/airymaxos/boot-set
+! grep -q "$(printf '\t')" %{buildroot}/usr/lib/airymaxos/boot-set
+! grep -Eqv '^([[:space:]]*(#|$)|[A-Za-z0-9@._-]+\.(service|timer|target|slice|socket|path))$' \
+    %{buildroot}/usr/lib/airymaxos/boot-set
+test -z "$(grep -Ev '^[[:space:]]*(#|$)' %{buildroot}/usr/lib/airymaxos/boot-set |
+    sort | uniq -d)"
+for unit in airy-rt-bandwidth.service airy-rt-memcap.service \
+    airy-power.service airy-power.timer \
+    airy-rt-coexist.service airy-rt-coexist.timer airy-disk-mount.service \
+    airy-disk-health.timer airymax-update-check.timer; do
+    grep -qxF "${unit}" %{buildroot}/usr/lib/airymaxos/boot-set || exit 1
+done
 
 %post
 if command -v systemctl >/dev/null 2>&1; then
@@ -323,11 +366,24 @@ if command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload >/dev/null 2>&1 || :
 fi
 
+# 升级路径的启用点。preset 只表达默认关闭，装机由 kickstart 调同一个脚本
+# 下启用位；已运行机器升级到本版本时没有任何组件碰 systemd，新治理单元
+# 装完就是关的，症状是换页无上界、电源与热治理不接管而无人察觉。
+# 脚本以 enable --now --no-block 落位，不把事务挂在一个正在启动的单元上；
+# 失败不回滚，单元自身会留下 failed 状态供归因。管理员要关掉某项治理应
+# mask 单元，enable 对 masked 无效。只有 systemd 在跑时才动作：镜像
+# 合成的 chroot 与装机前的 %%posttrans 都不该改启用位。
+%posttrans
+if [ -d /run/systemd/system ] && [ -x /usr/lib/airymaxos/scripts/boot_set.sh ]; then
+    /usr/lib/airymaxos/scripts/boot_set.sh || :
+fi
+
 %files
 %defattr(-, root, root, -)
 %dir /usr/lib/airymaxos
 %dir /usr/lib/airymaxos/scripts
 /usr/lib/airymaxos/scripts/*.sh
+/usr/lib/airymaxos/boot-set
 %{_unitdir}/*.service
 %{_unitdir}/*.slice
 %dir %{_unitdir}/user.slice.d
@@ -352,6 +408,36 @@ fi
 %{python3_sitelib}/airymax_observe
 
 %changelog
+* Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-29
+- Give the swap ceiling a unit of its own. It used to run from
+  ExecStartPost of airy-rt-bandwidth.service, and ExecStartPost only runs
+  when ExecStart succeeds: on 285H the bandwidth apply reported three of
+  four slices and exited 3 because airymax-desktop.slice only exists once
+  someone logs in, so the ceiling was skipped and memory.memsw
+  .limit_in_bytes stayed at infinity while the unit merely said the
+  budget was partially applied. The two are separate concerns with
+  separate failure domains: the ceiling needs nothing but the slice
+  directories, the budget needs the desktop slice. airy-rt-memcap.service
+  now applies the ceiling on its own and is listed in boot-set, and both
+  units declare SuccessExitStatus=3 because a partial result at boot is
+  the normal outcome rather than a start failure -- the acceptance gate
+  reads the exit code directly and never infers from unit state.
+* Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-28
+- Enable the boot units on the upgrade path, not only in the image. 0.0.4
+  added the RT bandwidth, power and thermal, desktop coexistence, data
+  disk and update units, but all of them are pinned disabled by the
+  presets and only the kickstart post script ever enabled them, so a
+  machine that upgraded instead of being reinstalled ran the release
+  with the swap ceiling unwritten and no thermal policy: on 285H
+  memory.memsw.limit_in_bytes stayed at infinity, and no journal line
+  existed for airy-rt-bandwidth.service since its install, although
+  systemctl reported MemorySwapMax=10% all along. The list of units to
+  enable is now one file, /usr/lib/airymaxos/boot-set, shipped here and
+  read by both consumers: the kickstart for the image and %posttrans for
+  a running system, which enables and starts each entry when systemd is
+  up. Enablement is idempotent, a masked unit stays masked, --no-block
+  keeps the transaction from waiting on a start, and a failure is left
+  as a failed unit rather than rolled back so it can be attributed.
 * Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-27
 - Stop shipping a second airy-observe. release 25 installed a /usr/bin
   airy-observe for the hardware survey while the release package already

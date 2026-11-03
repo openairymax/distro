@@ -21,6 +21,8 @@
 # airy-rt-bandwidth.service 同样默认关闭：切分预算会改变 cgroup 记账，
 # 服务器档位没有音频管线时无须承担这一层；桌面档位由 kickstart 显式
 # 启用，顺序约束（早于 rtkit-daemon）由单元自身声明。
+# airy-rt-memcap.service 同理：它补的是 systemd 在 cgroup v1 上不写的
+# 换页上限，与带宽预算同一剖面，桌面档位由 kickstart 显式启用。
 # airy-power.service 与 airy-power.timer 同理：电源档位在服务器上通常由
 # 带外管理或 BIOS 固定，无须用户态周期性改 sysfs；桌面与笔记本档位由
 # kickstart 显式启用。未启用时 sysfs 保持固件默认值，不引入任何写入。
@@ -37,6 +39,7 @@ disable airy-llm.service
 disable airy-disk-mount.service
 disable airy-disk-health.timer
 disable airy-rt-bandwidth.service
+disable airy-rt-memcap.service
 disable airy-rt-coexist.service
 disable airy-rt-coexist.timer
 disable airy-power.service

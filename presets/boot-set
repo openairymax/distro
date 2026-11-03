@@ -1,0 +1,60 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# ===========================================================================
+# boot-set — 开机要跑的单元清单（安装器与升级路径共用）
+#
+# 为什么需要这份清单：presets/ 只表达「默认关闭」。90-airymax.preset 把自有
+# 单元逐个 disable，99-airymax-default-disable.preset 以 `disable *` 兜底，
+# 于是任何带 [Install] 的单元装完都是关的。哪些必须开机即跑属于装机策略，
+# preset 文件被规则 P004 禁止写 enable，只能由外部清单表达。
+#
+# 为什么是一份文件而不是两处：装机（kickstart %post）与已运行机器升级
+# （本包 %posttrans）要启用的是同一组单元。两处各写一份时，新增一项治理
+# 只在其中一处落地是必然发生的漂移，且症状是「某台机器治理静默缺席」——
+# 从任何服务状态都看不出来。清单随包落在 /usr/lib/airymaxos/boot-set，
+# 两个消费者读同一个路径。
+#
+# 收录判据：单元装了就位、默认关闭，且不开机启用就会表现为「功能不好用」
+# 而不是「启动失败」。启动失败会自己冒出来，静默缺席不会，因此只收后者。
+#
+# 格式：一行一个单元名，`#` 起始为注释，空行忽略。上游单元（lightdm、
+# bluetooth、NetworkManager、chronyd、firewalld、sshd）与本项目单元混排，
+# 消费者不区分来源，一律 enable；升级路径重复启用是幂等的。
+# ===========================================================================
+
+# 图形目标与登录链：锁屏、会话与桌面就绪探针的入口。
+lightdm.service
+airymax-desktop-ready.service
+
+# RT 带宽与换页上限：cgroup v1 上 systemd 不写 memory.memsw.limit_in_bytes，
+# 由 airy-rt-cap memcap 补写。不开机执行，长任务换页就没有上界。两者分属
+# 两个单元：带宽依赖登录后才存在的桌面 slice，必然只落一部分；换页上限
+# 只依赖 slice 目录，开机就该完整落地，不能被前者的部分落地连带跳过。
+airy-rt-bandwidth.service
+airy-rt-memcap.service
+
+# 电源与热治理：285H 实测固件把 platform_profile 与 EPP 钉在 performance，
+# 热区 critical 只有 80°C，不接管则装机后 40 分钟即累计上万次 package
+# throttle；桌面与笔记本档位必须由本清单显式启用，服务器档位保持固件设置。
+airy-power.service
+airy-power.timer
+
+# 桌面与 RT 共存：按 PSI 抬升桌面 slice 的运行时权重。默认关闭时桌面只拿到
+# 静态基线，agent 侧重负载下会整机失响应。
+airy-rt-coexist.service
+airy-rt-coexist.timer
+
+# 数据盘：单元就位却默认关闭时，数据盘不挂载、容量告急也不告警，/data 只剩
+# 空目录。
+airy-disk-mount.service
+airy-disk-health.timer
+
+# 升级通道：不启用则装完即静默失效，从任何服务状态都看不出来。
+airymax-update-check.timer
+
+# 上游单元：被兜底 preset 关掉后，症状是「蓝牙不可用」「音频爆音」这类
+# 功能不好用，而不是启动失败。
+bluetooth.service
+NetworkManager.service
+chronyd.service
+firewalld.service
+sshd.service

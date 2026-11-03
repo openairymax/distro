@@ -465,38 +465,24 @@ grep -qxF 'autologin-user=amuser' "${seat}" || fail lightdm-autologin
 # 5) 启用边界由本段确定性收口。presets/ 是默认关闭策略：自有单元显式
 #    disable，99-airymax-default-disable.preset 以 `disable *` 兜底，避免
 #    任何带 [Install] 的第三方单元在 %systemd_post 里被隐式拉起。因此
-#    开机要跑的单元必须在这里显式启用，且以 is-enabled 落盘状态为唯一
-#    事实（--root 离线语义，chroot 内无总线）。preset-all 先于 enable
-#    执行：它把 90-airymax.preset 的策略投影到现有单元，再叠加本清单。
-#    bluetooth 与 RT 带宽属同一类缺口：包已装、单元存在，但被兜底策略
-#    关掉，表现为「蓝牙不可用」「音频爆音」而不是启动失败，只能靠这里收口。
-#    airymax-update-check.timer 同理：90-airymax.preset 把它钉在 disabled，
-#    不在此启用则升级通道装完即静默失效，且从任何服务状态都看不出来。
-#    airy-disk-mount.service 与 airy-disk-health.timer 是同一类缺口：单元
-#    装了就位却默认关闭，数据盘不挂载、容量告急也不告警，/data 只剩空目录。
-#    airy-power.service 与 airy-power.timer 同理：285H 实测固件默认把
-#    platform_profile 与 EPP 钉在 performance，热区 critical 只有 80°C，
-#    不启用则装机后 40 分钟即累计上万次 package throttle；桌面与笔记本
-#    档位必须由本清单显式接管，服务器档位保持固件设置。
-#    airy-rt-coexist 单元对同理：它按 PSI 抬升桌面 slice 的运行时权重，
-#    默认关闭时桌面只拿到静态基线，agent 侧重负载下会整机失响应。
+#    开机要跑的单元必须显式启用，且以 is-enabled 落盘状态为唯一事实
+#    （--root 离线语义，chroot 内无总线）。preset-all 先于启用执行：
+#    它把 90-airymax.preset 的策略投影到现有单元，再叠加清单。
+#    清单与动作都只有一份：清单是随包落盘的 /usr/lib/airymaxos/boot-set，
+#    动作是同一包里的 boot_set.sh，升级路径的 %posttrans 调用同一个脚本。
+#    装机段不再另写清单与循环——两处各写一份时，新增一项治理只在其中一处
+#    落地是必然发生的漂移，症状是某台机器治理静默缺席，从任何服务状态都
+#    看不出来。每项为何收录见 boot-set 的头注释。
+boot_tool=/usr/lib/airymaxos/scripts/boot_set.sh
+[ -x "${boot_tool}" ] || fail boot-set-tool
 systemctl --root=/ preset-all >/dev/null 2>&1 ||
     mark "AIRYMAX-INSTALL-NOTE preset-all rc=$?"
-boot_set="lightdm.service airymax-desktop-ready.service
-airy-rt-bandwidth.service airy-power.service airy-power.timer
-airy-rt-coexist.service airy-rt-coexist.timer
-bluetooth.service
-NetworkManager.service chronyd.service firewalld.service sshd.service
-airymax-update-check.timer
-airy-disk-mount.service airy-disk-health.timer"
-for unit in ${boot_set}; do
-    systemctl --root=/ enable "${unit}" >/dev/null 2>&1 || :
-    state=$(systemctl --root=/ is-enabled "${unit}" 2>/dev/null || true)
-    [ "${state}" = enabled ] || {
-        mark "AIRYMAX-INSTALL-DIAG unit=${unit} state=${state}"
-        fail "enable-${unit}"
-    }
-done
+boot_rc=0
+"${boot_tool}" --root=/ >/tmp/airymax-boot-set.log 2>&1 || boot_rc=$?
+while IFS= read -r line; do
+    mark "AIRYMAX-BOOT-SET ${line}"
+done </tmp/airymax-boot-set.log
+[ "${boot_rc}" -eq 0 ] || fail boot-set-enable
 
 # 6) EFI 品牌化已在上面 %post --nochroot 段完成：anaconda 用
 #    GRUB_DISTRIBUTOR 命名 NVRAM 条目，装机后菜单与 BootOrder 都是
