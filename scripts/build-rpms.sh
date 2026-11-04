@@ -50,6 +50,8 @@ OUT_ABS=""
 WORK=""
 TOPDIR=""
 BUILD_ID=""
+START_AT=""
+START_EPOCH=0
 
 usage()
 {
@@ -75,7 +77,8 @@ usage()
 产出:
   DIR/RPMS/<arch>/*.rpm        构建产物
   DIR/repo/<stream>/<arch>/    可选 dnf 仓库（repodata 已签名）
-  DIR/build-manifest.txt       配方与 RPM 的 SHA-256 清单
+  DIR/build-manifest.txt       配方与 RPM 的 SHA-256 清单，附 stage/arch 与
+                               起止时刻、耗时（预算门禁的实测来源）
 
 构建来源指纹（build-manifest.txt 的 build_id=）按 scripts/lib/buildid.sh 的
 优先级取值：AIRYMAX_BUILD_ID → AIRYMAX_RUN_ID + AIRYMAX_COMMIT → git 短 sha
@@ -426,10 +429,19 @@ sum_of()
 
 write_manifest()
 {
-    local file rel sum def manifest="$OUT_ABS/build-manifest.txt"
+    local file rel sum def manifest="$OUT_ABS/build-manifest.txt" end_at end
+    end="$(date -u +%s)"
+    end_at="$(date -u -d "@${end}" +%Y-%m-%dT%H:%M:%SZ)"
     {
         printf '# AirymaxOS RPM build manifest\n'
+        printf 'stage=rpm\n'
         printf 'arch=%s\n' "$ARCH"
+        # 时刻与耗时只作台账，不参与可复现性比较：可复现指纹仍是 build_id
+        # 与 source_date_epoch。有了这一段，预算才有实测依据（见
+        # ci/gates/build-budget.sh），否则一轮变慢只能靠事故去发现。
+        printf 'started_at=%s\n' "$START_AT"
+        printf 'finished_at=%s\n' "$end_at"
+        printf 'elapsed_s=%d\n' "$((end - START_EPOCH))"
         printf 'source_date_epoch=%s\n' "$SOURCE_DATE_EPOCH"
         if [ -n "$DIST" ]; then
             printf 'dist=%s\n' "$DIST"
@@ -492,6 +504,8 @@ main()
 {
     local spec
     parse_args "$@"
+    START_EPOCH="$(date -u +%s)"
+    START_AT="$(date -u -d "@${START_EPOCH}" +%Y-%m-%dT%H:%M:%SZ)"
     check_out
     check_arch
     check_jobs
