@@ -20,9 +20,10 @@
 # 下都来自同一个权威来源。展示与排障时一次只一屏，避免几十行混在一起
 # 看不出卡在哪一项。
 #
-# hardware 与 firmware 是转交给 airymax_observe 的两个子命令：整机硬件清点
-# 要按类别扫描十几个 sysfs 目录，固件实况要把模块自报的文件名与本次开机
-# 日志对起来，两套判定都已经在模块里，这里只按名字转交。转交而不是再装
+# hardware、firmware 与 system 是转交给 airymax_observe 的三个子命令：整机硬件
+# 清点要按类别扫描十几个 sysfs 目录，固件实况要把模块自报的文件名与本次开机
+# 日志对起来，系统清点要读 systemd 的失败单元、本次开机的 err 日志与
+# rpm 数据库，三套判定都已经在模块里，这里只按名字转交。转交而不是再装
 # 可执行文件，理由与 --section 相同——命令名只能有一个主人；两个包各装一个
 # airy-observe，装在一起就是文件冲突。
 #
@@ -40,8 +41,8 @@
 # 断言里。
 #
 # 依赖：POSIX sh、awk、sed；活体模式另需 systemctl、xrandr、ip（可选）；
-# hardware/firmware 子命令需要 python3 与 airymax_observe 包（firmware 另需
-# kmod 的 modinfo 与可读的内核日志）。
+# hardware/firmware/system 子命令需要 python3 与 airymax_observe 包（firmware
+# 另需 kmod 的 modinfo 与可读的内核日志，system 另需 rpm 数据库与 journal）。
 # ===========================================================================
 
 set -u
@@ -557,11 +558,12 @@ run_report() {
     esac
 }
 
-# hardware / firmware 的整份输出归 airymax_observe，父命令不再追加
-# mode/fields：两份报告的字段集不同，混在一起会让按行解析的调用方进退两难。
+# hardware / firmware / system 的整份输出归 airymax_observe，父命令不再追加
+# mode/fields：三份报告的字段集不同，混在一起会让按行解析的调用方进退两难。
 # 缺依赖时报一行明确的结论并退出 2，不把 python 的 traceback 当成报告交给
 # 调用方。
-if [ $# -gt 0 ] && { [ "$1" = hardware ] || [ "$1" = firmware ]; }; then
+if [ $# -gt 0 ] && { [ "$1" = hardware ] || [ "$1" = firmware ] ||
+    [ "$1" = system ]; }; then
     python3 -B -c 'import airymax_observe' 2>/dev/null || {
         printf '%s fail reason=no-observe-package\n' "$MARK" >&2
         exit 2
@@ -597,9 +599,11 @@ while [ $# -gt 0 ]; do
         printf '      airy-observe --section NAME[,NAME...]\n'
         printf '      airy-observe hardware [--json] [--root DIR]\n'
         printf '      airy-observe firmware [--json] [--dmesg FILE]\n'
+        printf '      airy-observe system [--json] [--manifest FILE]\n'
         printf '主题: kernel os boot net sched rtc\n'
         printf 'hardware: 整机硬件清点，cpu/block/net 必检，其余类别可选\n'
         printf 'firmware: 驱动期望的固件文件名与本次开机的载入实况\n'
+        printf 'system: 失败单元、本次开机 err 日志与包集合对账\n'
         exit 0
         ;;
     *)
