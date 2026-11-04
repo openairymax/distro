@@ -244,6 +244,27 @@ class BuildRpmsTest(unittest.TestCase):
         self.assertTrue((repo / "repodata" / "repomd.xml.asc").is_file())
         self.assertTrue((repo / "demo-0.0.3-1.x86_64.rpm").is_file())
 
+    def test_stale_outputs_reset(self):
+        self.full()
+        rpm_dir = self.out / "RPMS" / "x86_64"
+        repo = self.out / "repo" / "AppStream" / "x86_64"
+        rpm_dir.mkdir(parents=True)
+        repo.mkdir(parents=True)
+        stale = "demo-0.0.2-1.x86_64.rpm"
+        (rpm_dir / stale).write_bytes(b"old")
+        (repo / stale).write_bytes(b"old")
+        (self.out / "build-manifest.txt").write_text(
+            "rpm deadbeef %s\n" % stale, encoding="utf-8")
+        res = self.run_script("--out", str(self.out), "--spec", str(self.spec),
+                              "--arch", "x86_64", "--repo",
+                              "--gpg-key", "test", "--stream", "AppStream")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertFalse((rpm_dir / stale).exists())
+        self.assertFalse((repo / stale).exists())
+        self.assertTrue((rpm_dir / "demo-0.0.3-1.x86_64.rpm").is_file())
+        manifest = (self.out / "build-manifest.txt").read_text(encoding="utf-8")
+        self.assertNotIn("0.0.2", manifest)
+
     def bundle_tree(self):
         pkg = self.specs / "demo-pkg"
         pkg.mkdir()
