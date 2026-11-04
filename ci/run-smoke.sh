@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
 # ===========================================================================
-# run-smoke.sh — distro 组合冒烟（TAP 18）
+# run-smoke.sh — distro 组合冒烟（TAP）
 #
 # 用法:
 #   ./run-smoke.sh <被测镜像/系统标识>
@@ -42,6 +42,8 @@
 #       字符集与长度符合驱动写入口径；给出期望值时还要求两者相同
 #   T19–T21 固件：内核日志里没有「固件表无匹配」「微码 INIT 未运行」
 #       「API 版本越界」三条失败签名
+#   T22 运行期控制台：本次启动的命令行与默认文件同源，systemd-vconsole-setup
+#       未失败
 #
 # 判定语义:
 #   0  — 全部通过
@@ -711,27 +713,31 @@ t14_repos() {
 # 285H 现场的 "tty0 ttyS0" 让 VT 让位给串口，systemd-vconsole-setup 锁不住
 # /dev/console，桌面就绪门禁每个启动周期失败——这条只在默认文件上才看得
 # 出来，装完当天不重启不会暴露。
-t15_console() {
+#
+# cons_check <命令行> <来源> —— 控制台集合的判定只有这一处：默认文件与运行期
+# 命令行必须是同一套，否则「装完当天正常、重启后失声」会被两个口径各自放过。
+cons_check() {
     local cons
     cons=$(printf '%s\n' "$1" | tr ' ' '\n' | grep '^console=' |
         tr '\n' ' ') || {
-        echo "GRUB_CMDLINE_LINUX lacks console="
+        printf '%s lacks console=\n' "$2"
         return 1
     }
     cons=${cons% }
     case " ${cons} " in
     *" console=ttyS0,115200 "*) ;;
     *)
-        echo "GRUB_CMDLINE_LINUX lacks the serial console"
+        printf '%s lacks the serial console\n' "$2"
         return 1
         ;;
     esac
     [ "${cons##* }" = "console=tty0" ] || {
-        printf 'primary console is %s, not tty0\n' "${cons##* }"
+        printf '%s: primary console is %s, not tty0\n' \
+            "$2" "${cons##* }"
         return 1
     }
     [ "$(printf '%s\n' "${cons}" | wc -w)" -eq 2 ] || {
-        echo "GRUB_CMDLINE_LINUX carries a foreign console"
+        printf '%s carries a foreign console\n' "$2"
         return 1
     }
 }
@@ -756,7 +762,7 @@ t15_boot_args() {
             return 1
         done
     fi
-    t15_console "${line}" || return 1
+    cons_check "${line}" GRUB_CMDLINE_LINUX || return 1
     t15_brand_cfg || return 1
     grep -qxF 'GRUB_DISABLE_OS_PROBER=true' "${file}" || {
         echo "${file}: os-prober not disabled"
@@ -922,8 +928,28 @@ t21_fw_api() {
     fw_clean 'api flags index [0-9]+ larger' 'a firmware API mismatch'
 }
 
+# T22 运行期控制台：默认文件只说明「下一次 grub2-mkconfig 会写出什么」，而
+# HW-05 的现场是已启动的内核带着三处 console=（含 ttyAMA0），
+# systemd-vconsole-setup 锁不住 /dev/console 而每轮启动失败。只查默认文件时，
+# 「装完当天正常、重启后失声」会一直躲过冒烟。判据取本次启动的命令行与单元
+# 状态：前者证明默认文件真的被应用，后者证明 VT 拿到了 /dev/console，两者
+# 缺一都不能说明台面上的机器已经收敛。
+t22_console_state() {
+    local file="${SYSROOT}/proc/cmdline" line state
+    need systemctl || return 1
+    [ -r "${file}" ] || {
+        echo "${file} unreadable"
+        return 1
+    }
+    line=$(tr -d '\n' <"${file}")
+    cons_check "${line}" /proc/cmdline || return 1
+    state=$(systemctl show systemd-vconsole-setup.service -p ActiveState \
+        --value 2>/dev/null)
+    expect "${state}" active systemd-vconsole-setup
+}
+
 printf 'TAP version 14\n'
-printf '1..21\n'
+printf '1..22\n'
 printf '# AirymaxOS distro smoke: target=%s date=%s\n' \
     "${TARGET}" "$(date -u '+%FT%TZ')"
 
@@ -948,6 +974,7 @@ probe 18 "T18 build provenance" t18_build_id
 probe 19 "T19 firmware blob present" t19_fw_blob
 probe 20 "T20 cpu microcode loaded" t20_fw_microcode
 probe 21 "T21 firmware api match" t21_fw_api
+probe 22 "T22 runtime console state" t22_console_state
 
 printf '# summary: pass=%d fail=%d\n' "${PASS}" "${FAIL}"
 [ "${FAIL}" -eq 0 ]
