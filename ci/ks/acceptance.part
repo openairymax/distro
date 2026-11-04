@@ -68,4 +68,38 @@ EOF
 
 # 6) 报告单元把 TAP 判定转发到串口。
 systemctl --root=/ enable airymax-smoke-report.service
+
+# 7) 冷启动取证面：产品默认把内核口压到 loglevel 4，验收镜像要能回答
+#    「卡在哪」。三处缺口各补一层，只动本夹具，不进产品配方：
+#    a) 内核口放开——去掉 quiet/rhgb 并加 ignore_loglevel，让 dmesg、
+#       hung task、NMI watchdog 这类内核侧事实直接落串口。启动失败常常
+#       发生在用户态之前，静默的内核口等于没有证据。
+#    b) journald 转发到控制台——登录管理器、X 服务器、桌面会话的日志由
+#       各自进程写 journal，systemd 作业表没有新行时串口就静止；转发后
+#       即使 PID1 不再打印状态，串口仍能看到它们发出的最后一行。
+#    c) 停滞判定——默认 hung_task_timeout_secs=120 比 --boot-timeout
+#       短不了多少，且 sysrq 被关掉后宿主侧无法取栈；验收镜像打开 sysrq
+#       并缩短阈值，配合 airy-boot-watch 的卡点快照构成完整证据链。
+#    grubby 只在装了 grub2 的镜像上存在；改动失败不阻断装机，取证面缺失
+#    会以「启动日志很安静」的形式暴露，而不是让验收镜像装不完。
+command -v grubby >/dev/null 2>&1 &&
+    grubby --update-kernel=ALL \
+        --remove-args="quiet rhgb" \
+        --args="ignore_loglevel systemd.show_status=yes" >/dev/null || :
+
+install -d -m 0755 /etc/systemd/journald.conf.d
+cat > /etc/systemd/journald.conf.d/50-acceptance-console.conf <<'EOF'
+[Journal]
+ForwardToConsole=yes
+MaxLevelConsole=info
+RateLimitIntervalSec=0
+EOF
+
+cat > /etc/sysctl.d/60-acceptance-stall.conf <<'EOF'
+kernel.sysrq = 1
+kernel.hung_task_timeout_secs = 20
+kernel.hung_task_warnings = 10
+kernel.nmi_watchdog = 1
+kernel.watchdog_thresh = 10
+EOF
 %end
