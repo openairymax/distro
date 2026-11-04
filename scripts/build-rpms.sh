@@ -253,7 +253,8 @@ find_src()
 
 stage_src()
 {
-    local src="$1" dst="$TOPDIR/SOURCES/$(basename "$1")"
+    local src="$1" dst
+    dst="$TOPDIR/SOURCES/$(basename "$1")"
     if [ ! -f "$dst" ]; then
         cp -p "$src" "$dst"
         return 0
@@ -362,6 +363,18 @@ prep_work()
     rm -rf "$WORK"
     mkdir -p "$TOPDIR"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS} \
         "$WORK/expanded" "$WORK/logs"
+}
+
+reset_out()
+{
+    # 产物目录按「本轮结果」解释：抬高 release 后旧 NEVRA 若留在原地，会
+    # 一并进 build-manifest.txt 与 createrepo 元数据，且两条路径都不会报错。
+    local dest="$OUT_ABS/RPMS/${ARCH}"
+    rm -rf "$dest" "$OUT_ABS/build-manifest.txt"
+    if [ "$REPO" -eq 1 ]; then
+        rm -rf "$OUT_ABS/repo/${STREAM}/${ARCH}"
+    fi
+    mkdir -p "$dest"
 }
 
 build_one()
@@ -493,6 +506,7 @@ main()
     export TZ=UTC LANG=C.UTF-8 LC_ALL=C.UTF-8
     export MAKEFLAGS="-j${JOBS} --no-print-directory"
     prep_work
+    reset_out
     printf '构建 %d 个配方 → %s（%s）\n' "${#SPECS[@]}" "$OUT_ABS" "$ARCH"
     for spec in "${SPECS[@]}"; do
         lint_spec "$spec"
