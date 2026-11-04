@@ -579,26 +579,29 @@ class DesktopAssetTest(unittest.TestCase):
         self.assertIn("reason=bad-section=nope", out.stderr)
 
     def test_observe_hardware_delegates(self):
-        # hardware 是唯一转交出去的子命令：父命令把自己的参数原样交给
-        # python3 -m airymax_observe。PATH 里放一个假 python3 记录参数，
+        # hardware/firmware 是转交出去的两个子命令：父命令把自己的参数原样
+        # 交给 python3 -m airymax_observe。PATH 里放一个假 python3 记录参数，
         # 证明入口与参数都没被改写——改写会让两边的字段集再次分叉。
         script = self.asset("desktop/airy_observe.sh")
-        with tempfile.TemporaryDirectory() as tmp:
-            bin_dir = Path(tmp)
-            log = bin_dir / "call"
-            fake = bin_dir / "python3"
-            fake.write_text(
-                "#!/bin/sh\n"
-                f"printf '%s\\n' \"$*\" > '{log}'\n",
-                encoding="ascii")
-            fake.chmod(0o755)
-            env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}")
-            out = subprocess.run(
-                ["sh", str(script), "hardware", "--json"],
-                capture_output=True, text=True, check=False, env=env)
-            self.assertEqual(out.returncode, 0, out.stderr)
-            self.assertEqual(log.read_text(encoding="ascii").split(),
-                             ["-B", "-m", "airymax_observe", "--json"])
+        for cmd in ("hardware", "firmware"):
+            with tempfile.TemporaryDirectory() as tmp:
+                bin_dir = Path(tmp)
+                log = bin_dir / "call"
+                fake = bin_dir / "python3"
+                fake.write_text(
+                    "#!/bin/sh\n"
+                    f"printf '%s\\n' \"$*\" > '{log}'\n",
+                    encoding="ascii")
+                fake.chmod(0o755)
+                env = dict(os.environ,
+                           PATH=f"{bin_dir}:{os.environ['PATH']}")
+                out = subprocess.run(
+                    ["sh", str(script), cmd, "--json"],
+                    capture_output=True, text=True, check=False, env=env)
+                self.assertEqual(out.returncode, 0, out.stderr)
+                self.assertEqual(log.read_text(encoding="ascii").split(),
+                                 ["-B", "-m", "airymax_observe", cmd,
+                                  "--json"])
 
     def test_observe_hardware_without_package(self):
         # 发行包装了入口却没有模块时，必须给一行结论而不是 traceback：
@@ -614,7 +617,7 @@ class DesktopAssetTest(unittest.TestCase):
                                  capture_output=True, text=True,
                                  check=False, env=env)
             self.assertEqual(out.returncode, 2)
-            self.assertIn("reason=no-hw-package", out.stderr)
+            self.assertIn("reason=no-observe-package", out.stderr)
 
     def test_observe_resolves_delayed_grub_brand(self):
         # anaconda 写入的 GRUB_DISTRIBUTOR 是延迟展开的管道表达式。报告不

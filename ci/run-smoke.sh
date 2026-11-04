@@ -36,7 +36,8 @@
 #   T13 免密桌面：空闲锁屏关闭，交付账户在 nopasswdlogin 组内
 #   T14 运行期软件源：已安装系统的每个启用段都指向可解析的基底镜像
 #   T15 启动参数：/etc/default/grub 持有 rhgb quiet，os-prober 已关闭
-#   T16 观测工具：airy-bench / airy-observe / airy-demo 随镜像交付且自检为 ok
+#   T16 观测工具：airy-bench / airy-observe / airy-demo 随镜像交付且自检为 ok，
+#       内核日志里没有固件载入失败签名
 #   T17 系统盘布局：/ 与 /data 各挂在一个分区上，且不是同一个分区
 #   T18 构建来源：os-release 的 BUILD_ID 与 /etc/airymaxos-build 逐字相同，
 #       字符集与长度符合驱动写入口径；给出期望值时还要求两者相同
@@ -60,6 +61,8 @@ PAPER_DIR=/usr/share/backgrounds/airymaxos
 PAPER_COUNT=3
 PAPER_SHA=fee7f439834ac7dacfc75deaf80a1db1c4bc7459583248eecc87125d52a5ef18
 BID_MAX=64
+FW_SIGNS='no suitable firmware found|failed to run init ucode'
+FW_SIGNS="${FW_SIGNS}|api flags index [0-9]+ larger"
 START_WAIT="${AIRYMAX_SMOKE_WAIT:-30}"
 HOSTNAME_WANT="${AIRYMAX_SMOKE_HOST:-airymax-pc}"
 SYSROOT="${AIRYMAX_SMOKE_ROOT:-}"
@@ -786,6 +789,12 @@ t15_brand_cfg() {
 # 在装机系统内可直接执行且自检为 ok：bench 与 demo 取 --check（demo 只清点
 # 对端与终端，不重复度量），observe 取 --static --root（只读文件，不依赖活动
 # 会话）。观测数值随机器的负载波动，不进判定；判定只看工具自身给的 status。
+#
+# 固件一节的判据只能来自内核日志：驱动没找到固件时不会留下任何文件，期望
+# 文件名只存在于模块自报（modinfo）里，两者唯一的交集是本次开机的载入记录。
+# 这里判三条已知的失败签名——固件表里没有匹配项、微码 INIT 没跑起来、API
+# 版本不兼容而回退。它们都以「驱动仍然加载成功」的面目出现，光看模块列表
+# 会全部判过；日志读不到时同样判负，因为「没有证据」不等于「载入成功」。
 t16_obs_tools() {
     local out
     need airy-bench || return 1
@@ -817,7 +826,24 @@ t16_obs_tools() {
         printf '%s\n' "${out}"
         return 1
     }
-    printf 'bench=ok demo=ok observe=ok\n'
+    t16_fw_log || return 1
+    printf 'bench=ok demo=ok observe=ok fw=clean\n'
+}
+
+# 固件失败签名：三条都以「模块加载成功」收场，模块列表与 sysfs 都看不出，
+# 只有日志里那一行还在。命中即逐行抬出来，让现场直接看到是哪一个文件没
+# 载上；dmesg 不可读时明确说出「无法排除」，不静默放行。
+t16_fw_log() {
+    local log hit
+    log=$(dmesg 2>/dev/null) || {
+        echo "kernel log unreadable: firmware failures cannot be ruled out"
+        return 1
+    }
+    hit=$(printf '%s\n' "${log}" | grep -Ei "${FW_SIGNS}")
+    [ -z "${hit}" ] || {
+        printf '%s\n' "${hit}"
+        return 1
+    }
 }
 
 # T17 系统盘布局：安装器把系统与数据放在两个独立分区上，数据分区才能单独
