@@ -4,12 +4,12 @@
 # test_run_smoke.py — ci/run-smoke.sh 契约回归测试
 #
 # 冒烟脚本必须在已登录的 UKUI 桌面会话内运行，CI 宿主机不具备该环境。
-# 脚本对外契约是：TAP 18 计划、十八项探测的判定，以及“探测工具缺失即失败”
+# 脚本对外契约是：TAP 计划、逐项探测的判定，以及“探测工具缺失即失败”
 # 的退出码规则。这里用 PATH 沙箱提供伪 loginctl /
 # pgrep / xdpyinfo / ibus / pactl / systemctl / gsettings /
 # sha256sum / uname / xrandr / findmnt / lsblk / dmesg /
 # hostname / hostnamectl，并给
-# T6–T16 与 T18 准备一份只读系统视图（AIRYMAX_SMOKE_ROOT），每个用例只破坏
+# T6–T18 与 T22 准备一份只读系统视图（AIRYMAX_SMOKE_ROOT），每个用例只破坏
 # 一个前提，从而在无桌面环境下判定真实控制流。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
@@ -88,6 +88,10 @@ GRUB_CMDLINE_LINUX="console=ttyS0,115200 console=tty0 rhgb quiet"
 GRUB_DISABLE_OS_PROBER=true
 """
 
+# T22 的本次启动命令行：与默认文件同源才是收敛后的形态。
+CMDLINE = ("BOOT_IMAGE=/vmlinuz-6.6.157-alk console=ttyS0,115200 "
+           "console=tty0 rhgb quiet\n")
+
 # T17 的挂载视图与块层表：/ 与 /data 各占一个分区。挂载视图每行
 # 「挂载点|源」（与 fakes.FINDMNT 一致），块层表格式由 fakes.LSBLK 定义
 # （path|type|bytes|rm|tran|serial|model|mounts）。
@@ -135,9 +139,9 @@ class RunSmokeTest(unittest.TestCase):
         self._tmp.cleanup()
 
     def make_sysroot(self):
-        """构造 T6–T16 与 T18 读取的只读视图：/boot 三件套、LSM、产品标识、
-        ESP、sudo 策略、锁屏策略、客户端源文件、引导默认文件、观测工具资产
-        与构建来源指纹。"""
+        """构造 T6–T18 与 T22 读取的只读视图：/boot 三件套、LSM、产品标识、
+        ESP、sudo 策略、锁屏策略、客户端源文件、引导默认文件、观测工具资产、
+        构建来源指纹与本次启动的命令行。"""
         boot = self.sysroot / "boot"
         boot.mkdir(parents=True)
         (boot / f"vmlinuz-{KREL}").write_bytes(b"vmlinuz\n")
@@ -154,8 +158,16 @@ class RunSmokeTest(unittest.TestCase):
         self.write_screensaver()
         self.write_repo()
         self.write_grub()
+        self.write_cmdline()
         self.write_assets()
         self.write_build_id()
+
+    def write_cmdline(self, body=CMDLINE):
+        """T22 的落点：安装器写入引导项后，内核实际拿到的命令行。"""
+        path = self.sysroot / "proc" / "cmdline"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+        return path
 
     def write_build_id(self, value=BUILD_ID):
         """T18 的落点：发布包在 %install 里由同一个宏写出的一行式指纹。"""
@@ -458,7 +470,7 @@ class RunSmokeTest(unittest.TestCase):
         self.tools()
         res = self.run_smoke()
         self.assertIn("TAP version 14", res.stdout)
-        self.assertIn("1..21", res.stdout.splitlines())
+        self.assertEqual(len(self.taps(res)), self.planned(res), res.stdout)
         self.assertIn(
             "# AirymaxOS distro smoke: target=airymaxos-0.0.4", res.stdout)
 
@@ -1094,6 +1106,50 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke()
         self.assert_fail(res, 15)
         self.assertIn("/etc/default/grub unreadable", res.stdout)
+
+    def test_console_runtime_ok(self):
+        self.tools()
+        res = self.run_smoke()
+        self.assertIn("ok 22 - T22 runtime console state", res.stdout)
+
+    def test_console_runtime_ghost(self):
+        # 默认文件收敛了，但引导项仍是旧的一串：现场手工加的控制台留在
+        # 已写的 grub.cfg 里，只查默认文件会判过（HW-05）
+        self.tools()
+        self.write_cmdline(CMDLINE.replace(
+            "console=tty0",
+            "console=ttyAMA0,115200 console=tty0"))
+        res = self.run_smoke()
+        self.assert_fail(res, 22)
+        self.assertIn("/proc/cmdline carries a foreign console", res.stdout)
+
+    def test_console_runtime_vt_last(self):
+        # VT 不在末位时 /dev/console 落到串口，VT 侧看不到任何启动输出
+        self.tools()
+        self.write_cmdline(CMDLINE.replace(
+            "console=ttyS0,115200 console=tty0",
+            "console=tty0 console=ttyS0,115200"))
+        res = self.run_smoke()
+        self.assert_fail(res, 22)
+        self.assertIn("primary console is console=ttyS0,115200, not tty0",
+                      res.stdout)
+
+    def test_console_unit_failed(self):
+        # 命令行正确但 VT 已被别处占住：单元以 failed 收场，桌面就绪门禁
+        # 每个启动周期都会重演一次失败
+        self.tools()
+        res = self.run_smoke(FAKE_ACTIVE_STATE="failed")
+        self.assert_fail(res, 22)
+        self.assertIn("systemd-vconsole-setup: failed (want active)",
+                      res.stdout)
+
+    def test_console_runtime_absent(self):
+        # 读不到本次命令行即无从判定，按失败计而不是放行
+        self.tools()
+        self.write_cmdline().unlink()
+        res = self.run_smoke()
+        self.assert_fail(res, 22)
+        self.assertIn("proc/cmdline unreadable", res.stdout)
 
     def test_obs_tools_ok(self):
         self.tools()
