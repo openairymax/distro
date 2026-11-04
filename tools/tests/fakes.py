@@ -761,6 +761,12 @@ while [ $# -gt 0 ]; do
     shift
 done
 [ -n "$pat" ] || exit 1
+# X server 是 T1 的「实况」一侧：真实进程由单测按标记拉起，这里只回放
+# 其 pid，使 /proc/<pid>/cmdline 成为可读证据而不是伪造的字符串。
+if [ "$pat" = Xorg ] && [ -n "${FAKE_X_PID:-}" ]; then
+    printf '%s\\n' "${FAKE_X_PID}"
+    exit 0
+fi
 case " ${FAKE_PROCS:-} " in
 *" ${pat} "*) exit 0 ;;
 esac

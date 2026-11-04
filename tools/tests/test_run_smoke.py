@@ -108,6 +108,11 @@ TOPO_4K = ("Screen 0: minimum 8 x 8, current 3840 x 2160,"
            "   1920x1080     60.00\n"
            "   1280x720      60.00\n")
 
+# T1 的驱动标记与座位配置：xserver.sh 在 fbdev 回退时写同一路径的标记，
+# 标记里的 conf 只有出现在 X 的 argv 中才算切换真的生效。
+XCONF = "/run/airymaxos/xserver-fbdev.conf"
+MARKER = f"driver=fbdev reason=no-kms fb=/dev/fb0 conf={XCONF}\n"
+
 
 class RunSmokeTest(unittest.TestCase):
     def setUp(self):
@@ -122,6 +127,8 @@ class RunSmokeTest(unittest.TestCase):
         self.blocks = self.root / "blocks"
         self.write_mounts()
         self.write_blocks()
+        self.marker = self.write_marker()
+        self.xorg = self.start_xorg("-config", XCONF)
 
     def tearDown(self):
         self._tmp.cleanup()
@@ -314,6 +321,42 @@ class RunSmokeTest(unittest.TestCase):
         """T17 的块层表：伪 lsblk 给出设备类型与挂载点。"""
         self.blocks.write_text(body, encoding="utf-8")
 
+    def write_marker(self, body=MARKER):
+        """T1 的驱动标记：与 xserver.sh 写入的运行态文件同名同格式。"""
+        path = self.sysroot / "run" / "airymaxos" / "xserver.log"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"AIRYMAX-XSERVER {body}", encoding="utf-8")
+        return path
+
+    def write_drm(self, status="connected", modes="1920x1080\n",
+                  edid=b"\x00" * 128):
+        """KMS 分支的连接器实况：状态、模式表与 EDID 缺一即不可用。"""
+        out = self.sysroot / "sys" / "class" / "drm" / "card0-DP-1"
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "status").write_text(f"{status}\n", encoding="utf-8")
+        (out / "modes").write_text(modes, encoding="utf-8")
+        (out / "edid").write_bytes(edid)
+        return out
+
+    def start_xorg(self, *argv):
+        """按标记拉起真实 X server 进程。标记与 argv 是否一致只能由运行中
+        的命令行证明，因此这里起一个同名、同参数的长驻进程，伪 pgrep 只
+        回放它的 pid，证据仍取自 /proc。"""
+        path = self.bin / "Xorg"
+        if not path.exists():
+            fakes.write(self.bin, "Xorg",
+                        "#!/bin/sh\ntrap 'exit 0' TERM\nread -r _\n")
+        proc = subprocess.Popen([str(path), *argv], stdin=subprocess.PIPE)
+        self.addCleanup(self.stop_xorg, proc)
+        return proc
+
+    @staticmethod
+    def stop_xorg(proc):
+        if proc.stdin:
+            proc.stdin.close()
+        proc.terminate()
+        proc.wait(timeout=10)
+
     def tools(self, omit=()):
         fakes.link_tools(self.bin)
         fakes.smoke_tools(self.bin, omit)
@@ -353,6 +396,7 @@ class RunSmokeTest(unittest.TestCase):
             "QT_IM_MODULE": "ibus",
             "XMODIFIERS": "@im=ibus",
             "FAKE_PROCS": "ukui-session-manager ibus-daemon",
+            "FAKE_X_PID": str(self.xorg.pid),
             "FAKE_XRANDR_TOPO": str(self.topo),
             "FAKE_FINDMNT_DB": str(self.mounts),
             "FAKE_LSBLK_DB": str(self.blocks),
@@ -437,6 +481,58 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke(FAKE_XDPYINFO="fail")
         self.assert_fail(res, 1)
         self.assertIn("X11 unreachable: :0", res.stdout)
+
+    def test_xserver_marker_missing(self):
+        """没有标记就无法判断座位是否按显示能力选择过驱动。"""
+        self.tools()
+        self.marker.unlink()
+        res = self.run_smoke()
+        self.assert_fail(res, 1)
+        self.assertIn("xserver marker missing", res.stdout)
+
+    def test_xserver_fbdev_not_applied(self):
+        """标记声称已切 fbdev，X 的 argv 却没有 -config：报告正常而屏黑。"""
+        self.tools()
+        bare = self.start_xorg()
+        res = self.run_smoke(FAKE_X_PID=str(bare.pid))
+        self.assert_fail(res, 1)
+        self.assertIn(f"xserver is not using {XCONF}", res.stdout)
+
+    def test_xserver_kms_ready(self):
+        """真实驱动 + 已连接 + 模式 + EDID：kms 标记成立，未强加配置。"""
+        self.tools()
+        self.write_marker("driver=i915 kms=1\n")
+        self.write_drm()
+        bare = self.start_xorg()
+        res = self.run_smoke(FAKE_X_PID=str(bare.pid))
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+
+    def test_xserver_kms_without_edid(self):
+        """驱动在、口已连、有模式，但 EDID 为空：模式求交仍会失败。"""
+        self.tools()
+        self.write_marker("driver=i915 kms=1\n")
+        self.write_drm(edid=b"")
+        bare = self.start_xorg()
+        res = self.run_smoke(FAKE_X_PID=str(bare.pid))
+        self.assert_fail(res, 1)
+        self.assertIn("no ready output", res.stdout)
+
+    def test_xserver_kms_forced_config(self):
+        """kms 成立时仍强加 fbdev 配置，说明封装与实况已经脱节。"""
+        self.tools()
+        self.write_marker("driver=i915 kms=1\n")
+        self.write_drm()
+        res = self.run_smoke()
+        self.assert_fail(res, 1)
+        self.assertIn("kms i915 forced a config", res.stdout)
+
+    def test_xserver_absent(self):
+        """判为无显示却仍在跑 X：标记与座位状态互相矛盾。"""
+        self.tools()
+        self.write_marker("driver=none note=no-display\n")
+        res = self.run_smoke()
+        self.assert_fail(res, 1)
+        self.assertIn("display reported as absent", res.stdout)
 
     def test_session_not_x11(self):
         self.tools()

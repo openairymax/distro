@@ -10,10 +10,10 @@
 # 环境:
 #   AIRYMAX_SMOKE_WAIT  守护进程就绪等待秒数（默认 30）
 #   AIRYMAX_SMOKE_HOST  期望的主机名（默认 airymax-pc，即配方值）
-#   AIRYMAX_SMOKE_ROOT  只读系统视图的根前缀（默认空，即真实 /）。T5–T16 与
-#                       T18 读取 /usr/share、/boot、/sys、/etc 下的发行版标识
-#                       与资产，单测在沙箱里用该前缀复核判定，装机现场保持
-#                       默认值。T17 读实时块层，不经该前缀。
+#   AIRYMAX_SMOKE_ROOT  只读系统视图的根前缀（默认空，即真实 /）。T1、T5–T16
+#                       与 T18 读取 /run、/usr/share、/boot、/sys、/etc 下的
+#                       运行态标记、发行版标识与资产，单测在沙箱里用该前缀复核
+#                       判定，装机现场保持默认值。T17 读实时块层，不经该前缀。
 #   AIRYMAX_SMOKE_BUILD_ID  发布清单记录的构建来源指纹。给出时要求与本机
 #                       BUILD_ID 逐字相同，把「装的是这一轮产出的镜像」变成
 #                       可判定事实；缺省只校验机内两处一致。
@@ -127,6 +127,60 @@ session_prop() { # session_prop <loginctl 属性>
     loginctl show-session "${XDG_SESSION_ID}" -p "$1" --value 2>/dev/null || :
 }
 
+xorg_argv() { # xorg_argv — 正在运行的 X server 参数，无 Xorg 进程时返回非零
+    local pid
+
+    pid=$(pgrep -o -x Xorg) || return 1
+    tr '\0' ' ' <"/proc/${pid}/cmdline" 2>/dev/null
+}
+
+seat_marker() { # seat_marker — 校验 xserver.log 的标记与 X 实况一致
+    local log="${SYSROOT}/run/airymaxos/xserver.log" line drv conf argv out
+
+    [ -r "${log}" ] || {
+        echo "xserver marker missing: ${log}"
+        return 1
+    }
+    line=$(sed -n 's/^AIRYMAX-XSERVER //p' "${log}" | tail -n 1)
+    drv=${line#driver=}
+    drv=${drv%% *}
+    # 标记是决策时的自述，argv 才是 X 实际收到的选择。两者不一致时黑屏
+    # 会伪装成「已按 KMS 启动」，因此这里以运行中进程的命令行为准。
+    argv=$(xorg_argv || :)
+    case "${drv}" in
+    fbdev)
+        conf=${line#*conf=}
+        conf=${conf%% *}
+        case " ${argv} " in
+        *" -config ${conf} "*) return 0 ;;
+        esac
+        echo "xserver is not using ${conf}: ${line}"
+        return 1
+        ;;
+    none)
+        echo "display reported as absent while X runs: ${line}"
+        return 1
+        ;;
+    "")
+        echo "xserver marker has no driver: ${log}"
+        return 1
+        ;;
+    esac
+    case " ${argv} " in
+    *" -config "*) echo "kms ${drv} forced a config: ${line}"; return 1 ;;
+    esac
+    # KMS 分支回查连接器实况：驱动名与标记都可能为真，而屏幕仍因缺 EDID
+    # 或模式求交失败而黑屏。
+    for out in "${SYSROOT}"/sys/class/drm/card*-*; do
+        [ "$(cat "${out}/status" 2>/dev/null)" = connected ] || continue
+        grep -q '[^[:space:]]' "${out}/modes" 2>/dev/null || continue
+        [ -s "${out}/edid" ] || continue
+        return 0
+    done
+    echo "marker claims kms ${drv} but no ready output: ${line}"
+    return 1
+}
+
 slice_prop() { # slice_prop <systemd 属性>
     systemctl show airymax-desktop.slice -p "$1" --value 2>/dev/null || :
 }
@@ -135,7 +189,7 @@ os_rel() { # os_rel <os-release 键> — 去掉赋值两侧的引号
     sed -n "s/^$1=//p" "${SYSROOT}/etc/os-release" | tr -d '"'
 }
 
-# T1: UKUI X11 会话（lightdm 会话 + 会话进程 + X server）
+# T1: UKUI X11 会话（lightdm 会话 + 会话进程 + X server + 驱动标记）
 t1_x11() {
     need loginctl || return $?
     need pgrep || return $?
@@ -154,6 +208,7 @@ t1_x11() {
         echo "X11 unreachable: ${DISPLAY}"
         return 1
     }
+    seat_marker
 }
 
 ime_engine() { # ime_engine — 打印 ibus 全局引擎名，总线不可达时返回非零
