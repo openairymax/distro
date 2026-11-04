@@ -332,7 +332,7 @@ grep -qxF 'disable airy-rt-memcap.timer' \
 ! grep -q '^RemainAfterExit=' \
     %{buildroot}%{_unitdir}/airy-rt-memcap.service
 test -f %{buildroot}%{_unitdir}/airy-rt-coexist.service
-grep -qxF 'ExecStart=/usr/lib/airymaxos/scripts/stage_run.sh 桌面与 RT 共存 - mode,weight,current,applied /usr/bin/airy-rt-cap coexist --apply' \
+grep -qxF 'ExecStart=/usr/lib/airymaxos/scripts/stage_run.sh 桌面RT共存 - mode,weight,current,applied /usr/bin/airy-rt-cap coexist --apply' \
     %{buildroot}%{_unitdir}/airy-rt-coexist.service
 grep -qxF 'Before=display-manager.service' \
     %{buildroot}%{_unitdir}/airy-rt-coexist.service
