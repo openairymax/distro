@@ -315,6 +315,12 @@ persist=$(airy-disk persist 2>&1) || {
     airy_fail INSTALL disk-fstab
 }
 airy_out "AIRYMAX-DISK-OK ${persist}"
+#    交付包集合随镜像落盘（V-15）：0.0.4 的包对账以这份集合为基准，装机后
+#    任何增删都体现为 missing 或 extra，而不是悄悄改变系统构成。
+rpm -qa --qf '%{NAME}\n' | LC_ALL=C sort -u >/etc/airymaxos-packages ||
+    airy_fail INSTALL pkg-manifest
+grep -qxF airymaxos-system /etc/airymaxos-packages ||
+    airy_fail INSTALL pkg-manifest
 
 # 3) 账户自检：没有可登录账户的安装介质不具备「OS 能运行」的前提
 #    root 交付为固定口令（sha512 哈希），amuser 交付为空口令（empty）。
