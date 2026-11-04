@@ -69,7 +69,7 @@
 # spec-lint: source-bundle ../../system/services/airybright
 
 %global airy_version 0.0.4
-%global airy_release 45
+%global airy_release 46
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -139,6 +139,9 @@ Source55:       airy-boot-mount.service
 Source56:       boot_mount.sh
 Source57:       airy-bright
 Source58:       airybright-%{version}.tar.gz
+Source59:       boot_watch.sh
+Source60:       airy-boot-watch.service
+Source61:       airy-boot-watch.timer
 
 BuildRequires:  gcc
 BuildRequires:  python3-devel
@@ -207,14 +210,14 @@ install -m 0644 %{SOURCE1} %{SOURCE2} %{SOURCE3} %{SOURCE4} %{SOURCE5} \
     %{SOURCE23} %{SOURCE24} %{SOURCE27} \
     %{SOURCE30} %{SOURCE31} %{SOURCE32} %{SOURCE35} %{SOURCE51} %{SOURCE52} \
     %{SOURCE37} %{SOURCE38} %{SOURCE42} %{SOURCE43} %{SOURCE45} \
-    %{SOURCE55} %{buildroot}%{_unitdir}/
+    %{SOURCE55} %{SOURCE60} %{SOURCE61} %{buildroot}%{_unitdir}/
 install -m 0644 %{SOURCE0} %{SOURCE15} %{buildroot}%{_unitdir}/
 install -d -m 0755 %{buildroot}%{_unitdir}/user.slice.d
 install -m 0644 %{SOURCE46} \
     %{buildroot}%{_unitdir}/user.slice.d/50-airymax-memory.conf
 install -d -m 0755 %{buildroot}/usr/lib/airymaxos/scripts
 install -m 0755 %{SOURCE17} %{SOURCE18} %{SOURCE50} %{SOURCE53} \
-    %{SOURCE54} %{SOURCE56} %{buildroot}/usr/lib/airymaxos/scripts/
+    %{SOURCE54} %{SOURCE56} %{SOURCE59} %{buildroot}/usr/lib/airymaxos/scripts/
 install -d -m 0755 %{buildroot}%{_presetdir}
 install -m 0644 %{SOURCE19} %{SOURCE20} %{buildroot}%{_presetdir}/
 install -m 0644 %{SOURCE49} %{buildroot}/usr/lib/airymaxos/boot-set
@@ -244,10 +247,12 @@ test -x %{buildroot}/usr/lib/airymaxos/scripts/boot_set.sh
 test -x %{buildroot}/usr/lib/airymaxos/scripts/ui.sh
 test -x %{buildroot}/usr/lib/airymaxos/scripts/stage_run.sh
 test -x %{buildroot}/usr/lib/airymaxos/scripts/boot_mount.sh
+test -x %{buildroot}/usr/lib/airymaxos/scripts/boot_watch.sh
 bash -n %{buildroot}/usr/lib/airymaxos/scripts/boot_set.sh
 bash -n %{buildroot}/usr/lib/airymaxos/scripts/ui.sh
 bash -n %{buildroot}/usr/lib/airymaxos/scripts/stage_run.sh
 bash -n %{buildroot}/usr/lib/airymaxos/scripts/boot_mount.sh
+bash -n %{buildroot}/usr/lib/airymaxos/scripts/boot_watch.sh
 test "$(bash -c '. %{buildroot}/usr/lib/airymaxos/scripts/ui.sh; ui_total')" = 9
 test -x %{buildroot}%{_bindir}/airy-disk
 test -x %{buildroot}%{_bindir}/airy-update
@@ -304,6 +309,16 @@ grep -qxF 'Before=airy-disk-mount.service agentrt.target multi-user.target' \
 grep -qxF 'SuccessExitStatus=3' \
     %{buildroot}%{_unitdir}/airy-boot-mount.service
 grep -qxF 'disable airy-boot-mount.service' \
+    %{buildroot}%{_presetdir}/90-airymax.preset
+test -f %{buildroot}%{_unitdir}/airy-boot-watch.service
+grep -qxF 'ExecStart=/usr/lib/airymaxos/scripts/boot_watch.sh' \
+    %{buildroot}%{_unitdir}/airy-boot-watch.service
+test -f %{buildroot}%{_unitdir}/airy-boot-watch.timer
+grep -qxF 'OnBootSec=60s' \
+    %{buildroot}%{_unitdir}/airy-boot-watch.timer
+grep -qxF 'Unit=airy-boot-watch.service' \
+    %{buildroot}%{_unitdir}/airy-boot-watch.timer
+grep -qxF 'disable airy-boot-watch.timer' \
     %{buildroot}%{_presetdir}/90-airymax.preset
 test -f %{buildroot}%{_unitdir}/airy-disk-mount.service
 grep -qxF 'ExecStart=/usr/lib/airymaxos/scripts/stage_run.sh 数据分区 4 - /usr/bin/airy-disk mount' \
@@ -406,7 +421,7 @@ for unit in airy-rt-bandwidth.service airy-rt-memcap.service \
     airy-rt-memcap.timer airy-power.service airy-power.timer \
     airy-rt-coexist.service airy-rt-coexist.timer airy-disk-mount.service \
     airy-disk-health.timer airymax-update-check.timer \
-    airy-boot-mount.service; do
+    airy-boot-mount.service airy-boot-watch.timer; do
     grep -qxF "${unit}" %{buildroot}/usr/lib/airymaxos/boot-set || exit 1
 done
 
@@ -464,6 +479,24 @@ fi
 %{python3_sitelib}/airybright
 
 %changelog
+* Wed Nov 04 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-46
+- Ship a boot watch that reports where a boot stopped. The nine stages
+  print as they run, so a machine that hangs after the last stage it
+  reached shows a screen that looks finished: no failure line, no unit
+  name, nothing to attach a report to. The watch is driven by a timer
+  rather than pulled in by a target, because a target that is never
+  reached cannot start the unit that would describe why.
+- It judges progress by the queued job table, not by elapsed time: two
+  identical reads forty seconds apart mean no unit advanced, while a
+  slow boot still changes the table on every read and stays silent. A
+  healthy boot prints nothing at all.
+- The observer must not become a new failure. It always exits zero, so
+  it never lands in the failed-unit list that the acceptance criteria
+  count; it folds stderr into stdout, so none of its own lines reach
+  the error bucket of the journal; and it writes to the console and the
+  serial port both, since either one alone can be the channel that is
+  cut.
+
 * Wed Nov 04 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-45
 - Ship the airy-bright command and its airybright package. The backlight
   entry existed in the source tree and passed its gate, but no spec
