@@ -36,11 +36,12 @@
 #   T13 免密桌面：空闲锁屏关闭，交付账户在 nopasswdlogin 组内
 #   T14 运行期软件源：已安装系统的每个启用段都指向可解析的基底镜像
 #   T15 启动参数：/etc/default/grub 持有 rhgb quiet，os-prober 已关闭
-#   T16 观测工具：airy-bench / airy-observe / airy-demo 随镜像交付且自检为 ok，
-#       内核日志里没有固件载入失败签名
+#   T16 观测工具：airy-bench / airy-observe / airy-demo 随镜像交付且自检为 ok
 #   T17 系统盘布局：/ 与 /data 各挂在一个分区上，且不是同一个分区
 #   T18 构建来源：os-release 的 BUILD_ID 与 /etc/airymaxos-build 逐字相同，
 #       字符集与长度符合驱动写入口径；给出期望值时还要求两者相同
+#   T19–T21 固件：内核日志里没有「固件表无匹配」「微码 INIT 未运行」
+#       「API 版本越界」三条失败签名
 #
 # 判定语义:
 #   0  — 全部通过
@@ -61,8 +62,6 @@ PAPER_DIR=/usr/share/backgrounds/airymaxos
 PAPER_COUNT=3
 PAPER_SHA=fee7f439834ac7dacfc75deaf80a1db1c4bc7459583248eecc87125d52a5ef18
 BID_MAX=64
-FW_SIGNS='no suitable firmware found|failed to run init ucode'
-FW_SIGNS="${FW_SIGNS}|api flags index [0-9]+ larger"
 START_WAIT="${AIRYMAX_SMOKE_WAIT:-30}"
 HOSTNAME_WANT="${AIRYMAX_SMOKE_HOST:-airymax-pc}"
 SYSROOT="${AIRYMAX_SMOKE_ROOT:-}"
@@ -789,12 +788,6 @@ t15_brand_cfg() {
 # 在装机系统内可直接执行且自检为 ok：bench 与 demo 取 --check（demo 只清点
 # 对端与终端，不重复度量），observe 取 --static --root（只读文件，不依赖活动
 # 会话）。观测数值随机器的负载波动，不进判定；判定只看工具自身给的 status。
-#
-# 固件一节的判据只能来自内核日志：驱动没找到固件时不会留下任何文件，期望
-# 文件名只存在于模块自报（modinfo）里，两者唯一的交集是本次开机的载入记录。
-# 这里判三条已知的失败签名——固件表里没有匹配项、微码 INIT 没跑起来、API
-# 版本不兼容而回退。它们都以「驱动仍然加载成功」的面目出现，光看模块列表
-# 会全部判过；日志读不到时同样判负，因为「没有证据」不等于「载入成功」。
 t16_obs_tools() {
     local out
     need airy-bench || return 1
@@ -826,24 +819,7 @@ t16_obs_tools() {
         printf '%s\n' "${out}"
         return 1
     }
-    t16_fw_log || return 1
-    printf 'bench=ok demo=ok observe=ok fw=clean\n'
-}
-
-# 固件失败签名：三条都以「模块加载成功」收场，模块列表与 sysfs 都看不出，
-# 只有日志里那一行还在。命中即逐行抬出来，让现场直接看到是哪一个文件没
-# 载上；dmesg 不可读时明确说出「无法排除」，不静默放行。
-t16_fw_log() {
-    local log hit
-    log=$(dmesg 2>/dev/null) || {
-        echo "kernel log unreadable: firmware failures cannot be ruled out"
-        return 1
-    }
-    hit=$(printf '%s\n' "${log}" | grep -Ei "${FW_SIGNS}")
-    [ -z "${hit}" ] || {
-        printf '%s\n' "${hit}"
-        return 1
-    }
+    printf 'bench=ok demo=ok observe=ok\n'
 }
 
 # T17 系统盘布局：安装器把系统与数据放在两个独立分区上，数据分区才能单独
@@ -914,8 +890,40 @@ t18_build_id() {
     printf 'build_id=%s\n' "${id}"
 }
 
+# T19–T21 固件三条判据。判据只能来自内核日志：驱动没找到固件时不会留下任何
+# 文件，期望文件名只存在于模块自报（modinfo）里，两者唯一的交集是本次开机的
+# 载入记录。三条签名各占一项，而不是合成一项：它们对应三种不同的现场处置
+# （补固件包、更新微码、对齐 API 版本），合成一项就把「哪一类」退回到人工读
+# 日志。三条都以「驱动仍然加载成功」收场，模块列表与 sysfs 都看不出，只看
+# 模块表会全部判过；日志读不到时同样判负，因为「没有证据」不等于「载入成功」。
+fw_clean() { # fw_clean <失败签名> <现象>
+    local log hit
+    need dmesg || return 1
+    log=$(dmesg 2>/dev/null) || {
+        printf 'kernel log unreadable: cannot rule out %s\n' "$2"
+        return 1
+    }
+    hit=$(printf '%s\n' "${log}" | grep -Ei "$1")
+    [ -z "${hit}" ] || {
+        printf '%s\n' "${hit}"
+        return 1
+    }
+}
+
+t19_fw_blob() {
+    fw_clean 'no suitable firmware found' 'a driver without its blob'
+}
+
+t20_fw_microcode() {
+    fw_clean 'failed to run init ucode' 'stale CPU microcode'
+}
+
+t21_fw_api() {
+    fw_clean 'api flags index [0-9]+ larger' 'a firmware API mismatch'
+}
+
 printf 'TAP version 14\n'
-printf '1..18\n'
+printf '1..21\n'
 printf '# AirymaxOS distro smoke: target=%s date=%s\n' \
     "${TARGET}" "$(date -u '+%FT%TZ')"
 
@@ -937,6 +945,9 @@ probe 15 "T15 durable boot arguments" t15_boot_args
 probe 16 "T16 observer tools selfcheck" t16_obs_tools
 probe 17 "T17 system disk layout" t17_disk_layout
 probe 18 "T18 build provenance" t18_build_id
+probe 19 "T19 firmware blob present" t19_fw_blob
+probe 20 "T20 cpu microcode loaded" t20_fw_microcode
+probe 21 "T21 firmware api match" t21_fw_api
 
 printf '# summary: pass=%d fail=%d\n' "${PASS}" "${FAIL}"
 [ "${FAIL}" -eq 0 ]
