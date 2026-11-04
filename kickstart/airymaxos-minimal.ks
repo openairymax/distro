@@ -94,6 +94,9 @@ firstboot --disable
 %packages --nocore
 @airymax-core
 airymaxos-kernel
+# 固件闭包与内核 ABI 同源（FW-02）：内核包按 ABI 点名它，这里显式列出是
+# 为了让「镜像里必然有固件闭包」在配方里可读，而不是只藏在依赖图里。
+airymaxos-firmware
 airymaxos-release
 # 编排单元与磁盘工具（airymaxos-system）：与工作站剖面同一包，两个剖面
 # 因此走同一条布局判读代码路径；单元启用边界由 preset 唯一决定，安装段

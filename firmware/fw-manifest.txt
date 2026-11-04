@@ -11,7 +11,7 @@
 # 路径模式 绝对路径，必须位于 /usr/lib/firmware 下，允许通配；尾部 `*`
 #          兼容发行版把固件存成 .xz/.zst 的形态。
 #
-# 判定：ci/gates/fw-closure.sh，五件事。
+# 判定：ci/gates/fw-closure.sh，六件事。
 #   ① 集合对账：comps 中名称含 firmware 或以 -ucode 结尾的包，必须全部
 #      在本清单出现；清单声明的包必须全部由 comps 安装。
 #   ② 实物核对：给 --root（解包后的镜像根）时，逐条模式必须至少命中一个
@@ -21,6 +21,10 @@
 #   ④ .pnvm 与 .ucode 成对：只有能力描述没有 ucode 时固件载入失败。
 #   ⑤ 标签：命中的固件文件必须是 lib_t，否则 enforcing 下「文件在、载入
 #      失败」，内核不给指向性告警。
+#   ⑥ 清单回读：本文件随 airymaxos-firmware 落盘
+#      /usr/share/airymaxos/firmware/fw-manifest.txt，--root 时与仓库这份
+#      逐字比对，并核对同目录的 kernel-abi。只有仓库有清单时，装机后跑
+#      判定拿的是发行当天的旧数据，两边分叉而结论仍绿。
 #
 # 只写器件类别与通配路径，不写机型或固件版本号：机型分支会把「换一台同代
 # 笔记本」变成改代码（J-23），而固件文件名随上游 linux-firmware 滚动。
