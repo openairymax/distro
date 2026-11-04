@@ -411,6 +411,16 @@ RPM = """\
 case "${1:-}" in
 -K) exit 0 ;;
 -qp)
+    # --qf 出现 PROVIDENAME 时按包头回答 Provides：伪包用包体里的
+    # provides: 行声明能力，覆盖「shim 提供 shim-x64」这类虚拟名。
+    case "$*" in
+    *PROVIDENAME*)
+        for a in "$@"; do
+            [ -f "$a" ] || continue
+            sed -n 's/^provides: //p' "$a"
+        done
+        exit 0 ;;
+    esac
     last=""
     for a in "$@"; do last=$a; done
     base=${last##*/}
