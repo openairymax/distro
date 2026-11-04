@@ -28,8 +28,12 @@ import fakes
 
 SCRIPT = Path(__file__).resolve().parents[2] / "ci" / "run-smoke.sh"
 DESKTOP = Path(__file__).resolve().parents[2] / "desktop"
+SERVICES = Path(__file__).resolve().parents[3] / "system" / "services"
 DISPLAY_MODE = DESKTOP / "display_mode.sh"
 BASH = shutil.which("bash") or "/bin/bash"
+
+# T23 的交付包集合：装机 %post 写下的清单，也是沙箱 rpm 数据库的默认内容。
+PACKAGES = ("airymaxos-desktop", "airymaxos-system", "kernel-alk")
 
 LEGACY = ("tauri", "webkitwebprocess", "fcitx5", "pipewire",
           "kylin-app-cgroupd")
@@ -161,6 +165,15 @@ class RunSmokeTest(unittest.TestCase):
         self.write_cmdline()
         self.write_assets()
         self.write_build_id()
+        self.write_manifest()
+
+    def write_manifest(self, names=PACKAGES):
+        """T23 的落点：装机时由 %post 写下的交付包集合。"""
+        path = self.sysroot / "etc" / "airymaxos-packages"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("".join(f"{name}\n" for name in names),
+                        encoding="utf-8")
+        return path
 
     def write_cmdline(self, body=CMDLINE):
         """T22 的落点：安装器写入引导项后，内核实际拿到的命令行。"""
@@ -413,6 +426,8 @@ class RunSmokeTest(unittest.TestCase):
             "FAKE_XRANDR_TOPO": str(self.topo),
             "FAKE_FINDMNT_DB": str(self.mounts),
             "FAKE_LSBLK_DB": str(self.blocks),
+            "FAKE_RPM_NAMES": " ".join(PACKAGES),
+            "PYTHONPATH": str(SERVICES),
             "AIRYMAX_SMOKE_WAIT": "0",
             "AIRYMAX_SMOKE_ROOT": str(self.sysroot),
         }
@@ -1150,6 +1165,37 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke()
         self.assert_fail(res, 22)
         self.assertIn("proc/cmdline unreadable", res.stdout)
+
+    def test_inventory_ok(self):
+        # 三个面同时干净：无失败单元、本次开机无 err、包集合与交付清单一致
+        self.tools()
+        res = self.run_smoke()
+        self.assertIn("ok 23 - T23 system inventory", res.stdout)
+        self.assertIn("units=0 errors=0 packages=ok", res.stdout)
+
+    def test_inventory_failed_unit(self):
+        # 单元失败但日志停在 info：只查日志的形态会漏
+        self.tools()
+        res = self.run_smoke(FAKE_FAILED_UNITS="airymax-desktop.service")
+        self.assert_fail(res, 23)
+        self.assertIn("state=failed", res.stdout)
+
+    def test_inventory_package_drift(self):
+        # 装机后多装一个包：系统构成已变，交付集合不再是实际集合
+        self.tools()
+        res = self.run_smoke(
+            FAKE_RPM_NAMES=" ".join(PACKAGES + ("extra-pkg",)))
+        self.assert_fail(res, 23)
+        self.assertIn("extra=1", res.stdout)
+
+    def test_inventory_journal_err(self):
+        # 日志刷错但没有单元失败：另一侧的证据必须独立成立
+        self.tools()
+        log = self.root / "journal.log"
+        log.write_text("amuser.service: Failed to start\n", encoding="utf-8")
+        res = self.run_smoke(FAKE_JOURNAL_FILE=str(log))
+        self.assert_fail(res, 23)
+        self.assertIn("errors=1", res.stdout)
 
     def test_obs_tools_ok(self):
         self.tools()
