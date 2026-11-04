@@ -292,6 +292,9 @@ closure_specs()
     [ "${#CL_SPECS[@]}" -gt 0 ]
 }
 
+# cl_boot ARCH —— 引导链的二进制包名。装机阶段 anaconda 通过 GRUB2.packages
+# 隐式请求这组包，载荷里没有就停在交互确认上。只登记能在上游确认到包名的
+# 架构；其它架构在此显式失败，而不是猜一个名字让求解静默少包。
 cl_boot()
 {
     case "$1" in
@@ -323,9 +326,15 @@ cl_scope()
 
 cl_args()
 {
-    local list spec glob keep scope
+    local arch="$1" list spec glob keep scope
     local -a excl=()
     local -a scope_pkgs=()
+    # 引导链按架构点名（GRUB2.packages）：comps 刻意不列 grub2/shim 的二进制
+    # 包名——它们在 x86_64 与 aarch64 上不同名，写进组里必然有一侧落空。
+    # 但 anaconda 只在装机阶段隐式请求这几个包，不在任何 %packages 里；载荷
+    # 事务不含它们时，装机现场停在「缺少软件包 shim-x64、grub2-efi-x64」的
+    # 交互确认上，无人值守安装就此挂住，而 ISO 构建本身全绿。
+    cl_boot "$arch" || return 1
     # 排除项之下的包不在事务里。显式点名的规格光靠 --exclude 不够：dnf 的
     # exclude 过滤的是可选项，对点名要装的包仍报「Unable to find a match」，
     # 正是播种机首次收割的失败行。因此先用 glob 把规格摘掉，再让排除项参与

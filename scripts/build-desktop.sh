@@ -284,18 +284,32 @@ closure_default()
         airymaxos-kernel-core airymaxos-kernel-modules airymaxos-firmware)
 }
 
+# have_pkg NAME —— 载荷内是否有该包名的二进制 RPM。要求名称后紧跟版本号，
+# 否则 grub2-pc 会命中 grub2-pc-modules。
+have_pkg()
+{
+    local base
+    for base in "${NAMES[@]}"; do
+        case "$base" in
+        "$1"-[0-9]*) return 0 ;;
+        esac
+    done
+    return 1
+}
+
 check_closure()
 {
-    local want base have
+    local want
     for want in "${REQUIRE[@]}"; do
-        have=""
-        for base in "${NAMES[@]}"; do
-            case "$base" in
-            "${want}-"[0-9]*) have="$base"; break ;;
-            esac
-        done
-        [ -n "$have" ] ||
+        have_pkg "$want" ||
             die "${E_INVAL}" "离线仓库缺少必需包: ${want}"
+    done
+    # 引导链不在任何 %packages 里，是 anaconda 装机阶段自己点的名。少了它
+    # ISO 照样构建成功，只有在装机那一刻停在「缺少软件包」的交互确认上，
+    # 所以必须在这里判负，而不是留给验收镜像去发现。
+    for want in "${CL_BOOT[@]}"; do
+        have_pkg "$want" ||
+            die "${E_INVAL}" "离线仓库缺少引导包: ${want}"
     done
 }
 

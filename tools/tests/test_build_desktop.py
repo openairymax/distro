@@ -113,11 +113,13 @@ def repo_baseurls(path):
             if line.startswith("baseurl=")]
 
 
-# 伪 dnf 的事务是「comps 全量成员 + 配方显式包 + 固件作用域包」，引导包由
-# ISO 侧单独加入、不进事务。载荷里已有的包复用同名文件，收割端按 basename
-# 去重，因此新增数 = 事务集合 − 与载荷同名的那些包。
+# 伪 dnf 的事务是「comps 全量成员 + 配方显式包 + 固件作用域包 + 引导链」。
+# 引导链（closure.sh cl_boot）在装机阶段由 anaconda 隐式请求，comps 不列，
+# 必须进事务，否则 UEFI 装机停在「缺少软件包」的确认上。载荷里已有的包复用
+# 同名文件，收割端按 basename 去重，因此新增数 = 事务集合 − 与载荷同名的包。
+BOOT = {"grub2-pc", "grub2-efi-x64", "shim-x64", "efibootmgr"}
 STOCK = {rpm_name(name) for name in CLOSURE}
-TX = comps_pkgs() | ks_pkgs() | scope_pkgs()
+TX = comps_pkgs() | ks_pkgs() | scope_pkgs() | BOOT
 SELF = TX & STOCK
 HARVEST = len(TX) - len(SELF)
 TOTAL = len(CLOSURE) + HARVEST
