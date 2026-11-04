@@ -21,7 +21,9 @@ from pathlib import Path
 
 import fakes
 
-LIB = Path(__file__).resolve().parents[2] / "kickstart" / "disk-select.sh"
+KICKSTART = Path(__file__).resolve().parents[2] / "kickstart"
+PRELUDE = KICKSTART / "install-lib.sh"
+LIB = KICKSTART / "disk-select.sh"
 BASH = shutil.which("bash") or "/bin/bash"
 GIB = 1024 ** 3
 
@@ -45,8 +47,11 @@ class DiskSelectTest(unittest.TestCase):
         self.fw = self.root / "fw"
         self.work = self.root / "work"
         self.work.mkdir()
+        self.console = self.root / "console"
+        self.console.write_text("", encoding="utf-8")
         self.env = {"PATH": str(self.bin), "HOME": str(self.root),
-                    "AIRY_FW": str(self.fw), "FAKE_LSBLK_DB": str(self.db)}
+                    "AIRY_FW": str(self.fw), "FAKE_LSBLK_DB": str(self.db),
+                    "AIRY_CONSOLE": str(self.console)}
 
     def tearDown(self):
         self._tmp.cleanup()
@@ -58,9 +63,10 @@ class DiskSelectTest(unittest.TestCase):
     def sh(self, snippet, **extra):
         env = dict(self.env)
         env.update({key: str(val) for key, val in extra.items()})
-        return subprocess.run([BASH, "-c", 'set -eu\n. "$1"\n' + snippet,
-                               "bash", str(LIB)], env=env, text=True,
-                              capture_output=True)
+        return subprocess.run([BASH, "-c",
+                               'set -eu\n. "$1"\n. "$2"\n' + snippet,
+                               "bash", str(PRELUDE), str(LIB)], env=env,
+                              text=True, capture_output=True)
 
     def test_scan_single(self):
         self.table(NVME)

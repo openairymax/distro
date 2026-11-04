@@ -6,6 +6,8 @@
 # 展开产物要能直接交给 anaconda，审计要能拦住「%pre 生成存储片段却手抄
 # 第二份选盘规则」的回退形态（D-33 的成因）。两条路径共用同一份段解析，
 # 用例逐一破坏前提：标记位置、共享脚本本身，以及生成 include 的 %pre。
+# 选盘器依赖 install-lib.sh，同一段里 lib 必须先于 disk-select.sh 展开，
+# 顺序错误同样要被审计拦下。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
 # Version: 0.0.4
@@ -23,10 +25,13 @@ import ks_embed
 
 TOOL = Path(ks_embed.__file__)
 SHARED = "#!/usr/bin/env bash\necho airy\n"
+CORE = "#!/usr/bin/env bash\necho core\n"
+CORE_MARK = "# %airy-embed: install-lib.sh\n"
 MARK = "# %airy-embed: disk-select.sh\n"
 PRE = """\
 %pre --erroronfail --log=/tmp/pre.log
 set -eu
+# %airy-embed: install-lib.sh
 # %airy-embed: disk-select.sh
 airy_pre /tmp/disk.ks /tmp/disk.json
 %end
@@ -40,6 +45,7 @@ class EmbedTest(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.base = Path(self._tmp.name)
         self.write("disk-select.sh", SHARED)
+        self.write("install-lib.sh", CORE)
 
     def tearDown(self):
         self._tmp.cleanup()
@@ -47,15 +53,18 @@ class EmbedTest(unittest.TestCase):
     def write(self, name, text):
         (self.base / name).write_text(text, encoding="utf-8")
 
+    def full(self):
+        return PRE.replace(CORE_MARK, CORE).replace(MARK, SHARED)
+
     def test_expand_inserts_body(self):
         out = ks_embed.expand(PRE, self.base)
         self.assertIn(SHARED, out)
+        self.assertIn(CORE, out)
         self.assertNotIn(ks_embed.MARK, out)
         self.assertIn("%include /tmp/disk.ks\nreboot\n", out)
 
     def test_expand_keeps_rest(self):
-        out = ks_embed.expand(PRE, self.base)
-        self.assertEqual(out, PRE.replace(MARK, SHARED))
+        self.assertEqual(ks_embed.expand(PRE, self.base), self.full())
 
     def test_expand_adds_newline(self):
         self.write("disk-select.sh", "echo airy")
@@ -99,6 +108,15 @@ class EmbedTest(unittest.TestCase):
         text = PRE.replace(MARK, "set -eu\n").replace(
             "%include /tmp/disk.ks\n", "")
         self.assertEqual(ks_embed.audit(text), [])
+
+    def test_audit_requires_lib_first(self):
+        text = PRE.replace(CORE_MARK, "")
+        issues = ks_embed.audit(text)
+        self.assertEqual(len(issues), 1)
+        line, msg = issues[0]
+        self.assertEqual(line, 3)
+        self.assertIn("%pre", msg)
+        self.assertIn("install-lib.sh", msg)
 
     def test_cli_ok(self):
         src = self.base / "in.ks"
