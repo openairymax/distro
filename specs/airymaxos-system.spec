@@ -29,7 +29,10 @@
 #  12. 部署 airy-boot-mount 单元与 boot_mount.sh，在数据分区之前报出根
 #      是否只读、/boot 与 ESP 是否独立挂载，装机与引导修复的现场诊断
 #      因此不依赖事后翻 fstab 与 mount 输出；
-#  13. 在 %%post/%%postun 内刷新 systemd 单元缓存，在 %%posttrans 内按
+#  13. 部署 /usr/bin/airy-bright 与 airybright Python 包：屏幕与键盘背光
+#      的调节入口。判定与写入分属 device/plan/policy，命令行只做分派，
+#      因此在没有背光设备的机器上退 4 而不是报成功（I-25）；
+#  14. 在 %%post/%%postun 内刷新 systemd 单元缓存，在 %%posttrans 内按
 #      该清单启用并启动单元。
 #
 # 单元启用（systemctl enable）只有一条实现：读 /usr/lib/airymaxos/boot-set。
@@ -63,9 +66,10 @@
 # spec-lint: source-bundle ../../system/services/airymax_power
 # spec-lint: source-bundle ../../system/services/airymax_probe
 # spec-lint: source-bundle ../../system/services/airymax_observe
+# spec-lint: source-bundle ../../system/services/airybright
 
 %global airy_version 0.0.4
-%global airy_release 44
+%global airy_release 45
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -133,6 +137,8 @@ Source53:       ui.sh
 Source54:       stage_run.sh
 Source55:       airy-boot-mount.service
 Source56:       boot_mount.sh
+Source57:       airy-bright
+Source58:       airybright-%{version}.tar.gz
 
 BuildRequires:  gcc
 BuildRequires:  python3-devel
@@ -219,6 +225,7 @@ install -m 0755 %{SOURCE28} %{buildroot}%{_bindir}/airy-model
 install -m 0755 %{SOURCE33} %{buildroot}%{_bindir}/airy-rt-cap
 install -m 0755 %{SOURCE36} %{buildroot}%{_bindir}/airy-power
 install -m 0755 %{SOURCE40} %{buildroot}%{_bindir}/airy-probe
+install -m 0755 %{SOURCE57} %{buildroot}%{_bindir}/airy-bright
 install -m 0755 airy-rt-lat %{buildroot}%{_bindir}/airy-rt-lat
 install -d -m 0755 %{buildroot}%{python3_sitelib}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE25}
@@ -228,6 +235,7 @@ tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE34}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE39}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE41}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE48}
+tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE58}
 
 %check
 test -x %{buildroot}/usr/lib/airymaxos/scripts/firstboot.sh
@@ -247,6 +255,7 @@ test -x %{buildroot}%{_bindir}/airy-model
 test -x %{buildroot}%{_bindir}/airy-rt-cap
 test -x %{buildroot}%{_bindir}/airy-power
 test -x %{buildroot}%{_bindir}/airy-probe
+test -x %{buildroot}%{_bindir}/airy-bright
 test -x %{buildroot}%{_bindir}/airy-rt-lat
 PYTHONPATH=%{buildroot}%{python3_sitelib} python3 -B -c '
 import airydisk.cli
@@ -255,7 +264,8 @@ import airyllm.cli
 import airymax_rt.cli
 import airymax_power.cli
 import airymax_probe.cli
-import airymax_observe.cli'
+import airymax_observe.cli
+import airybright.cli'
 PYTHONPATH=%{buildroot}%{python3_sitelib} python3 -B -m airymax_observe --help >/dev/null
 test -f %{buildroot}%{_unitdir}/agentrt.target
 test -f %{buildroot}%{_unitdir}/agentrt-firstboot.service
@@ -442,6 +452,7 @@ fi
 %{_bindir}/airy-rt-cap
 %{_bindir}/airy-power
 %{_bindir}/airy-probe
+%{_bindir}/airy-bright
 %{_bindir}/airy-rt-lat
 %{python3_sitelib}/airydisk
 %{python3_sitelib}/airyllm
@@ -450,8 +461,16 @@ fi
 %{python3_sitelib}/airymax_power
 %{python3_sitelib}/airymax_probe
 %{python3_sitelib}/airymax_observe
+%{python3_sitelib}/airybright
 
 %changelog
+* Wed Nov 04 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-45
+- Ship the airy-bright command and its airybright package. The backlight
+  entry existed in the source tree and passed its gate, but no spec
+  installed it, so the installed image had no way to change brightness.
+  The command refuses with a distinct exit code when the machine has no
+  backlight node instead of reporting success.
+
 * Wed Nov 04 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-44
 - Add the firmware subcommand to airy-observe. A driver that loads without
   finding its blob leaves nothing behind on disk, and the expected file
