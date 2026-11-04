@@ -11,11 +11,16 @@
 # 路径模式 绝对路径，必须位于 /usr/lib/firmware 下，允许通配；尾部 `*`
 #          兼容发行版把固件存成 .xz/.zst 的形态。
 #
-# 判定：ci/gates/fw-closure.sh，两件事。
+# 判定：ci/gates/fw-closure.sh，五件事。
 #   ① 集合对账：comps 中名称含 firmware 或以 -ucode 结尾的包，必须全部
 #      在本清单出现；清单声明的包必须全部由 comps 安装。
 #   ② 实物核对：给 --root（解包后的镜像根）时，逐条模式必须至少命中一个
 #      文件。包在而内容不在，正是 D-01「构建期与运行期双判」要拦的形态。
+#   ③ 内核 API 对账：给 --kernel 与 --drv 时，驱动经 modinfo 声明的固件
+#      名必须在镜像内存在。0.0.3 的 BE200 缺 gl-c0-fm-c0 就是这一项漏判。
+#   ④ .pnvm 与 .ucode 成对：只有能力描述没有 ucode 时固件载入失败。
+#   ⑤ 标签：命中的固件文件必须是 lib_t，否则 enforcing 下「文件在、载入
+#      失败」，内核不给指向性告警。
 #
 # 只写器件类别与通配路径，不写机型或固件版本号：机型分支会把「换一台同代
 # 笔记本」变成改代码（J-23），而固件文件名随上游 linux-firmware 滚动。
@@ -26,11 +31,14 @@
 # 出来，只能由本清单的数据兜底声明。
 # ===========================================================================
 #
-# 无线：Intel Wi-Fi ucode（285H 类机型实测为 gl 家族，模式不锁家族）；
+# 无线：Intel Wi-Fi ucode（285H 类机型实测为 gl 家族，模式不锁家族），
+#       以及同 stem 的 pnvm 能力描述——0.0.3 的 D-01 正是只带了 ucode
+#       家族里较新几档、pnvm 完全缺失；
 # 蓝牙：控制器固件 sfi 与设备配置 ddc 成对，缺 ddc 时控制器可枚举但
 #       配置失败；显卡：i915 的 GuC/HuC/DMC 都是 i915/ 下的 .bin；
 # 监管域：regulatory.db 与其签名，签名文件由尾部通配一并覆盖。
 linux-firmware   wifi       /usr/lib/firmware/iwlwifi-*.ucode*
+linux-firmware   wifi       /usr/lib/firmware/iwlwifi-*.pnvm*
 linux-firmware   bluetooth  /usr/lib/firmware/intel/ibt-*.sfi*
 linux-firmware   bluetooth  /usr/lib/firmware/intel/ibt-*.ddc*
 linux-firmware   gpu        /usr/lib/firmware/i915/*.bin*
