@@ -309,7 +309,7 @@ grep -qxF 'SuccessExitStatus=3' \
     %{buildroot}%{_unitdir}/airy-rt-bandwidth.service
 ! grep -q '^ExecStartPost=' \
     %{buildroot}%{_unitdir}/airy-rt-bandwidth.service
-grep -qxF 'Before=agentrt.target rtkit-daemon.service display-manager.service' \
+grep -qxF 'Before=agentrt.target rtkit-daemon.service user@.service display-manager.service' \
     %{buildroot}%{_unitdir}/airy-rt-bandwidth.service
 test -f %{buildroot}%{_unitdir}/airy-rt-memcap.service
 grep -qxF 'ExecStart=/usr/lib/airymaxos/scripts/stage_run.sh 换页上限 3 layout,steps /usr/bin/airy-rt-cap memcap --apply' \
