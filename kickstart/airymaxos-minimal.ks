@@ -143,6 +143,12 @@ rpm -q airymaxos-system >/dev/null 2>&1 ||
     airy_fail INSTALL system-pkg
 # 布局判定入口（M-36）：缺它则装机后 / 与 /data 的布局无从取证
 test -x /usr/bin/airy-disk || airy_fail INSTALL airy-disk
+# 交付包集合随镜像落盘（V-15）：0.0.4 的包对账以这份集合为基准，
+# 装机后任何增删都体现为 missing 或 extra，而不是悄悄改变系统构成。
+rpm -qa --qf '%{NAME}\n' | LC_ALL=C sort -u >/etc/airymaxos-packages ||
+    airy_fail INSTALL pkg-manifest
+grep -qxF airymaxos-system /etc/airymaxos-packages ||
+    airy_fail INSTALL pkg-manifest
 # 重启后 / 与 /data 挂不挂得上只取决于 fstab（DISK-01 判据②）：按 /dev/sdX
 # 写的源在装机当场可用，扩容或插拔改号后 /data 开机即失挂，而系统照常
 # 起来。chroot 内的挂载点仍是 /mnt/sysroot/...，拓扑判定必然误杀，所以这
