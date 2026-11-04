@@ -43,6 +43,8 @@ CLOSURE = (
     "airymaxos-kernel-6.6.0-1.x86_64.rpm",
     "airymaxos-kernel-core-6.6.0-1.x86_64.rpm",
     "airymaxos-kernel-modules-6.6.0-1.x86_64.rpm",
+    # 配方显式安装、不在任何组里的自建包：制作与装机都必经它，载荷里必须在。
+    "airymaxos-kernel-devel-6.6.0-1.x86_64.rpm",
 )
 
 
@@ -181,18 +183,23 @@ class BuildDesktopTest(unittest.TestCase):
         return (self.out / "closure" / "mirror-root.txt").read_text(
             encoding="utf-8").strip()
 
-    def lock_of(self, pool, path):
-        """按池内容写一份闭包清单：sha256、文件名、NEVRA。
+    def lock_of(self, pkgdir, path):
+        """按当轮载荷写一份闭包清单：sha256、文件名、NEVRA。
 
-        文件名去掉 .rpm 就是 NEVRA（伪 RPM 的命名即 name-ver-rel.arch），
-        与 cl_lock_write 从 rpm -qp 取到的一致。
+        清单描述的是整轮安装事务，取自载荷目录（收割后的载荷 = 自建包 +
+        闭包全量），与 cl_lock_write 从下载目录取到的是同一批名字。不能
+        从池生成：池只缓存上游字节，自建包不在其中，那样写出的清单会让
+        重放装出比钉住时更小的事务。
         """
         lines = []
-        for rpm in sorted(pool.glob("*.rpm")):
+        for rpm in sorted(pkgdir.glob("*.rpm")):
             digest = hashlib.sha256(rpm.read_bytes()).hexdigest()
             lines.append("%s  %s  %s\n" % (digest, rpm.name, rpm.name[:-4]))
         path.write_text("".join(lines), encoding="utf-8")
         return path
+
+    def payload_pkgs(self):
+        return self.out / "payload" / "airymax" / "Packages"
 
     def build_into(self, out, *args, **extra):
         return self.run_script("--iso", str(self.base), "--ks", str(KS),
@@ -264,9 +271,12 @@ class BuildDesktopTest(unittest.TestCase):
                          "--require", "airymaxos-kernel-core",
                          "--require", "airymaxos-kernel-modules")
         self.assertEqual(res.returncode, 0, res.stderr)
-        self.assertIn("count=4", (self.out / "payload" / "airymax" /
-                                  "payload-manifest.txt").read_text(
-                                      encoding="utf-8"))
+        # 收窄到三项内核包，固件作用域仍按清单强制入载荷；comps 元数据另计一条。
+        narrow = {"airymaxos-firmware", "airymaxos-kernel",
+                  "airymaxos-kernel-core", "airymaxos-kernel-modules"}
+        self.assertIn(f"count={len(narrow) + 1}",
+                      (self.out / "payload" / "airymax" /
+                       "payload-manifest.txt").read_text(encoding="utf-8"))
 
     def test_require_missing(self):
         self.tools()
@@ -325,14 +335,14 @@ class BuildDesktopTest(unittest.TestCase):
         first = self.build("--arch", "x86_64", "--closure",
                            CLOSURE_POOL=str(pool))
         self.assertEqual(first.returncode, 0, first.stderr)
-        lock = self.lock_of(pool, self.root / "closure.lock")
+        lock = self.lock_of(self.payload_pkgs(), self.root / "closure.lock")
         out = self.root / "replay"
         out.mkdir()
         res = self.build_into(out, "--arch", "x86_64", "--closure",
                               "--closure-lock", str(lock),
                               CLOSURE_POOL=str(pool))
         self.assertEqual(res.returncode, 0, res.stderr)
-        self.assertIn("离线重放命中", res.stdout)
+        self.assertIn("离线重放命中", res.stdout, res.stderr)
         log = (out / "logs" / "closure.log").read_text(encoding="utf-8")
         self.assertIn("离线重放", log)
         self.assertNotIn("求解尝试", log)
@@ -348,7 +358,7 @@ class BuildDesktopTest(unittest.TestCase):
         first = self.build("--arch", "x86_64", "--closure",
                            CLOSURE_POOL=str(pool))
         self.assertEqual(first.returncode, 0, first.stderr)
-        lock = self.lock_of(pool, self.root / "closure.lock")
+        lock = self.lock_of(self.payload_pkgs(), self.root / "closure.lock")
         victim = sorted(pool.glob("*.rpm"))[0]
         victim.unlink()
         out = self.root / "online"
@@ -628,7 +638,7 @@ class BuildDesktopTest(unittest.TestCase):
         manifest = (self.out / "payload" / "airymax" /
                     "payload-manifest.txt").read_text(encoding="utf-8")
         self.assertIn("arch=x86_64", manifest)
-        self.assertIn("count=7", manifest)
+        self.assertIn(f"count={len(CLOSURE) + 1}", manifest)
         self.assertRegex(manifest, r"comps [0-9a-f]{64} comps/airymaxos-comps\.xml")
         self.assertIn("kernel-core", manifest)
         iso = self.iso()

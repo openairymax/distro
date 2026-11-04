@@ -79,7 +79,9 @@
 # 清单由 CLOSURE_LOCK_WRITE=1 在成功收割后写出。它有两个落点：源码树里
 # 人工 review 过的那一份（构建端只读），以及 CI 池目录里由上一轮写出、
 # 随缓存保存的那一份。池与清单不一致时（新增依赖、换了快照）自动回落到
-# 在线求解，不带病产出镜像。
+# 在线求解，不带病产出镜像。清单描述的是整轮事务，自建包也在其中；它们的
+# 字节只来自当轮载荷，池不缓存（cl_pool_init 与 pc_absorb），重放时按
+# CL_OWN 分流核对。
 #
 # 拉取全程必须可见：2.5 GB 的传输一旦只写进日志文件，外部看到的就是
 # 数十分钟静默，无法区分「在慢慢下」与「已经挂死」（run 40839355885 与
@@ -138,6 +140,9 @@ readonly CL_PROBE_TOOL="${CLOSURE_PROBE_TOOL:-${CL_ROOT}/tools/mirror_probe.py}"
 readonly CL_PTIME="${CLOSURE_PROBE_TIME:-8}"
 # 包内 Provides 只能从包头读；查询器可注入，测试不必在宿主装 rpm。
 readonly CL_RPM="${CLOSURE_RPM:-rpm}"
+# 本仓自建包的名字空间。池只缓存上游字节，这些名字既不回填进池，也不让
+# 池里可能残留的旧构建参与求解（见 cl_pool_init 与 pc_absorb）。
+readonly CL_OWN="${CLOSURE_OWN:-airymaxos-*}"
 readonly -a CL_DNF_OPTS=(
     --setopt=strict=1
     --setopt=max_parallel_downloads=4
@@ -609,7 +614,7 @@ cl_try()
             if [ "$rc" -ne 0 ]; then
                 # 未完成也把已校验的包收进缓存池：下一轮只在池外补缺，
                 # 失败的次数不再等价于从零重来。
-                pc_absorb "$CL_POOL" "${work}/dl"
+                pc_absorb "$CL_POOL" "${work}/dl" "$CL_OWN"
             fi
             [ "$rc" -eq 0 ] && return 0
             if cl_fatal "${work}/dl" "$log" "$(( $(date +%s) - t0 ))"; then
@@ -649,6 +654,11 @@ cl_try()
 # 池本身作为 cost=1 的本地仓库参与同一次求解：EVRA 相同的包由本地提供，
 # 远端只需补齐差异，且最终下载目录 dl 里只有本轮事务的包——旧快照的包
 # 留在池里但不会进入载荷，NEVRA 混合的问题因此不因缓存而回归。
+#
+# 自建包是这条规则唯一的例外：池的 cost 比载荷仓库低，一旦池里有同名同
+# EVR 的旧构建，求解就会选它，而当轮源码反而进不了镜像（run 41792595223：
+# airymaxos-release 0.0.4-7 取自 airymax-pool）。因此池段带上 exclude，
+# 旧池里残留的自建包即使还在磁盘上也不参与求解。
 cl_pool_init()
 {
     local cfg="$1" n
@@ -665,7 +675,7 @@ cl_pool_init()
     {
         printf '[airymax-pool]\nname=airymax-pool\n'
         printf 'baseurl=file://%s\ncost=1\nenabled=1\ngpgcheck=0\n' "$CL_POOL"
-        printf 'metadata_expire=0\n'
+        printf 'exclude=%s\nmetadata_expire=0\n' "$CL_OWN"
     } >"$cfg"
     printf 'closure: 缓存池 %s 个 RPM 参与求解（%s）\n' "$n" "$CL_POOL"
     return 0
@@ -723,9 +733,13 @@ cl_lock_write()
 
 # 池与清单逐项吻合才允许离线重放。缺项或摘要不符说明池不完整或被人改过，
 # 重放解出的事务会与钉住的那次不同——回落在线的代价远小于带病镜像。
+#
+# 自建包（CL_OWN）的两处来源不同：清单里仍按当轮事务点名它们，字节却只
+# 取自载荷目录（--repofrompath 的 airymax-local），池里既没有也不该有。
+# 因此按 CL_OWN 分流核对：上游项查池并核摘要，自建项查载荷。
 cl_lock_load()
 {
-    local lock="$1" base nev i miss=0
+    local lock="$1" pkg="$2" base nev i miss=0
     [ -n "$CL_POOL" ] || return 1
     pc_read "$lock" || return 1
     CL_ARGS=()
@@ -733,6 +747,18 @@ cl_lock_load()
         base="${PC_BASE[$i]}"
         nev="${PC_NEV[$i]}"
         [ -n "$nev" ] || continue
+        # shellcheck disable=SC2254  # CL_OWN 是 glob，按 glob 匹配才是本意
+        case "$base" in
+        $CL_OWN)
+            if [ ! -f "${pkg}/${base}" ]; then
+                printf 'closure: 载荷缺 %s\n' "$base" >&2
+                miss=$((miss + 1))
+                continue
+            fi
+            CL_ARGS+=("$nev")
+            continue
+            ;;
+        esac
         if [ ! -f "${CL_POOL}/${base}" ]; then
             printf 'closure: 池缺 %s\n' "$base" >&2
             miss=$((miss + 1))
@@ -750,7 +776,8 @@ cl_lock_load()
 
 # 完全离线重放：reposdir 里只有池这一个 file:// 仓库，不取任何远端元数据。
 # 按 NEVRA 点名而不按组求解——组解析要读远端 comps，离线时它并不存在；
-# 关掉弱依赖补全，使事务与钉住的那一次一致。
+# 关掉弱依赖补全，使事务与钉住的那一次一致。自建包的字节来自载荷仓库
+# （--repofrompath），池段对 CL_OWN 设了 exclude，两者不会争同一份名字。
 cl_replay()
 {
     local arch="$1" pkg="$2" work="$3" log="$4"
@@ -765,7 +792,7 @@ cl_replay()
             CL_STAGE="清单尚未生成（${CL_LOCK}）"
             return 1
         fi
-        cl_lock_load "$CL_LOCK" || {
+        cl_lock_load "$CL_LOCK" "$pkg" || {
             CL_STAGE="清单与池不吻合"
             return 1
         }
@@ -925,7 +952,7 @@ closure_fetch()
     pc_stat "$CL_POOL" "${work}/dl"
     # 本轮完整下完的包也入池：下一轮（换版本、换架构、重跑）不必再走
     # 公网。放在审计之后，只有通过审计的事务才扩大池的可信集合。
-    pc_absorb "$CL_POOL" "${work}/dl"
+    pc_absorb "$CL_POOL" "${work}/dl" "$CL_OWN"
     # 清单只在显式要求时写。构建端默认不开：源码树里那份是人工 review 过
     # 的输入，每轮用当轮求解结果覆盖它，等于把「钉住」退化成「跟着漂」。
     # CI 把 CLOSURE_LOCK 指进可写的池目录时才会打开写，那一份随池缓存

@@ -263,20 +263,23 @@ case "$cfg" in
     printf 'dnf: 离线自引用仓库未剔除\\n' >&2; exit 8 ;;
 esac
 # 离线重放按 NEVRA 逐个点名，不按组求解：配方组与 baseos 仓库都不参与，
-# 载荷只来自 reposdir 里的 file:// 池。伪工具据此分流——规格里没有 @ 时
-# 按 NEVRA 在池内找同名包落进 dl，找不到即解析失败（真实 dnf 同语义）。
+# 载荷只来自 reposdir 里的 file:// 池与 --repofrompath 的载荷仓库。伪工具
+# 据此分流——规格里没有 @ 时按 NEVRA 在池内找同名包落进 dl，找不到再查
+# 载荷仓库（自建包只在那里），都没有即解析失败（真实 dnf 同语义）。
 case "$specs" in
 *@*) ;;
 *)
-    python3 - "$dl" "$repos" "$specs" <<'PY'
+    python3 - "$dl" "$repos" "$pkg" "$specs" <<'PY'
 import sys
 from pathlib import Path
 
-dl, repos, specs = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3].split()
+dl, repos, pkg = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])
+specs = sys.argv[4].split()
 dirs = [Path(line[len("baseurl=file://"):])
-        for cfg in repos.glob("*.repo")
+        for cfg in sorted(repos.glob("*.repo"))
         for line in cfg.read_text(encoding="utf-8").splitlines()
         if line.startswith("baseurl=file://")]
+dirs.append(pkg)
 for spec in specs:
     for base in dirs:
         hit = base / (spec + ".rpm")
