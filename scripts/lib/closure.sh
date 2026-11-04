@@ -16,6 +16,11 @@
 # 名 grub2，上游由 grub2-pc 这类架构相关包提供；EFI 包同样按架构区分，
 # 而 kickstart 无法表达架构条件，故在此按架构补齐。排除项同样照搬配方。
 #
+# 请求名未必是真实包名：openEuler 的 shim 提供 shim-x64，dnf 求解时已经把
+# 请求换成它。载荷核对因此按「文件名或包内 Provides」判定（cl_miss）；
+# 逐字比对文件名会把已满足的请求判成缺包（run 41792595223：事务里 shim
+# 已就位，构建却报「缺少引导包 shim-x64」）。
+#
 # 配方里的 @^环境 只对 anaconda 成立，dnf 命令行会把 ^ 当组名的一部分。
 # 因此收割前按 comps 的 environment/grouplist 展开为 @组（ks_spec.py
 # pkgs --comps），与环境安装读同一份定义。
@@ -131,6 +136,8 @@ readonly CL_MIRROR_LIST="${CL_ROOT}/repo/mirrors.list"
 readonly CL_PROBE="${CLOSURE_PROBE:-1}"
 readonly CL_PROBE_TOOL="${CLOSURE_PROBE_TOOL:-${CL_ROOT}/tools/mirror_probe.py}"
 readonly CL_PTIME="${CLOSURE_PROBE_TIME:-8}"
+# 包内 Provides 只能从包头读；查询器可注入，测试不必在宿主装 rpm。
+readonly CL_RPM="${CLOSURE_RPM:-rpm}"
 readonly -a CL_DNF_OPTS=(
     --setopt=strict=1
     --setopt=max_parallel_downloads=4
@@ -148,6 +155,7 @@ CL_EXCL=()
 CL_ARGS=()
 CL_XOPTS=()
 CL_BOOT=()
+CL_HAVE=()
 CL_NEW=0
 CL_MIRRORS=()
 CL_ROOTS=()
@@ -699,7 +707,7 @@ cl_lock_write()
     while IFS= read -r rpm; do
         base="$(basename "$rpm")"
         sum="$(sha256sum "$rpm" | cut -d' ' -f1)" || return 1
-        nev="$(rpm -qp --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}' \
+        nev="$("$CL_RPM" -qp --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}' \
             "$rpm" 2>/dev/null)" || return 1
         [ -n "$nev" ] || return 1
         printf '%s  %s  %s\n' "$sum" "$base" "$nev" >>"${lock}.tmp"
@@ -746,6 +754,9 @@ cl_lock_load()
 cl_replay()
 {
     local arch="$1" pkg="$2" work="$3" log="$4"
+    # 重放按清单 NEVRA 点名，不经 cl_args 构造事务；引导链仍要在此登记，
+    # 否则审计无从判断载荷能否满足装机阶段的引导请求。
+    cl_boot "$arch" || return 1
     if [ -n "$CL_LOCK" ]; then
         # 「清单还没生成」与「清单与池不吻合」是两件事：前者是首轮的正常
         # 状态，后者意味着池被改过或缺项。混成一句，日志就无法回答「为什么
@@ -796,17 +807,75 @@ cl_replay()
     }
 }
 
+# cl_index DIR —— 目录内 RPM 文件名进 CL_HAVE，供本节判定复用。
+cl_index()
+{
+    CL_HAVE=()
+    mapfile -t CL_HAVE < <(find "$1" -maxdepth 1 -type f -name '*.rpm' \
+        -printf '%f\n' 2>/dev/null | LC_ALL=C sort)
+    [ "${#CL_HAVE[@]}" -gt 0 ]
+}
+
+# cl_name NAME —— 文件名里有该包名（名称后紧跟 - 与数字，避免前缀误命中）。
+cl_name()
+{
+    local base
+    for base in "${CL_HAVE[@]}"; do
+        case "$base" in
+        "$1"-[0-9]*) return 0 ;;
+        esac
+    done
+    return 1
+}
+
+# cl_provs DIR —— 目录内全部 RPM 的 Provides 名（每行一个）。只读包头，
+# 一次调用覆盖整目录；调用方只在文件名判定落空时才付出这份成本。
+cl_provs()
+{
+    local dir="$1"
+    (cd "$dir" && "$CL_RPM" -qp --qf '[%{PROVIDENAME}\n]' ./*.rpm 2>/dev/null)
+}
+
+# cl_miss DIR NAME... —— 打印载荷不能满足的请求名（每行一个）。请求名可能
+# 是虚拟名，因此「文件名命中」与「被某个包的 Provides 命中」同等成立。
+cl_miss()
+{
+    local dir="$1" want prov=""
+    shift
+    cl_index "$dir" || {
+        printf '%s\n' "$@"
+        return 0
+    }
+    for want in "$@"; do
+        cl_name "$want" && continue
+        [ -n "$prov" ] || prov="$(cl_provs "$dir")"
+        case $'\n'"${prov}"$'\n' in
+        *$'\n'"${want}"$'\n'*) continue ;;
+        esac
+        printf '%s\n' "$want"
+    done
+    return 0
+}
+
 cl_audit()
 {
-    local dl="$1" pkg="$2" rpm base miss=0
+    local dl="$1" pkg="$2" rpm base lack=0
+    local -a want=()
     while IFS= read -r rpm; do
         base="$(basename "$rpm")"
         if [ ! -f "${pkg}/${base}" ]; then
-            [ "$miss" -gt 0 ] || printf 'closure: 载荷缺包 %s\n' "$base" >&2
-            miss=$((miss + 1))
+            [ "$lack" -gt 0 ] || printf 'closure: 载荷缺包 %s\n' "$base" >&2
+            lack=$((lack + 1))
         fi
     done < <(find "$dl" -maxdepth 1 -type f -name '*.rpm')
-    [ "$miss" -eq 0 ]
+    [ "$lack" -eq 0 ] || return 1
+    # 引导链是装机阶段才点的名，任何 %packages 里都看不到它；少一个也照样
+    # 能组装出 ISO，失败会推迟到装机现场的交互确认上（run 41792595223）。
+    mapfile -t want < <(cl_miss "$pkg" "${CL_BOOT[@]}")
+    if [ "${#want[@]}" -gt 0 ]; then
+        printf 'closure: 载荷无法满足引导请求 %s\n' "${want[*]}" >&2
+        return 1
+    fi
 }
 
 closure_fetch()
