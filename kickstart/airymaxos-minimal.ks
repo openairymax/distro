@@ -53,6 +53,7 @@ bootloader --timeout=3 --append="console=ttyS0,115200 console=tty0"
 # 钉住，两个剖面走同一条路径。
 %pre --erroronfail --log=/tmp/airymax-disk.log
 set -eu
+# %airy-embed: install-lib.sh
 # %airy-embed: disk-select.sh
 airy_pre /tmp/airymax-disk.ks /tmp/airymax-disk.json
 %end
@@ -113,125 +114,66 @@ airymaxos-system
 # 写失败即判负，不留「装完但无从核对」的状态。
 %post --nochroot --erroronfail --log=/mnt/sysroot/root/airymax-disk.log
 set -eu
+# %airy-embed: install-lib.sh
 # %airy-embed: disk-select.sh
 airy_keep
 %end
 
 %post --log=/root/airymax-post.log
 set -eu
-
-# --log 把本段输出重定向到目标系统文件，串口看不到任何内容；无头验收
-# （scripts/install-test.sh）读串口日志，故标记必须显式写 /dev/console。
-mark()
-{
-    local dev
-    printf '%s\n' "$*"
-    for dev in /dev/console /dev/ttyS0 /dev/ttyAMA0; do
-        [ -w "${dev}" ] || continue
-        if printf '%s\n' "$*" >"${dev}" 2>/dev/null; then
-            break
-        fi
-    done
-    return 0
-}
-
-trap 'rc=$?; [ "${rc}" -eq 0 ] || mark "AIRYMAX-INSTALL-FAIL rc=${rc}"' EXIT
-
-# 失败必须可判读（DR-4）：标记带 reason=<断言名>，安装判定据此直接归因。
-fail()
-{
-    trap - EXIT
-    mark "AIRYMAX-INSTALL-FAIL reason=$1"
-    exit 1
-}
-
-# 安装器的 chroot 内没有可用的 systemd 总线，单元文件类动词必须显式走
-# --root 离线语义；判定看落盘状态，不看命令退出码。
-set_default()
-{
-    local want="$1"
-
-    systemctl --root=/ set-default "${want}" ||
-        mark "AIRYMAX-INSTALL-NOTE set-default rc=$?"
-    [ "$(readlink -f /etc/systemd/system/default.target)" = \
-        "/usr/lib/systemd/system/${want}" ] || fail default-target
-}
-
-# 账户状态只读 /etc/shadow 的哈希字段：安装器写口令走 chpasswd -e，哈希原样
-# 落盘，锁定语义是前缀 !，禁用是 *。空口令与「账户不存在」在 $2 上都是空串，
-# awk 因此对存在的账户打印 @empty 哨兵，避免把免密账户误判为缺失。
-# 与 workstation 剖面共用同一判读方式：passwd -S 依赖 PAM 与本地化输出，
-# 在 chroot 内的判读条件不如直接读文件确定。
-acct_state()
-{
-    local pw
-
-    pw=$(awk -F: -v n="$1" \
-        '$1 == n { print ($2 == "" ? "@empty" : $2); exit }' /etc/shadow)
-    case "${pw}" in
-    '') printf 'missing' ;;
-    '@empty') printf 'empty' ;;
-    '!'*) printf 'locked' ;;
-    '*'*) printf 'nologin' ;;
-    '$6$'*) printf 'sha512' ;;
-    '$'*) printf 'hashed' ;;
-    *) printf 'plain' ;;
-    esac
-}
-
-# 断言与归因合一：失配时先打印状态分类（不含哈希），装机失败可直接判读。
-acct_req()
-{
-    local state
-
-    state=$(acct_state "$1")
-    [ "${state}" = "$2" ] && return 0
-    mark "AIRYMAX-INSTALL-DIAG acct=$1 state=${state} want=$2"
-    fail "$3"
-}
+# %airy-embed: install-lib.sh
+airy_trap INSTALL
 
 # sshd、chronyd、NetworkManager 与治理单元的启用由 boot_set.sh 唯一承担
 # （服务清单 SSoT，见上文「服务与防火墙」段）。
 # 发行版标识：上游 release 包被排除后，system-release 由本包唯一提供
-rpm -q airymaxos-release >/dev/null 2>&1 || fail release-pkg
+airy_step 1 7 release
+rpm -q airymaxos-release >/dev/null 2>&1 ||
+    airy_fail INSTALL release-pkg
 # system-release 缺失会让 anaconda 的 GRUB_DISTRIBUTOR 派生失败，grub-mkconfig
 # 在 set -e 下中止，装机结果不可引导；在装机段结束前显式判负。
-[ -r /etc/system-release ] || fail system-release
+[ -r /etc/system-release ] || airy_fail INSTALL system-release
 # 编排单元随镜像落盘（OS-OPS-010 的包级前提）
-rpm -q airymaxos-system >/dev/null 2>&1 || fail system-pkg
+airy_step 2 7 system
+rpm -q airymaxos-system >/dev/null 2>&1 ||
+    airy_fail INSTALL system-pkg
 # 布局判定入口（M-36）：缺它则装机后 / 与 /data 的布局无从取证
-test -x /usr/bin/airy-disk || fail airy-disk
+test -x /usr/bin/airy-disk || airy_fail INSTALL airy-disk
 # 重启后 / 与 /data 挂不挂得上只取决于 fstab（DISK-01 判据②）：按 /dev/sdX
 # 写的源在装机当场可用，扩容或插拔改号后 /data 开机即失挂，而系统照常
 # 起来。chroot 内的挂载点仍是 /mnt/sysroot/...，拓扑判定必然误杀，所以这
 # 里只判 fstab：源必须是 UUID/LABEL/PARTUUID，且 /data 不得 noauto。
+airy_step 3 7 disk
 persist=$(airy-disk persist 2>&1) || {
-    mark "AIRYMAX-DISK-DIAG persist=${persist}"
-    fail disk-fstab
+    airy_out "AIRYMAX-DISK-DIAG persist=${persist}"
+    airy_fail INSTALL disk-fstab
 }
-mark "AIRYMAX-DISK-OK ${persist}"
+airy_out "AIRYMAX-DISK-OK ${persist}"
 
 # 账户自检：没有可登录账户的安装介质不具备「OS 能运行」的前提
 # root 交付为固定口令（sha512 哈希），amuser 交付为空口令（empty）。
-passwd -d amuser || fail airymax-unlock
+airy_step 4 7 accounts
+passwd -d amuser || airy_fail INSTALL airymax-unlock
 acct_req root sha512 root-account
 acct_req amuser empty airymax-account
 
+airy_step 5 7 target
 set_default multi-user.target
 
 # 启用边界：清单与动作都由 airymaxos-system 提供（boot_set.sh --root 离线
 # 语义）。本段跑在目标根里，systemd 总线不可用，故不看命令行退出码，脚本
 # 内按 is-enabled 回读判据；每项一行打到串口，缺项即可归因。
+airy_step 6 7 boot-set
 boot_tool=/usr/lib/airymaxos/scripts/boot_set.sh
-[ -x "${boot_tool}" ] || fail boot-set-tool
+[ -x "${boot_tool}" ] || airy_fail INSTALL boot-set-tool
 systemctl --root=/ preset-all >/dev/null 2>&1 ||
-    mark "AIRYMAX-INSTALL-NOTE preset-all rc=$?"
+    airy_out "AIRYMAX-INSTALL-NOTE preset-all rc=$?"
 boot_rc=0
 "${boot_tool}" --root=/ >/tmp/airymax-boot-set.log 2>&1 || boot_rc=$?
 while IFS= read -r line; do
-    mark "AIRYMAX-BOOT-SET ${line}"
+    airy_out "AIRYMAX-BOOT-SET ${line}"
 done </tmp/airymax-boot-set.log
-[ "${boot_rc}" -eq 0 ] || fail boot-set-enable
+[ "${boot_rc}" -eq 0 ] || airy_fail INSTALL boot-set-enable
 
 # 引导参数不能只留在 bootloader --append 里（D-30）：那一行只进安装器本次
 # 生成的 grub.cfg，/etc/default/grub 仍是空的。此后任何一次 grub2-mkconfig
@@ -240,16 +182,17 @@ done </tmp/airymax-boot-set.log
 #
 # 本剖面没有图形启动，--append 传空串：只收敛控制台集合与菜单范围，不给
 # 系统加 rhgb quiet——那会把最小系统唯一可用的串口日志藏进 splash。
+airy_step 7 7 grub
 grub_args=/usr/lib/airymaxos/boot/grub_args.sh
-[ -x "${grub_args}" ] || fail grub-args-tool
+[ -x "${grub_args}" ] || airy_fail INSTALL grub-args-tool
 grub_rc=0
 "${grub_args}" --append '' >/tmp/airymax-grub.log 2>&1 || grub_rc=$?
 while IFS= read -r line; do
-    mark "AIRYMAX-GRUB ${line}"
+    airy_out "AIRYMAX-GRUB ${line}"
 done </tmp/airymax-grub.log
-[ "${grub_rc}" -eq 0 ] || fail grub-args
+[ "${grub_rc}" -eq 0 ] || airy_fail INSTALL grub-args
 
-mark "AirymaxOS minimal install complete (baseline $(date -u +%Y%m%d))"
+airy_out "AirymaxOS minimal install complete (baseline $(date -u +%Y%m%d))"
 %end
 
 reboot

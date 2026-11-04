@@ -5,9 +5,10 @@
 #
 # 安装期的选盘规则必须同时出现在 %pre（生成分区片段）与 %post（落盘选盘
 # 记录）里。installer 运行时没有可信的仓库挂载可以 source，复制两份又会让
-# 规则在两处漂移；唯一稳的做法是构建期嵌入：源配方只写一行
+# 规则在两处漂移；唯一稳的做法是构建期嵌入：源配方只写
 # 「# %airy-embed: disk-select.sh」，本工具把它换成脚本正文，写出的配方
-# 仍然是一份自足的 kickstart。
+# 仍然是一份自足的 kickstart。选盘器依赖 install-lib.sh 的 airy_out 与
+# airy_fail，同一脚本段里必须按 lib 在前、选盘器在后的顺序各展开一次。
 #
 # anaconda 只认字面指令，嵌入必须发生在脚本段内部；标记落在段外说明写错
 # 了位置，anaconda 会把它当注释静默忽略，识别行为要到装机现场才暴露，
@@ -31,7 +32,8 @@ from pathlib import Path
 EINVAL = 5
 MARK = "# %airy-embed: "
 SCRIPTS = frozenset({"pre", "post", "onerror", "traceback"})
-SHARED = frozenset({"disk-select.sh"})
+SHARED = frozenset({"install-lib.sh", "disk-select.sh"})
+PRELUDE = "install-lib.sh"
 
 
 class EmbedError(ValueError):
@@ -114,14 +116,21 @@ def audit(text: str) -> list[tuple[int, str]]:
                 if row.strip().startswith("%include ")
                 and len(row.split(None, 1)) > 1]
     for kind, first, last in segments(lines):
+        marks = [(num + 1, lines[num].strip()[len(MARK):].strip())
+                 for num in range(first, last)
+                 if lines[num].strip().startswith(MARK)]
+        names = [name for _, name in marks]
+        if "disk-select.sh" in names:
+            at = names.index("disk-select.sh")
+            if PRELUDE not in names[:at]:
+                issues.append((marks[at][0], f"%{kind} 段展开 disk-select.sh "
+                               "但此前未展开 install-lib.sh"))
         if kind != "pre":
             continue
         joined = "\n".join(lines[first:last])
         if not any(path in joined for path in includes):
             continue
-        marked = any(lines[num].strip() == MARK + name
-                     for num in range(first, last) for name in SHARED)
-        if not marked:
+        if "disk-select.sh" not in names:
             issues.append((first + 1, "%pre 生成存储片段但未嵌入选盘器"))
     return sorted(issues)
 

@@ -81,6 +81,7 @@ bootloader --timeout=3 --append="console=ttyS0,115200 console=tty0 rhgb quiet"
 # 分区（/data）各自独立挂载，%post 与布局语义不变。
 %pre --erroronfail --log=/tmp/airymax-disk.log
 set -eu
+# %airy-embed: install-lib.sh
 # %airy-embed: disk-select.sh
 airy_pre /tmp/airymax-disk.ks /tmp/airymax-disk.json
 %end
@@ -173,6 +174,7 @@ plymouth
 # 失败」分码，BIOS 装机因此不会被误伤。
 %post --nochroot --erroronfail --log=/mnt/sysroot/root/airymax-efi.log
 set -eu
+# %airy-embed: install-lib.sh
 # %airy-embed: disk-select.sh
 # 目标根的挂载点是安装器的实现细节（anaconda 各版本在 /mnt/sysroot 与
 # /mnt/sysimage 之间变化），按可执行文件实际位置判定，不猜环境变量。
@@ -184,7 +186,7 @@ for c in "${ANA_INSTALL_PATH-}" "${INSTALL_ROOT-}" /mnt/sysroot /mnt/sysimage; d
 done
 
 [ -n "${root}" ] || {
-    airy_mark "AIRYMAX-EFI-FAIL no-install-root"
+    airy_out "AIRYMAX-EFI-FAIL no-install-root"
     exit 1
 }
 
@@ -201,7 +203,7 @@ uefi=0
 if [ -d /sys/firmware/efi ]; then
     uefi=1
 else
-    airy_mark "AIRYMAX-EFI-SKIP non-EFI install"
+    airy_out "AIRYMAX-EFI-SKIP non-EFI install"
 fi
 
 # 段内挂载的目录在退出时全部还回去；rbind 把宿主的 /dev /proc /sys 视图
@@ -239,7 +241,7 @@ for d in /dev /proc /sys; do
 done
 
 [ "${uefi}" -eq 0 ] || mountpoint -q "${esp}" || {
-    airy_mark "AIRYMAX-EFI-FAIL esp=${esp}"
+    airy_out "AIRYMAX-EFI-FAIL esp=${esp}"
     exit 1
 }
 
@@ -257,25 +259,24 @@ step()
 
     log="${root}${logdir}/${name}.log"
     if [ ! -x "${root}${script}" ]; then
-        airy_mark "AIRYMAX-${tag}-FAIL missing ${script}"
-        exit 1
+        airy_fail "${tag}" missing-script "script=${script}"
     fi
     chroot "${root}" "${script}" --esp /boot/efi \
         --state "/var/lib/airymaxos/${name}" >"${log}" 2>&1 || rc=$?
     while IFS= read -r line; do
-        airy_mark "${line}"
+        airy_out "${line}"
     done <"${log}"
     if [ "${rc}" -ne 0 ]; then
-        airy_mark "AIRYMAX-${tag}-FAIL rc=${rc} log=${logdir}/${name}.log"
-        exit 1
+        airy_fail "${tag}" script-rc \
+            "rc=${rc} log=${logdir}/${name}.log"
     fi
     # 退出码 0 不足以证明落地：脚本在「已经是目标状态」时也返回 0，状态
     # 文件是唯一事实，缺它即视为未完成。
     [ -s "${root}/var/lib/airymaxos/${name}" ] || {
-        airy_mark "AIRYMAX-${tag}-FAIL state-absent log=${logdir}/${name}.log"
-        exit 1
+        airy_fail "${tag}" state-absent \
+            "log=${logdir}/${name}.log"
     }
-    airy_mark "AIRYMAX-${tag}-OK"
+    airy_out "AIRYMAX-${tag}-OK"
 }
 
 step /usr/lib/airymaxos/boot/grub_args.sh grub-args GRUB
@@ -284,127 +285,59 @@ step /usr/lib/airymaxos/boot/grub_args.sh grub-args GRUB
 
 %post --log=/root/airymax-post.log
 set -eu
-
-# anaconda 把 --log 指定的文件作为本段的标准输出，脚本输出不会经过串口；
-# 无头验收（scripts/install-test.sh）只读串口日志，因此完成与失败标记必须
-# 显式写 /dev/console。内核按 console= 的注册顺序把 /dev/console 路由到
-# 最后一个可用控制台：x86_64 为 ttyS0，aarch64 为 ttyAMA0。
-mark()
-{
-    local dev
-    printf '%s\n' "$*"
-    for dev in /dev/console /dev/ttyS0 /dev/ttyAMA0; do
-        [ -w "${dev}" ] || continue
-        if printf '%s\n' "$*" >"${dev}" 2>/dev/null; then
-            break
-        fi
-    done
-    return 0
-}
-
-# 本段任一断言失败时补发失败标记，装机的失败判定不必等到超时。
-trap 'rc=$?; [ "${rc}" -eq 0 ] || mark "AIRYMAX-INSTALL-FAIL rc=${rc}"' EXIT
-
-# 失败必须可判读（DR-4）：标记带 reason=<断言名>，安装判定据此直接归因，
-# 不必靠复现去猜是哪一条断言。
-fail()
-{
-    trap - EXIT
-    mark "AIRYMAX-INSTALL-FAIL reason=$1"
-    exit 1
-}
-
-# 安装器的 chroot 内没有可用的 systemd 总线，单元文件类动词必须显式走
-# --root 离线语义。判定不看命令退出码，而看落盘状态：不同 systemd 版本在
-# chroot 内对 set-default 的退出码语义不一致，default.target 符号链接才是
-# 唯一事实。
-set_default()
-{
-    local want="$1"
-
-    systemctl --root=/ set-default "${want}" ||
-        mark "AIRYMAX-INSTALL-NOTE set-default rc=$?"
-    [ "$(readlink -f /etc/systemd/system/default.target)" = \
-        "/usr/lib/systemd/system/${want}" ] || fail default-target
-}
-
-# 账户状态只读 /etc/shadow 的哈希字段：安装器写口令走 chpasswd -e，哈希
-# 原样落盘，锁定语义是前缀 !，禁用是 *。空口令与「账户不存在」在 $2 上都是
-# 空串，awk 因此对存在的账户打印 @empty 哨兵，避免把免密账户误判为缺失。
-# passwd -S 依赖 PAM 与本地化输出，在 chroot 内的判读条件不如直接读文件确定。
-acct_state()
-{
-    local pw
-
-    pw=$(awk -F: -v n="$1" \
-        '$1 == n { print ($2 == "" ? "@empty" : $2); exit }' /etc/shadow)
-    case "${pw}" in
-    '') printf 'missing' ;;
-    '@empty') printf 'empty' ;;
-    '!'*) printf 'locked' ;;
-    '*'*) printf 'nologin' ;;
-    '$6$'*) printf 'sha512' ;;
-    '$'*) printf 'hashed' ;;
-    *) printf 'plain' ;;
-    esac
-}
-
-# 断言与归因合一：失配时先打印状态分类（不含哈希），装机失败可直接判读。
-acct_req()
-{
-    local state
-
-    state=$(acct_state "$1")
-    [ "${state}" = "$2" ] && return 0
-    mark "AIRYMAX-INSTALL-DIAG acct=$1 state=${state} want=$2"
-    fail "$3"
-}
+# %airy-embed: install-lib.sh
+airy_trap INSTALL
 
 # 1) 桌面隔离与 UKUI 策略由 airymaxos-release 包 %post 完成
 #    （airymax-desktop.slice + 70-airymax-ukui-policy.sh，幂等）
-rpm -q airymaxos-release >/dev/null 2>&1 || fail release-pkg
+airy_step 1 9 release
+rpm -q airymaxos-release >/dev/null 2>&1 || airy_fail INSTALL release-pkg
 #    system-release 是引导配置生成的输入（anaconda 由它派生
 #    GRUB_DISTRIBUTOR，grub-mkconfig 在 set -e 下 source 该文件），缺失即
 #    不可引导，必须在装机段结束前暴露。
-[ -r /etc/system-release ] || fail system-release
+[ -r /etc/system-release ] || airy_fail INSTALL system-release
 
 # 2) 系统编排单元必须随镜像落盘（OS-OPS-010 的包级前提）
-rpm -q airymaxos-system >/dev/null 2>&1 || fail system-pkg
+airy_step 2 9 system
+rpm -q airymaxos-system >/dev/null 2>&1 || airy_fail INSTALL system-pkg
 #    布局判定入口（M-36）：包在盘上不等于命令可用，两个剖面同一判据
-test -x /usr/bin/airy-disk || fail airy-disk
+test -x /usr/bin/airy-disk || airy_fail INSTALL airy-disk
 # 重启后 / 与 /data 挂不挂得上只取决于 fstab（DISK-01 判据②）：按 /dev/sdX
 # 写的源在装机当场可用，扩容或插拔改号后 /data 开机即失挂，而系统照常
 # 起来。chroot 内的挂载点仍是 /mnt/sysroot/...，拓扑判定必然误杀，所以这
 # 里只判 fstab：源必须是 UUID/LABEL/PARTUUID，且 /data 不得 noauto。
 persist=$(airy-disk persist 2>&1) || {
-    mark "AIRYMAX-DISK-DIAG persist=${persist}"
-    fail disk-fstab
+    airy_out "AIRYMAX-DISK-DIAG persist=${persist}"
+    airy_fail INSTALL disk-fstab
 }
-mark "AIRYMAX-DISK-OK ${persist}"
+airy_out "AIRYMAX-DISK-OK ${persist}"
 
 # 3) 账户自检：没有可登录账户的安装介质不具备「OS 能运行」的前提
 #    root 交付为固定口令（sha512 哈希），amuser 交付为空口令（empty）。
 #    空口令只能完成登录，不能作为 sudo 的交互凭据，因此同一步还要确认
 #    airymaxos-release 的 NOPASSWD 策略确实落盘：策略缺失时装机后没有
 #    任何提权路径，而这一点在图形界面上看不出来。
-passwd -d amuser || fail airymax-unlock
+airy_step 3 9 accounts
+passwd -d amuser || airy_fail INSTALL airymax-unlock
 acct_req root sha512 root-account
 acct_req amuser empty airymax-account
 sudoers=/etc/sudoers.d/90-airymax
-[ -f "${sudoers}" ] || fail sudo-policy-missing
-[ "$(stat -c %a "${sudoers}")" = 440 ] || fail sudo-policy-mode
-grep -qxF 'amuser ALL=(ALL) NOPASSWD: ALL' "${sudoers}" || fail sudo-policy-line
+[ -f "${sudoers}" ] || airy_fail INSTALL sudo-policy-missing
+[ "$(stat -c %a "${sudoers}")" = 440 ] || airy_fail INSTALL sudo-policy-mode
+grep -qxF 'amuser ALL=(ALL) NOPASSWD: ALL' "${sudoers}" ||
+    airy_fail INSTALL sudo-policy-line
 #    greeter 与锁屏的 PAM 栈第一条都是
 #    pam_succeed_if.so user ingroup nopasswdlogin：账户不在该组时两者都会继续
 #    走到 pam_unix 并弹出对话框。组由基础发行版预置，这里只补成员。
 groupadd -f nopasswdlogin 2>/dev/null || :
-usermod -aG nopasswdlogin amuser || fail airymax-group
+usermod -aG nopasswdlogin amuser || airy_fail INSTALL airymax-group
 id -nG amuser | tr ' ' '\n' | grep -qxF nopasswdlogin ||
-    fail airymax-group
+    airy_fail INSTALL airymax-group
 #    空口令账户配空闲锁屏只会制造口令框：锁屏策略必须与免密登录同口径落盘。
 saver=/etc/dconf/db/local.d/00-airymax-screensaver
-[ -f "${saver}" ] || fail screensaver-policy-missing
-grep -qxF 'lock-enabled=false' "${saver}" || fail screensaver-lock-off
+[ -f "${saver}" ] || airy_fail INSTALL screensaver-policy-missing
+grep -qxF 'lock-enabled=false' "${saver}" ||
+    airy_fail INSTALL screensaver-lock-off
 #    策略文件在盘上不等于策略生效：系统库只有被 /etc/dconf/profile/user 的
 #    system-db:local 引用、并由 dconf update 编译进 /etc/dconf/db/local 才
 #    会进入每个会话。0.0.3 只交付了 local.d 源文件，profile 与编译产物都
@@ -415,13 +348,16 @@ profile=/etc/dconf/profile/user
 mkdir -p /etc/dconf/profile
 if [ ! -f "${profile}" ]; then
     printf 'user-db:user\nsystem-db:local\n' >"${profile}" ||
-        fail screensaver-profile-write
+        airy_fail INSTALL screensaver-profile-write
 elif ! grep -qxF 'system-db:local' "${profile}"; then
-    printf 'system-db:local\n' >>"${profile}" || fail screensaver-profile-write
+    printf 'system-db:local\n' >>"${profile}" ||
+        airy_fail INSTALL screensaver-profile-write
 fi
-grep -qxF 'system-db:local' "${profile}" || fail screensaver-profile-value
-dconf update >/dev/null 2>&1 || fail screensaver-dconf-update
-grep -qa 'lock-enabled' /etc/dconf/db/local || fail screensaver-db-compiled
+grep -qxF 'system-db:local' "${profile}" ||
+    airy_fail INSTALL screensaver-profile-value
+dconf update >/dev/null 2>&1 || airy_fail INSTALL screensaver-dconf-update
+grep -qa 'lock-enabled' /etc/dconf/db/local ||
+    airy_fail INSTALL screensaver-db-compiled
 
 #    锁屏解锁失败的第二条根因：ukui-screensaver-checkpass 为 0755 root:root
 #    时，PAM 的 account 阶段读不了 /etc/shadow，日志为
@@ -432,9 +368,9 @@ checkpass=$(command -v ukui-screensaver-checkpass 2>/dev/null || true)
 [ -n "${checkpass}" ] ||
     checkpass=/usr/lib/ukui-screensaver/ukui-screensaver-checkpass
 if [ -x "${checkpass}" ]; then
-    chmod 4755 "${checkpass}" || fail screensaver-checkpass-mode
+    chmod 4755 "${checkpass}" || airy_fail INSTALL screensaver-checkpass-mode
     [ "$(stat -c %a "${checkpass}")" = 4755 ] ||
-        fail screensaver-checkpass-mode
+        airy_fail INSTALL screensaver-checkpass-mode
 fi
 for pam in /etc/pam.d/ukui-screensaver /etc/pam.d/ukui-screensaver-qt; do
     [ -f "${pam}" ] || continue
@@ -442,25 +378,28 @@ for pam in /etc/pam.d/ukui-screensaver /etc/pam.d/ukui-screensaver-qt; do
     printf 'auth\tsufficient\tpam_succeed_if.so user ingroup nopasswdlogin\n' \
         >"${pam}.airy-new"
     cat "${pam}" >>"${pam}.airy-new" && mv "${pam}.airy-new" "${pam}" ||
-        fail screensaver-pam-write
+        airy_fail INSTALL screensaver-pam-write
     grep -q 'pam_succeed_if.so user ingroup nopasswdlogin' "${pam}" ||
-        fail screensaver-pam-value
+        airy_fail INSTALL screensaver-pam-value
 done
 #    启动日志默认只活在本次启动：openEuler 不预建 /var/log/journal，而
 #    Storage=auto 在目录缺失时退化为 volatile，重启后「上一次启动到底做到
 #    哪一步」再无证据可查。断言生效行而非文件存在，取值写错同样要拦下。
 jconf=/etc/systemd/journald.conf.d/50-airymax-journald.conf
-[ -f "${jconf}" ] || fail journald-persist-missing
-grep -qxF 'Storage=persistent' "${jconf}" || fail journald-persist-value
+[ -f "${jconf}" ] || airy_fail INSTALL journald-persist-missing
+grep -qxF 'Storage=persistent' "${jconf}" ||
+    airy_fail INSTALL journald-persist-value
 
 # 4) 图形目标为默认（UKUI 会话经 lightdm 拉起）
+airy_step 4 9 target
 set_default graphical.target
 #    座位策略必须随包落盘：lightdm 在 conf.d 缺全部文件时仍会启动，只是退
 #    回「列出用户 + 要口令」的默认行为，从服务状态上看不出差别，所以这里
 #    按文件内容断言，而不是只认 lightdm.service 起没起。
 seat=/etc/lightdm/lightdm.conf.d/50-airymax.conf
-[ -f "${seat}" ] || fail lightdm-seat-missing
-grep -qxF 'autologin-user=amuser' "${seat}" || fail lightdm-autologin
+[ -f "${seat}" ] || airy_fail INSTALL lightdm-seat-missing
+grep -qxF 'autologin-user=amuser' "${seat}" ||
+    airy_fail INSTALL lightdm-autologin
 
 # 5) 启用边界由本段确定性收口。presets/ 是默认关闭策略：自有单元显式
 #    disable，99-airymax-default-disable.preset 以 `disable *` 兜底，避免
@@ -473,28 +412,31 @@ grep -qxF 'autologin-user=amuser' "${seat}" || fail lightdm-autologin
 #    装机段不再另写清单与循环——两处各写一份时，新增一项治理只在其中一处
 #    落地是必然发生的漂移，症状是某台机器治理静默缺席，从任何服务状态都
 #    看不出来。每项为何收录见 boot-set 的头注释。
+airy_step 5 9 units
 boot_tool=/usr/lib/airymaxos/scripts/boot_set.sh
-[ -x "${boot_tool}" ] || fail boot-set-tool
+[ -x "${boot_tool}" ] || airy_fail INSTALL boot-set-tool
 systemctl --root=/ preset-all >/dev/null 2>&1 ||
-    mark "AIRYMAX-INSTALL-NOTE preset-all rc=$?"
+    airy_out "AIRYMAX-INSTALL-NOTE preset-all rc=$?"
 boot_rc=0
 "${boot_tool}" --root=/ >/tmp/airymax-boot-set.log 2>&1 || boot_rc=$?
 while IFS= read -r line; do
-    mark "AIRYMAX-BOOT-SET ${line}"
+    airy_out "AIRYMAX-BOOT-SET ${line}"
 done </tmp/airymax-boot-set.log
-[ "${boot_rc}" -eq 0 ] || fail boot-set-enable
+[ "${boot_rc}" -eq 0 ] || airy_fail INSTALL boot-set-enable
 
 # 6) EFI 品牌化已在上面 %post --nochroot 段完成：anaconda 用
 #    GRUB_DISTRIBUTOR 命名 NVRAM 条目，装机后菜单与 BootOrder 都是
 #    openEuler，故由 efi_brand.sh 新建 AirymaxOS 条目并置顶。该脚本不进
 #    boot_set：它写 ESP 与 NVRAM，chroot 内不可见，首启又会被 SELinux
 #    拦下，装机段是唯一可行时机。
+airy_step 6 9 brand
 
 # 7) agentrt.target 的启用推迟到 daemon 二进制交付版本：
 #    该 target 强依赖 12 个 /usr/sbin/*_d，0.0.3 尚未打包，提前 enable
 #    会让每次冷启动进入 degraded，违背「OS 能正常运行」验收口径。
 #    启用项与 airymaxos-services 同版本落地，届时在 boot_set 中补
 #    agentrt.target（OS-OPS-010）。
+airy_step 7 9 agent
 
 # 8) 引导菜单分辨率（真机缺陷 D-07）。openEuler 用预编译的 grubx64.efi，
 #    装机不把 unicode.pf2 放进 ESP；00_header 生成的 gfxmode 段落以
@@ -510,9 +452,10 @@ done </tmp/airymax-boot-set.log
 #    0.0.3 装机曾按 /boot/grub2 是否存在再 glob EFI/* 取名，字体与重建都
 #    落进从未被加载的品牌副本，而 grubx64.efi 内嵌 prefix 指向别的目录，
 #    串口与 cfg 断言全绿、屏幕仍是 800x600（D-31）。
+airy_step 8 9 grub
 grub_args=/var/lib/airymaxos/grub-args
 grub_cfg=$(awk -F= '$1 == "cfg" { print substr($0, 5); exit }' "${grub_args}")
-[ -s "${grub_cfg}" ] || fail grub-cfg-missing
+[ -s "${grub_cfg}" ] || airy_fail INSTALL grub-cfg-missing
 grub_dir=${grub_cfg%/*}
 
 # 分辨率只做引导期一次选择：1.x 无 KMS，运行期改不了模式，因此把候选
@@ -546,30 +489,34 @@ printf 'GRUB_TERMINAL="console serial gfxterm"\n' >>/etc/default/grub
 # gfxterm 初始化失败、GOP 模式不会切换，屏幕仍停在固件默认；但它不至于让
 # 装机失败（X 侧还有 fbdev 兜底），故只 note。
 [ -f "${grub_dir}/fonts/unicode.pf2" ] ||
-    mark "AIRYMAX-INSTALL-NOTE grub-font-absent"
+    airy_out "AIRYMAX-INSTALL-NOTE grub-font-absent"
 
 # 01_airymax_display 排在 00_header 之后，负责无条件请求 gfxmode 与 gfxterm，
 # 不依赖 00_header 里那个 loadfont 判定——那段判定在字体缺失时会静默跳过。
-[ -x /etc/grub.d/01_airymax_display ] || fail grub-display-fragment
+[ -x /etc/grub.d/01_airymax_display ] ||
+    airy_fail INSTALL grub-display-fragment
 
 # chroot 内 os-prober 可能因缺 /dev 而告警；菜单本身由 10_linux 生成，
 # 因此 grub2-mkconfig 的非零退出只记录，判定交给下面的事实断言。
 grub2-mkconfig -o "${grub_cfg}" >/dev/null 2>&1 ||
-    mark "AIRYMAX-INSTALL-NOTE grub2-mkconfig rc=$?"
+    airy_out "AIRYMAX-INSTALL-NOTE grub2-mkconfig rc=$?"
 # 断言我们那段确实进了 cfg，而不是「cfg 里存在某条 gfxmode」：后者可能
 # 只是 00_header 的条件分支，缺字体时整段消失，旧断言于是假绿。
 grep -qxF '  set gfxmode=2880x1800,2560x1600,2240x1400,1920x1200,1920x1080,1680x1050,1600x900,1280x1024,1024x768,auto' \
-    "${grub_cfg}" || fail grub-gfxmode
+    "${grub_cfg}" || airy_fail INSTALL grub-gfxmode
 # gfxpayload 与 gfxmode 必须成对生效：只有前者正确时 fb0 才是所选模式。
-grep -qxF '  set gfxpayload=keep' "${grub_cfg}" || fail grub-gfxpayload
-grep -qF '  terminal_output gfxterm' "${grub_cfg}" || fail grub-gfxterm
+grep -qxF '  set gfxpayload=keep' "${grub_cfg}" ||
+    airy_fail INSTALL grub-gfxpayload
+grep -qF '  terminal_output gfxterm' "${grub_cfg}" ||
+    airy_fail INSTALL grub-gfxterm
 
 # 9) 主机名：安装器已按 network --hostname 落盘，这里只做读回校验。0.0.4
 #    的产品名是合法 RFC 1123 标签，不存在被改写的路径；静态名与运行期名
 #    的一致性由冒烟 T8 在真实系统上判定。
-[ "$(cat /etc/hostname)" = airymax-pc ] || fail hostname-value
+airy_step 9 9 hostname
+[ "$(cat /etc/hostname)" = airymax-pc ] || airy_fail INSTALL hostname-value
 
-mark "AirymaxOS workstation install complete (baseline $(date -u +%Y%m%d))"
+airy_out "AirymaxOS workstation install complete (baseline $(date -u +%Y%m%d))"
 %end
 
 # ---- 收尾 ----

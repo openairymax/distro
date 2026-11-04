@@ -154,6 +154,7 @@ class KsLintTest(unittest.TestCase):
             "autopart --type=plain --fstype=ext4\n",
             "%pre --erroronfail --log=/tmp/disk.log\n"
             "set -eu\n"
+            "# %airy-embed: install-lib.sh\n"
             "# %airy-embed: disk-select.sh\n"
             "airy_pre /tmp/disk.ks /tmp/disk.json\n"
             "%end\n"
@@ -169,6 +170,9 @@ class KsLintTest(unittest.TestCase):
             (base / "disk-select.sh").write_text(
                 src.read_text(encoding="utf-8").replace("biosboot", "filler"),
                 encoding="utf-8")
+            (base / "install-lib.sh").write_text(
+                (ks_lint.SHARED_DIR / "install-lib.sh").read_text(
+                    encoding="utf-8"), encoding="utf-8")
             codes = [item.code for item in
                      ks_lint.lint_text(self.embed_pose(), base)]
         self.assertIn("K018", codes)
@@ -181,6 +185,9 @@ class KsLintTest(unittest.TestCase):
                 src.read_text(encoding="utf-8").replace("part /data ",
                                                        "part /home "),
                 encoding="utf-8")
+            (base / "install-lib.sh").write_text(
+                (ks_lint.SHARED_DIR / "install-lib.sh").read_text(
+                    encoding="utf-8"), encoding="utf-8")
             codes = [item.code for item in
                      ks_lint.lint_text(self.embed_pose(), base)]
         self.assertIn("K020", codes)

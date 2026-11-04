@@ -26,6 +26,9 @@
 #   airy_pre  <ks-out> <record>   选盘，生成分区片段与选盘记录（%pre）
 #   airy_keep                     把选盘记录落到目标根（%post --nochroot）
 #
+# 依赖：airy_out 与 airy_fail 由 install-lib.sh 提供，本文件必须由同一
+# 脚本段先展开 install-lib.sh，否则调用点落到未定义函数。
+#
 # 现场排障与测试用的注入点：
 #   AIRY_FW          固件根目录（默认 /sys/firmware）
 #   AIRY_MEDIUM_SRC  安装介质挂载点（默认 /run/install/repo）
@@ -35,31 +38,6 @@
 #   AIRY_ROOT_MIB    同盘切分时系统分区期望容量，默认 20480 MiB
 #   AIRY_DATA_MIB    同盘切分时数据分区保底容量，默认 10240 MiB
 # ===========================================================================
-
-# airy_mark <text> — 同时写标准输出与可用控制台。
-#
-# anaconda 把脚本段的标准输出收进 --log，串口上一片空白；无头验收只读串口，
-# 因此关键结论必须显式写 /dev/console。内核按 console= 的注册顺序把
-# /dev/console 路由到最后一个可用控制台：x86_64 为 ttyS0，aarch64 为 ttyAMA0。
-airy_mark()
-{
-    local dev
-
-    printf '%s\n' "$*"
-    for dev in /dev/console /dev/ttyS0 /dev/ttyAMA0; do
-        if [ -w "${dev}" ] && printf '%s\n' "$*" >"${dev}" 2>/dev/null; then
-            return 0
-        fi
-    done
-    return 0
-}
-
-# airy_fail <reason> [note] — 置失败标记并终止所在脚本段。
-airy_fail()
-{
-    airy_mark "AIRYMAX-DISK-FAIL reason=$1${2:+ note=$2}"
-    exit 1
-}
 
 # airy_fw — 打印 uefi 或 bios。
 airy_fw()
@@ -318,7 +296,7 @@ airy_pre()
     fw=$(airy_fw)
     medium=$(airy_medium)
     pick=$(airy_pick "${medium}")
-    [ -n "${pick}" ] || airy_fail no-internal-disk
+    [ -n "${pick}" ] || airy_fail DISK no-internal-disk
 
     disk=${pick%% *}
     pick=${pick#* }
@@ -327,7 +305,7 @@ airy_pre()
     disk=${disk#/dev/}
 
     [ "${size}" -ge "${AIRY_MIN_BYTES:-34359738368}" ] ||
-        airy_fail too-small "bytes=${size}"
+        airy_fail DISK too-small "bytes=${size}"
     data=$(airy_data "${medium}" "${disk}")
     kind=single
     if [ -n "${data}" ]; then
@@ -338,7 +316,7 @@ airy_pre()
     airy_rec "${rec}" "${disk}" "${size}" "${bus}" "${fw}" "${kind}" \
         "${medium}" "${data}"
     line="AIRYMAX-DISK-OK disk=${disk} bytes=${size}"
-    airy_mark "${line} bus=${bus} layout=${kind} fw=${fw} data=${data:--}"
+    airy_out "${line} bus=${bus} layout=${kind} fw=${fw} data=${data:--}"
 }
 
 # airy_keep — 把选盘记录复制进目标根。
@@ -358,18 +336,18 @@ airy_keep()
         root=
     done
     if [ -z "${root}" ]; then
-        airy_mark "AIRYMAX-DISK-KEEP-FAIL reason=no-install-root"
+        airy_out "AIRYMAX-DISK-KEEP-FAIL reason=no-install-root"
         return 1
     fi
     if [ ! -s "${src}" ] || ! grep -q '"schema":1' "${src}"; then
-        airy_mark "AIRYMAX-DISK-KEEP-FAIL reason=bad-record src=${src}"
+        airy_out "AIRYMAX-DISK-KEEP-FAIL reason=bad-record src=${src}"
         return 1
     fi
     if ! install -D -m 0644 "${src}" \
         "${root}/var/lib/airymaxos/install-disk.json"; then
-        airy_mark "AIRYMAX-DISK-KEEP-FAIL reason=write"
+        airy_out "AIRYMAX-DISK-KEEP-FAIL reason=write"
         return 1
     fi
-    airy_mark "AIRYMAX-DISK-KEEP-OK path=/var/lib/airymaxos/install-disk.json"
+    airy_out "AIRYMAX-DISK-KEEP-OK path=/var/lib/airymaxos/install-disk.json"
     return 0
 }
