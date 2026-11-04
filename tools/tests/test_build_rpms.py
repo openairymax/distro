@@ -21,8 +21,8 @@ SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "build-rpms.sh"
 DISTRO = SCRIPT.parent.parent
 BASH = shutil.which("bash") or "/bin/bash"
 
-TOOLS = ("basename", "cat", "cmp", "cp", "cut", "dirname", "find", "gzip",
-         "mkdir", "nproc", "rm", "sed", "sha256sum", "sort", "tar",
+TOOLS = ("basename", "cat", "cmp", "cp", "cut", "date", "dirname", "find",
+         "gzip", "mkdir", "nproc", "rm", "sed", "sha256sum", "sort", "tar",
          "uname")
 
 SPEC = """\
@@ -207,6 +207,12 @@ class BuildRpmsTest(unittest.TestCase):
             encoding="utf-8")
         self.assertIn("arch=x86_64", manifest)
         self.assertIn("dist=.airy03", manifest)
+        # 台账三元组：门禁按它推导预算，缺一项就无从判断这一轮到底跑了多久。
+        self.assertIn("stage=rpm", manifest)
+        for key in ("started_at", "finished_at"):
+            self.assertRegex(
+                manifest, rf"(?m)^{key}=\d{{4}}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
+        self.assertRegex(manifest, r"(?m)^elapsed_s=\d+$")
         self.assertRegex(manifest, r"spec [0-9a-f]{64} demo\.spec")
         self.assertRegex(
             manifest,

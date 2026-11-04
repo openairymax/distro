@@ -43,9 +43,9 @@ def shift(kver, delta=1):
     return "{}.{}.{}".format(v, p, int(s) + delta)
 
 
-TOOLS = ("bash", "basename", "cat", "cmp", "cp", "dirname", "find", "git",
-         "gzip", "mkdir", "mv", "nproc", "rm", "sed", "sha256sum", "sort",
-         "uname")
+TOOLS = ("bash", "basename", "cat", "cmp", "cp", "date", "dirname", "find",
+         "git", "gzip", "mkdir", "mv", "nproc", "rm", "sed", "sha256sum",
+         "sort", "uname")
 
 RPMSPEC = """\
 #!/bin/sh
