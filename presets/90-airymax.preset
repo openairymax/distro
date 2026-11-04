@@ -32,6 +32,8 @@
 # airy-rt-coexist.service 与 airy-rt-coexist.timer 同理：服务器档位没有
 # 桌面 slice，评估只会报 absent；桌面档位由 kickstart 显式启用，未启用时
 # 桌面权重恒为 slice 文件里的静态基线，不引入任何运行时写入。
+# airy-boot-watch.timer 同理：它只在开机 60 秒后读一次作业表，健康启动
+# 零输出。是否常驻一条诊断定时器属于装机口径，由 kickstart 显式启用。
 # ===========================================================================
 
 disable agentrt.target
@@ -41,6 +43,7 @@ disable airymax-update-check.timer
 disable airy-llm.service
 disable airy-disk-mount.service
 disable airy-boot-mount.service
+disable airy-boot-watch.timer
 disable airy-disk-health.timer
 disable airy-rt-bandwidth.service
 disable airy-rt-memcap.service
