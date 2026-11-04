@@ -963,6 +963,21 @@ case "$1" in
 esac
 """
 
+# 冒烟 T16 的固件判据读内核日志。沙箱没有真内核，伪工具回放一份干净启动
+# （只有成功载入），FAKE_DMESG_FILE 指向日志时回放该文件，用来驱动三条
+# 失败签名；文件不可读时按真实 dmesg 的失败语义返回非零。
+DMESG = """\
+#!/bin/sh
+[ -n "${FAKE_DMESG_FILE:-}" ] || {
+    printf '[    0.000000] Linux version 6.6.157-alk\\n'
+    printf '[    1.204811] iwlwifi 0000:00:14.3: '
+    printf 'direct-loading firmware iwlwifi-cc-a0-77.ucode\\n'
+    exit 0
+}
+[ -r "${FAKE_DMESG_FILE}" ] || exit 1
+cat "${FAKE_DMESG_FILE}"
+"""
+
 
 # 块层内省全部走 lsblk/blockdev/findmnt：真机上它们是 sysfs 的读取者，
 # 沙箱里用一张表复刻同一输出面。表由 FAKE_LSBLK_DB 指向，每行八列：
@@ -1215,7 +1230,7 @@ def smoke_tools(bin_dir, omit=()):
              ("pactl", PACTL), ("systemctl", SYSTEMCTL),
              ("gsettings", GSETTINGS), ("sha256sum", SHA256SUM),
              ("uname", UNAME), ("xrandr", XRANDR),
-             ("findmnt", FINDMNT), ("lsblk", LSBLK),
+             ("findmnt", FINDMNT), ("lsblk", LSBLK), ("dmesg", DMESG),
              ("hostname", HOSTNAME), ("hostnamectl", HOSTNAMECTL))
     for name, body in table:
         if name not in omit:

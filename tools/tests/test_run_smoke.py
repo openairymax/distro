@@ -7,7 +7,8 @@
 # 脚本对外契约是：TAP 18 计划、十八项探测的判定，以及“探测工具缺失即失败”
 # 的退出码规则。这里用 PATH 沙箱提供伪 loginctl /
 # pgrep / xdpyinfo / ibus / pactl / systemctl / gsettings /
-# sha256sum / uname / xrandr / findmnt / lsblk / hostname / hostnamectl，并给
+# sha256sum / uname / xrandr / findmnt / lsblk / dmesg /
+# hostname / hostnamectl，并给
 # T6–T16 与 T18 准备一份只读系统视图（AIRYMAX_SMOKE_ROOT），每个用例只破坏
 # 一个前提，从而在无桌面环境下判定真实控制流。
 #
@@ -1088,7 +1089,24 @@ class RunSmokeTest(unittest.TestCase):
         self.tools()
         res = self.run_smoke()
         self.assertIn("ok 16 - T16 observer tools selfcheck", res.stdout)
-        self.assertIn("bench=ok demo=ok observe=ok", res.stdout)
+        self.assertIn("bench=ok demo=ok observe=ok fw=clean", res.stdout)
+
+    def test_obs_firmware_signature(self):
+        # 驱动仍加载成功、模块列表干净，只有内核日志留着「没找到固件」这一行
+        self.tools()
+        log = self.root / "dmesg.log"
+        log.write_text("[    2.100000] iwlwifi 0000:00:14.3: "
+                       "no suitable firmware found\n", encoding="utf-8")
+        res = self.run_smoke(FAKE_DMESG_FILE=str(log))
+        self.assert_fail(res, 16)
+        self.assertIn("no suitable firmware found", res.stdout)
+
+    def test_obs_firmware_no_log(self):
+        # 日志读不到时判负：没有证据不等于载入成功
+        self.tools()
+        res = self.run_smoke(FAKE_DMESG_FILE=str(self.root / "absent.log"))
+        self.assert_fail(res, 16)
+        self.assertIn("kernel log unreadable", res.stdout)
 
     def test_obs_bench_absent(self):
         # 观测工具没装进镜像：现场演示与故障定位都无从下手

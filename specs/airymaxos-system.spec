@@ -19,9 +19,10 @@
 #      与周期重评定时器，启动期落档、周期复核与人工排查共用同一份判定；
 #   8. 部署 /usr/bin/airy-probe 与 airymax_probe Python 包，十条追踪通道、
 #      两条注入通道与三处静态计数的清点共用同一份证据实现（X-02）；
-#   9. 部署 airymax_observe Python 包，供 airy-observe 的 hardware 子命令
-#      调用；整机硬件清点只读 sysfs，缺失、关断与在位三种结论共用同一份
-#      判定（I-24）。命令本身归发行包，本包不再安装同名入口；
+#   9. 部署 airymax_observe Python 包，供 airy-observe 的 hardware 与
+#      firmware 两个子命令调用；整机硬件清点只读 sysfs，固件清点把模块
+#      自报的期望文件名与本次开机日志对起来，缺失、无证据与在位三种结论
+#      共用同一份判定（I-24）。命令本身归发行包，本包不再安装同名入口；
 #  10. 部署 airy-rt-coexist 单元对，把桌面 slice 的运行时权重从基线
 #      抬到保护档，使实时负载与桌面负载按 PSI 证据共存（X-05）；
 #  11. 部署 /usr/lib/airymaxos/boot-set，声明开机必须启用的单元清单；
@@ -64,7 +65,7 @@
 # spec-lint: source-bundle ../../system/services/airymax_observe
 
 %global airy_version 0.0.4
-%global airy_release 43
+%global airy_release 44
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -175,11 +176,14 @@ ad hoc reads. The airy-observe command's hardware subcommand, backed by the
 survey package, reports what the machine actually has: a class with no sysfs
 node is absent, a device state is copied verbatim, and an rfkill switch left
 off is blocked, with cpu, block and net mandatory and every other class
-optional. The airy-rt-lat command measures wake-up latency from a FIFO
-periodic thread, so the real-time acceptance gate runs on a machine
-that only installed this package. Units are installed disabled; the
-installer enables them explicitly so that server and desktop profiles
-can opt out without editing the package payload.
+optional. Its firmware subcommand compares the file names the loaded modules
+declare against this boot's kernel log and keeps three states apart, so a
+driver that loaded without finding its blob is missing rather than ok and a
+file with no log line is unknown rather than loaded. The airy-rt-lat command
+measures wake-up latency from a FIFO periodic thread, so the real-time
+acceptance gate runs on a machine that only installed this package. Units
+are installed disabled; the installer enables them explicitly so that
+server and desktop profiles can opt out without editing the payload.
 
 %prep
 %setup -q -c -T
@@ -448,6 +452,20 @@ fi
 %{python3_sitelib}/airymax_observe
 
 %changelog
+* Wed Nov 04 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-44
+- Add the firmware subcommand to airy-observe. A driver that loads without
+  finding its blob leaves nothing behind on disk, and the expected file
+  names live only in the module's own metadata, so the only common ground
+  is this boot's kernel log. The command reads the expected names from
+  modinfo, the actual ones from the log, and reports loaded, missing or
+  unknown per file. Unknown is a separate verdict on purpose: a file with
+  no log line proves nothing, and folding it into loaded would report a
+  silent failure as a success.
+- Keep the three known failure signatures as warnings of their own. They
+  end with the module loaded, so the module list and sysfs both look
+  healthy; only the log still carries the line. Deduplicating them needs
+  the timestamp stripped first, since the same message repeats with a
+  different uptime and would otherwise be counted twice.
 * Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-43
 - Add the base mount stage, the first of the nine boot stages. The stage
   reads /proc/self/mountinfo and reports whether the root is writable and
