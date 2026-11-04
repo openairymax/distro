@@ -432,6 +432,13 @@ class RunSmokeTest(unittest.TestCase):
         return {key: int(value) for key, value in
                 (field.split("=", 1) for field in fields)}
 
+    def planned(self, res):
+        """TAP 计划数是各项计数的唯一来源，计划增长时不必逐处改断言。"""
+        lines = [line for line in res.stdout.splitlines()
+                 if re.fullmatch(r"1\.\.\d+", line)]
+        self.assertEqual(len(lines), 1, res.stdout)
+        return int(lines[0].split("..")[1])
+
     def assert_fail(self, res, num):
         line = self.tap(res, num)
         self.assertTrue(line.startswith("not ok"), line)
@@ -440,9 +447,10 @@ class RunSmokeTest(unittest.TestCase):
         self.tools()
         res = self.run_smoke()
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res), {"pass": 18, "fail": 0})
+        self.assertEqual(self.summary(res),
+                         {"pass": self.planned(res), "fail": 0})
         self.assertNotIn("# SKIP", res.stdout)
-        self.assertEqual(len(self.taps(res)), 18)
+        self.assertEqual(len(self.taps(res)), self.planned(res))
         for line in self.taps(res):
             self.assertTrue(line.startswith("ok"), line)
 
@@ -450,7 +458,7 @@ class RunSmokeTest(unittest.TestCase):
         self.tools()
         res = self.run_smoke()
         self.assertIn("TAP version 14", res.stdout)
-        self.assertIn("1..18", res.stdout.splitlines())
+        self.assertIn("1..21", res.stdout.splitlines())
         self.assertIn(
             "# AirymaxOS distro smoke: target=airymaxos-0.0.4", res.stdout)
 
@@ -609,7 +617,8 @@ class RunSmokeTest(unittest.TestCase):
         finally:
             timer.cancel()
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res), {"pass": 18, "fail": 0})
+        self.assertEqual(self.summary(res),
+                         {"pass": self.planned(res), "fail": 0})
 
     def test_slice_wrong(self):
         self.tools()
@@ -669,7 +678,8 @@ class RunSmokeTest(unittest.TestCase):
         self.tools(omit=("loginctl",))
         res = self.run_smoke()
         self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
-        self.assertEqual(self.summary(res), {"pass": 17, "fail": 1})
+        self.assertEqual(self.summary(res),
+                         {"pass": self.planned(res) - 1, "fail": 1})
         self.assert_fail(res, 1)
         self.assertIn("loginctl not installed", res.stdout)
         self.assertNotIn("# SKIP", res.stdout)
@@ -1089,24 +1099,56 @@ class RunSmokeTest(unittest.TestCase):
         self.tools()
         res = self.run_smoke()
         self.assertIn("ok 16 - T16 observer tools selfcheck", res.stdout)
-        self.assertIn("bench=ok demo=ok observe=ok fw=clean", res.stdout)
+        self.assertIn("bench=ok demo=ok observe=ok", res.stdout)
+        for num in (19, 20, 21):
+            self.assertTrue(self.tap(res, num).startswith("ok"), res.stdout)
 
-    def test_obs_firmware_signature(self):
+    def fw_log(self, *lines):
+        """写一份只含给定行内核日志，供三条固件判据各读一次。"""
+        log = self.root / "dmesg.log"
+        log.write_text("".join(f"[    2.100000] {line}\n" for line in lines),
+                       encoding="utf-8")
+        return {"FAKE_DMESG_FILE": str(log)}
+
+    def test_fw_blob_missing(self):
         # 驱动仍加载成功、模块列表干净，只有内核日志留着「没找到固件」这一行
         self.tools()
-        log = self.root / "dmesg.log"
-        log.write_text("[    2.100000] iwlwifi 0000:00:14.3: "
-                       "no suitable firmware found\n", encoding="utf-8")
-        res = self.run_smoke(FAKE_DMESG_FILE=str(log))
-        self.assert_fail(res, 16)
+        res = self.run_smoke(**self.fw_log(
+            "iwlwifi 0000:00:14.3: no suitable firmware found"))
+        self.assert_fail(res, 19)
+        self.assertTrue(self.tap(res, 20).startswith("ok"), res.stdout)
         self.assertIn("no suitable firmware found", res.stdout)
 
-    def test_obs_firmware_no_log(self):
-        # 日志读不到时判负：没有证据不等于载入成功
+    def test_fw_microcode_stale(self):
+        # 微码 INIT 没跑起来时 CPU 仍可用，只有日志记着它退回了旧版本
+        self.tools()
+        res = self.run_smoke(**self.fw_log(
+            "microcode: Failed to run INIT ucode: -5"))
+        self.assert_fail(res, 20)
+        self.assertIn("Failed to run INIT ucode", res.stdout)
+
+    def test_fw_api_mismatch(self):
+        # API 越界时驱动会降到较低的版本继续跑，日志之外看不出任何异常
+        self.tools()
+        res = self.run_smoke(**self.fw_log(
+            "iwlwifi 0000:00:14.3: api flags index 2 larger than supported"))
+        self.assert_fail(res, 21)
+        self.assertIn("api flags index 2 larger", res.stdout)
+
+    def test_fw_no_log(self):
+        # 日志读不到时三条一起判负：没有证据不等于载入成功
         self.tools()
         res = self.run_smoke(FAKE_DMESG_FILE=str(self.root / "absent.log"))
-        self.assert_fail(res, 16)
+        for num in (19, 20, 21):
+            self.assert_fail(res, num)
         self.assertIn("kernel log unreadable", res.stdout)
+
+    def test_fw_tool_absent(self):
+        # 没有 dmesg 就无从判定，按工具缺失计，不静默放行
+        self.tools(omit=("dmesg",))
+        res = self.run_smoke()
+        self.assert_fail(res, 19)
+        self.assertIn("dmesg not installed", res.stdout)
 
     def test_obs_bench_absent(self):
         # 观测工具没装进镜像：现场演示与故障定位都无从下手
