@@ -118,6 +118,25 @@ class EmbedTest(unittest.TestCase):
         self.assertIn("%pre", msg)
         self.assertIn("install-lib.sh", msg)
 
+    def test_audit_rtc_after_lib(self):
+        # 依赖 install-lib 的不止选盘器：RTC 写入同样只调 airy_out，因此
+        # 顺序规则按「依赖 lib 的脚本」统一执行，不按脚本名逐个开洞。
+        post = ("%post\nset -eu\n# %airy-embed: install-lib.sh\n"
+                "# %airy-embed: rtc-sync.sh\nairy_rtc_sync\n%end\n")
+        self.assertEqual(ks_embed.audit(post), [])
+        issues = ks_embed.audit(post.replace(CORE_MARK, ""))
+        self.assertEqual(len(issues), 1)
+        self.assertIn("rtc-sync.sh", issues[0][1])
+        self.assertIn("install-lib.sh", issues[0][1])
+
+    def test_expand_rtc(self):
+        self.write("rtc-sync.sh", SHARED)
+        out = ks_embed.expand(
+            "%post\n# %airy-embed: rtc-sync.sh\nairy_rtc_sync\n%end\n",
+            self.base)
+        self.assertIn(SHARED, out)
+        self.assertIn("airy_rtc_sync\n", out)
+
     def test_cli_ok(self):
         src = self.base / "in.ks"
         dst = self.base / "out" / "ks.cfg"
