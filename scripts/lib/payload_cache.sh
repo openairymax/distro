@@ -112,9 +112,14 @@ pc_stat()
 # 这里不再逐包 rpm -K：dnf 在整包校验通过前只用临时名，dl 里出现的最终名
 # 已经是它按 repodata 校验过的字节；池的可信度由下一轮的 pc_seed 与清单
 # 复核闭环，不需要在回填时再读一遍整包。
+#
+# 自建包（SKIP 里的名字空间）不回填：池缓存的是上游交付的字节，本仓产物
+# 的唯一事实源是当轮的载荷目录。让旧构建留在池里，下一轮就以更低 cost 提供
+# 同名同 EVR 的旧字节，源码改了而发行号没动时，镜像会静默装上上一版的包
+# （run 41792595223 的解算记录：airymaxos-release 0.0.4-7 取自 airymax-pool）。
 pc_absorb()
 {
-    local pool="$1" dl="$2" rpm base kept=0 mode=link
+    local pool="$1" dl="$2" skip="${3:-}" rpm base kept=0 mode=link
     [ -n "$pool" ] && [ -d "$dl" ] || return 0
     mkdir -p "$pool" || {
         printf 'payload cache: 无法写入 %s，本轮不回填\n' "$pool" >&2
@@ -124,6 +129,12 @@ pc_absorb()
         base="${rpm##*/}"
         [ -f "${pool}/${base}" ] && continue
         [ -s "$rpm" ] || continue
+        if [ -n "$skip" ]; then
+            # shellcheck disable=SC2254  # 跳过项是 glob，按 glob 匹配才是本意
+            case "$base" in
+            $skip) continue ;;
+            esac
+        fi
         if ln "$rpm" "${pool}/${base}" 2>/dev/null; then
             kept=$((kept + 1))
             continue

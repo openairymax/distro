@@ -94,6 +94,17 @@ class PoolTest(unittest.TestCase):
         self.assertEqual((self.pool / "a.rpm").stat().st_ino,
                          (self.dl / "a.rpm").stat().st_ino)
 
+    def test_absorb_skips_own_packages(self):
+        """自建包不回填：池只缓存上游字节，本仓产物以当轮载荷为准。"""
+        self.put(self.dl / "a.rpm", b"payload")
+        self.put(self.dl / "airymaxos-system-0.0.4-44.noarch.rpm", b"built")
+        res = self.run_lib('pc_absorb "$1" "$2" "$3"', self.pool, self.dl,
+                           "airymaxos-*")
+        self.assertIn("payload cache: absorb 1 (mode=link)", res.stdout)
+        self.assertTrue((self.pool / "a.rpm").exists())
+        self.assertFalse(
+            (self.pool / "airymaxos-system-0.0.4-44.noarch.rpm").exists())
+
     def test_drift_fails_on_changed_bytes(self):
         self.lock.write_text(self.lock_line("d" * 64, "a.rpm"))
         self.put(self.dl / "a.rpm", b"changed")
