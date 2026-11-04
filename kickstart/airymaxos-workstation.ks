@@ -286,11 +286,12 @@ step /usr/lib/airymaxos/boot/grub_args.sh grub-args GRUB
 %post --log=/root/airymax-post.log
 set -eu
 # %airy-embed: install-lib.sh
+# %airy-embed: rtc-sync.sh
 airy_trap INSTALL
 
 # 1) 桌面隔离与 UKUI 策略由 airymaxos-release 包 %post 完成
 #    （airymax-desktop.slice + 70-airymax-ukui-policy.sh，幂等）
-airy_step 1 9 release
+airy_step 1 10 release
 rpm -q airymaxos-release >/dev/null 2>&1 || airy_fail INSTALL release-pkg
 #    system-release 是引导配置生成的输入（anaconda 由它派生
 #    GRUB_DISTRIBUTOR，grub-mkconfig 在 set -e 下 source 该文件），缺失即
@@ -298,7 +299,7 @@ rpm -q airymaxos-release >/dev/null 2>&1 || airy_fail INSTALL release-pkg
 [ -r /etc/system-release ] || airy_fail INSTALL system-release
 
 # 2) 系统编排单元必须随镜像落盘（OS-OPS-010 的包级前提）
-airy_step 2 9 system
+airy_step 2 10 system
 rpm -q airymaxos-system >/dev/null 2>&1 || airy_fail INSTALL system-pkg
 #    布局判定入口（M-36）：包在盘上不等于命令可用，两个剖面同一判据
 test -x /usr/bin/airy-disk || airy_fail INSTALL airy-disk
@@ -317,7 +318,7 @@ airy_out "AIRYMAX-DISK-OK ${persist}"
 #    空口令只能完成登录，不能作为 sudo 的交互凭据，因此同一步还要确认
 #    airymaxos-release 的 NOPASSWD 策略确实落盘：策略缺失时装机后没有
 #    任何提权路径，而这一点在图形界面上看不出来。
-airy_step 3 9 accounts
+airy_step 3 10 accounts
 passwd -d amuser || airy_fail INSTALL airymax-unlock
 acct_req root sha512 root-account
 acct_req amuser empty airymax-account
@@ -391,7 +392,7 @@ grep -qxF 'Storage=persistent' "${jconf}" ||
     airy_fail INSTALL journald-persist-value
 
 # 4) 图形目标为默认（UKUI 会话经 lightdm 拉起）
-airy_step 4 9 target
+airy_step 4 10 target
 set_default graphical.target
 #    座位策略必须随包落盘：lightdm 在 conf.d 缺全部文件时仍会启动，只是退
 #    回「列出用户 + 要口令」的默认行为，从服务状态上看不出差别，所以这里
@@ -412,7 +413,7 @@ grep -qxF 'autologin-user=amuser' "${seat}" ||
 #    装机段不再另写清单与循环——两处各写一份时，新增一项治理只在其中一处
 #    落地是必然发生的漂移，症状是某台机器治理静默缺席，从任何服务状态都
 #    看不出来。每项为何收录见 boot-set 的头注释。
-airy_step 5 9 units
+airy_step 5 10 units
 boot_tool=/usr/lib/airymaxos/scripts/boot_set.sh
 [ -x "${boot_tool}" ] || airy_fail INSTALL boot-set-tool
 systemctl --root=/ preset-all >/dev/null 2>&1 ||
@@ -429,14 +430,14 @@ done </tmp/airymax-boot-set.log
 #    openEuler，故由 efi_brand.sh 新建 AirymaxOS 条目并置顶。该脚本不进
 #    boot_set：它写 ESP 与 NVRAM，chroot 内不可见，首启又会被 SELinux
 #    拦下，装机段是唯一可行时机。
-airy_step 6 9 brand
+airy_step 6 10 brand
 
 # 7) agentrt.target 的启用推迟到 daemon 二进制交付版本：
 #    该 target 强依赖 12 个 /usr/sbin/*_d，0.0.3 尚未打包，提前 enable
 #    会让每次冷启动进入 degraded，违背「OS 能正常运行」验收口径。
 #    启用项与 airymaxos-services 同版本落地，届时在 boot_set 中补
 #    agentrt.target（OS-OPS-010）。
-airy_step 7 9 agent
+airy_step 7 10 agent
 
 # 8) 引导菜单分辨率（真机缺陷 D-07）。openEuler 用预编译的 grubx64.efi，
 #    装机不把 unicode.pf2 放进 ESP；00_header 生成的 gfxmode 段落以
@@ -452,7 +453,7 @@ airy_step 7 9 agent
 #    0.0.3 装机曾按 /boot/grub2 是否存在再 glob EFI/* 取名，字体与重建都
 #    落进从未被加载的品牌副本，而 grubx64.efi 内嵌 prefix 指向别的目录，
 #    串口与 cfg 断言全绿、屏幕仍是 800x600（D-31）。
-airy_step 8 9 grub
+airy_step 8 10 grub
 grub_args=/var/lib/airymaxos/grub-args
 grub_cfg=$(awk -F= '$1 == "cfg" { print substr($0, 5); exit }' "${grub_args}")
 [ -s "${grub_cfg}" ] || airy_fail INSTALL grub-cfg-missing
@@ -513,8 +514,14 @@ grep -qF '  terminal_output gfxterm' "${grub_cfg}" ||
 # 9) 主机名：安装器已按 network --hostname 落盘，这里只做读回校验。0.0.4
 #    的产品名是合法 RFC 1123 标签，不存在被改写的路径；静态名与运行期名
 #    的一致性由冒烟 T8 在真实系统上判定。
-airy_step 9 9 hostname
+airy_step 9 10 hostname
 [ "$(cat /etc/hostname)" = airymax-pc ] || airy_fail INSTALL hostname-value
+
+# 10) RTC 写入（D-34）：限时、只告警，不在关键路径上。停在
+#     "update rtc with system clock" 时，串口最后一行就是
+#     AIRYMAX-RTC-BEGIN，耗时与回读偏差记在随后的三行里。
+airy_step 10 10 rtc
+airy_rtc_sync
 
 airy_out "AirymaxOS workstation install complete (baseline $(date -u +%Y%m%d))"
 %end

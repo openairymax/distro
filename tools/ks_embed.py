@@ -32,8 +32,10 @@ from pathlib import Path
 EINVAL = 5
 MARK = "# %airy-embed: "
 SCRIPTS = frozenset({"pre", "post", "onerror", "traceback"})
-SHARED = frozenset({"install-lib.sh", "disk-select.sh"})
+SHARED = frozenset({"install-lib.sh", "disk-select.sh", "rtc-sync.sh"})
 PRELUDE = "install-lib.sh"
+# 依赖 airy_out/airy_fail 的脚本：展开顺序是语义，lib 必须在它们之前。
+USES_LIB = ("disk-select.sh", "rtc-sync.sh")
 
 
 class EmbedError(ValueError):
@@ -120,10 +122,12 @@ def audit(text: str) -> list[tuple[int, str]]:
                  for num in range(first, last)
                  if lines[num].strip().startswith(MARK)]
         names = [name for _, name in marks]
-        if "disk-select.sh" in names:
-            at = names.index("disk-select.sh")
+        for dep in USES_LIB:
+            if dep not in names:
+                continue
+            at = names.index(dep)
             if PRELUDE not in names[:at]:
-                issues.append((marks[at][0], f"%{kind} 段展开 disk-select.sh "
+                issues.append((marks[at][0], f"%{kind} 段展开 {dep} "
                                "但此前未展开 install-lib.sh"))
         if kind != "pre":
             continue

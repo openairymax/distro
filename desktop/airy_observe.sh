@@ -15,7 +15,7 @@
 # 含空格时整体加双引号（如 os.pretty），保证按空白切分不会错位。
 #
 # 报告另提供 --section，把同一批事实按主题切开单独输出（kernel/os/boot/
-# net/sched）。默认证号仍是「身份 + 运行」两段，逐字未变；--section 只是
+# net/sched/rtc）。默认证号仍是「身份 + 运行」两段，逐字未变；--section 只是
 # 换一个视角看同一份采集，不引入第二套取值逻辑，因此同一个键在任何模式
 # 下都来自同一个权威来源。展示与排障时一次只一屏，避免几十行混在一起
 # 看不出卡在哪一项。
@@ -416,6 +416,62 @@ sched_report() {
     emit sched.hz "$(cfg CONFIG_HZ)"
 }
 
+# RTC 主题：装机最后一步把系统时钟写进硬件时钟，少数固件上会长时间阻塞，
+# 因此这一步限时、只告警（kickstart/rtc-sync.sh）。验收要回答的是「写完
+# 了没有」，所以这里只读内核暴露的三个事实：设备名、当前 RTC 读数与
+# hctosys 开关，不读 hwclock、也不去写设备。
+#
+# since_epoch 是内核把 RTC 寄存器按 UTC 折算出的秒数（与 hwclock --utc
+# 同口径）。systemd 的 hctosys 只影响启动时用 RTC 校准系统时钟的方向，与
+# 本次写入无关，因此单独成项，不与 drift 混为一谈。
+rtc_dir() {
+    printf '%s' "${AIRY_RTC_DIR:-/sys/class/rtc/rtc0}"
+}
+
+# 偏差 = 系统时钟 - RTC 读数。装机写入成功时两者应当在一个时区内相等；
+# 明显偏移说明写没落地（RTC 停在出厂时间）或写的是本地时间而非 UTC，两
+# 种现场故障在这里分得开，不必再去翻装机日志。
+rtc_drift() {
+    local base now
+    [ -r "$1/since_epoch" ] || {
+        printf 'absent'
+        return 0
+    }
+    base=$(cat "$1/since_epoch" 2>/dev/null) || base=
+    case $base in
+    '' | *[!0-9]*)
+        printf 'absent'
+        return 0
+        ;;
+    esac
+    now=$(date +%s 2>/dev/null) || now=
+    case $now in
+    '' | *[!0-9]*)
+        printf 'absent'
+        return 0
+        ;;
+    esac
+    printf '%s' "$((now - base))"
+}
+
+rtc_report() {
+    local d
+    d=$(rtc_dir)
+    if [ ! -d "$d" ]; then
+        emit rtc.device absent
+        emit rtc.name absent
+        emit rtc.epoch absent
+        emit rtc.drift absent
+        emit rtc.hctosys absent
+        return 0
+    fi
+    emit rtc.device "${d##*/}"
+    emit rtc.name "$(one_line "$d/name")"
+    emit rtc.epoch "$(one_line "$d/since_epoch")"
+    emit rtc.drift "$(rtc_drift "$d")"
+    emit rtc.hctosys "$(one_line "$d/hctosys")"
+}
+
 identity_report() {
     os_keys
     emit brand.grub "$(grub_brand)"
@@ -539,7 +595,7 @@ while [ $# -gt 0 ]; do
         printf '用法: airy-observe [--static] [--root DIR]\n'
         printf '      airy-observe --section NAME[,NAME...]\n'
         printf '      airy-observe hardware [--json] [--root DIR]\n'
-        printf '主题: kernel os boot net sched\n'
+        printf '主题: kernel os boot net sched rtc\n'
         printf 'hardware: 整机硬件清点，cpu/block/net 必检，其余类别可选\n'
         exit 0
         ;;
@@ -563,6 +619,7 @@ section_report() {
         boot) boot_report ;;
         net) net_report ;;
         sched) sched_report ;;
+        rtc) rtc_report ;;
         *)
             printf '%s fail reason=bad-section=%s\n' "$MARK" "$sec" >&2
             return 2

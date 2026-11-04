@@ -122,19 +122,20 @@ airy_keep
 %post --log=/root/airymax-post.log
 set -eu
 # %airy-embed: install-lib.sh
+# %airy-embed: rtc-sync.sh
 airy_trap INSTALL
 
 # sshd、chronyd、NetworkManager 与治理单元的启用由 boot_set.sh 唯一承担
 # （服务清单 SSoT，见上文「服务与防火墙」段）。
 # 发行版标识：上游 release 包被排除后，system-release 由本包唯一提供
-airy_step 1 7 release
+airy_step 1 8 release
 rpm -q airymaxos-release >/dev/null 2>&1 ||
     airy_fail INSTALL release-pkg
 # system-release 缺失会让 anaconda 的 GRUB_DISTRIBUTOR 派生失败，grub-mkconfig
 # 在 set -e 下中止，装机结果不可引导；在装机段结束前显式判负。
 [ -r /etc/system-release ] || airy_fail INSTALL system-release
 # 编排单元随镜像落盘（OS-OPS-010 的包级前提）
-airy_step 2 7 system
+airy_step 2 8 system
 rpm -q airymaxos-system >/dev/null 2>&1 ||
     airy_fail INSTALL system-pkg
 # 布局判定入口（M-36）：缺它则装机后 / 与 /data 的布局无从取证
@@ -143,7 +144,7 @@ test -x /usr/bin/airy-disk || airy_fail INSTALL airy-disk
 # 写的源在装机当场可用，扩容或插拔改号后 /data 开机即失挂，而系统照常
 # 起来。chroot 内的挂载点仍是 /mnt/sysroot/...，拓扑判定必然误杀，所以这
 # 里只判 fstab：源必须是 UUID/LABEL/PARTUUID，且 /data 不得 noauto。
-airy_step 3 7 disk
+airy_step 3 8 disk
 persist=$(airy-disk persist 2>&1) || {
     airy_out "AIRYMAX-DISK-DIAG persist=${persist}"
     airy_fail INSTALL disk-fstab
@@ -152,18 +153,18 @@ airy_out "AIRYMAX-DISK-OK ${persist}"
 
 # 账户自检：没有可登录账户的安装介质不具备「OS 能运行」的前提
 # root 交付为固定口令（sha512 哈希），amuser 交付为空口令（empty）。
-airy_step 4 7 accounts
+airy_step 4 8 accounts
 passwd -d amuser || airy_fail INSTALL airymax-unlock
 acct_req root sha512 root-account
 acct_req amuser empty airymax-account
 
-airy_step 5 7 target
+airy_step 5 8 target
 set_default multi-user.target
 
 # 启用边界：清单与动作都由 airymaxos-system 提供（boot_set.sh --root 离线
 # 语义）。本段跑在目标根里，systemd 总线不可用，故不看命令行退出码，脚本
 # 内按 is-enabled 回读判据；每项一行打到串口，缺项即可归因。
-airy_step 6 7 boot-set
+airy_step 6 8 boot-set
 boot_tool=/usr/lib/airymaxos/scripts/boot_set.sh
 [ -x "${boot_tool}" ] || airy_fail INSTALL boot-set-tool
 systemctl --root=/ preset-all >/dev/null 2>&1 ||
@@ -182,7 +183,7 @@ done </tmp/airymax-boot-set.log
 #
 # 本剖面没有图形启动，--append 传空串：只收敛控制台集合与菜单范围，不给
 # 系统加 rhgb quiet——那会把最小系统唯一可用的串口日志藏进 splash。
-airy_step 7 7 grub
+airy_step 7 8 grub
 grub_args=/usr/lib/airymaxos/boot/grub_args.sh
 [ -x "${grub_args}" ] || airy_fail INSTALL grub-args-tool
 grub_rc=0
@@ -191,6 +192,12 @@ while IFS= read -r line; do
     airy_out "AIRYMAX-GRUB ${line}"
 done </tmp/airymax-grub.log
 [ "${grub_rc}" -eq 0 ] || airy_fail INSTALL grub-args
+
+# 8) RTC 写入（D-34）：限时、只告警，不在关键路径上。停在
+#    "update rtc with system clock" 时，串口最后一行就是
+#    AIRYMAX-RTC-BEGIN，耗时与回读偏差记在随后的三行里。
+airy_step 8 8 rtc
+airy_rtc_sync
 
 airy_out "AirymaxOS minimal install complete (baseline $(date -u +%Y%m%d))"
 %end
