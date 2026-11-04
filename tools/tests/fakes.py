@@ -413,6 +413,13 @@ RPM = """\
 #!/bin/sh
 case "${1:-}" in
 -K) exit 0 ;;
+-qa)
+    # 系统完整性对账要的是「装了什么」，不是「某个文件属于谁」。伪数据库
+    # 由 FAKE_RPM_NAMES 给出，空格分隔，按 rpm 的惯例一行一个名字。
+    for n in ${FAKE_RPM_NAMES:-}; do
+        printf '%s\\n' "$n"
+    done
+    exit 0 ;;
 -qp)
     # --qf 出现 PROVIDENAME 时按包头回答 Provides：伪包用包体里的
     # provides: 行声明能力，覆盖「shim 提供 shim-x64」这类虚拟名。
@@ -871,6 +878,7 @@ cmd=""; unit=""; props=""; quiet=0; value=0
 while [ $# -gt 0 ]; do
     case "$1" in
     show|is-active|list-units) cmd=$1 ;;
+    --failed) cmd=list-units ;;
     -p) shift; props="$props $1" ;;
     --value) value=1 ;;
     -q|--quiet) quiet=1 ;;
@@ -1244,7 +1252,8 @@ def smoke_tools(bin_dir, omit=()):
              ("gsettings", GSETTINGS), ("sha256sum", SHA256SUM),
              ("uname", UNAME), ("xrandr", XRANDR),
              ("findmnt", FINDMNT), ("lsblk", LSBLK), ("dmesg", DMESG),
-             ("hostname", HOSTNAME), ("hostnamectl", HOSTNAMECTL))
+             ("hostname", HOSTNAME), ("hostnamectl", HOSTNAMECTL),
+             ("journalctl", JOURNALCTL), ("rpm", RPM))
     for name, body in table:
         if name not in omit:
             write(bin_dir, name, body)

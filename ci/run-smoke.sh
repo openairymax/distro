@@ -10,9 +10,9 @@
 # 环境:
 #   AIRYMAX_SMOKE_WAIT  守护进程就绪等待秒数（默认 30）
 #   AIRYMAX_SMOKE_HOST  期望的主机名（默认 airymax-pc，即配方值）
-#   AIRYMAX_SMOKE_ROOT  只读系统视图的根前缀（默认空，即真实 /）。T1、T5–T16
-#                       与 T18 读取 /run、/usr/share、/boot、/sys、/etc 下的
-#                       运行态标记、发行版标识与资产，单测在沙箱里用该前缀复核
+#   AIRYMAX_SMOKE_ROOT  只读系统视图的根前缀（默认空，即真实 /）。T1、T5–T16、
+#                       T18 与 T23 读取 /run、/usr/share、/boot、/sys、/etc 下
+#                       的运行态标记、发行版标识与资产，单测在沙箱里用该前缀复核
 #                       判定，装机现场保持默认值。T17 读实时块层，不经该前缀。
 #   AIRYMAX_SMOKE_BUILD_ID  发布清单记录的构建来源指纹。给出时要求与本机
 #                       BUILD_ID 逐字相同，把「装的是这一轮产出的镜像」变成
@@ -44,6 +44,7 @@
 #       「API 版本越界」三条失败签名
 #   T22 运行期控制台：本次启动的命令行与默认文件同源，systemd-vconsole-setup
 #       未失败
+#   T23 系统完整性：失败单元、本次开机 err 日志与包集合对账三面全干净
 #
 # 判定语义:
 #   0  — 全部通过
@@ -948,8 +949,32 @@ t22_console_state() {
     expect "${state}" active systemd-vconsole-setup
 }
 
+# T23 系统完整性：0.0.4 判据①要三个面同时干净——失败单元为 0、本次开机
+# err 日志为 0、实际包集合与装机时写下的交付集合差为 0。三件事各自有独立
+# 证据源，只看其中一件都会漏：单元失败但日志停在 info、日志刷错但没有单元
+# 失败、包被悄悄换成旧版本，都是 0.0.3 里真实发生过的形态。
+# 判定取 airy-observe system 的 state，不在这里二次解析 systemctl 与 rpm：
+# 同一套判定只能有一份实现，否则门禁与现场工具迟早各说各话。
+t23_inventory() {
+    local out
+    need airy-observe || return 1
+    out=$(airy-observe system --manifest "${SYSROOT}/etc/airymaxos-packages" \
+        2>&1) || {
+        printf '%s\n' "${out}"
+        return 1
+    }
+    case " ${out} " in
+    *" state=ok "*) ;;
+    *)
+        printf '%s\n' "${out}"
+        return 1
+        ;;
+    esac
+    printf 'units=0 errors=0 packages=ok\n'
+}
+
 printf 'TAP version 14\n'
-printf '1..22\n'
+printf '1..23\n'
 printf '# AirymaxOS distro smoke: target=%s date=%s\n' \
     "${TARGET}" "$(date -u '+%FT%TZ')"
 
@@ -975,6 +1000,7 @@ probe 19 "T19 firmware blob present" t19_fw_blob
 probe 20 "T20 cpu microcode loaded" t20_fw_microcode
 probe 21 "T21 firmware api match" t21_fw_api
 probe 22 "T22 runtime console state" t22_console_state
+probe 23 "T23 system inventory" t23_inventory
 
 printf '# summary: pass=%d fail=%d\n' "${PASS}" "${FAIL}"
 [ "${FAIL}" -eq 0 ]
