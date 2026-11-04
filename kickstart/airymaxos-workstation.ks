@@ -126,6 +126,9 @@ user --name=amuser --groups=wheel --iscrypted --password=$6$airy003user0x01$s1JW
 # 环境选择用 @^（pykickstart 环境语法）；@ 表示组
 @^airymax-workstation
 airymaxos-kernel
+# 固件闭包与内核 ABI 同源（FW-02）：无线与显卡的固件随内核 ABI 走，配方
+# 显式列出，镜像里缺它就在装机事务阶段失败而不是等到开机没网。
+airymaxos-firmware
 # 内核开发树（真机缺陷 D-09）：devel 子包提供 /usr/src/kernels/<release> 与
 # /lib/modules/<release>/{build,source}，缺它则 dkms 与 out-of-tree 模块在
 # 目标机上无法编译。Workstation 变体面向 agent 开发，必须自带该能力。

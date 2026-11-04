@@ -281,7 +281,7 @@ closure_default()
         return 0
     fi
     REQUIRE=(airymaxos-release airymaxos-system airymaxos-kernel \
-        airymaxos-kernel-core airymaxos-kernel-modules)
+        airymaxos-kernel-core airymaxos-kernel-modules airymaxos-firmware)
 }
 
 check_closure()

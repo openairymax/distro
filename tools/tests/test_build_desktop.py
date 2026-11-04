@@ -30,6 +30,7 @@ BASH = shutil.which("bash") or "/bin/bash"
 KS = DISTRO / "kickstart" / "airymaxos-workstation.ks"
 COMPS = DISTRO / "comps" / "airymaxos-comps.xml"
 MIRROR_LIST = DISTRO / "repo" / "mirrors.list"
+MANIFEST = DISTRO / "firmware" / "fw-manifest.txt"
 APP_OFF = 16 * 2048 + 883
 
 VERSION = fakes.osrel("VERSION_ID")
@@ -38,6 +39,7 @@ ISO_NAME = f"airymaxos-{VERSION}-x86_64.iso"
 CLOSURE = (
     f"airymaxos-release-{VERSION}-1.noarch.rpm",
     f"airymaxos-system-{VERSION}-1.noarch.rpm",
+    f"airymaxos-firmware-{VERSION}-1.noarch.rpm",
     "airymaxos-kernel-6.6.0-1.x86_64.rpm",
     "airymaxos-kernel-core-6.6.0-1.x86_64.rpm",
     "airymaxos-kernel-modules-6.6.0-1.x86_64.rpm",
@@ -71,6 +73,16 @@ def ks_pkgs():
     return names
 
 
+def scope_pkgs():
+    """固件作用域包：清单第一列，加上 ABI 元包本身（与 closure.sh cl_scope 同源）。"""
+    names = {"airymaxos-firmware"}
+    for raw in MANIFEST.read_text(encoding="utf-8").splitlines():
+        bits = raw.split("#")[0].split()
+        if len(bits) >= 3:
+            names.add(bits[0])
+    return names
+
+
 def rpm_name(name):
     bits = name[:-4].rsplit(".", 1)[0].split("-")
     return "-".join(bits[:-2]) if len(bits) >= 3 else name[:-4]
@@ -101,12 +113,13 @@ def repo_baseurls(path):
             if line.startswith("baseurl=")]
 
 
-# 伪 dnf 的事务是「comps 全量成员 + 配方显式包 + 架构引导包」；本地仓库
-# 已有的包复用同一文件名，收割端按文件名去重，因此新增数就是三者合集中
-# 尚未在载荷里的包。引导包清单与 closure.sh 的 cl_boot() x86_64 分支一致。
-BOOT = {"grub2-pc", "grub2-efi-x64", "shim-x64", "efibootmgr"}
+# 伪 dnf 的事务是「comps 全量成员 + 配方显式包 + 固件作用域包」，引导包由
+# ISO 侧单独加入、不进事务。载荷里已有的包复用同名文件，收割端按 basename
+# 去重，因此新增数 = 事务集合 − 与载荷同名的那些包。
 STOCK = {rpm_name(name) for name in CLOSURE}
-HARVEST = len((comps_pkgs() | ks_pkgs() | BOOT) - STOCK)
+TX = comps_pkgs() | ks_pkgs() | scope_pkgs()
+SELF = TX & STOCK
+HARVEST = len(TX) - len(SELF)
 TOTAL = len(CLOSURE) + HARVEST
 
 
@@ -249,7 +262,7 @@ class BuildDesktopTest(unittest.TestCase):
                          "--require", "airymaxos-kernel-core",
                          "--require", "airymaxos-kernel-modules")
         self.assertEqual(res.returncode, 0, res.stderr)
-        self.assertIn("count=3", (self.out / "payload" / "airymax" /
+        self.assertIn("count=4", (self.out / "payload" / "airymax" /
                                   "payload-manifest.txt").read_text(
                                       encoding="utf-8"))
 
@@ -613,7 +626,7 @@ class BuildDesktopTest(unittest.TestCase):
         manifest = (self.out / "payload" / "airymax" /
                     "payload-manifest.txt").read_text(encoding="utf-8")
         self.assertIn("arch=x86_64", manifest)
-        self.assertIn("count=6", manifest)
+        self.assertIn("count=7", manifest)
         self.assertRegex(manifest, r"comps [0-9a-f]{64} comps/airymaxos-comps\.xml")
         self.assertIn("kernel-core", manifest)
         iso = self.iso()

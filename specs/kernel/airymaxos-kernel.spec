@@ -67,6 +67,9 @@
 %global kernel_version 6.6.161
 %global kernel_local -alk
 %global kernel_release %{kernel_version}%{kernel_local}
+# 固件闭包的 ABI 名。派生自 %%(kernel_version)，与 airymaxos-firmware 的
+# %%(kernel_abi) 逐字一致，由 tools/tests/test_fw_contract.py 断言。
+%global kernel_abi %{kernel_version}
 %global ksrc %{_builddir}/airymaxos-kernel-%{kernel_version}
 %global debug_package %{nil}
 
@@ -157,6 +160,12 @@ BuildRequires:  systemtap-sdt-devel
 %endif
 Requires:       airymaxos-kernel-core = %{version}-%{release}
 Requires:       airymaxos-kernel-modules = %{version}-%{release}
+# 固件闭包与内核 ABI 同源（FW-02）。此前固件只由基底仓库的 linux-firmware
+# 提供，内核与固件的对应关系没有一处声明，固件滚动后谁都不红：BE200 缺
+# gl-c0-fm-c0、regulatory.db 未装都到装机后读 dmesg 才发现。库内包
+# airymaxos-firmware 提供这个名字，它同时 Requires 清单里的固件提供包，
+# 于是“内核在、固件半套”在事务阶段就不成立。
+Requires:       airymaxos-firmware-%{kernel_abi}
 Provides:       kernel = %{kernel_version}
 Provides:       installonlypkg(kernel)
 Obsoletes:      kernel

@@ -112,6 +112,7 @@ CL_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 readonly CL_ROOT
 readonly CL_SPEC="${CL_ROOT}/tools/ks_spec.py"
 readonly CL_COMPS="${CL_ROOT}/comps/airymaxos-comps.xml"
+readonly CL_FW="${CL_ROOT}/firmware"
 readonly CL_VER="${CLOSURE_VER:-24.03}"
 readonly CL_TRY="${CLOSURE_TRY:-3}"
 readonly CL_WAIT="${CLOSURE_WAIT:-10}"
@@ -303,11 +304,28 @@ cl_boot()
     esac
 }
 
+# cl_scope MANIFEST —— 列出固件作用域里的包名（每行一个，去重）。
+#
+# 作用域 = 清单第一列的固件提供包 + 内核 ABI 绑定的 airymaxos-firmware。
+# 这些包必须逐个点名进入事务：只靠依赖闭包时，配方的一条 --exclude 或播种
+# 模式的跳过项就能让它们静默缺席，而求解退出码仍是 0——装机现场表现为
+# 「驱动在、固件不在」，能开机、只有无线不工作，事后极难归因。清单是唯一
+# 事实源，作用域从它派生，不另设名单。
+cl_scope()
+{
+    local m="$1"
+    [ -f "$m" ] || return 1
+    {
+        printf '%s\n' airymaxos-firmware
+        awk '!/^#/ && NF >= 3 { print $1 }' "$m"
+    } | sort -u
+}
+
 cl_args()
 {
-    local list spec glob keep
+    local list spec glob keep scope
     local -a excl=()
-    cl_boot "$1" || return 1
+    local -a scope_pkgs=()
     # 排除项之下的包不在事务里。显式点名的规格光靠 --exclude 不够：dnf 的
     # exclude 过滤的是可选项，对点名要装的包仍报「Unable to find a match」，
     # 正是播种机首次收割的失败行。因此先用 glob 把规格摘掉，再让排除项参与
@@ -345,6 +363,37 @@ cl_args()
     if [ -n "$list" ]; then
         CL_ARGS+=("--exclude=${list}")
     fi
+    # 固件作用域补齐（FW-02）。播种模式下自建包尚未产出，点名会直接无解，
+    # 故跳过项仍然生效；产品模式下则相反——作用域包必须留在事务里，被
+    # 排除项命中按契约违约处理，不静默放行。
+    mapfile -t scope_pkgs < <(cl_scope "${CL_FW}/fw-manifest.txt")
+    if [ "${#scope_pkgs[@]}" -eq 0 ]; then
+        printf 'closure: 读不到固件清单 %s\n' "${CL_FW}/fw-manifest.txt" >&2
+        return 1
+    fi
+    for scope in "${scope_pkgs[@]}"; do
+        keep=1
+        # shellcheck disable=SC2086  # 跳过项按空白切分，glob 由 case 展开
+        for glob in ${CLOSURE_SKIP:-}; do
+            case "$scope" in
+            $glob) keep=0 ;;
+            esac
+        done
+        [ "$keep" -eq 1 ] || continue
+        for glob in "${excl[@]}"; do
+            case "$scope" in
+            $glob)
+                printf 'closure: 固件作用域包 %s 被排除项 %s 裁掉\n' \
+                    "$scope" "$glob" >&2
+                return 1
+                ;;
+            esac
+        done
+        case " ${CL_ARGS[*]} " in
+        *" $scope "*) ;;
+        *) CL_ARGS+=("$scope") ;;
+        esac
+    done
 }
 
 cl_arch()
