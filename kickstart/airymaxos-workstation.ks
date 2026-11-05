@@ -351,10 +351,26 @@ id -nG amuser | tr ' ' '\n' | grep -qxF nopasswdlogin ||
 #    的共享密钥，装机时就地生成 256 字节随机值与 pulseaudio 自身的生成形态
 #    一致，且不再经过失败路径。285H 实测：空 HOME 下起 PA 出四条告警，
 #    预置 cookie 后为零。
-pulse_dir=/home/amuser/.config/pulse
+#    目录级：GNU coreutils 的 install -d 只把 -o/-g/-m 作用于最后一个路径
+#    分量，中间目录一律按 root:root 0755 建立（285H 上 coreutils 9.4 实测：
+#    install -d -m 0700 -o amuser -g amuser /tmp/ip3/u/.config/pulse 得到
+#    /tmp/ip3/u 与 /tmp/ip3/u/.config 皆为 root:root 0755）。0.0.4 首启
+#    run 41972665005 的 T24 正是这样崩的：~/.config 属 root，uid 1000 的
+#    会话写不了任何配置，goa-daemon 与 kglobalaccel5 报 Permission denied，
+#    ukui-panel / ukui-kwin_x11 / ukui-settings-daemon 随即 core dump。
+#    因此每一级显式建立，属主与模式都写死，不依赖 install 的中间目录语义。
+home=/home/amuser
+conf="${home}/.config"
+pulse_dir="${conf}/pulse"
 pulse_cookie="${pulse_dir}/cookie"
+install -d -m 0755 -o amuser -g amuser "${conf}" ||
+    airy_fail INSTALL config-dir
 install -d -m 0700 -o amuser -g amuser "${pulse_dir}" ||
     airy_fail INSTALL pulse-cookie-dir
+[ "$(stat -c %U:%G "${home}")" = amuser:amuser ] ||
+    airy_fail INSTALL home-owner
+[ "$(stat -c %U:%G "${conf}")" = amuser:amuser ] ||
+    airy_fail INSTALL config-owner
 if [ ! -s "${pulse_cookie}" ]; then
     head -c 256 /dev/urandom >"${pulse_cookie}" ||
         airy_fail INSTALL pulse-cookie-write
