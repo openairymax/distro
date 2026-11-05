@@ -1,0 +1,6 @@
+[Unit]
+Description=AirymaxOS acceptance liveness heartbeat
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/airymaxos/ci/airymax-alive.sh

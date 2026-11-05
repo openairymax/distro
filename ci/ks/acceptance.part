@@ -17,6 +17,12 @@ install -m 0755 /run/install/repo/fixture/airymax-smoke-report.sh \
     "${root}/usr/lib/airymaxos/ci/airymax-smoke-report.sh"
 install -m 0644 /run/install/repo/fixture/airymax-smoke-report.service \
     "${root}/usr/lib/systemd/system/airymax-smoke-report.service"
+install -m 0755 /run/install/repo/fixture/airymax-alive.sh \
+    "${root}/usr/lib/airymaxos/ci/airymax-alive.sh"
+install -m 0644 /run/install/repo/fixture/airymax-alive.service \
+    "${root}/usr/lib/systemd/system/airymax-alive.service"
+install -m 0644 /run/install/repo/fixture/airymax-alive.timer \
+    "${root}/usr/lib/systemd/system/airymax-alive.timer"
 %end
 
 %post --log=/root/airymax-acceptance.log
@@ -69,14 +75,24 @@ EOF
 # 6) 报告单元把 TAP 判定转发到串口。
 systemctl --root=/ enable airymax-smoke-report.service
 
+# 6b) 存活心跳：会话没起来时，唯一能证明「PID1 还在跑、缺的是图形设备还是
+#     图形会话」的通道。报告单元挂在 graphical.target 之后，目标到不了就
+#     永远不会执行，正是最需要证据的那一类故障。
+systemctl --root=/ enable airymax-alive.timer
+
 # 7) 冷启动取证面：产品默认把内核口压到 loglevel 4，验收镜像要能回答
 #    「卡在哪」。三处缺口各补一层，只动本夹具，不进产品配方：
 #    a) 内核口放开——去掉 quiet/rhgb 并加 ignore_loglevel，让 dmesg、
 #       hung task、NMI watchdog 这类内核侧事实直接落串口。启动失败常常
 #       发生在用户态之前，静默的内核口等于没有证据。
-#    b) journald 转发到控制台——登录管理器、X 服务器、桌面会话的日志由
+#    b) journald 转发到串口——登录管理器、X 服务器、桌面会话的日志由
 #       各自进程写 journal，systemd 作业表没有新行时串口就静止；转发后
 #       即使 PID1 不再打印状态，串口仍能看到它们发出的最后一行。
+#       TTYPath 必须显式写成串口设备：缺省落点 /dev/console 归内核命令行
+#       里最后一个 console=，产品命令行是
+#       console=ttyS0,115200 console=tty0，用户态的每一行都停在本地屏上。
+#       run 41925092075 的冷启动因此在 3.9 秒后彻底静默，探针判负也没有
+#       一行落到串口。
 #    c) 停滞判定——默认 hung_task_timeout_secs=120 比 --boot-timeout
 #       短不了多少，且 sysrq 被关掉后宿主侧无法取栈；验收镜像打开 sysrq
 #       并缩短阈值，配合 airy-boot-watch 的卡点快照构成完整证据链。
@@ -91,6 +107,7 @@ install -d -m 0755 /etc/systemd/journald.conf.d
 cat > /etc/systemd/journald.conf.d/50-acceptance-console.conf <<'EOF'
 [Journal]
 ForwardToConsole=yes
+TTYPath=/dev/ttyS0
 MaxLevelConsole=info
 RateLimitIntervalSec=0
 EOF

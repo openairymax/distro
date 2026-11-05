@@ -69,7 +69,7 @@
 # spec-lint: source-bundle ../../system/services/airybright
 
 %global airy_version 0.0.4
-%global airy_release 46
+%global airy_release 47
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -479,6 +479,27 @@ fi
 %{python3_sitelib}/airybright
 
 %changelog
+* Wed Nov 05 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-47
+- Fix the boot watch going silent on serial. It skipped the serial write
+  whenever ttyS0 appeared in the active console list, but /dev/console
+  goes to the console registered last on the command line, and the
+  product command line is "console=ttyS0,115200 console=tty0": every
+  userspace line, the stuck report included, was written to the local VT
+  while the serial side stayed empty (run 41925092075 lost the whole
+  report this way). The serial node is now always written first and the
+  console only when it does not resolve to the same sink, each write
+  bounded so a wedged console layer cannot hang the observer.
+- Forward journald console output to the serial device in the acceptance
+  image. The default sink is /dev/console, so the unit shutdown lines and
+  the desktop session messages stopped at 3.9 seconds in that run, and
+  nothing explained why the graphical target was never reached.
+- Add an acceptance-only liveness heartbeat writing one line every thirty
+  seconds straight to the serial device: uptime, pending jobs, the
+  /dev/dri node count, and the states of graphical.target and lightdm.
+  The report unit is ordered after graphical.target, so a boot that never
+  reaches it produces no evidence at all; the heartbeat runs from
+  timers.target and survives exactly that case.
+
 * Wed Nov 04 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-46
 - Ship a boot watch that reports where a boot stopped. The nine stages
   print as they run, so a machine that hangs after the last stage it
