@@ -1060,6 +1060,34 @@ proc_pid() { # proc_pid <comm> — 取第一个同名进程的 pid，无进程�
     pgrep -x "$1" 2>/dev/null | head -n 1
 }
 
+# 死法之外还需要「死之前说了什么」。本镜像的会话日志不在 journal 里：
+# lightdm 写自己的文件，X 服务器写 Xorg 日志，会话内进程的 stderr 落
+# ~/.xsession-errors。2026-11-05 的验收里 ukui-panel 在 journal 中一句输出
+# 都没有，只剩一条 SIGSEGV——没有这三份文件，根因只能靠猜。
+#
+# 每份只取末尾若干行：串口带宽有限，诊断块淹没开机日志就等于没有诊断。
+_sess_tail() { # _sess_tail <文件> — 末尾 25 行，缺文件或不可读则静默
+    local out
+    [ -f "$1" ] || return 0
+    out=$(tail -n 25 -- "$1" 2>/dev/null)
+    if [ -z "${out}" ] && command -v sudo >/dev/null 2>&1; then
+        out=$(sudo -n tail -n 25 -- "$1" 2>/dev/null) || return 0
+    fi
+    [ -z "${out}" ] && return 0
+    printf '%s\n' "${out}" | sed "s|^|sess: ${1##*/}: |"
+}
+
+sess_trace() {
+    local f
+    for f in /var/log/lightdm/lightdm.log /home/amuser/.xsession-errors; do
+        _sess_tail "${f}"
+    done
+    # X 服务器的日志名带序号，取最新的一份：序号取决于还有哪些旧日志存活。
+    f=$(ls -t /var/log/Xorg.*.log 2>/dev/null | head -n 1)
+    [ -n "${f}" ] && _sess_tail "${f}"
+    return 0
+}
+
 session_snap() { # session_snap — 核心进程 pid 快照，缺失记为 absent
     local name pid out=""
     for name in ${SESSION_PROCS}; do
@@ -1077,6 +1105,7 @@ t24_session() {
     *absent*)
         printf 'not running at end: %s\n' "${now}"
         core_trace
+        sess_trace
         return 1
         ;;
     esac
@@ -1087,6 +1116,7 @@ t24_session() {
     printf 'churn: start %s\n' "${SESSION_AT_START}"
     printf 'churn: end   %s\n' "${now}"
     core_trace
+    sess_trace
     return 1
 }
 
