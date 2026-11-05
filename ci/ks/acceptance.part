@@ -11,6 +11,13 @@ root="${ANA_INSTALL_PATH:-/mnt/sysimage}"
 install -d -m 0755 "${root}/usr/lib/airymaxos/ci"
 install -m 0755 /run/install/repo/run-smoke.sh \
     "${root}/usr/lib/airymaxos/ci/run-smoke.sh"
+#    T23 的棘轮预算必须与 run-smoke.sh 同目录：脚本按自身路径读
+#    err-budget，读不到即按 0 判定。0.0.4 首启 run 41989055666 的 T23
+#    就是这样判负的——镜像里只有脚本没有预算文件，26 条已知外来 err 被
+#    当成 51 条超预算噪声（`budget=0`）。夹具漏拷一次，判据就退化成最严，
+#    T23 永远为红，棘轮失去信号价值。
+install -m 0644 /run/install/repo/err-budget \
+    "${root}/usr/lib/airymaxos/ci/err-budget"
 install -m 0755 /run/install/repo/fixture/airymax-smoke-run.sh \
     "${root}/usr/lib/airymaxos/ci/airymax-smoke-run.sh"
 install -m 0755 /run/install/repo/fixture/airymax-smoke-report.sh \
