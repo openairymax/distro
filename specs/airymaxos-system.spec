@@ -384,7 +384,7 @@ grep -qxF 'SuccessExitStatus=3' \
     %{buildroot}%{_unitdir}/airy-power.service
 grep -qxF 'Before=agentrt.target display-manager.service' \
     %{buildroot}%{_unitdir}/airy-power.service
-grep -qxF 'RuntimeDirectory=airy-power' \
+grep -qE '^RuntimeDirectory=([^ ]+ +)*airy-power( |$)' \
     %{buildroot}%{_unitdir}/airy-power.service
 test -f %{buildroot}%{_unitdir}/airy-power.timer
 grep -qxF 'OnUnitInactiveSec=60s' \
@@ -486,7 +486,7 @@ fi
 %{python3_sitelib}/airybright
 
 %changelog
-* Wed Nov 05 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-47
+* Thu Nov 05 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-47
 - Fix the boot watch going silent on serial. It skipped the serial write
   whenever ttyS0 appeared in the active console list, but /dev/console
   goes to the console registered last on the command line, and the
