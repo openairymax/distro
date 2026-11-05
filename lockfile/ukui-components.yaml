@@ -157,6 +157,12 @@ components:
     segment: EPOL/main
     nvra: ukui-interface-0:1.0.3-3.oe2403sp3.x86_64
     role: 桌面设置接口库
+  - name: libqt5-ukui-style1
+    state: present
+    segment: EPOL/main
+    nvra: libqt5-ukui-style1-0:3.1.4-2.oe2403sp3.x86_64
+    role: UKUI 的 Qt 风格库，ukui-panel 与 ukui-kwin 运行时按名加载
+    reason: 上述包均不声明该依赖，闭包求解不会带入；缺失时面板在 CustomStyle 构造期 SIGSEGV，整个桌面崩溃。包名不带 ukui 前缀，只看命名空间会漏判
   - name: ukui-desktop-environment
     state: available
     segment: EPOL/main

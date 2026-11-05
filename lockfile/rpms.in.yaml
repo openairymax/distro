@@ -62,6 +62,9 @@ packages:
   - ukui-greeter
   - ukui-themes
   - ukui-notification-daemon
+  # UKUI 的 Qt 风格库：运行时按名加载，基底包未声明依赖，靠求解进不来；
+  # 缺席即面板 CustomStyle 构造期 SIGSEGV（285H 加减对照已闭环）
+  - libqt5-ukui-style1
   - xorg-x11-server
   - lightdm
   # airymax-desktop-core：图形工具、音频栈、驱动、授权
