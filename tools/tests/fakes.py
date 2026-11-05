@@ -961,6 +961,14 @@ show)
 esac
 """
 
+COREDUMPCTL = """\
+#!/bin/sh
+file="${FAKE_CORE_LIST:-}"
+[ -n "$file" ] || exit 0
+[ -r "$file" ] || exit 0
+cat "$file"
+"""
+
 JOURNALCTL = """\
 #!/bin/sh
 unit=""; n=""; file=""
@@ -1278,7 +1286,8 @@ def smoke_tools(bin_dir, omit=()):
              ("uname", UNAME), ("xrandr", XRANDR),
              ("findmnt", FINDMNT), ("lsblk", LSBLK), ("dmesg", DMESG),
              ("hostname", HOSTNAME), ("hostnamectl", HOSTNAMECTL),
-             ("journalctl", JOURNALCTL), ("rpm", RPM))
+             ("journalctl", JOURNALCTL), ("rpm", RPM),
+             ("coredumpctl", COREDUMPCTL))
     for name, body in table:
         if name not in omit:
             write(bin_dir, name, body)
