@@ -281,6 +281,9 @@ accept_ks()
         --out "${out}" || die "无法生成验收 kickstart"
     KS="${out}"
     ADDS+=("${DISTRO_ROOT}/ci/run-smoke.sh")
+    # T23 的棘轮预算与脚本同目录：缺它脚本按 0 判定，验收会在此处直接暴露
+    # 「预算没随镜像交付」，而不是悄悄放宽。
+    ADDS+=("${DISTRO_ROOT}/ci/err-budget")
     ADDS+=("${DISTRO_ROOT}/ci/fixture")
 }
 

@@ -787,6 +787,31 @@ if [ "$pat" = Xorg ] && [ -n "${FAKE_X_PID:-}" ]; then
     printf '%s\\n' "${FAKE_X_PID}"
     exit 0
 fi
+# churn 模拟：FAKE_PIDS_BUMP 形如 "ukui-panel=200"——每次询问都把计数加一，
+# pid 以给定值为基递增。首尾快照因此必然不同，判定「pid 变了」这件事本身
+# 不依赖时钟，也不依赖用例与外层脚本的时序配合。它排在 FAKE_PIDS 之前，
+# 因为同名的固定值一旦命中就轮不到这里。
+for kv in ${FAKE_PIDS_BUMP:-}; do
+    case "$kv" in
+    "$pat"=*)
+        base="${kv#*=}"
+        f="${HOME:-/tmp}/.pgrep-bump.${pat}"
+        n=0
+        [ -r "$f" ] && n=$(cat "$f")
+        n=$((n + 1))
+        printf '%s\\n' "$n" >"$f"
+        printf '%s\\n' "$((base + n))"
+        exit 0
+        ;;
+    esac
+done
+# T24 需要 pid 本身：FAKE_PIDS 形如 "ukui-panel=100 ukui-kwin_x11=101"，
+# 命中即回放该 pid；未列出的名字仍走下面的「存在即可」老口径。
+for kv in ${FAKE_PIDS:-}; do
+    case "$kv" in
+    "$pat"=*) printf '%s\\n' "${kv#*=}"; exit 0 ;;
+    esac
+done
 case " ${FAKE_PROCS:-} " in
 *" ${pat} "*) exit 0 ;;
 esac
