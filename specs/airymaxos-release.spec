@@ -715,7 +715,7 @@ fi
   entry, and accounts that do have a password never enter password
   authentication at all. Verified on 285H with a test sshd: four key logins,
   no mm_auth_password in the log, no new faillock record.
-* Sun Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-5
+* Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-5
 - Give the hardware survey a home inside the one observe command. The
   system package had started installing a second /usr/bin/airy-observe,
   so the two packages could not be installed together: rpm reported a file
@@ -725,7 +725,7 @@ fi
   when the module is missing it reports reason=no-hw-package and exits 2
   instead of printing a traceback the caller would take for a report. The
   help text names the subcommand, and the check asserts that line is there.
-* Sun Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-4
+* Tue Nov 03 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-4
 - Sync the brand grub.cfg after every regeneration. On EFI the grub prefix
   is the directory of the loaded grubx64.efi, so the firmware entry under
   \EFI\airymaxos\ makes that copy the active configuration while
@@ -798,13 +798,13 @@ fi
   no-auto-default and ignore-carrier keys disable automatic wired DHCP
   and swallow carrier events, so a freshly plugged cable never becomes
   a default connection. %check rejects either key in the build root
-* Thu Oct 30 2026 SPHARX <dev@spharx.com> - 0.0.3-26
+* Fri Oct 30 2026 SPHARX <dev@spharx.com> - 0.0.3-26
 - List the stock Linux cross-checks in /etc/motd.d/airymax next to the
   six Airymax entry points: uname, os-release, lscpu, free, lsblk, ip,
   systemd-analyze and journalctl. A reviewer can re-derive every number
   without running any Airymax code, and %check asserts that the list
   cannot be trimmed silently
-* Thu Oct 30 2026 SPHARX <dev@spharx.com> - 0.0.3-25
+* Fri Oct 30 2026 SPHARX <dev@spharx.com> - 0.0.3-25
 - Ship /etc/issue as AirymaxOS: no package owns that path on the target,
   so the pre-login banner kept the generic upstream template. Kernel
   release, machine and tty stay agetty escapes, so the banner cannot
@@ -813,7 +813,7 @@ fi
   /etc/motd: setup owns the latter and a second owner would break the
   install transaction, while pam_motd 1.5.3 already reads the drop-in
   directory. Each named command is also asserted to exist as a symlink
-* Thu Oct 30 2026 SPHARX <dev@spharx.com> - 0.0.3-24
+* Fri Oct 30 2026 SPHARX <dev@spharx.com> - 0.0.3-24
 - Fix the delivery account name to Airymax and the machine name to
   AIRYMAX_PC across kickstart, seat policy, sudo policy, site suffix and
   smoke checks: the three assets disagreeing was the root cause of a
