@@ -51,7 +51,8 @@
 #   T23 系统完整性：失败单元、本次开机 err 日志（按归属分层）与包集合对账
 #       三面同时干净
 #   T24 桌面会话收敛：本轮冒烟全程核心进程 pid 不变，开机期没有崩溃重启；
-#       判定为 churn 时同附 coredumpctl 的死亡方式，把「崩了」推进到「怎么崩的」
+#       判定为 churn 时同附内核段错误行（崩溃落点）与 coredumpctl 的死亡方式
+#       （SIGSEGV/SIGABRT），把「崩了」推进到「怎么崩、崩在哪」
 #
 # 判定语义:
 #   0  — 全部通过
@@ -1053,7 +1054,30 @@ core_trace() {
         out=$(sudo -n coredumpctl list --no-pager 2>/dev/null) || return 0
     fi
     # 首行是列名；只取最近六条，现场要的是「最近的死法」而不是全量账本。
-    printf '%s\n' "${out}" | grep -v '^TIME' | tail -n 6 | sed 's/^/core: /'
+    # 账本为空时不能落下一行空的 core:，否则诊断块里会出现没有内容的字段。
+    out=$(printf '%s\n' "${out}" | grep -v '^TIME' | tail -n 6)
+    [ -z "${out}" ] && return 0
+    printf '%s\n' "${out}" | sed 's/^/core: /'
+}
+
+# 死法之外还要「死在哪」。内核在进程死于信号时一定打印一行段错误记录，带
+# 出错地址与 ip 落在哪个库的哪个偏移（in LIB[base+off]），这条消息由内核
+# 直接写 ring buffer，不经 systemd 的 ELF 解析，所以 elfutils 缺编不影响它。
+# 2026-11-05 验收里 boot.log 一条 segfault 都没有，是因为 quiet 把
+# console_loglevel 压到 4，而该消息属 level 4——证据一直在，只是没上串口。
+#
+# ASLR 每次开机更换基址，同一处崩溃的 ip/sp/库基址每次不同；去重前先抹掉这三
+# 个易变字段，只留进程名、出错地址、错误码与「库内偏移」，否则二十余条同一现场
+# 的记录会把诊断块占满。arm64 的措辞与 x86 不同（unhandled ... fault），一并收。
+# dmesg 不可读时安静跳过：诊断能力不足不能反过来改变判定。
+kern_trace() {
+    local log
+    log=$(dmesg 2>/dev/null) || return 0
+    printf '%s\n' "${log}" \
+        | grep -Ei 'segfault at|traps:|unhandled .*fault|fatal signal' \
+        | sed -E -e 's/^\[[^]]*\] //' -e 's/\[[0-9]+\]:/:/' \
+                 -e 's/ (ip|sp) [0-9a-f]+//g' -e 's/\[[0-9a-f]+\+/[+/' \
+        | awk '!seen[$0]++' | tail -n 6 | sed 's/^/kern: /'
 }
 
 proc_pid() { # proc_pid <comm> — 取第一个同名进程的 pid，无进程则空
@@ -1104,6 +1128,7 @@ t24_session() {
     case "${now}" in
     *absent*)
         printf 'not running at end: %s\n' "${now}"
+        kern_trace
         core_trace
         sess_trace
         return 1
@@ -1115,6 +1140,7 @@ t24_session() {
     }
     printf 'churn: start %s\n' "${SESSION_AT_START}"
     printf 'churn: end   %s\n' "${now}"
+    kern_trace
     core_trace
     sess_trace
     return 1
