@@ -106,7 +106,7 @@ label vesa
 
 SERIAL = f"""\
 default=0
-timeout 600
+timeout 200
 
 label 0
   menu label ^Install {PRODUCT}
@@ -196,8 +196,20 @@ class CfgBrandTest(unittest.TestCase):
         self.assertIn("inst.stage2=hd:LABEL=AIRYMAXOS", text)
         self.assertIn(f"default -> Install {PRODUCT}", res.stderr)
 
+    def test_menu_countdown_tightened(self):
+        """两种方言的 60 秒空等都要收下来；按键即停，可选性不受影响。"""
+        grub = self.make(GRUB)
+        self.assertEqual(self.brand(grub).returncode, 0)
+        self.assertIn("set timeout=20", grub.read_text(encoding="utf-8"))
+        iso = self.make(ISOLINUX, "isolinux.cfg")
+        res = self.brand(iso)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("timeout 200", iso.read_text(encoding="utf-8"))
+        self.assertIn("timeout 600 -> timeout 200", res.stderr)
+
     def test_grub_already_default(self):
         path = self.make(GRUB.replace('set default="1"', 'set default="0"')
+                         .replace("set timeout=60", "set timeout=20")
                          .replace("openEuler 24.03-LTS-SP3", PRODUCT)
                          .replace("Rescue a openEuler system",
                                   f"Rescue {PRODUCT} system"))

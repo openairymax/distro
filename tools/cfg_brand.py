@@ -75,7 +75,12 @@ ISOLINUX_HINT = re.compile(r"^\s*(label|append|menu (?:label|title))\b")
 APPEND_RE = re.compile(r"^\s*append\s")
 SERIAL_RE = re.compile(r"console=ttyS0")
 SERIAL_ARG = "console=tty0 console=ttyS0,115200"
+# 引导菜单的无人值守等待秒数。底座 60 秒：装机现场从插盘到进安装器先空等
+# 一分钟。20 秒够读完菜单并按下方向键，按键即停，故不牺牲可选性。
+WAIT_S = 20
 DEF_RE = re.compile(r"^default=(\S+)")
+GRUB_WAIT = re.compile(r"^set\s+timeout=(\d+)\s*$")
+ISO_WAIT = re.compile(r"^timeout\s+(\d+)\s*$")
 SECT_RE = re.compile(r"^\[([^\]]+)\]")
 TREE_KEY = re.compile(r"^(\s*)([A-Za-z0-9_.-]+)(\s*=\s*)(.*)$")
 TREE_SEC = ("general", "release", "product")
@@ -178,6 +183,27 @@ def g_default(lines, idx):
     return lines, None
 
 
+def menu_wait(lines, pat, deca):
+    """把引导菜单的无人值守倒计时压到 WAIT_S 秒。
+
+    grub 以秒计（`set timeout=60`），isolinux 以 1/10 秒计
+    （`timeout 600`），deca 区分这两种方言。底座留 60 秒，插盘到进安装器
+    之间要先干等一分钟，这是开机流畅度上最长的一段空转；按下任意键倒计时
+    立即停止，所以收紧只压缩没人操作的空等，不改变可选性。只认列 0 起的
+    指令行，条目或脚本里的同名 token 不动。无变化时第二项返回 None。
+    """
+    cap = WAIT_S * 10 if deca else WAIT_S
+    new = f"timeout {cap}" if deca else f"set timeout={cap}"
+    out, chg = list(lines), None
+    for pos, line in enumerate(lines):
+        m = pat.match(line.rstrip("\r\n"))
+        if not m or int(m.group(1)) <= cap:
+            continue
+        out[pos] = new + eol(line)
+        chg = (line.strip(), new)
+    return out, chg
+
+
 def dmove(old, new, title):
     """default 行确有变化时返回报告用标题，否则返回 None。"""
     return None if old is None or old == new else title
@@ -197,6 +223,9 @@ def grub(lines, product):
     out, changes = g_retitle(lines, product)
     title = retitle(entries[idx][2], product)
     out, old = g_default(out, idx)
+    out, wait = menu_wait(out, GRUB_WAIT, False)
+    if wait:
+        changes.append(wait)
     return out, changes, dmove(old, f'set default="{idx}"', title)
 
 
@@ -362,7 +391,8 @@ def isolinux(lines, product):
     out, changes = i_retitle(lines, product)
     out, serial = i_serial_all(out)
     out, helps = i_help(out, product)
-    changes += serial + helps
+    out, wait = menu_wait(out, ISO_WAIT, True)
+    changes += serial + helps + ([wait] if wait else [])
     title = i_title(lines, blk, product)
     out, old = i_default(out, blk[2])
     mark = None
