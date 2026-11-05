@@ -289,11 +289,11 @@ accel_set()
 qemu_base()
 {
     QARGS=(-m 4096 -smp 2 -display none -monitor none -no-reboot)
-    # UKUI 会话经 lightdm 拉起后需要可用的 DRM/KMS 设备做 X 后端。
-    # 内核基线只启用 DRM_VIRTIO_GPU（x86_64_defconfig），缺省 std VGA
-    # 对应的 bochs 驱动未编译，故两种架构都接 virtio-gpu：x86_64 用
-    # -vga virtio 替换缺省 VGA，aarch64 的 virt 机型没有缺省 VGA，直接
-    # 追加 PCI 设备。
+    # UKUI 会话经 lightdm 拉起后需要可用的 DRM/KMS 设备做 X 后端。内核基线
+    # 是 openeuler_defconfig，DRM_VIRTIO_GPU 与 DRM_BOCHS 都是 =m，由 udev
+    # 按设备匹配加载；这里仍统一接 virtio-gpu，让两架构的显示后端同源：
+    # aarch64 的 virt 机型没有缺省显示设备，必须显式追加 PCI 设备，x86_64
+    # 则以 -vga virtio 替换缺省 std VGA。
     if [ "${ARCH}" = aarch64 ]; then
         QARGS+=(-machine virt -device virtio-gpu-pci)
     else
