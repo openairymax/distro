@@ -343,6 +343,26 @@ groupadd -f nopasswdlogin 2>/dev/null || :
 usermod -aG nopasswdlogin amuser || airy_fail INSTALL airymax-group
 id -nG amuser | tr ' ' '\n' | grep -qxF nopasswdlogin ||
     airy_fail INSTALL airymax-group
+#    pulseaudio 首次启动先读 ~/.config/pulse/cookie，缺失时 authkey.c 先报
+#    「Failed to open cookie file」再报「Failed to load authentication key」，
+#    之后才现场生成，于是每台机器首启都留下四条告警（两个候选路径各两条）。
+#    这是告警不是 err，不进 T23 计数，但真机首次开机就出现四条「密钥加载
+#    失败」会掩盖真正的故障信号。cookie 只是本机 PA 守护进程与会话客户端
+#    的共享密钥，装机时就地生成 256 字节随机值与 pulseaudio 自身的生成形态
+#    一致，且不再经过失败路径。285H 实测：空 HOME 下起 PA 出四条告警，
+#    预置 cookie 后为零。
+pulse_dir=/home/amuser/.config/pulse
+pulse_cookie="${pulse_dir}/cookie"
+install -d -m 0700 -o amuser -g amuser "${pulse_dir}" ||
+    airy_fail INSTALL pulse-cookie-dir
+if [ ! -s "${pulse_cookie}" ]; then
+    head -c 256 /dev/urandom >"${pulse_cookie}" ||
+        airy_fail INSTALL pulse-cookie-write
+fi
+chown amuser:amuser "${pulse_cookie}" || airy_fail INSTALL pulse-cookie-owner
+chmod 0600 "${pulse_cookie}" || airy_fail INSTALL pulse-cookie-mode
+[ "$(stat -c %s "${pulse_cookie}")" = 256 ] ||
+    airy_fail INSTALL pulse-cookie-size
 #    空口令账户配空闲锁屏只会制造口令框：锁屏策略必须与免密登录同口径落盘。
 saver=/etc/dconf/db/local.d/00-airymax-screensaver
 [ -f "${saver}" ] || airy_fail INSTALL screensaver-policy-missing
