@@ -32,7 +32,9 @@
 #   T8  主机名：/etc/hostname、hostname 与 hostnamectl --static 三处一致
 #   T9  品牌：/etc/os-release 的命名不变式（PRETTY_NAME=短名+版本）与
 #       /etc/issue 首行同源，ID/代号指向本产品
-#   T10 分辨率：每个 connected 输出处于 display_mode.sh 定义的策略模式
+#   T10 分辨率：每个 connected 输出处于 display_mode.sh 定义的策略模式；
+#       报告同附 X 后端自述（驱动与回退原因）与 DRM 卡数，单模式输出时
+#       仍能分辨是哪条路径在跑
 #   T11 EFI 品牌：ESP 内 airymaxos 目录是完整签名套件，BootOrder 首位为本产品
 #   T12 免密提权：交付账户能以 NOPASSWD 完成一次非交互提权
 #   T13 免密桌面：空闲锁屏关闭，交付账户在 nopasswdlogin 组内
@@ -158,6 +160,24 @@ xorg_argv() { # xorg_argv — 正在运行的 X server 参数，无 Xorg 进程�
     tr '\0' ' ' <"/proc/${pid}/cmdline" 2>/dev/null
 }
 
+seat_state() { # seat_state — xserver.log 末条标记，去掉前缀；无文件为空串
+    sed -n 's/^AIRYMAX-XSERVER //p' \
+        "${SYSROOT}/run/airymaxos/xserver.log" 2>/dev/null | tail -n 1
+}
+
+drm_cards() { # drm_cards — /sys/class/drm 下的显卡数，0 即没有 KMS 设备
+    local dev="${SYSROOT}/sys/class/drm" n=0 node
+
+    for node in "${dev}"/card[0-9]*; do
+        [ -e "${node}" ] || continue
+        case "${node##*/}" in
+        *-*) continue ;;
+        esac
+        n=$((n + 1))
+    done
+    printf '%s' "${n}"
+}
+
 seat_marker() { # seat_marker — 校验 xserver.log 的标记与 X 实况一致
     local log="${SYSROOT}/run/airymaxos/xserver.log" line drv conf argv out
 
@@ -165,7 +185,7 @@ seat_marker() { # seat_marker — 校验 xserver.log 的标记与 X 实况一致
         echo "xserver marker missing: ${log}"
         return 1
     }
-    line=$(sed -n 's/^AIRYMAX-XSERVER //p' "${log}" | tail -n 1)
+    line=$(seat_state)
     drv=${line#driver=}
     drv=${drv%% *}
     # 标记是决策时的自述，argv 才是 X 实际收到的选择。两者不一致时黑屏
@@ -487,7 +507,12 @@ t10_display() {
         # 通过不等于自适应生效：唯一模式的输出由驱动固定成单一模式，策略
         # 无从切换。--report 把每个输出的结论（policy / single-mode / drift）
         # 摊平进 TAP，验收才能区分「策略选对了」与「硬件只给一个模式」。
-        printf 'report=%s\n' "$("${script}" --report 2>&1 | tr '\n' ';')"
+        # 后端自述与 DRM 卡数同属一件事的上游：同为单模式时，fbdev 与
+        # modesetting 的运行期语义完全不同（前者没有 RandR 输出），桌面组件
+        # 崩不崩、崩在哪一层只能靠这两项区分，故一并在本行给出。
+        printf 'report=%s xserver=%s drm=%s\n' \
+            "$("${script}" --report 2>&1 | tr '\n' ';')" \
+            "$(seat_state)" "$(drm_cards)"
         return 0
     fi
     out=$("${script}" --check 2>&1)
