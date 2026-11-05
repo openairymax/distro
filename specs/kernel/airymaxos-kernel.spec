@@ -63,7 +63,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 4
+%global airy_release 5
 %global kernel_version 6.6.161
 %global kernel_local -alk
 %global kernel_release %{kernel_version}%{kernel_local}
@@ -411,6 +411,16 @@ test -s %{ksrc}/tools/bpf/bpftool/bpftool
 if command -v kernel-install >/dev/null 2>&1; then
     kernel-install add %{kernel_release} /boot/vmlinuz-%{kernel_release} || :
 fi
+# 早期 udevd 在装载规则时就解析 GROUP=，组不在库里即丢弃整条赋值并留一行
+# "Unknown group"（50-udev-default.rules 的 sgx 即此，285H 与 run
+# 41951370779 都在 initramfs 阶段留下这两行）。dracut 的组库是目标根
+# /etc/group 按 sysusers 名单过滤出的副本，而组由 sysusers.d 定义、首启才
+# 落到 /etc/group；内核 %%post 在事务内生成 initramfs，此时目标根还没有这些
+# 组，于是每次开机都在最早期报一次。生成前先把 sysusers.d 落一份，initramfs
+# 与最终系统因此共用同一份组数据库。
+if command -v systemd-sysusers >/dev/null 2>&1; then
+    systemd-sysusers --root=/ || :
+fi
 if [ ! -s /boot/initramfs-%{kernel_release}.img ]; then
     dracut --force /boot/initramfs-%{kernel_release}.img %{kernel_release}
 fi
@@ -458,6 +468,16 @@ depmod -a %{kernel_release}
 %endif
 
 %changelog
+* Thu Nov 05 2026 SPHARX <dev@spharx.com> - 0.0.4-5
+- kernel：生成 initramfs 前先执行 systemd-sysusers --root=/。dracut 的
+  inst_rule_group_owner 只按 udev 规则里的 GROUP= 从目标根 /etc/group 抄行
+  进 initramfs，组在目标根缺失时整条赋值被丢弃，早期 udevd 每次开机留一行
+  "Unknown group 'sgx', ignoring."（50-udev-default.rules:63/64）。组由
+  sysusers.d 定义、首启才落到 /etc/group，而 %post 在事务内生成 initramfs，
+  此时目标根尚无这些组；先落一份 sysusers，initramfs 与最终系统共用同一份
+  组数据库。285H 的日志把这两行定位在 initramfs 阶段（15:22:39.93 报，
+  15:22:40.67 才 switch root），run 41951370779 的验收镜像同样带着这一对
+  行
 * Tue Nov 03 2026 SPHARX <dev@spharx.com> - 0.0.4-4
 - kernel：覆盖 __spec_install_post，阻止 brp-strip 在 %%install 收尾去掉
   模块尾部签名。0.0.4-2 认定「MODULE_SIG_ALL=y 时签名随模块装入」本身
