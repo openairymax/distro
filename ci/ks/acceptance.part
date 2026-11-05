@@ -96,6 +96,12 @@ systemctl --root=/ enable airymax-alive.timer
 #    c) 停滞判定——默认 hung_task_timeout_secs=120 比 --boot-timeout
 #       短不了多少，且 sysrq 被关掉后宿主侧无法取栈；验收镜像打开 sysrq
 #       并缩短阈值，配合 airy-boot-watch 的卡点快照构成完整证据链。
+#    d) 致命信号——print-fatal-signals 默认关闭，用户态进程被信号打死时
+#       内核不留任何一行；本镜像的 systemd-coredump 编译时未带 elfutils，
+#       coredumpctl 只能给出信号名，给不出出错模块。打开后内核会打印
+#       「<comm>[<pid>]: segfault at <addr> ip <ip> sp <sp> error <e>
+#       in <file>[<base>+<off>]」，把崩溃位置落到具体共享库，这是判读桌面
+#       组件反复崩溃时唯一不依赖包内符号的来源。
 #    grubby 只在装了 grub2 的镜像上存在；改动失败不阻断装机，取证面缺失
 #    会以「启动日志很安静」的形式暴露，而不是让验收镜像装不完。
 command -v grubby >/dev/null 2>&1 &&
@@ -118,5 +124,6 @@ kernel.hung_task_timeout_secs = 20
 kernel.hung_task_warnings = 10
 kernel.nmi_watchdog = 1
 kernel.watchdog_thresh = 10
+kernel.print-fatal-signals = 1
 EOF
 %end
