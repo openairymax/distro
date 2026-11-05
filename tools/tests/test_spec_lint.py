@@ -234,6 +234,13 @@ class SpecLintTest(unittest.TestCase):
                               "VARIANT_ID=workstation\n", encoding="utf-8")
         self.assertIn("E016", self.codes())
 
+    def test_changelog_weekday(self):
+        bad = VALID.replace("* Sat Oct 17 2026", "* Sun Oct 17 2026")
+        self.assertIn("E017", self.codes(bad))
+
+    def test_changelog_weekday_ok(self):
+        self.assertEqual(self.codes(), [])
+
     def test_real_specs(self):
         root = Path(__file__).resolve().parents[2]
         specs = sorted((root / "specs").rglob("*.spec"))
