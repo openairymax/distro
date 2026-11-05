@@ -341,6 +341,13 @@ grep -qx 'CONFIG_AIRY_CAP_TABLE_SIZE=1024' %{ksrc}/.config
 grep -qx 'CONFIG_IO_URING=y' %{ksrc}/.config
 grep -qx 'CONFIG_USER_NS=y' %{ksrc}/.config
 grep -qx 'CONFIG_LOCALVERSION="%{kernel_local}"' %{ksrc}/.config
+# 非特权 BPF 门禁（T23）：x86 的 spectre_v2_select_mitigation() 在 eIBRS
+# 生效且 unprivileged_ebpf_enabled() 为真时打印一条 Spectre V2 告警。该行
+# 在 0.06 s 由内核自己发出，早于任何 sysctl.d，运行期写 sysctl 消除不掉；
+# 只能由编译期默认值决定（=y 使初值为 2，永久关闭）。非特权 BPF 本身就是
+# 可利用的攻击面，关闭是加固而不是掩盖。基线若把这一项改回 not set，必须
+# 在此处中断打包，而不是留到装机后的启动日志里。
+grep -qx 'CONFIG_BPF_UNPRIV_DEFAULT_OFF=y' %{ksrc}/.config
 # 实时带宽门禁（T23）：RT_GROUP_SCHED=y 时 systemd 把叶子单元的
 # cpu.rt_runtime_us 置 0，rtkit-daemon 连自己的 canary/watchdog 线程都提不到
 # SCHED_RR，每次开机刷二十余条 err 日志，桌面音频也拿不到实时优先级。
