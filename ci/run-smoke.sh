@@ -300,14 +300,25 @@ t3_audio() {
 }
 
 # T4: 桌面隔离 slice（会话归属与资源参数）
+#
+# CPUWeight 有两个合法取值：单元钉住的基线 50，与 coexist 在 CPU 争用下写
+# 入的运行时提升 200（X-05）。这里断言的是「运行时只出现这两个值」——把
+# 200 判负，等于让高负载下正确的保护行为变成开机失败。
 t4_slice() {
     need systemctl || return $?
-    local tasks
+    local tasks weight
     expect "$(systemctl show "user@${UID}.service" -p Slice --value 2>/dev/null)" \
         airymax-desktop.slice "user@ service slice" || return 1
     expect "$(systemctl is-active airymax-desktop.slice 2>/dev/null)" \
         active "slice state" || return 1
-    expect "$(slice_prop CPUWeight)" 50 "slice CPUWeight" || return 1
+    weight="$(slice_prop CPUWeight)"
+    case " 50 200 " in
+        *" ${weight} "*) ;;
+        *)
+            echo "slice CPUWeight: ${weight:-unknown} (want 50 or 200)"
+            return 1
+            ;;
+    esac
     expect "$(slice_prop IOWeight)" 50 "slice IOWeight" || return 1
     tasks="$(slice_prop TasksMax)"
     [ -n "${tasks}" ] && [ "${tasks}" != infinity ] || {
