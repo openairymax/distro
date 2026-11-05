@@ -17,6 +17,8 @@
 #   AIRYMAX_SMOKE_BUILD_ID  发布清单记录的构建来源指纹。给出时要求与本机
 #                       BUILD_ID 逐字相同，把「装的是这一轮产出的镜像」变成
 #                       可判定事实；缺省只校验机内两处一致。
+#   AIRYMAX_SMOKE_BUDGET  外来 err 的棘轮预算；缺省读脚本同目录 err-budget 的
+#                       foreign_max，读不到即为 0（最严），不因缺文件放行。
 #
 # 覆盖:
 #   T1  UKUI X11 会话：loginctl 会话属性、ukui-session 进程、X server 可达
@@ -44,7 +46,9 @@
 #       「API 版本越界」三条失败签名
 #   T22 运行期控制台：本次启动的命令行与默认文件同源，systemd-vconsole-setup
 #       未失败
-#   T23 系统完整性：失败单元、本次开机 err 日志与包集合对账三面全干净
+#   T23 系统完整性：失败单元、本次开机 err 日志（按归属分层）与包集合对账
+#       三面同时干净
+#   T24 桌面会话收敛：本轮冒烟全程核心进程 pid 不变，开机期没有崩溃重启
 #
 # 判定语义:
 #   0  — 全部通过
@@ -68,6 +72,21 @@ BID_MAX=64
 START_WAIT="${AIRYMAX_SMOKE_WAIT:-30}"
 HOSTNAME_WANT="${AIRYMAX_SMOKE_HOST:-airymax-pc}"
 SYSROOT="${AIRYMAX_SMOKE_ROOT:-}"
+
+# 外来 err 的棘轮预算：与脚本同目录的 err-budget，一行 foreign_max=N。
+# 文件缺失或格式不合法一律按 0 处理——「读不到就放行」等于把棘轮拆掉，
+# 而本项的失败面只需要一次静默放宽就会失去意义。
+budget_max() {
+    local file="${BASH_SOURCE[0]%/*}" num
+    [ "${file}" = "${BASH_SOURCE[0]}" ] && file=.
+    file="${file}/err-budget"
+    num=$(sed -n 's/^foreign_max=//p' "${file}" 2>/dev/null | tail -n 1)
+    case "${num}" in
+    '' | *[!0-9]*) printf '0\n' ;;
+    *) printf '%s\n' "${num}" ;;
+    esac
+}
+ERR_BUDGET="${AIRYMAX_SMOKE_BUDGET:-$(budget_max)}"
 
 PASS=0
 FAIL=0
@@ -950,16 +969,24 @@ t22_console_state() {
 }
 
 # T23 系统完整性：0.0.4 判据①要三个面同时干净——失败单元为 0、本次开机
-# err 日志为 0、实际包集合与装机时写下的交付集合差为 0。三件事各自有独立
-# 证据源，只看其中一件都会漏：单元失败但日志停在 info、日志刷错但没有单元
-# 失败、包被悄悄换成旧版本，都是 0.0.3 里真实发生过的形态。
+# err 日志在分层口径内、实际包集合与装机时写下的交付集合差为 0。三件事各自
+# 有独立证据源，只看其中一件都会漏：单元失败但日志停在 info、日志刷错但没有
+# 单元失败、包被悄悄换成旧版本，都是 0.0.3 里真实发生过的形态。
+#
+# err 不能一刀切。基底与上游组件本身就会周期性打印 err（rtkit 拿不到实时
+# 优先级、ACPI 表重复、LDAP 插件找不到 schema），在真机上消除不掉；一律判
+# 失败只会让本项长期为红，失去信号价值。判定因此在 airy-observe system 内部
+# 分层：产品自有单元（airymax-、airy- 前缀）的 err 必须为 0；外来条目按内容
+# 去重后与 err-budget 的棘轮预算比较，超出即失败，预算随版本单调下降至 0。
+#
 # 判定取 airy-observe system 的 state，不在这里二次解析 systemctl 与 rpm：
-# 同一套判定只能有一份实现，否则门禁与现场工具迟早各说各话。
+# 同一套判定只能有一份实现，否则门禁与现场工具迟早各说各话。预算同样不写死
+# 在脚本里，由同目录的版本化文件给出。
 t23_inventory() {
     local out
     need airy-observe || return 1
     out=$(airy-observe system --manifest "${SYSROOT}/etc/airymaxos-packages" \
-        2>&1) || {
+        --budget "${ERR_BUDGET}" 2>&1) || {
         printf '%s\n' "${out}"
         return 1
     }
@@ -970,13 +997,63 @@ t23_inventory() {
         return 1
         ;;
     esac
-    printf 'units=0 errors=0 packages=ok\n'
+    printf '%s\n' "${out}" | head -n 1
+}
+
+# T24 桌面会话收敛：T23 只回答「到现在为止有没有 err」，答不了「本轮观测里
+# 组件有没有再被重新拉起」。2026-11-02 验收镜像实测：开机 4.5–8.0 s 之间
+# ukui-panel 与 ukui-settings-daemon 崩溃重启二十余次，8 s 后自行停止，桌面
+# 最终可用——只看单元与最终状态，这种「先乱后稳」会被全部漏掉，而它正是
+# 用户看到桌面短暂闪烁、任务栏图标丢失的直接原因。
+#
+# 判据取本轮冒烟的首尾快照：pid 非空且逐字相同。pid 变化即进程被重新拉起，
+# 无论中间隔了几秒。采样点选在冒烟首尾而不是额外 sleep，是因为覆盖窗口越长
+# 越能抓住 churn，且不额外增加运行时长。
+# comm 由内核按 15 字节截断（ukui-settings-daemon 实际是 ukui-settings-d，
+# peony-qt-desktop 是 peony-qt-deskto），名称以 285H 实测的 /proc 名为准。
+SESSION_PROCS="ukui-panel ukui-kwin_x11 ukui-settings-d peony-qt-deskto"
+
+proc_pid() { # proc_pid <comm> — 取第一个同名进程的 pid，无进程则空
+    pgrep -x "$1" 2>/dev/null | head -n 1
+}
+
+session_snap() { # session_snap — 核心进程 pid 快照，缺失记为 absent
+    local name pid out=""
+    for name in ${SESSION_PROCS}; do
+        pid=$(proc_pid "${name}")
+        out="${out}${out:+ }${name}=${pid:-absent}"
+    done
+    printf '%s\n' "${out}"
+}
+
+t24_session() {
+    local now
+    need pgrep || return 1
+    now=$(session_snap)
+    case "${now}" in
+    *absent*)
+        printf 'not running at end: %s\n' "${now}"
+        return 1
+        ;;
+    esac
+    [ "${now}" = "${SESSION_AT_START}" ] && {
+        printf 'stable %s\n' "${now}"
+        return 0
+    }
+    printf 'churn: start %s\n' "${SESSION_AT_START}"
+    printf 'churn: end   %s\n' "${now}"
+    return 1
 }
 
 printf 'TAP version 14\n'
-printf '1..23\n'
+printf '1..24\n'
 printf '# AirymaxOS distro smoke: target=%s date=%s\n' \
     "${TARGET}" "$(date -u '+%FT%TZ')"
+printf '# ownership: budget=%s\n' "${ERR_BUDGET}"
+
+# T24 的首快照必须在任何探测之前取：探测本身会起子进程、耗时数秒，晚取就会
+# 把「开机期 churn」错当成本轮观测内的稳定，判据也就失去意义。
+SESSION_AT_START=$(session_snap)
 
 probe 1 "T1 ukui x11 session" t1_x11
 probe 2 "T2 ibus input method" t2_ime
@@ -1001,6 +1078,7 @@ probe 20 "T20 cpu microcode loaded" t20_fw_microcode
 probe 21 "T21 firmware api match" t21_fw_api
 probe 22 "T22 runtime console state" t22_console_state
 probe 23 "T23 system inventory" t23_inventory
+probe 24 "T24 desktop session steady" t24_session
 
 printf '# summary: pass=%d fail=%d\n' "${PASS}" "${FAIL}"
 [ "${FAIL}" -eq 0 ]

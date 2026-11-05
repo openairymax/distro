@@ -16,6 +16,7 @@
 # Version: 0.0.4
 # ===========================================================================
 
+import json
 import re
 import shutil
 import subprocess
@@ -34,6 +35,10 @@ BASH = shutil.which("bash") or "/bin/bash"
 
 # T23 的交付包集合：装机 %post 写下的清单，也是沙箱 rpm 数据库的默认内容。
 PACKAGES = ("airymaxos-desktop", "airymaxos-system", "kernel-alk")
+
+# T24 的核心进程：名字是内核 comm 的 15 字节视角，不是 unit 名。
+SESSION_PROCS = ("ukui-panel", "ukui-kwin_x11", "ukui-settings-d",
+                 "peony-qt-deskto")
 
 LEGACY = ("tauri", "webkitwebprocess", "fcitx5", "pipewire",
           "kylin-app-cgroupd")
@@ -422,6 +427,10 @@ class RunSmokeTest(unittest.TestCase):
             "QT_IM_MODULE": "ibus",
             "XMODIFIERS": "@im=ibus",
             "FAKE_PROCS": "ukui-session-manager ibus-daemon",
+            # T24 判的是 pid 本身：默认给一组固定 pid，等价于「桌面已收敛、
+            # 本轮观测内没有重启」。要模拟 churn 的用例改用 FAKE_PIDS_BUMP。
+            "FAKE_PIDS": " ".join(f"{name}={pid}" for name, pid in
+                                  zip(SESSION_PROCS, range(100, 104))),
             "FAKE_X_PID": str(self.xorg.pid),
             "FAKE_XRANDR_TOPO": str(self.topo),
             "FAKE_FINDMNT_DB": str(self.mounts),
@@ -1171,7 +1180,9 @@ class RunSmokeTest(unittest.TestCase):
         self.tools()
         res = self.run_smoke()
         self.assertIn("ok 23 - T23 system inventory", res.stdout)
-        self.assertIn("units=0 errors=0 packages=ok", res.stdout)
+        self.assertIn("state=ok units=0 errors=0 owned=0 foreign=0"
+                      " unknown=0", res.stdout)
+        self.assertIn("packages=ok", res.stdout)
 
     def test_inventory_failed_unit(self):
         # 单元失败但日志停在 info：只查日志的形态会漏
@@ -1189,13 +1200,74 @@ class RunSmokeTest(unittest.TestCase):
         self.assertIn("extra=1", res.stdout)
 
     def test_inventory_journal_err(self):
-        # 日志刷错但没有单元失败：另一侧的证据必须独立成立
+        # 日志刷错但没有单元失败：另一侧的证据必须独立成立。纯文本行拿不到
+        # 归属单元，按未知层计，预算再宽也不放行。
         self.tools()
         log = self.root / "journal.log"
         log.write_text("amuser.service: Failed to start\n", encoding="utf-8")
-        res = self.run_smoke(FAKE_JOURNAL_FILE=str(log))
+        res = self.run_smoke(FAKE_JOURNAL_FILE=str(log), AIRYMAX_SMOKE_BUDGET="9")
         self.assert_fail(res, 23)
-        self.assertIn("errors=1", res.stdout)
+        self.assertIn("unknown=1", res.stdout)
+
+    def journal(self, *records):
+        """写一份 journald JSON 日志，供 T23 判归属与预算。"""
+        log = self.root / "journal.log"
+        log.write_text("".join(
+            json.dumps(rec) + "\n" for rec in records), encoding="utf-8")
+        return {"FAKE_JOURNAL_FILE": str(log)}
+
+    def test_inventory_foreign_within_budget(self):
+        # 基底自己刷的 err 在棘轮预算内：判据仍为通过，但计数必须如实打印，
+        # 否则预算永远降不下来
+        self.tools()
+        res = self.run_smoke(
+            AIRYMAX_SMOKE_BUDGET="1",
+            **self.journal({"MESSAGE": "card busy",
+                            "_SYSTEMD_UNIT": "cups.service"}))
+        self.assertIn("ok 23 - T23 system inventory", res.stdout)
+        self.assertIn("foreign=1 unknown=0 budget=1", res.stdout)
+
+    def test_inventory_foreign_over_budget(self):
+        # 同一条日志，预算收紧到 0 即失败：判定确实由预算驱动
+        self.tools()
+        res = self.run_smoke(
+            AIRYMAX_SMOKE_BUDGET="0",
+            **self.journal({"MESSAGE": "card busy",
+                            "_SYSTEMD_UNIT": "cups.service"}))
+        self.assert_fail(res, 23)
+        self.assertIn("foreign=1", res.stdout)
+
+    def test_inventory_owned_err(self):
+        # 自有单元的 err 是本产品缺陷，预算再宽也不放过
+        self.tools()
+        res = self.run_smoke(
+            AIRYMAX_SMOKE_BUDGET="9",
+            **self.journal({"MESSAGE": "cannot bind socket",
+                            "_SYSTEMD_UNIT": "airymax-desktop.service"}))
+        self.assert_fail(res, 23)
+        self.assertIn("owned=1", res.stdout)
+        self.assertIn("[owned]", res.stdout)
+
+    def test_session_steady(self):
+        # 首尾 pid 逐字相同：本轮观测内没有组件被重新拉起
+        self.tools()
+        res = self.run_smoke()
+        self.assertIn("ok 24 - T24 desktop session steady", res.stdout)
+
+    def test_session_churn(self):
+        # pid 变了就是被重新拉起过，与最终是否可用无关（2026-11-02 实测：
+        # 开机 4.5–8.0 s 之间 panel 崩溃重启二十余次，桌面最终仍可用）
+        self.tools()
+        res = self.run_smoke(FAKE_PIDS_BUMP="ukui-panel=200")
+        self.assert_fail(res, 24)
+        self.assertIn("churn", res.stdout)
+
+    def test_session_proc_absent(self):
+        # 核心进程不在：桌面残缺，不能因为「没有变化」而判过
+        self.tools()
+        res = self.run_smoke(FAKE_PIDS="")
+        self.assert_fail(res, 24)
+        self.assertIn("not running at end", res.stdout)
 
     def test_obs_tools_ok(self):
         self.tools()
