@@ -912,6 +912,18 @@ class RunSmokeTest(unittest.TestCase):
         self.assert_fail(res, 10)
         self.assertIn("display_mode.sh not installed", res.stdout)
 
+    def test_display_report_carries_backend(self):
+        """单模式输出下，报告仍须给出 X 后端与 DRM 卡数。
+
+        验收镜像的桌面组件崩在 fbdev 上，journal 只说「dumped core」；
+        唯一能区分「没有 KMS 设备」与「有设备但驱动没接管」的，是 X 的
+        自述与卡节点数，故此两者必须随 T10 一起落进 TAP。
+        """
+        self.tools()
+        res = self.run_smoke()
+        self.assertIn("xserver=driver=fbdev reason=no-kms", res.stdout)
+        self.assertIn(" drm=0", res.stdout)
+
     def test_efi_brand_ok(self):
         self.tools()
         res = self.run_smoke()
