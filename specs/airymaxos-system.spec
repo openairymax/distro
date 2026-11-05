@@ -142,6 +142,7 @@ Source58:       airybright-%{version}.tar.gz
 Source59:       boot_watch.sh
 Source60:       airy-boot-watch.service
 Source61:       airy-boot-watch.timer
+Source62:       con.sh
 
 BuildRequires:  gcc
 BuildRequires:  python3-devel
@@ -217,7 +218,8 @@ install -m 0644 %{SOURCE46} \
     %{buildroot}%{_unitdir}/user.slice.d/50-airymax-memory.conf
 install -d -m 0755 %{buildroot}/usr/lib/airymaxos/scripts
 install -m 0755 %{SOURCE17} %{SOURCE18} %{SOURCE50} %{SOURCE53} \
-    %{SOURCE54} %{SOURCE56} %{SOURCE59} %{buildroot}/usr/lib/airymaxos/scripts/
+    %{SOURCE54} %{SOURCE56} %{SOURCE59} %{SOURCE62} \
+    %{buildroot}/usr/lib/airymaxos/scripts/
 install -d -m 0755 %{buildroot}%{_presetdir}
 install -m 0644 %{SOURCE19} %{SOURCE20} %{buildroot}%{_presetdir}/
 install -m 0644 %{SOURCE49} %{buildroot}/usr/lib/airymaxos/boot-set
@@ -253,7 +255,12 @@ bash -n %{buildroot}/usr/lib/airymaxos/scripts/ui.sh
 bash -n %{buildroot}/usr/lib/airymaxos/scripts/stage_run.sh
 bash -n %{buildroot}/usr/lib/airymaxos/scripts/boot_mount.sh
 bash -n %{buildroot}/usr/lib/airymaxos/scripts/boot_watch.sh
+bash -n %{buildroot}/usr/lib/airymaxos/scripts/con.sh
 test "$(bash -c '. %{buildroot}/usr/lib/airymaxos/scripts/ui.sh; ui_total')" = 9
+# 阶段行与卡点报告共用 con.sh 的通道判据；source 失败时 ui_total 仍能打印，
+# 上面那条断言看不出缺失，故这里直接断言判据函数确实被引入。
+test "$(bash -c '. %{buildroot}/usr/lib/airymaxos/scripts/ui.sh;
+    declare -F con_sink >/dev/null && echo ok')" = ok
 test -x %{buildroot}%{_bindir}/airy-disk
 test -x %{buildroot}%{_bindir}/airy-update
 test -x %{buildroot}%{_bindir}/airy-model
