@@ -1289,6 +1289,33 @@ class RunSmokeTest(unittest.TestCase):
         self.assert_fail(res, 24)
         self.assertIn("core: Wed 2026-11-05", res.stdout)
 
+    def test_session_churn_reports_fault(self):
+        # 死法之后还要「死在哪」：内核的段错误行带库名与库内偏移，是这台机器
+        # 上唯一能把崩溃定位到具体组件的证据。同一现场在 ASLR 下每次的 ip/sp
+        # 与库基址都不同，归一后必须收敛成一条，不能把诊断块刷满。
+        self.tools()
+        log = self.root / "fault.dmesg"
+        log.write_text(
+            "[  19.490000] ukui-panel[1634]: segfault at 0 ip 00007f1c2a3b4c5d "
+            "sp 00007ffd1c2a3b4c5d error 4 in "
+            "libQt5Core.so.5.15.2[7f1c2a000000+2f0000]\n"
+            "[  19.490100] ukui-panel[1674]: segfault at 0 ip 00007f3e0a3b4c5d "
+            "sp 00007ffe3a3b4c5d error 4 in "
+            "libQt5Core.so.5.15.2[7f3e0a000000+2f0000]\n"
+            "[  19.490200] ukui-kwin_x11[1703]: segfault at 8 "
+            "ip 00007f0000000000 sp 00007fff00000000 error 6 in "
+            "libkwin.so.5[7f0000000000+10000]\n"
+            "[  19.490300] systemd[1]: Started Session 2 of User amuser.\n",
+            encoding="utf-8")
+        res = self.run_smoke(FAKE_PIDS_BUMP="ukui-panel=200",
+                             FAKE_DMESG_FILE=str(log))
+        self.assert_fail(res, 24)
+        self.assertIn("kern: ukui-panel: segfault at 0 error 4 in "
+                      "libQt5Core.so.5.15.2[+2f0000]", res.stdout)
+        self.assertIn("kern: ukui-kwin_x11: segfault at 8 error 6 in "
+                      "libkwin.so.5[+10000]", res.stdout)
+        self.assertEqual(res.stdout.count("kern: "), 2, res.stdout)
+
     def test_session_proc_absent(self):
         # 核心进程不在：桌面残缺，不能因为「没有变化」而判过
         self.tools()
