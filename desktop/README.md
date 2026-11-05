@@ -39,18 +39,22 @@ TasksMax=40%），挂接点是 `user@.service` 的 drop-in
 MemoryMax/MemoryHigh：桌面自身已有应用级内存管理，双重限额会在内存紧张
 时放大回收冲突。
 
-权重之外还有一条实时带宽（决策 2026-10-28）：内核启用
-`CONFIG_RT_GROUP_SCHED` 后，RT 预算按 cgroup 层级记账，新建组的
+权重之外还有一条实时带宽（决策 2026-10-28，2026-11-05 修订）。内核启用
+`CONFIG_RT_GROUP_SCHED` 时，RT 预算按 cgroup 层级记账，新建组的
 `cpu.rt_runtime_us` 为 0，而 0 表示「禁止」而不是「不限」——组内
 `sched_setscheduler(SCHED_RR)` 一律 EPERM，rtkit-daemon 每次启动都退化为
 非实时（真机 B50 的 `Failed to make ourselves RT`）。预算又不能给单个
 slice 写满：子组之和不得超过父组，`system.slice` 占满后 `user.slice`
-写入直接 EINVAL，会话侧同样拿不到 RT。分配因此由 `airymaxos-system` 的
-`airy-rt-bandwidth.service` 承担：单元在 `rtkit-daemon` 与显示管理器之前
-调用 `airy-rt-cap apply` 按 slice 均分总预算，每次写入后回读，未生效的
-组计入 `missing`、`status` 从 `ok` 降级为 `partial`/`failed`，结论落一行
-`AIRYMAX-RT-CAP` 标记；人工排查用同一命令的 `status` 子命令，本包不再
-保留第二份策略实现。
+写入直接 EINVAL，会话侧同样拿不到 RT。
+
+0.0.4 按发行版场景重估该选项：内核关闭 `CONFIG_RT_GROUP_SCHED`，实时任务
+统一受全局 `kernel.sched_rt_runtime_us` 限流，rtkit 与音频路径因此可用
+（285H 实测 rtkit 取得 priority 5）。`airy-rt-bandwidth.service` 仍由
+`airymaxos-system` 提供，并在 `rtkit-daemon` 与显示管理器之前执行
+`airy-rt-cap apply`；此时 cgroup 树里没有可写的预算文件，工具把结论落在
+`state=unaccounted` 并按放行退出——分组记账缺失正是内核契约，不再是装机
+缺陷。结论照常打一行 `AIRYMAX-RT-CAP` 标记，人工排查用同一命令的
+`status` 子命令，本包不保留第二份策略实现。
 
 ### 4. 图形路径：X11 起步，Wayland 二期
 
