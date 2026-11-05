@@ -59,6 +59,7 @@ CLOSURE=auto
 PASS=0
 FAIL=0
 ENV_SKIP=0
+BLOCK=""
 ROWS=()
 TIMES=()
 TOTAL=0
@@ -398,6 +399,7 @@ stage_rpm()
         log_tail "${LOGS}/build-rpms.log" 12 '#   '
         tap_fail 1 "rpm build" "see ${LOGS}/build-rpms.log"
         ROWS+=("rpm=fail")
+        BLOCK="rpm build failed"
     fi
 }
 
@@ -438,6 +440,7 @@ stage_kern()
         log_tail "${LOGS}/build-kernel.log" 12 '#   '
         tap_fail 2 "kernel build" "see ${LOGS}/build-kernel.log"
         ROWS+=("kernel=fail")
+        BLOCK="${BLOCK:-kernel build failed}"
     fi
 }
 
@@ -455,6 +458,15 @@ stage_iso()
     if [ "${SKIP_ISO}" -eq 1 ] || [ -n "${ISO}" ]; then
         tap_skip 3 "iso assembly" "prebuilt"
         ROWS+=("iso=skip")
+        return 0
+    fi
+    # 上游段失败后 ISO 必然缺载荷：闭包求解找不到本地包时会在每个镜像根
+    # 上重试一遍，把一次 9 秒的编译错误放大成七十余分钟的空转
+    # （run 42039949529）。载荷不全的组装不可能产出可用镜像，就地记账并
+    # 跳过，让失败只留在根因段。
+    if [ -n "${BLOCK}" ]; then
+        tap_fail 3 "iso assembly" "blocked: ${BLOCK}"
+        ROWS+=("iso=blocked")
         return 0
     fi
     if [ "${PROFILE}" = desktop ]; then
@@ -526,6 +538,11 @@ stage_inst()
     local rc
     if [ "${SKIP_INSTALL}" -eq 1 ]; then
         tap_skip 5 "install test" "requested"
+        ROWS+=("install=skip")
+        return 0
+    fi
+    if [ -n "${BLOCK}" ]; then
+        tap_skip 5 "install test" "blocked: ${BLOCK}"
         ROWS+=("install=skip")
         return 0
     fi
