@@ -50,7 +50,8 @@
 #       未失败
 #   T23 系统完整性：失败单元、本次开机 err 日志（按归属分层）与包集合对账
 #       三面同时干净
-#   T24 桌面会话收敛：本轮冒烟全程核心进程 pid 不变，开机期没有崩溃重启
+#   T24 桌面会话收敛：本轮冒烟全程核心进程 pid 不变，开机期没有崩溃重启；
+#       判定为 churn 时同附 coredumpctl 的死亡方式，把「崩了」推进到「怎么崩的」
 #
 # 判定语义:
 #   0  — 全部通过
@@ -1038,6 +1039,23 @@ t23_inventory() {
 # peony-qt-desktop 是 peony-qt-deskto），名称以 285H 实测的 /proc 名为准。
 SESSION_PROCS="ukui-panel ukui-kwin_x11 ukui-settings-d peony-qt-deskto"
 
+# churn 只说明进程被重新拉起过，说明不了它是怎么死的。本镜像的 systemd 未
+# 编入 elfutils，journal 里只有「dumped core」，既没有栈也没有信号；而
+# coredumpctl list 的 SIG 列取自 journal 字段、不经栈解析，是这台机器上唯一
+# 可靠的死亡方式证据（SIGSEGV 与 SIGABRT 指向完全不同的根因方向）。读系统
+# 日志需要特权，用 T12 已证实的免密提权；取不到就安静跳过——诊断能力不足
+# 不能反过来改变判定。
+core_trace() {
+    local out
+    command -v coredumpctl >/dev/null 2>&1 || return 0
+    if ! out=$(coredumpctl list --no-pager 2>/dev/null); then
+        command -v sudo >/dev/null 2>&1 || return 0
+        out=$(sudo -n coredumpctl list --no-pager 2>/dev/null) || return 0
+    fi
+    # 首行是列名；只取最近六条，现场要的是「最近的死法」而不是全量账本。
+    printf '%s\n' "${out}" | grep -v '^TIME' | tail -n 6 | sed 's/^/core: /'
+}
+
 proc_pid() { # proc_pid <comm> — 取第一个同名进程的 pid，无进程则空
     pgrep -x "$1" 2>/dev/null | head -n 1
 }
@@ -1058,6 +1076,7 @@ t24_session() {
     case "${now}" in
     *absent*)
         printf 'not running at end: %s\n' "${now}"
+        core_trace
         return 1
         ;;
     esac
@@ -1067,6 +1086,7 @@ t24_session() {
     }
     printf 'churn: start %s\n' "${SESSION_AT_START}"
     printf 'churn: end   %s\n' "${now}"
+    core_trace
     return 1
 }
 

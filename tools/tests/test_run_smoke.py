@@ -1274,6 +1274,21 @@ class RunSmokeTest(unittest.TestCase):
         self.assert_fail(res, 24)
         self.assertIn("churn", res.stdout)
 
+    def test_session_churn_reports_death(self):
+        # churn 之后必须带出死法：本镜像的 systemd 未编入 elfutils，journal
+        # 里既没有栈也没有信号，只有 coredumpctl 的 SIG 列能区分段错误与
+        # abort，而这两者指向完全不同的根因方向
+        self.tools()
+        cores = self.root / "cores"
+        cores.write_text(
+            "TIME PID UID GID SIG COREFILE EXE\n"
+            "Wed 2026-11-05 04:53:52 UTC 1108 1000 1000 11 present "
+            "/usr/bin/ukui-panel\n", encoding="utf-8")
+        res = self.run_smoke(FAKE_PIDS_BUMP="ukui-panel=200",
+                             FAKE_CORE_LIST=str(cores))
+        self.assert_fail(res, 24)
+        self.assertIn("core: Wed 2026-11-05", res.stdout)
+
     def test_session_proc_absent(self):
         # 核心进程不在：桌面残缺，不能因为「没有变化」而判过
         self.tools()
