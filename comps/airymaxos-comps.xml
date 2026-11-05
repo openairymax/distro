@@ -150,6 +150,13 @@
       <packagereq type="mandatory">ukui-greeter</packagereq>
       <packagereq type="mandatory">ukui-themes</packagereq>
       <packagereq type="mandatory">ukui-notification-daemon</packagereq>
+      <!-- UKUI 的 Qt 风格库：ukui-panel / ukui-kwin / ukui-settings-daemon
+           在运行时按名加载，却都没有声明这条依赖（基底打包缺陷）。只靠
+           依赖求解进不来，缺它时面板在 CustomStyle 构造期 SIGSEGV，整片
+           桌面崩溃。2026-11-05 在 285H 以同一 chroot 做加减对照复现并闭环：
+           装回此包面板存活，移除即秒崩。包名不带 ukui 前缀，台账必须逐字
+           登记，否则闭包校验只看命名空间会漏判 -->
+      <packagereq type="mandatory">libqt5-ukui-style1</packagereq>
       <!-- X11 服务端：真实包名 xorg-x11-server，它 Provides
            xorg-x11-server-Xorg / Xorg（后者不是包名） -->
       <packagereq type="mandatory">xorg-x11-server</packagereq>
