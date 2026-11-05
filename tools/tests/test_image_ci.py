@@ -56,7 +56,12 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$out" ] || exit 5
 case "$(basename "$out")" in
-rpms) pkg=airymaxos-release-{VERSION}-1.noarch.rpm ;;
+rpms)
+    if [ "${{FAKE_BUILD_RPMS_MODE:-ok}}" = fail ]; then
+        printf 'error: line 12: Unknown tag\\n' >&2
+        exit 1
+    fi
+    pkg=airymaxos-release-{VERSION}-1.noarch.rpm ;;
 *) pkg=airymaxos-kernel-6.6.0-1.x86_64.rpm ;;
 esac
 for d in "$out/RPMS/x86_64" "$out/work/rpmbuild/RPMS/x86_64"; do
@@ -303,6 +308,26 @@ class ImageCiTest(unittest.TestCase):
         manifest = self.manifest()
         self.assertIn("stage install=skip", manifest)
         self.assertIn("result=pass", manifest)
+
+    def test_rpm_fail_blocks_downstream(self):
+        """rpm 段失败后必须立即收口，不再空转闭包收割与装机。
+
+        缺载荷的组装不可能产出可用镜像，继续跑只会把秒级编译错误放大成
+        小时级空转（run 42039949529）；失败必须只留在根因段。
+        """
+        self.tools(desk=True)
+        res = self.ci("--iso-base", str(self.base), "--rpms",
+                      str(self.rpms(KERNEL)), "--runs", "1",
+                      "--skip-kernel", FAKE_BUILD_RPMS_MODE="fail")
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("not ok 1 - rpm build", res.stdout)
+        self.assertIn("not ok 3 - iso assembly", res.stdout)
+        self.assertIn("blocked: rpm build failed", res.stdout)
+        self.assertIn("# SKIP blocked: rpm build failed", res.stdout)
+        manifest = self.manifest()
+        self.assertIn("stage iso=blocked", manifest)
+        self.assertIn("stage install=skip", manifest)
+        self.assertFalse((self.out / "logs" / "build-desktop.log").exists())
 
     def test_full_chain(self):
         self.tools(desk=True)
