@@ -12,6 +12,7 @@
 # ===========================================================================
 
 import hashlib
+import re
 import shutil
 import subprocess
 import tempfile
@@ -522,6 +523,35 @@ class MediaArgsTest(unittest.TestCase):
             body = (self.root / f"{label}.args.all").read_text(
                 encoding="utf-8").split()
             self.assertEqual("--closure" in body, want, label)
+
+
+# 验收载荷有两处声明：run-image-ci.sh 的 accept_ks 决定哪些文件随 ISO 进
+# 介质，acceptance.part 决定哪些文件被装进目标系统。两处只靠人眼对齐时，
+# 漏拷一行不会报错，只会把判据悄悄改成另一种语义：run 41989055666 的 T23
+# 正是镜像里只有 run-smoke.sh 没有 err-budget，棘轮按「读不到即 0」判负。
+# 这里把两处声明直接对账，新增载荷少拷贝一次即失败。
+class AcceptFixtureTest(unittest.TestCase):
+    """accept_ks 声明的载荷必须全部由验收夹具装进目标系统。"""
+
+    ADD = re.compile(r'ADDS\+=\("\$\{DISTRO_ROOT\}/(ci/[^"]+)"\)')
+    COPY = re.compile(r"/run/install/repo/(\S+)")
+
+    def test_payload_installed(self):
+        part = DISTRO / "ci" / "ks" / "acceptance.part"
+        adds = self.ADD.findall(SCRIPT.read_text(encoding="utf-8"))
+        self.assertTrue(adds, "accept_ks 未声明任何载荷")
+        copied = set(self.COPY.findall(part.read_text(encoding="utf-8")))
+        # mkksiso -a 按 basename 落到 ISO 根：文件即原名，目录保留其名。
+        want = set()
+        for rel in adds:
+            path = DISTRO / rel
+            name = path.name
+            if path.is_dir():
+                want |= {f"{name}/{p.name}" for p in path.iterdir()
+                         if p.is_file()}
+            else:
+                want.add(name)
+        self.assertEqual(sorted(want - copied), [])
 
 
 if __name__ == "__main__":
