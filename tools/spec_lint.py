@@ -35,6 +35,7 @@
 
 from __future__ import annotations
 
+import datetime
 import re
 import sys
 from pathlib import Path
@@ -62,6 +63,9 @@ TAG = re.compile(r"^(Name|Version|Release|Summary|License|URL|Epoch|"
 SEC = re.compile(r"^%(" + "|".join(SECTION) + r")(?:\s+(.*))?$")
 LOG = re.compile(r"^\*\s+[A-Z][a-z]{2}\s+[A-Z][a-z]{2}\s+\d{1,2}\s+"
                  r"\d{4}\s+.+<[^<>]+>\s+-\s+\S+$")
+CHG = re.compile(r"^\*\s+([A-Z][a-z]{2})\s+([A-Z][a-z]{2})\s+(\d{1,2})"
+                 r"\s+(\d{4})\s")
+DOW = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 MACRO = re.compile(r"^%(?:global|define)\s+(\w+)\s+(.+)$")
 BAD = re.compile(r"\b(TODO|FIXME|XXX)\b")
 SRC = re.compile(r"^Source\d+$")
@@ -288,6 +292,32 @@ def check_log(lines: list[str], secs: list[tuple[str, str, int]],
         issues.append(Issue("E011", num + 1, "bad changelog header"))
     if len(body) < 2 or not body[1].lstrip().startswith("- "):
         issues.append(Issue("E011", num + 1, "missing changelog entry"))
+    check_dow(lines, num, issues)
+
+
+# rpm 只告警不报错的缺陷：星期手工填写，与实际日期不符时打包日志里出现
+# "bogus date"。这类笔误不会让构建失败，却会一路进到发行资产的元数据，
+# 所以由 lint 拦在提交侧。
+def check_dow(lines: list[str], start: int, issues: list[Issue]) -> None:
+    for off in range(start, len(lines)):
+        tag = chg_tag(lines[off].strip())
+        if tag is None:
+            continue
+        issues.append(Issue("E017", off + 1, f"changelog weekday is {tag}"))
+
+
+def chg_tag(line: str) -> str | None:
+    hit = CHG.match(line)
+    if not hit:
+        return None
+    try:
+        day = datetime.date(int(hit.group(4)),
+                            datetime.datetime.strptime(hit.group(2), "%b").month,
+                            int(hit.group(3)))
+    except ValueError:
+        return "?"
+    tag = DOW[day.weekday()]
+    return None if tag == hit.group(1) else tag
 
 
 def check_cmt(lines: list[str], issues: list[Issue]) -> None:
