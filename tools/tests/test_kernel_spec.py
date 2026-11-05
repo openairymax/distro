@@ -33,6 +33,12 @@ REQUIRED = (
     "CONFIG_AIRY_AGENT_TRACING=y",
     "CONFIG_AIRY_CAP_TABLE_SIZE=1024",
     "CONFIG_IO_URING=y",
+    # T23：叶子单元 cgroup 的 RT 预算恒为 0，分组记账一旦回退，
+    # rtkit-daemon 每次开机都会刷 err 日志且音频拿不到实时优先级。
+    "# CONFIG_RT_GROUP_SCHED is not set",
+    # T23：产品不发布 /etc/keys/x509_*.der，内建加载路径只会报错。
+    "# CONFIG_IMA_LOAD_X509 is not set",
+    "# CONFIG_EVM_LOAD_X509 is not set",
 )
 
 
