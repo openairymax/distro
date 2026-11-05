@@ -674,6 +674,12 @@ class RunSmokeTest(unittest.TestCase):
             with self.subTest(name=name):
                 self.assert_fail(self.run_smoke(**{name: "100"}), 4)
 
+    def test_slice_weight_protected(self):
+        """争用下 coexist 抬到 200 是 X-05 的合法取值，不能判负。"""
+        self.tools()
+        res = self.run_smoke(FAKE_CPU="200")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+
     def test_slice_tasks_infinity(self):
         self.tools()
         res = self.run_smoke(FAKE_TASKS="infinity")
