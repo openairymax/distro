@@ -59,6 +59,11 @@
 #       主题都能解析到 index.theme
 #   T26 无线固件路径：内核按扁平名取固件，intel/iwlwifi/ 下每个文件在固件根
 #       上都有同名条目；基底回到扁平布局时判据同样成立
+#   T27 现场诊断工具：lsusb/lsof/pactl/airy-bright 随镜像交付
+#   T28 网络前端闭包：kylin-nm 与控制中心三个网络模块同属一次安装，缺任一件
+#       时面板网络图标与控制中心网络入口同时消失，而无线本身可用
+#   T29 触控板：ACPI 有内建触控板节点时必须出现输入设备；无此硬件按能力
+#       不适用通过。LPSS 的 PCI ID 缺项时总线不存在、日志无错，只能这样判
 #
 # 判定语义:
 #   0  — 全部通过
@@ -1324,8 +1329,53 @@ t27_field_tools() {
     printf 'field tools: lsusb lsof pactl airy-bright\n'
 }
 
+# 网络前端闭包（0.0.4 台账 D-08）：面板的 statusnotifier 白名单按名等待
+# kylin-nm，控制中心的网络模块也由同一包提供。两者同时缺席时右下角网络
+# 图标整块消失、控制中心没有网络入口，而无线本身仍然可用——只看 nmcli
+# 或网络连通性会漏判，所以这里按文件判闭包。
+t28_net_front() {
+    local bin="${SYSROOT}/usr/bin/kylin-nm" mod
+    local miss=""
+
+    [ -x "${bin}" ] || miss=" kylin-nm"
+    for mod in libnetconnect.so libwlanconnect.so libmobilehotspot.so; do
+        [ -f "${SYSROOT}/usr/lib64/ukui-control-center/${mod}" ] ||
+            miss="${miss} ${mod}"
+    done
+    [ -z "${miss}" ] || {
+        printf 'not in image:%s\n' "${miss}"
+        return 1
+    }
+    printf 'net front: kylin-nm + 3 ukcc modules\n'
+}
+
+# 触控板（0.0.4 台账 HW-02）：内建触控板挂在 ACPI 的 I2C 控制器下，由
+# intel-lpss 建总线、i2c-hid 枚举。LPSS 的 PCI ID 缺项时总线根本不存在，
+# 触控板无声消失，日志里也没有错误——只能按「ACPI 有硬件、输入子系统
+# 无设备」判定。无此硬件的机型按能力不适用通过，不记为掩盖。
+t29_touchpad() {
+    local path hit=0 dev="${SYSROOT}/proc/bus/input/devices"
+
+    for path in "${SYSROOT}"/sys/bus/acpi/devices/*/path; do
+        [ -r "${path}" ] || continue
+        case "$(cat "${path}")" in
+        *.TPAD | *.TPD0 | *.TPD1) hit=1 ;;
+        esac
+    done
+    if [ "${hit}" -eq 0 ]; then
+        printf 'no i2c-hid touchpad in ACPI\n'
+        return 0
+    fi
+    if grep -qi touchpad "${dev}" 2>/dev/null; then
+        printf 'touchpad: input device present\n'
+        return 0
+    fi
+    printf 'ACPI 有触控板节点，输入子系统无设备（I2C 控制器可能未绑定）\n'
+    return 1
+}
+
 printf 'TAP version 14\n'
-printf '1..27\n'
+printf '1..29\n'
 printf '# AirymaxOS distro smoke: target=%s date=%s\n' \
     "${TARGET}" "$(date -u '+%FT%TZ')"
 printf '# ownership: budget=%s\n' "${ERR_BUDGET}"
@@ -1361,6 +1411,8 @@ probe 24 "T24 desktop session steady" t24_session
 probe 25 "T25 desktop fonts and icons" t25_desktop_assets
 probe 26 "T26 wireless firmware layout" t26_wifi_fw_layout
 probe 27 "T27 field diagnostic tools" t27_field_tools
+probe 28 "T28 network front closure" t28_net_front
+probe 29 "T29 builtin touchpad" t29_touchpad
 
 printf '# summary: pass=%d fail=%d\n' "${PASS}" "${FAIL}"
 [ "${FAIL}" -eq 0 ]
