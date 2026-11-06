@@ -18,6 +18,7 @@
 
 import re
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -31,6 +32,10 @@ PACKAGE = "airymaxos-firmware"
 
 GLOBAL = re.compile(r"^%global\s+([A-Za-z_][\w]*)\s+(.+?)\s*$", re.M)
 REQUIRES = re.compile(r"^Requires:\s*(.+?)\s*$", re.M)
+# %post 到下一个段落之间的正文。兼容链接的全部逻辑都在这里，装机首启能否
+# 连上 Wi-Fi 取决于它，因此按可执行代码测，不按「写了注释」测。
+POST = re.compile(r"^%post\s*$(.*?)(?=^%[a-z]+)", re.M | re.S)
+PREFIX = "%{_prefix}"
 
 
 def globals_of(text):
@@ -65,6 +70,14 @@ def ks_pkgs():
             if line and not line.startswith(("#", "%", "-")):
                 got.add(line)
     return got
+
+
+def alias_script(root):
+    """把 %post 正文里的 %{_prefix} 换成沙箱前缀后返回可执行脚本。"""
+    found = POST.search(read(FW_SPEC))
+    if not found:
+        raise AssertionError("固件包没有 %post，兼容链接无从生成")
+    return found.group(1).replace(PREFIX, str(root / "usr"))
 
 
 class FirmwareContractTest(unittest.TestCase):
@@ -110,6 +123,52 @@ class FirmwareContractTest(unittest.TestCase):
             capture_output=True, text=True, check=True)
         got = set(out.stdout.split())
         self.assertEqual(got, manifest_pkgs() | {PACKAGE})
+
+    def run_alias(self, root):
+        return subprocess.run(["sh", "-c", alias_script(root)],
+                              capture_output=True, text=True)
+
+    def test_wifi_alias_links_flat_names(self):
+        """每个 intel/ 下的固件都要在固件根上有同名条目：内核只认扁平名，
+        缺一条就是首启「未发现 Wi-Fi 设备」。.pnvm 与 .ucode 同等对待。"""
+        names = ("iwlwifi-gl-c0-fm-c0-83.ucode", "iwlwifi-gl-c0-fm-c0.pnvm")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            src = root / "usr" / "lib" / "firmware" / "intel" / "iwlwifi"
+            src.mkdir(parents=True)
+            for name in names:
+                (src / name).write_bytes(b"\0")
+            res = self.run_alias(root)
+            self.assertEqual(res.returncode, 0, res.stderr)
+            for name in names:
+                link = root / "usr" / "lib" / "firmware" / name
+                self.assertTrue(link.is_symlink(), name)
+                self.assertEqual(link.readlink(), Path("intel/iwlwifi") / name)
+
+    def test_wifi_alias_keeps_base_files(self):
+        """基底自带扁平文件时原样保留：链接是补齐手段，不是覆盖手段。"""
+        name = "iwlwifi-1000-5.ucode"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            src = root / "usr" / "lib" / "firmware" / "intel" / "iwlwifi"
+            src.mkdir(parents=True)
+            (src / name).write_bytes(b"\0")
+            flat = root / "usr" / "lib" / "firmware" / name
+            flat.write_bytes(b"base")
+            res = self.run_alias(root)
+            self.assertEqual(res.returncode, 0, res.stderr)
+            self.assertFalse(flat.is_symlink())
+            self.assertEqual(flat.read_bytes(), b"base")
+
+    def test_wifi_alias_noop_on_flat_layout(self):
+        """基底回到扁平布局时脚本不产生任何条目，也不会因缺目录而失败。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fw = root / "usr" / "lib" / "firmware"
+            fw.mkdir(parents=True)
+            res = self.run_alias(root)
+            self.assertEqual(res.returncode, 0, res.stderr)
+            self.assertEqual(list(fw.iterdir()), [])
 
 
 if __name__ == "__main__":
