@@ -40,6 +40,12 @@ PACKAGES = ("airymaxos-desktop", "airymaxos-system", "kernel-alk")
 SESSION_PROCS = ("ukui-panel", "ukui-kwin_x11", "ukui-settings-d",
                  "peony-qt-deskto")
 
+# T28 的网络前端闭包：控制中心的三个网络模块与面板的 statusnotifier
+# 条目同由 kylin-nm 提供，缺一即图标整块消失。
+NET_MODULES = ("libnetconnect.so", "libwlanconnect.so", "libmobilehotspot.so")
+# T29 的 ACPI 路径后缀：内建触控板挂在 LPSS 的 I2C 控制器下。
+TPAD_PATH = "\\_SB.PC00.I2C0.TPAD"
+
 LEGACY = ("tauri", "webkitwebprocess", "fcitx5", "pipewire",
           "kylin-app-cgroupd")
 
@@ -174,6 +180,50 @@ class RunSmokeTest(unittest.TestCase):
         self.write_desktop_assets()
         self.write_wifi_firmware()
         self.write_field_tools()
+        self.write_net_front()
+
+    def write_net_front(self, kylin=True, modules=NET_MODULES):
+        """T28 的落点：面板与控制中心共用的网络前端闭包。判的是文件是否
+        进镜像，因此只落可执行位与模块文件，不提供运行逻辑。"""
+        bindir = self.sysroot / "usr" / "bin"
+        bindir.mkdir(parents=True, exist_ok=True)
+        link = bindir / "kylin-nm"
+        if kylin:
+            link.write_text("#!/bin/sh\n", encoding="utf-8")
+            link.chmod(0o755)
+        elif link.exists():
+            link.unlink()
+        moddir = self.sysroot / "usr" / "lib64" / "ukui-control-center"
+        for name in NET_MODULES:
+            path = moddir / name
+            if name not in modules:
+                if path.exists():
+                    path.unlink()
+                continue
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"\x7fELF")
+        return bindir
+
+    def write_acpi_touchpad(self, node="PNP0C50:00", path=TPAD_PATH):
+        """T29 的落点：ACPI 命名空间里存在触控板节点，但输入子系统是否
+        枚举出来是另一件事——两者之差正是 LPSS 控制器未绑定的形态。"""
+        devices = self.sysroot / "sys" / "bus" / "acpi" / "devices"
+        target = devices / node / "path"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(f"{path}\n", encoding="utf-8")
+        return target
+
+    def write_input_devices(self, touchpad=True):
+        """T29 的落点：/proc/bus/input/devices 的键值块。"""
+        body = "I: Bus=0018 Vendor=04f3 Product=31b9 Version=0100\n"
+        if touchpad:
+            body += 'N: Name="ELAN0676:00 04F3:31B9 Touchpad"\n'
+        else:
+            body += 'N: Name="AT Translated Set 2 keyboard"\n'
+        path = self.sysroot / "proc" / "bus" / "input" / "devices"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+        return path
 
     def write_field_tools(self):
         """T27 的落点：现场诊断工具在镜像内的落盘位置。判的是打包闭包，
@@ -1577,6 +1627,56 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke()
         self.assert_fail(res, 17)
         self.assertIn("lsblk not installed", res.stdout)
+
+    def test_net_front_ok(self):
+        # 沙箱默认即闭包齐备的形态：三个控制中心模块与 kylin-nm 同时在位
+        self.tools()
+        res = self.run_smoke()
+        self.assertTrue(self.tap(res, 28).startswith("ok"), res.stdout)
+        self.assertIn("net front: kylin-nm + 3 ukcc modules", res.stdout)
+
+    def test_net_front_no_kylin(self):
+        # 面板按名等待 kylin-nm：面板自身正常、网络也通，但图标整块消失
+        self.tools()
+        self.write_net_front(kylin=False)
+        res = self.run_smoke()
+        self.assert_fail(res, 28)
+        self.assertIn("not in image: kylin-nm", res.stdout)
+
+    def test_net_front_no_module(self):
+        # 包在、模块被拆掉：控制中心点「网络」即报模块加载失败
+        self.tools()
+        self.write_net_front(modules=("libnetconnect.so", "libwlanconnect.so"))
+        res = self.run_smoke()
+        self.assert_fail(res, 28)
+        self.assertIn("libmobilehotspot.so", res.stdout)
+
+    def test_touchpad_bound(self):
+        # ACPI 有节点、输入子系统也枚举出来：I2C-HID 链路完整
+        self.tools()
+        self.write_acpi_touchpad()
+        self.write_input_devices()
+        res = self.run_smoke()
+        self.assertTrue(self.tap(res, 29).startswith("ok"), res.stdout)
+        self.assertIn("touchpad: input device present", res.stdout)
+
+    def test_touchpad_unbound(self):
+        # LPSS 缺 PCI ID 的实机形态：ACPI 节点在、输入子系统空白、
+        # 内核日志无错误，只能靠两侧对照判定（0.0.4 台账 HW-02）
+        self.tools()
+        self.write_acpi_touchpad()
+        self.write_input_devices(touchpad=False)
+        res = self.run_smoke()
+        self.assert_fail(res, 29)
+        self.assertIn("ACPI 有触控板节点，输入子系统无设备", res.stdout)
+
+    def test_touchpad_absent_hw(self):
+        # 无内建触控板的机型按能力不适用通过，不记为掩盖
+        self.tools()
+        self.write_input_devices(touchpad=False)
+        res = self.run_smoke()
+        self.assertTrue(self.tap(res, 29).startswith("ok"), res.stdout)
+        self.assertIn("no i2c-hid touchpad in ACPI", res.stdout)
 
     def test_build_id_ok(self):
         self.tools()
