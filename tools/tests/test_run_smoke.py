@@ -9,7 +9,7 @@
 # pgrep / xdpyinfo / ibus / pactl / systemctl / gsettings /
 # sha256sum / fc-list / uname / xrandr / findmnt / lsblk / dmesg /
 # hostname / hostnamectl，并给
-# T6–T18 与 T22、T25、T26 准备一份只读系统视图（AIRYMAX_SMOKE_ROOT），每个
+# T6–T18 与 T22、T25–T27 准备一份只读系统视图（AIRYMAX_SMOKE_ROOT），每个
 # 用例只破坏一个前提，从而在无桌面环境下判定真实控制流。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
@@ -173,6 +173,17 @@ class RunSmokeTest(unittest.TestCase):
         self.write_manifest()
         self.write_desktop_assets()
         self.write_wifi_firmware()
+        self.write_field_tools()
+
+    def write_field_tools(self):
+        """T27 的落点：现场诊断工具在镜像内的落盘位置。判的是打包闭包，
+        不是运行行为，因此只落可执行文件，不提供任何桩逻辑。"""
+        bindir = self.sysroot / "usr" / "bin"
+        bindir.mkdir(parents=True, exist_ok=True)
+        for name in ("lsusb", "lsof", "pactl", "airy-bright"):
+            tool = bindir / name
+            tool.write_text("#!/bin/sh\n", encoding="utf-8")
+            tool.chmod(0o755)
 
     def write_desktop_assets(self, theme="ukui", hicolor=True):
         """T25 的落点：图标主题目录。字体覆盖不落文件——那由 fc-list 伪实现
@@ -1513,6 +1524,14 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke()
         self.assert_fail(res, 16)
         self.assertIn("status=partial", res.stdout)
+
+    def test_field_tool_absent(self):
+        # 现场排障入口没进镜像：首启网络异常时只能靠猜（0.0.4 台账 P-01）
+        self.tools()
+        (self.sysroot / "usr" / "bin" / "lsusb").unlink()
+        res = self.run_smoke()
+        self.assert_fail(res, 27)
+        self.assertIn("not in image: lsusb", res.stdout)
 
     def test_disk_layout_ok(self):
         self.tools()
