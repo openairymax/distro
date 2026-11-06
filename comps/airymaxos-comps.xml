@@ -177,6 +177,16 @@
            装回此包面板存活，移除即秒崩。包名不带 ukui 前缀，台账必须逐字
            登记，否则闭包校验只看命名空间会漏判 -->
       <packagereq type="mandatory">libqt5-ukui-style1</packagereq>
+      <!-- Qt 平台主题插件：ukui-session 启动会话时把 QT_QPA_PLATFORMTHEME
+           固定为 ukui，Qt 据此到 plugins/platformthemes 按名加载本插件；
+           基底 ukui-session 未声明这条依赖，只靠求解进不来。缺席时 Qt 静默
+           回退 hicolor，系统图标主题整体失效——桌面只剩文字标签、
+           .desktop 图标全空、journal 每秒刷 QPainter::begin
+           "engine == 0, type: 2"、控制中心侧栏成黑块。2026-11-06 在 285H
+           以装包前后对照闭环：装上后 QIcon::themeName() 由 hicolor 变 ukui，
+           标准图标全部可解析。本包依赖 qt5-styles-ukui，后者补齐
+           plugins/styles，样式插件随之到位，无需另列 -->
+      <packagereq type="mandatory">qt5-ukui-platformtheme</packagereq>
       <!-- X11 服务端：真实包名 xorg-x11-server，它 Provides
            xorg-x11-server-Xorg / Xorg（后者不是包名） -->
       <packagereq type="mandatory">xorg-x11-server</packagereq>

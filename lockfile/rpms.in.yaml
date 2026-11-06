@@ -65,6 +65,10 @@ packages:
   # UKUI 的 Qt 风格库：运行时按名加载，基底包未声明依赖，靠求解进不来；
   # 缺席即面板 CustomStyle 构造期 SIGSEGV（285H 加减对照已闭环）
   - libqt5-ukui-style1
+  # Qt 平台主题插件：ukui-session 固定 QT_QPA_PLATFORMTHEME=ukui 后按名加载，
+  # 基底同样不声明依赖；缺席即回退 hicolor，桌面与文件管理器图标全空
+  # （285H 装包前后对照已闭环）
+  - qt5-ukui-platformtheme
   - xorg-x11-server
   - lightdm
   # airymax-desktop-core：图形工具、音频栈、驱动、授权
