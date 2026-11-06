@@ -342,6 +342,18 @@ assert_cfg()
     fi
 }
 
+# 负向断言按「未启用」判定，不按字面行判定。kconfig 只对**可见**符号写
+# "# CONFIG_X is not set"；父符号被关掉时整行不存在，字面断言就成了假失败，
+# 而配置其实完全符合要求。riscv64 的发布腿正是这样断的：基线 defconfig 没有
+# CONFIG_IMA，IMA_LOAD_X509 随 IMA 整块不可见，产物「没开」却被判成「没关」。
+assert_cfg_off()
+{
+    if grep -q "^$1=" %{ksrc}/.config; then
+        printf 'check: %s must not be enabled\n' "$1" >&2
+        exit 1
+    fi
+}
+
 assert_file()
 {
     if [ ! -s "$1" ]; then
@@ -372,12 +384,16 @@ assert_cfg 'CONFIG_BPF_UNPRIV_DEFAULT_OFF=y'
 # cpu.rt_runtime_us 置 0，rtkit-daemon 连自己的 canary/watchdog 线程都提不到
 # SCHED_RR，每次开机刷二十余条 err 日志，桌面音频也拿不到实时优先级。
 # 该项回退必须在打包阶段中断，而不是留到装机后的启动日志里。
-assert_cfg '# CONFIG_RT_GROUP_SCHED is not set'
+assert_cfg_off CONFIG_RT_GROUP_SCHED
 # 完整性内建密钥门禁（T23）：产品不发布 /etc/keys/x509_ima.der 与
 # x509_evm.der，打开 LOAD_X509 只会让内核在 ima_init()/evm_init() 各打印
 # 一条 "integrity: Unable to open file"。密钥链到位前这两项必须关闭。
-assert_cfg '# CONFIG_IMA_LOAD_X509 is not set'
-assert_cfg '# CONFIG_EVM_LOAD_X509 is not set'
+# riscv64/loongarch64 的基线 defconfig 不含 CONFIG_IMA，这两个符号在那里不可见，
+# 故判据只能落在「未启用」。两架构缺 IMA 是与 x86/arm64 的真实差异，0.0.5 需
+# 裁定是补齐三架构的 INTEGRITY/IMA，还是统一关闭；本版只记录差异、不动基线
+# （0.0.4 铁律①：内核配置变更一律顺延），也不在此处用断言把差异抹平。
+assert_cfg_off CONFIG_IMA_LOAD_X509
+assert_cfg_off CONFIG_EVM_LOAD_X509
 # 引导期驱动门禁（OP-P0-01）：B50 为 NVMe-only 存储，缺 NVMe 时装载后的
 # 系统无法挂载根分区；I226-V 有线走 igc，RTL8852BE 无线走 rtw89_8852be。
 # 基线回退（如误改回 defconfig）必须在此处中断打包，而不是留到装机现场。

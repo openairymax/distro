@@ -33,12 +33,17 @@ REQUIRED = (
     "CONFIG_AIRY_AGENT_TRACING=y",
     "CONFIG_AIRY_CAP_TABLE_SIZE=1024",
     "CONFIG_IO_URING=y",
+)
+
+# 负向判据只给符号名：kconfig 只对可见符号写 "# CONFIG_X is not set"，父符号
+# 被关掉时整行不存在，按字面断言会把合规配置判红（riscv64 无 CONFIG_IMA 即此）。
+FORBIDDEN = (
     # T23：叶子单元 cgroup 的 RT 预算恒为 0，分组记账一旦回退，
     # rtkit-daemon 每次开机都会刷 err 日志且音频拿不到实时优先级。
-    "# CONFIG_RT_GROUP_SCHED is not set",
+    "CONFIG_RT_GROUP_SCHED",
     # T23：产品不发布 /etc/keys/x509_*.der，内建加载路径只会报错。
-    "# CONFIG_IMA_LOAD_X509 is not set",
-    "# CONFIG_EVM_LOAD_X509 is not set",
+    "CONFIG_IMA_LOAD_X509",
+    "CONFIG_EVM_LOAD_X509",
 )
 
 
@@ -180,9 +185,19 @@ class KernelSpecTest(unittest.TestCase):
         for item in REQUIRED:
             self.assertIn("assert_cfg '%s'" % item, check)
 
+    def test_check_forbidden_configs(self):
+        check = body(self.text, "check")
+        for item in FORBIDDEN:
+            self.assertIn("assert_cfg_off %s" % item, check)
+            self.assertNotIn("assert_cfg '# %s is not set'" % item, check)
+        # 判定必须落在赋值行上：两种合规形态（not set 行、整行不存在）都放过，
+        # 只有真正写进 .config 的 =y/=m/=n/字符串才算启用。
+        self.assertIn('grep -q "^$1=" %{ksrc}/.config', check)
+
     def test_check_names_failures(self):
         check = body(self.text, "check")
         self.assertIn("check: config assertion failed: %s", check)
+        self.assertIn("check: %s must not be enabled", check)
         self.assertIn("check: missing or empty: %s", check)
         self.assertNotIn("\ntest -s ", "\n" + check)
 
