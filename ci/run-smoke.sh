@@ -73,6 +73,7 @@ PAPER_DIR=/usr/share/backgrounds/airymaxos
 PAPER_COUNT=3
 PAPER_SHA=fee7f439834ac7dacfc75deaf80a1db1c4bc7459583248eecc87125d52a5ef18
 BID_MAX=64
+T23_SHOWN=8
 START_WAIT="${AIRYMAX_SMOKE_WAIT:-30}"
 HOSTNAME_WANT="${AIRYMAX_SMOKE_HOST:-airymax-pc}"
 SYSROOT="${AIRYMAX_SMOKE_ROOT:-}"
@@ -100,10 +101,20 @@ tap_ok() {
     PASS=$((PASS + 1))
 }
 
+# 诊断输出常是多行（airy-observe 首行是计数，其后每行一条 err 明细）。
+# printf '#   %s\n' 只会给首行加注释前缀，其余行成为无前缀的裸文本，解析器
+# 视为非法行——失败现场越复杂，越容易把 TAP 本身写坏。逐行加前缀。
+note_lines() {
+    local line
+    while IFS= read -r line; do
+        printf '#   %s\n' "${line}"
+    done <<<"$1"
+}
+
 tap_fail() {
     printf 'not ok %s - %s\n' "$1" "$2"
     if [ -n "${3:-}" ]; then
-        printf '#   %s\n' "$3"
+        note_lines "$3"
     fi
     FAIL=$((FAIL + 1))
 }
@@ -114,8 +125,8 @@ probe() { # probe <编号> <名称> <探测函数>
     out="$("$@" 2>&1)"
     rc=$?
     if [ "${rc}" -eq 0 ]; then
-        [ -n "${out}" ] && printf '#   %s\n' "${out}"
         tap_ok "${id}" "${name}"
+        [ -n "${out}" ] && note_lines "${out}"
     else
         tap_fail "${id}" "${name}" "${out:-probe rc=${rc}}"
     fi
@@ -1035,7 +1046,14 @@ t23_inventory() {
         return 1
         ;;
     esac
+    # 状态干净不等于没发生过 err：外来条目在预算之内时 state 仍是 ok。
+    # 只留首行计数，「foreign=2」就永远说不清是哪两条，err-budget 的棘轮
+    # 只能靠猜着收紧。首行之后补上本轮 err 明细（上限 8 行，超出以一行
+    # 告知剩余条数），计数与明细对得上，棘轮才有可依据的证据。
     printf '%s\n' "${out}" | head -n 1
+    printf '%s\n' "${out}" | awk -v max="${T23_SHOWN}" '
+        /^error / { n++; if (n <= max) print; next }
+        END { if (n > max) printf "... %d more error rows\n", n - max }'
 }
 
 # T24 桌面会话收敛：T23 只回答「到现在为止有没有 err」，答不了「本轮观测里
