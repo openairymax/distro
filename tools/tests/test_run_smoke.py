@@ -1236,7 +1236,7 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke()
         self.assertIn("ok 23 - T23 system inventory", res.stdout)
         self.assertIn("state=ok units=0 errors=0 owned=0 foreign=0"
-                      " unknown=0", res.stdout)
+                      " firmware=0 unknown=0", res.stdout)
         self.assertIn("packages=ok", res.stdout)
 
     def test_inventory_failed_unit(self):
@@ -1280,7 +1280,19 @@ class RunSmokeTest(unittest.TestCase):
             **self.journal({"MESSAGE": "card busy",
                             "_SYSTEMD_UNIT": "cups.service"}))
         self.assertIn("ok 23 - T23 system inventory", res.stdout)
-        self.assertIn("foreign=1 unknown=0 budget=1", res.stdout)
+        self.assertIn("foreign=1 firmware=0 unknown=0 budget=1", res.stdout)
+
+    def test_inventory_firmware_layer_free(self):
+        # 主板 ACPI 表缺陷逐字重现、发行版改不了：单列固件层，不吃预算
+        self.tools()
+        res = self.run_smoke(
+            AIRYMAX_SMOKE_BUDGET="0",
+            **self.journal({"MESSAGE": "ACPI BIOS Error (bug): Failure "
+                                       "creating named object",
+                            "SYSLOG_IDENTIFIER": "kernel",
+                            "_TRANSPORT": "kernel"}))
+        self.assertIn("ok 23 - T23 system inventory", res.stdout)
+        self.assertIn("firmware=1", res.stdout)
 
     def test_inventory_foreign_over_budget(self):
         # 同一条日志，预算收紧到 0 即失败：判定确实由预算驱动
