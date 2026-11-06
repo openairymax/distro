@@ -43,8 +43,11 @@ SESSION_PROCS = ("ukui-panel", "ukui-kwin_x11", "ukui-settings-d",
 # T28 的网络前端闭包：控制中心的三个网络模块与面板的 statusnotifier
 # 条目同由 kylin-nm 提供，缺一即图标整块消失。
 NET_MODULES = ("libnetconnect.so", "libwlanconnect.so", "libmobilehotspot.so")
-# T29 的 ACPI 路径后缀：内建触控板挂在 LPSS 的 I2C 控制器下。
-TPAD_PATH = "\\_SB.PC00.I2C0.TPAD"
+# T29 的 ACPI 路径后缀：内建触控板挂在 LPSS 的 I2C 控制器下。两条路径取自
+# 285H 实测（ELAN06FA:00 -> \_SB_.PC00.I2C0.TPAD，PNP0C50:00 ->
+# \_SB_.PC00.I2C4.TPD0），四种命名各有厂家在用的机型，探针按后缀统一判定。
+TPAD_PATH = "\\_SB_.PC00.I2C0.TPAD"
+TPD0_PATH = "\\_SB_.PC00.I2C4.TPD0"
 
 # T30 的托盘三件：可执行名与 autostart 条目的 unit 名并不一一对应，音量那
 # 件的 desktop 去掉了 -qt 后缀。按可执行名去推条目名必漏，故成对登记。
@@ -1689,6 +1692,16 @@ class RunSmokeTest(unittest.TestCase):
         # ACPI 有节点、输入子系统也枚举出来：I2C-HID 链路完整
         self.tools()
         self.write_acpi_touchpad()
+        self.write_input_devices()
+        res = self.run_smoke()
+        self.assertTrue(self.tap(res, 29).startswith("ok"), res.stdout)
+        self.assertIn("touchpad: input device present", res.stdout)
+
+    def test_touchpad_tpd0(self):
+        # 另一族固件的命名（PNP0C50 挂 TPD0）：后缀不同但同属内建触控板，
+        # 只认 TPAD 一种就会把这类机型误判成「无硬件」
+        self.tools()
+        self.write_acpi_touchpad(node="PNP0C50:00", path=TPD0_PATH)
         self.write_input_devices()
         res = self.run_smoke()
         self.assertTrue(self.tap(res, 29).startswith("ok"), res.stdout)
