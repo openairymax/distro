@@ -331,7 +331,7 @@ ln -sfn /usr/src/kernels/%{kernel_release} \
 
 %check
 # 断言必须自带失败原因：grep/test 的静默失败在 CI 只呈现为一行
-# "Bad exit status (%check)"，配合 log_tail 的截尾窗口，定位只能靠重跑。
+# "Bad exit status (%%check)"，配合 log_tail 的截尾窗口，定位只能靠重跑。
 # 两个辅助函数成功时零输出，失败时把判据写到 stderr 再退出，
 # 不依赖 rpm 给 scriptlet 传的 -e。
 assert_cfg()
