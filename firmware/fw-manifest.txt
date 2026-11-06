@@ -41,8 +41,18 @@
 # 蓝牙：控制器固件 sfi 与设备配置 ddc 成对，缺 ddc 时控制器可枚举但
 #       配置失败；显卡：i915 的 GuC/HuC/DMC 都是 i915/ 下的 .bin；
 # 监管域：regulatory.db 与其签名，签名文件由尾部通配一并覆盖。
+#
+# 0.0.4 首装缺陷（285H / BE200，8086:272b）：SP3 的 linux-firmware 已按上游
+# 新布局把 Intel Wi-Fi 固件移进 intel/iwlwifi/，顶层不再有同名文件；而
+# 6.6.161-alk 的 iwlwifi 只按扁平名请求（modinfo -F firmware 可证），两者
+# 交集为空。驱动逐文件报 error -2、收束于 no suitable firmware found，网卡
+# 枚举得到、NetworkManager 却报未发现设备。下面两行记录包内真实布局，扁平
+# 名由 airymaxos-firmware 的 %post 生成兼容链接补齐；--root 核对时两套路径
+# 都必须命中，缺扁平名即判负。
 linux-firmware   wifi       /usr/lib/firmware/iwlwifi-*.ucode*
 linux-firmware   wifi       /usr/lib/firmware/iwlwifi-*.pnvm*
+linux-firmware   wifi       /usr/lib/firmware/intel/iwlwifi/iwlwifi-*.ucode*
+linux-firmware   wifi       /usr/lib/firmware/intel/iwlwifi/iwlwifi-*.pnvm*
 linux-firmware   bluetooth  /usr/lib/firmware/intel/ibt-*.sfi*
 linux-firmware   bluetooth  /usr/lib/firmware/intel/ibt-*.ddc*
 linux-firmware   gpu        /usr/lib/firmware/i915/*.bin*

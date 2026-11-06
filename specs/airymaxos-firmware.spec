@@ -110,6 +110,31 @@ done <"${manifest}"
 test "$(cat %{buildroot}%{_datadir}/airymaxos/firmware/kernel-abi)" = \
     '%{kernel_abi}'
 
+%post
+# 无线固件的兼容路径。本内核（6.6.161-alk）的 iwlwifi 只按扁平文件名取
+# 固件——`modinfo -F firmware iwlwifi` 列出的都是 iwlwifi-<家族>-<版本>.ucode
+# 与 iwlwifi-<家族>-<版本>.pnvm，没有任何目录前缀；而基底 openEuler 24.03
+# LTS-SP3 的 linux-firmware 已按上游新布局把 Intel Wi-Fi 固件移进
+# intel/iwlwifi/，顶层不再留同名文件。两者的交集为空：驱动加载时逐个文件报
+# "Direct firmware load ... failed with error -2"，最后以 "no suitable
+# firmware found" 收场。此时 lspci 有卡、rfkill 全开、固件包也装了，只有
+# NetworkManager 报「未发现 Wi-Fi 设备」。2026-11-06 在 285H（BE200，
+# 8086:272b）上以补齐 13 个扁平链接做加减对照复现并闭环。
+#
+# 链接在安装事务里生成而不是打进包体：目标文件属 linux-firmware，若把链接
+# 作为本包的文件声明，同一路径会被两个包持有，dnf 事务直接失败（本文件开头
+# 的约束同理）。%post 时 Requires 已就位，链接随固件包的实际文件集合生成，
+# 基底将来补上兼容链接或回到扁平布局时不会覆盖基底自己的文件。
+fwroot=%{_prefix}/lib/firmware
+[ -d "${fwroot}/intel/iwlwifi" ] || exit 0
+for f in "${fwroot}"/intel/iwlwifi/iwlwifi-*; do
+    [ -f "${f}" ] || continue
+    base=${f##*/}
+    [ -e "${fwroot}/${base}" ] || ln -s "intel/iwlwifi/${base}" \
+        "${fwroot}/${base}" || exit 0
+done
+exit 0
+
 %files
 %defattr(-, root, root, -)
 %dir %{_datadir}/airymaxos/firmware
