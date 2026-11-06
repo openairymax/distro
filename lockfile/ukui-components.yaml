@@ -117,6 +117,12 @@ components:
     segment: EPOL/main
     nvra: ukui-bluetooth-0:1.0.3-5.oe2403sp3.x86_64
     role: 蓝牙面板
+  - name: kylin-nm
+    state: present
+    segment: EPOL/main
+    nvra: kylin-nm-0:3.1.1-5.oe2403sp3.x86_64
+    role: 网络状态托盘与控制中心网络模块（libnetconnect/libwlanconnect/libmobilehotspot）
+    reason: ukui-panel 的 statusnotifier 白名单按名等待 kylin-nm，面板与控制中心都不声明这条依赖；缺席时右下角网络图标消失、控制中心无网络入口，而无线本身正常。包名不带 ukui 前缀，靠桌面命名空间过滤会漏判。硬依赖 network-manager-applet 与 libappindicator-gtk3 只在 everything 段，compose 由该段补齐，装机后不随四段仓库升级
   - name: ukui-clock
     state: present
     segment: EPOL/main

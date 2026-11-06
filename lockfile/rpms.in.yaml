@@ -62,6 +62,10 @@ packages:
   - ukui-greeter
   - ukui-themes
   - ukui-notification-daemon
+  # 网络前端：ukui-panel 的 statusnotifier 白名单按名等待，控制中心的网络
+  # 模块也由它提供；包名不带 ukui 前缀，只在台账 present 项里被收录。
+  # 缺席时网络图标与网络配置入口同时消失，而无线本身正常
+  - kylin-nm
   # UKUI 的 Qt 风格库：运行时按名加载，基底包未声明依赖，靠求解进不来；
   # 缺席即面板 CustomStyle 构造期 SIGSEGV（285H 加减对照已闭环）
   - libqt5-ukui-style1
