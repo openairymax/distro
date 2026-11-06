@@ -1033,15 +1033,19 @@ case "$1" in
 esac
 """
 
-# 冒烟 T16 的固件判据读内核日志。沙箱没有真内核，伪工具回放一份干净启动
-# （只有成功载入），FAKE_DMESG_FILE 指向日志时回放该文件，用来驱动三条
-# 失败签名；文件不可读时按真实 dmesg 的失败语义返回非零。
+# 冒烟 T16 的固件判据读内核日志。沙箱没有真内核，伪工具回放一份干净启动：
+# 固件加载器取到文件、驱动随后报出已载入版本——T21 判的是后者，只有前者
+# 说明文件在盘上但设备没拿到，不能当成干净。FAKE_DMESG_FILE 指向日志时
+# 回放该文件，用来驱动各条判据；文件不可读时按真实 dmesg 的失败语义返回
+# 非零。
 DMESG = """\
 #!/bin/sh
 [ -n "${FAKE_DMESG_FILE:-}" ] || {
     printf '[    0.000000] Linux version 6.6.157-alk\\n'
     printf '[    1.204811] iwlwifi 0000:00:14.3: '
     printf 'direct-loading firmware iwlwifi-cc-a0-77.ucode\\n'
+    printf '[    1.211003] iwlwifi 0000:00:14.3: loaded firmware version '
+    printf '77.ad46c98b.0 cc-a0-77.ucode op_mode iwlmvm\\n'
     exit 0
 }
 [ -r "${FAKE_DMESG_FILE}" ] || exit 1
