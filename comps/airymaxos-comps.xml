@@ -155,6 +155,14 @@
       <packagereq type="mandatory">ukui-greeter</packagereq>
       <packagereq type="mandatory">ukui-themes</packagereq>
       <packagereq type="mandatory">ukui-notification-daemon</packagereq>
+      <!-- 网络前端：ukui-panel 的 statusnotifier 白名单按名等待 kylin-nm，
+           控制中心的网络模块（libnetconnect/libwlanconnect/libmobilehotspot）
+           也由它提供。包名不带 ukui 前缀，桌面元包与依赖求解都不会带入；
+           缺席时右下角网络图标整块消失、控制中心没有网络配置入口，而无线
+           本身正常——0.0.4 285H 首装现场即此状态。硬依赖
+           network-manager-applet 与 libappindicator-gtk3 只在 everything
+           段，compose 期由 cost=2000 的该段补齐 -->
+      <packagereq type="mandatory">kylin-nm</packagereq>
       <!-- 字体：0.0.4 首装现场「文字全是方框」的根因是本组没有任何字体包。
            fontconfig 按 lang 回退到不含汉字的西文字体，会话照常启动、TAP
            也全绿，只有屏幕上是方框。中文取文泉驿两代（微米黑为主、正黑
