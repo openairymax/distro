@@ -11,9 +11,10 @@
 #   AIRYMAX_SMOKE_WAIT  守护进程就绪等待秒数（默认 30）
 #   AIRYMAX_SMOKE_HOST  期望的主机名（默认 airymax-pc，即配方值）
 #   AIRYMAX_SMOKE_ROOT  只读系统视图的根前缀（默认空，即真实 /）。T1、T5–T16、
-#                       T18 与 T23 读取 /run、/usr/share、/boot、/sys、/etc 下
-#                       的运行态标记、发行版标识与资产，单测在沙箱里用该前缀复核
-#                       判定，装机现场保持默认值。T17 读实时块层，不经该前缀。
+#                       T18 与 T23、T25、T26 读取 /run、/usr/share、/boot、
+#                       /sys、/etc、/usr/lib 下的运行态标记、发行版标识与资产，
+#                       单测在沙箱里用该前缀复核判定，装机现场保持默认值。
+#                       T17 读实时块层，不经该前缀。
 #   AIRYMAX_SMOKE_BUILD_ID  发布清单记录的构建来源指纹。给出时要求与本机
 #                       BUILD_ID 逐字相同，把「装的是这一轮产出的镜像」变成
 #                       可判定事实；缺省只校验机内两处一致。
@@ -53,6 +54,10 @@
 #   T24 桌面会话收敛：本轮冒烟全程核心进程 pid 不变，开机期没有崩溃重启；
 #       判定为 churn 时同附内核段错误行（崩溃落点）与 coredumpctl 的死亡方式
 #       （SIGSEGV/SIGABRT），把「崩了」推进到「怎么崩、崩在哪」
+#   T25 桌面字体与图标：有字体声明 lang=zh-cn，当前图标主题与 hicolor 兜底
+#       主题都能解析到 index.theme
+#   T26 无线固件路径：内核按扁平名取固件，intel/iwlwifi/ 下每个文件在固件根
+#       上都有同名条目；基底回到扁平布局时判据同样成立
 #
 # 判定语义:
 #   0  — 全部通过
@@ -1175,8 +1180,93 @@ t24_session() {
     return 1
 }
 
+# T25 桌面字体与图标：会话能起来不等于桌面能用。0.0.4 首装现场的文本全是
+# 方框、面板与开始菜单图标空白，而当时的 TAP 全绿——包组只声明了会话与
+# 主题，没有任何字体包，也没有图标兜底主题；字体缺失由 fontconfig 按 lang
+# 静默回退（回退到同样不含汉字的西文字体），图标缺失由 Qt 静默画成空白，
+# 两者都不会让会话启动失败，因此只能在装完之后按解析结果判。
+#
+# 判据取「解析到了什么」而不是「装了哪些包」：包在而没有字体声明 lang、
+# 主题名指向不存在的目录，都是同样的坏桌面；字体来自哪个包并不重要。
+# hicolor 必须单独断言：ukui 主题只覆盖自己命名的图标，第三方 .desktop 的
+# 图标全部落在 hicolor 上，缺它时开始菜单与任务栏照样是空白格。
+t25_desktop_assets() {
+    local fam theme file
+
+    need fc-list || return 1
+    fam=$(fc-list :lang=zh-cn family 2>/dev/null | head -n 1) || {
+        echo "fc-list failed"
+        return 1
+    }
+    [ -n "${fam}" ] || {
+        echo "no font declares lang=zh-cn"
+        return 1
+    }
+    need gsettings || return 1
+    theme=$(gsettings get org.ukui.style icon-theme-name 2>/dev/null) || {
+        echo "org.ukui.style icon-theme-name unavailable"
+        return 1
+    }
+    theme=${theme//\'/}
+    file="${SYSROOT}/usr/share/icons/${theme}/index.theme"
+    [ -s "${file}" ] || {
+        echo "icon theme '${theme}' has no index.theme"
+        return 1
+    }
+    file="${SYSROOT}/usr/share/icons/hicolor/index.theme"
+    [ -s "${file}" ] || {
+        echo "hicolor fallback theme missing"
+        return 1
+    }
+    printf 'zh font: %s\nicon theme: %s\n' "${fam}" "${theme}"
+}
+
+# T26 无线固件路径：内核的 iwlwifi 只按扁平文件名取固件（modinfo -F
+# firmware 列出的都是 iwlwifi-<家族>-<版本>.ucode），而 SP3 的 linux-firmware
+# 已按上游新布局把 Intel Wi-Fi 固件移入 intel/iwlwifi/，顶层不留兼容链接。
+# 驱动加载时逐个文件报 error -2，最后以 no suitable firmware found 收场：
+# lspci 有卡、rfkill 全开、NetworkManager 却报「未发现 Wi-Fi 设备」。T19 判
+# 的是内核日志，而验收跑在 QEMU 里没有 Intel 网卡，驱动根本不加载，这条缺陷
+# 因此一路全绿到真机才发作。
+#
+# 判据改为与硬件无关的路径事实：固件根上必须有与 intel/iwlwifi/ 同名的条目
+# （由 airymaxos-firmware 的兼容链接提供）。基底若回到扁平布局，「根上有
+# iwlwifi-*.ucode」同样成立；两种布局都没有，说明固件根本没进镜像。
+t26_wifi_fw_layout() {
+    local root="${SYSROOT}/usr/lib/firmware" src f b n=0 miss=
+
+    src="${root}/intel/iwlwifi"
+    if [ -d "${src}" ]; then
+        for f in "${src}"/*; do
+            [ -f "${f}" ] || continue
+            n=$((n + 1))
+            b=${f##*/}
+            [ -e "${root}/${b}" ] || miss="${miss} ${b}"
+        done
+        [ "${n}" -gt 0 ] || {
+            echo "no firmware under intel/iwlwifi"
+            return 1
+        }
+        [ -z "${miss}" ] || {
+            printf 'flat path missing:%s\n' "${miss}"
+            return 1
+        }
+        printf 'iwlwifi flat links: %s\n' "${n}"
+        return 0
+    fi
+    for f in "${root}"/iwlwifi-*.ucode; do
+        [ -e "${f}" ] || continue
+        n=$((n + 1))
+    done
+    [ "${n}" -gt 0 ] || {
+        echo "no iwlwifi firmware in image"
+        return 1
+    }
+    printf 'iwlwifi flat files: %s\n' "${n}"
+}
+
 printf 'TAP version 14\n'
-printf '1..24\n'
+printf '1..26\n'
 printf '# AirymaxOS distro smoke: target=%s date=%s\n' \
     "${TARGET}" "$(date -u '+%FT%TZ')"
 printf '# ownership: budget=%s\n' "${ERR_BUDGET}"
@@ -1209,6 +1299,8 @@ probe 21 "T21 firmware api match" t21_fw_api
 probe 22 "T22 runtime console state" t22_console_state
 probe 23 "T23 system inventory" t23_inventory
 probe 24 "T24 desktop session steady" t24_session
+probe 25 "T25 desktop fonts and icons" t25_desktop_assets
+probe 26 "T26 wireless firmware layout" t26_wifi_fw_layout
 
 printf '# summary: pass=%d fail=%d\n' "${PASS}" "${FAIL}"
 [ "${FAIL}" -eq 0 ]

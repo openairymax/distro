@@ -7,10 +7,10 @@
 # 脚本对外契约是：TAP 计划、逐项探测的判定，以及“探测工具缺失即失败”
 # 的退出码规则。这里用 PATH 沙箱提供伪 loginctl /
 # pgrep / xdpyinfo / ibus / pactl / systemctl / gsettings /
-# sha256sum / uname / xrandr / findmnt / lsblk / dmesg /
+# sha256sum / fc-list / uname / xrandr / findmnt / lsblk / dmesg /
 # hostname / hostnamectl，并给
-# T6–T18 与 T22 准备一份只读系统视图（AIRYMAX_SMOKE_ROOT），每个用例只破坏
-# 一个前提，从而在无桌面环境下判定真实控制流。
+# T6–T18 与 T22、T25、T26 准备一份只读系统视图（AIRYMAX_SMOKE_ROOT），每个
+# 用例只破坏一个前提，从而在无桌面环境下判定真实控制流。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
 # Version: 0.0.4
@@ -171,6 +171,43 @@ class RunSmokeTest(unittest.TestCase):
         self.write_assets()
         self.write_build_id()
         self.write_manifest()
+        self.write_desktop_assets()
+        self.write_wifi_firmware()
+
+    def write_desktop_assets(self, theme="ukui", hicolor=True):
+        """T25 的落点：图标主题目录。字体覆盖不落文件——那由 fc-list 伪实现
+        按 FAKE_FC_LANG_ZH_CN 作答，判定问的是 fontconfig 解到了什么。"""
+        base = self.sysroot / "usr" / "share" / "icons"
+        names = (([theme] if theme else []) + (["hicolor"] if hicolor else []))
+        for name in names:
+            path = base / name / "index.theme"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"[Icon Theme]\nName={name}\n", encoding="utf-8")
+        if not hicolor and (base / "hicolor").is_dir():
+            shutil.rmtree(base / "hicolor")
+
+    def write_wifi_firmware(self, name="iwlwifi-gl-c0-fm-c0-83.ucode",
+                            flat=True, legacy=False):
+        """T26 的落点：基底的新布局（intel/iwlwifi/）与固件根上的兼容链接；
+        legacy 模拟基底回到扁平布局的形态。"""
+        fw = self.sysroot / "usr" / "lib" / "firmware"
+        link = fw / name
+        src = fw / "intel" / "iwlwifi"
+        if legacy:
+            if src.is_dir():
+                shutil.rmtree(src)
+            if link.is_symlink():
+                link.unlink()
+            fw.mkdir(parents=True, exist_ok=True)
+            link.write_bytes(b"\0")
+            return link
+        src.mkdir(parents=True, exist_ok=True)
+        (src / name).write_bytes(b"\0")
+        if link.is_symlink() or link.exists():
+            link.unlink()
+        if flat:
+            link.symlink_to(f"intel/iwlwifi/{name}")
+        return link
 
     def write_manifest(self, names=PACKAGES):
         """T23 的落点：装机时由 %post 写下的交付包集合。"""
@@ -1383,6 +1420,44 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke()
         self.assert_fail(res, 19)
         self.assertIn("dmesg not installed", res.stdout)
+
+    def test_desktop_assets_ok(self):
+        # 判定看 fontconfig 解到了什么：沙箱给一族汉字字体即通过
+        self.tools()
+        res = self.run_smoke()
+        self.assertIn("zh font: WenQuanYi Micro Hei", res.stdout)
+        self.assertIn("icon theme: ukui", res.stdout)
+
+    def test_desktop_no_cjk_font(self):
+        # 只有西文字体的镜像：会话照常起来、西文正常，中文全是方框，
+        # 0.0.4 首装现场即此形态
+        self.tools()
+        res = self.run_smoke(FAKE_FC_LANG_ZH_CN="0")
+        self.assert_fail(res, 25)
+        self.assertIn("no font declares lang=zh-cn", res.stdout)
+
+    def test_desktop_no_hicolor(self):
+        # 缺 hicolor 时 ukui 自己命名的图标还在，第三方 .desktop 全空白
+        self.tools()
+        self.write_desktop_assets(hicolor=False)
+        res = self.run_smoke()
+        self.assert_fail(res, 25)
+        self.assertIn("hicolor fallback theme missing", res.stdout)
+
+    def test_wifi_fw_flat_missing(self):
+        # 新布局在、扁平名不在：内核逐文件报 error -2，网卡枚举正常但用不了
+        self.tools()
+        self.write_wifi_firmware(flat=False)
+        res = self.run_smoke()
+        self.assert_fail(res, 26)
+        self.assertIn("iwlwifi-gl-c0-fm-c0-83.ucode", res.stdout)
+
+    def test_wifi_fw_flat_layout(self):
+        # 基底回到扁平布局时判据同样成立，不能把正常镜像判负
+        self.tools()
+        self.write_wifi_firmware(legacy=True)
+        res = self.run_smoke()
+        self.assertIn("iwlwifi flat files: 1", res.stdout)
 
     def test_obs_bench_absent(self):
         # 观测工具没装进镜像：现场演示与故障定位都无从下手
