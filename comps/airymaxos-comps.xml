@@ -67,6 +67,11 @@
       <packagereq type="mandatory">kbd</packagereq>
       <packagereq type="mandatory">kexec-tools</packagereq>
       <packagereq type="mandatory">less</packagereq>
+      <!-- 现场诊断：首启网络异常时需确认 USB 网卡/dongle 是否被枚举，
+           以及哪个进程占着 socket；0.0.3 两代实机首启排障都卡在这两件事
+           上（台账 P-01）。二者均在基底 OS 仓可解析，由 smoke T27 回读 -->
+      <packagereq type="mandatory">lsof</packagereq>
+      <packagereq type="mandatory">usbutils</packagereq>
       <packagereq type="mandatory">man-db</packagereq>
       <packagereq type="mandatory">ncurses</packagereq>
       <packagereq type="mandatory">openssh</packagereq>

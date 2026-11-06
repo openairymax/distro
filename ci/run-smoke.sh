@@ -11,9 +11,10 @@
 #   AIRYMAX_SMOKE_WAIT  守护进程就绪等待秒数（默认 30）
 #   AIRYMAX_SMOKE_HOST  期望的主机名（默认 airymax-pc，即配方值）
 #   AIRYMAX_SMOKE_ROOT  只读系统视图的根前缀（默认空，即真实 /）。T1、T5–T16、
-#                       T18 与 T23、T25、T26 读取 /run、/usr/share、/boot、
-#                       /sys、/etc、/usr/lib 下的运行态标记、发行版标识与资产，
-#                       单测在沙箱里用该前缀复核判定，装机现场保持默认值。
+#                       T18 与 T23、T25–T27 读取 /run、/usr/share、/boot、
+#                       /sys、/etc、/usr/lib、/usr/bin 下的运行态标记、发行版
+#                       标识、资产与随镜像交付的工具，单测在沙箱里用该前缀
+#                       复核判定，装机现场保持默认值。
 #                       T17 读实时块层，不经该前缀。
 #   AIRYMAX_SMOKE_BUILD_ID  发布清单记录的构建来源指纹。给出时要求与本机
 #                       BUILD_ID 逐字相同，把「装的是这一轮产出的镜像」变成
@@ -1302,8 +1303,29 @@ t26_wifi_fw_layout() {
     printf 'iwlwifi flat files: %s\n' "${n}"
 }
 
+# 现场诊断工具闭包（0.0.4 台账 P-01）：0.0.3 在 B50 与 285H 首启后网络不通，
+# 现场既没有 lsusb 枚举 USB 网卡、也没有 lsof 查 socket 归属，只能靠猜。
+# 四个入口按本镜像实际技术栈选取，不照抄通用清单：
+#   lsusb       ← usbutils（基底 OS 仓）；USB 网卡与无线 dongle 是否被枚举
+#   lsof        ← lsof（基底 OS 仓）；NetworkManager/dhclient 的 socket 归属
+#   pactl       ← pulseaudio（本镜像音频栈，comps 显式声明）
+#   airy-bright ← airymaxos-system（背光；基底五仓均无 brightnessctl，以
+#                 filelists 实测为证，本产品自带的调节入口即闭包）
+t27_field_tools() {
+    local tool miss=
+
+    for tool in lsusb lsof pactl airy-bright; do
+        [ -x "${SYSROOT}/usr/bin/${tool}" ] || miss="${miss} ${tool}"
+    done
+    [ -z "${miss}" ] || {
+        printf 'not in image:%s\n' "${miss}"
+        return 1
+    }
+    printf 'field tools: lsusb lsof pactl airy-bright\n'
+}
+
 printf 'TAP version 14\n'
-printf '1..26\n'
+printf '1..27\n'
 printf '# AirymaxOS distro smoke: target=%s date=%s\n' \
     "${TARGET}" "$(date -u '+%FT%TZ')"
 printf '# ownership: budget=%s\n' "${ERR_BUDGET}"
@@ -1338,6 +1360,7 @@ probe 23 "T23 system inventory" t23_inventory
 probe 24 "T24 desktop session steady" t24_session
 probe 25 "T25 desktop fonts and icons" t25_desktop_assets
 probe 26 "T26 wireless firmware layout" t26_wifi_fw_layout
+probe 27 "T27 field diagnostic tools" t27_field_tools
 
 printf '# summary: pass=%d fail=%d\n' "${PASS}" "${FAIL}"
 [ "${FAIL}" -eq 0 ]
