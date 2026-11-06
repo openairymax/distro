@@ -178,7 +178,13 @@ class KernelSpecTest(unittest.TestCase):
     def test_check_required_configs(self):
         check = body(self.text, "check")
         for item in REQUIRED:
-            self.assertIn("grep -qx '%s'" % item, check)
+            self.assertIn("assert_cfg '%s'" % item, check)
+
+    def test_check_names_failures(self):
+        check = body(self.text, "check")
+        self.assertIn("check: config assertion failed: %s", check)
+        self.assertIn("check: missing or empty: %s", check)
+        self.assertNotIn("\ntest -s ", "\n" + check)
 
     def test_check_reads_vmlinux(self):
         check = body(self.text, "check")
