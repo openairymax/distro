@@ -856,11 +856,27 @@ printf 'Server Name: pulseaudio\\n'
 GSETTINGS = """\
 #!/bin/sh
 [ "${FAKE_GSETTINGS:-ok}" = ok ] || {
-    printf "No such schema 'org.mate.background'\\n" >&2
+    printf "No such schema '%s'\\n" "${2:-org.mate.background}" >&2
     exit 1
 }
-printf "'%s'\\n" \\
-    "${FAKE_PAPER:-/usr/share/backgrounds/airymaxos/qilian_photo_from_zhenyi.jpg}"
+# 冒烟读两类键：T5 的壁纸路径与 T25 的图标主题名。按 key 分派而不是
+# 「永远返回同一个值」，否则新增探测时伪实现会替判定作答。
+case "${3:-}" in
+icon-theme-name) printf "'%s'\\n" "${FAKE_ICON_THEME:-ukui}" ;;
+*)
+    printf "'%s'\\n" \\
+        "${FAKE_PAPER:-/usr/share/backgrounds/airymaxos/qilian_photo_from_zhenyi.jpg}"
+    ;;
+esac
+"""
+
+# 冒烟 T25 判「镜像里有没有字体声明 lang=zh-cn」：真机由 fontconfig 作答，
+# 沙箱给出固定的一族汉字字体；负例用 FAKE_FC_LANG_ZH_CN=0 模拟只有西文
+# 字体的镜像——那正是 0.0.4 首装时「文字全是方框」的形态。
+FC_LIST = """\
+#!/bin/sh
+[ "${FAKE_FC_LANG_ZH_CN:-1}" = 1 ] || exit 0
+printf '%s\\n' "${FAKE_FC_FAMILY:-WenQuanYi Micro Hei}"
 """
 
 SHA256SUM = """\
@@ -1283,7 +1299,7 @@ def smoke_tools(bin_dir, omit=()):
              ("xdpyinfo", XDPYINFO), ("ibus", IBUS),
              ("pactl", PACTL), ("systemctl", SYSTEMCTL),
              ("gsettings", GSETTINGS), ("sha256sum", SHA256SUM),
-             ("uname", UNAME), ("xrandr", XRANDR),
+             ("fc-list", FC_LIST), ("uname", UNAME), ("xrandr", XRANDR),
              ("findmnt", FINDMNT), ("lsblk", LSBLK), ("dmesg", DMESG),
              ("hostname", HOSTNAME), ("hostnamectl", HOSTNAMECTL),
              ("journalctl", JOURNALCTL), ("rpm", RPM),
