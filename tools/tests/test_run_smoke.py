@@ -46,6 +46,14 @@ NET_MODULES = ("libnetconnect.so", "libwlanconnect.so", "libmobilehotspot.so")
 # T29 的 ACPI 路径后缀：内建触控板挂在 LPSS 的 I2C 控制器下。
 TPAD_PATH = "\\_SB.PC00.I2C0.TPAD"
 
+# T30 的托盘三件：可执行名与 autostart 条目的 unit 名并不一一对应，音量那
+# 件的 desktop 去掉了 -qt 后缀。按可执行名去推条目名必漏，故成对登记。
+TRAY_PAIRS = (
+    ("kylin-nm", "kylin-nm"),
+    ("ukui-power-manager-tray", "ukui-power-manager-tray"),
+    ("ukui-volume-control-applet-qt", "ukui-volume-control-applet"),
+)
+
 LEGACY = ("tauri", "webkitwebprocess", "fcitx5", "pipewire",
           "kylin-app-cgroupd")
 
@@ -181,6 +189,7 @@ class RunSmokeTest(unittest.TestCase):
         self.write_wifi_firmware()
         self.write_field_tools()
         self.write_net_front()
+        self.write_tray()
 
     def write_net_front(self, kylin=True, modules=NET_MODULES):
         """T28 的落点：面板与控制中心共用的网络前端闭包。判的是文件是否
@@ -202,6 +211,31 @@ class RunSmokeTest(unittest.TestCase):
                 continue
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b"\x7fELF")
+        return bindir
+
+    def write_tray(self, bins=None, units=None):
+        """T30 的落点：托盘可执行文件与它们各自的 autostart 条目。两者任缺
+        一件，图标都不出现——包在而条目缺时进程根本不启动，且没有任何日志。
+        按 TRAY_PAIRS 全量对齐，未列入的形态会被删除，避免默认值残留。"""
+        bins = [pair[0] for pair in TRAY_PAIRS] if bins is None else bins
+        units = [pair[1] for pair in TRAY_PAIRS] if units is None else units
+        bindir = self.sysroot / "usr" / "bin"
+        unitdir = self.sysroot / "etc" / "xdg" / "autostart"
+        bindir.mkdir(parents=True, exist_ok=True)
+        unitdir.mkdir(parents=True, exist_ok=True)
+        for binname, unit in TRAY_PAIRS:
+            path = bindir / binname
+            if binname in bins:
+                path.write_text("#!/bin/sh\n", encoding="utf-8")
+                path.chmod(0o755)
+            elif path.exists():
+                path.unlink()
+            unit_path = unitdir / f"{unit}.desktop"
+            if unit in units:
+                unit_path.write_text("[Desktop Entry]\nType=Application\n",
+                                     encoding="utf-8")
+            elif unit_path.exists():
+                unit_path.unlink()
         return bindir
 
     def write_acpi_touchpad(self, node="PNP0C50:00", path=TPAD_PATH):
@@ -1677,6 +1711,31 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke()
         self.assertTrue(self.tap(res, 29).startswith("ok"), res.stdout)
         self.assertIn("no i2c-hid touchpad in ACPI", res.stdout)
+
+    def test_tray_ok(self):
+        # 三件齐备：网络、电量、音量三个托盘进程都在 autostart 里
+        self.tools()
+        res = self.run_smoke()
+        self.assertTrue(self.tap(res, 30).startswith("ok"), res.stdout)
+        self.assertIn("tray: nm, power, volume entry points present",
+                      res.stdout)
+
+    def test_tray_no_unit(self):
+        # 包在、autostart 条目缺：进程不自启，图标消失且无日志可查，
+        # 只能靠「可执行 + 条目」双件判定（0.0.4 台账 D-08 同族）
+        self.tools()
+        self.write_tray(units=("kylin-nm", "ukui-power-manager-tray"))
+        res = self.run_smoke()
+        self.assert_fail(res, 30)
+        self.assertIn("ukui-volume-control-applet.desktop", res.stdout)
+
+    def test_tray_no_bin(self):
+        # 条目在、可执行缺：autostart 拉起即失败，面板无图标
+        self.tools()
+        self.write_tray(bins=("kylin-nm", "ukui-power-manager-tray"))
+        res = self.run_smoke()
+        self.assert_fail(res, 30)
+        self.assertIn("ukui-volume-control-applet-qt", res.stdout)
 
     def test_build_id_ok(self):
         self.tools()

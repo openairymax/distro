@@ -64,6 +64,8 @@
 #       时面板网络图标与控制中心网络入口同时消失，而无线本身可用
 #   T29 触控板：ACPI 有内建触控板节点时必须出现输入设备；无此硬件按能力
 #       不适用通过。LPSS 的 PCI ID 缺项时总线不存在、日志无错，只能这样判
+#   T30 托盘三件：网络/电量/音量各由一个托盘进程提供，且都由 autostart
+#       拉起；包在而 autostart 缺时进程不自启，图标同样消失且无日志
 #
 # 判定语义:
 #   0  — 全部通过
@@ -1374,8 +1376,32 @@ t29_touchpad() {
     return 1
 }
 
+# 托盘三件（0.0.4 台账 D-08 的同族）：右下角的网络、电量、音量各由一个
+# 托盘进程提供，进程由 autostart 条目拉起。包在而 autostart 缺时进程不自启，
+# 图标消失且没有任何日志——因此按「可执行 + autostart」双件判定。
+t30_tray() {
+    local pair bin unit
+    local miss=""
+
+    for pair in \
+        kylin-nm:kylin-nm \
+        ukui-power-manager-tray:ukui-power-manager-tray \
+        ukui-volume-control-applet-qt:ukui-volume-control-applet; do
+        bin="${pair%%:*}"
+        unit="${pair##*:}"
+        [ -x "${SYSROOT}/usr/bin/${bin}" ] || miss="${miss} ${bin}"
+        [ -r "${SYSROOT}/etc/xdg/autostart/${unit}.desktop" ] ||
+            miss="${miss} ${unit}.desktop"
+    done
+    [ -z "${miss}" ] || {
+        printf 'not in image:%s\n' "${miss}"
+        return 1
+    }
+    printf 'tray: nm, power, volume entry points present\n'
+}
+
 printf 'TAP version 14\n'
-printf '1..29\n'
+printf '1..30\n'
 printf '# AirymaxOS distro smoke: target=%s date=%s\n' \
     "${TARGET}" "$(date -u '+%FT%TZ')"
 printf '# ownership: budget=%s\n' "${ERR_BUDGET}"
@@ -1413,6 +1439,7 @@ probe 26 "T26 wireless firmware layout" t26_wifi_fw_layout
 probe 27 "T27 field diagnostic tools" t27_field_tools
 probe 28 "T28 network front closure" t28_net_front
 probe 29 "T29 builtin touchpad" t29_touchpad
+probe 30 "T30 tray entry points" t30_tray
 
 printf '# summary: pass=%d fail=%d\n' "${PASS}" "${FAIL}"
 [ "${FAIL}" -eq 0 ]
