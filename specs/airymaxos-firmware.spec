@@ -123,7 +123,7 @@ test "$(cat %{buildroot}%{_datadir}/airymaxos/firmware/kernel-abi)" = \
 #
 # 链接在安装事务里生成而不是打进包体：目标文件属 linux-firmware，若把链接
 # 作为本包的文件声明，同一路径会被两个包持有，dnf 事务直接失败（本文件开头
-# 的约束同理）。%post 时 Requires 已就位，链接随固件包的实际文件集合生成，
+# 的约束同理）。%%post 时 Requires 已就位，链接随固件包的实际文件集合生成，
 # 基底将来补上兼容链接或回到扁平布局时不会覆盖基底自己的文件。
 fwroot=%{_prefix}/lib/firmware
 [ -d "${fwroot}/intel/iwlwifi" ] || exit 0
