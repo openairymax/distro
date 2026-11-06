@@ -998,8 +998,45 @@ t20_fw_microcode() {
     fw_clean 'failed to run init ucode' 'stale CPU microcode'
 }
 
+# T21 判的是「无线设备有没有真的拿到固件」，不是「固件有没有比内核新」。
+# 驱动遇到自己不认识的 API 标志组时先打一条 IWL_WARN、再忽略该组继续载入
+# （iwl-drv.c 的 iwl_set_ucode_api_flags 越界即 return），随发行版固件比
+# 内核新而来的告警因此是常态：2026-11-06 的 285H 在告警之后
+# loaded firmware version 83.ec13314b.0、PNVM 与 PHC 全部就绪、无线可用。
+# 以告警为签名会把常态判成缺陷，让本项长期为红。改判正证据：内核枚举到的
+# 每个 iwlwifi 设备都必须有一行 loaded firmware version —— 设备在而固件没
+# 载入时，无论日志用哪句话解释（载入失败、根本没有可用的 blob、模块被退
+# 回旧版本），这台机器的无线能力都不可用。
 t21_fw_api() {
-    fw_clean 'api flags index [0-9]+ larger' 'a firmware API mismatch'
+    local log devs bdf miss= ver=
+
+    need dmesg || return 1
+    log=$(dmesg 2>/dev/null) || {
+        printf 'kernel log unreadable: cannot rule out an unloaded wireless firmware\n'
+        return 1
+    }
+    devs=$(printf '%s\n' "${log}" \
+        | sed -n 's/^.*iwlwifi \([0-9a-f:.]*\): .*/\1/p' \
+        | sort -u)
+    [ -n "${devs}" ] || {
+        echo "no iwlwifi device"
+        return 0
+    }
+    for bdf in ${devs}; do
+        if printf '%s\n' "${log}" \
+            | grep -q "iwlwifi ${bdf}: loaded firmware version"; then
+            continue
+        fi
+        miss="${miss} ${bdf}"
+    done
+    [ -z "${miss}" ] || {
+        printf 'wireless device without loaded firmware:%s\n' "${miss}"
+        return 1
+    }
+    ver=$(printf '%s\n' "${log}" \
+        | sed -n 's/^.*iwlwifi [0-9a-f:.]*: loaded firmware version \([^ ]*\).*/\1/p' \
+        | head -n 1)
+    printf 'wireless firmware loaded: %s\n' "${ver}"
 }
 
 # T22 运行期控制台：默认文件只说明「下一次 grub2-mkconfig 会写出什么」，而
