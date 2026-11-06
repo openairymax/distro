@@ -330,56 +330,79 @@ ln -sfn /usr/src/kernels/%{kernel_release} \
     %{buildroot}/usr/lib/modules/%{kernel_release}/source
 
 %check
-grep -qx 'CONFIG_SECURITY=y' %{ksrc}/.config
-grep -qx 'CONFIG_SECURITY_AIRY=y' %{ksrc}/.config
-grep -qx 'CONFIG_AIRY_SYSCALL=y' %{ksrc}/.config
-grep -qx 'CONFIG_AIRY_COREKERN=y' %{ksrc}/.config
-grep -qx 'CONFIG_AIRY_LOG=y' %{ksrc}/.config
-grep -qx 'CONFIG_AIRY_IPC=y' %{ksrc}/.config
-grep -qx 'CONFIG_AIRY_AGENT_TRACING=y' %{ksrc}/.config
-grep -qx 'CONFIG_AIRY_CAP_TABLE_SIZE=1024' %{ksrc}/.config
-grep -qx 'CONFIG_IO_URING=y' %{ksrc}/.config
-grep -qx 'CONFIG_USER_NS=y' %{ksrc}/.config
-grep -qx 'CONFIG_LOCALVERSION="%{kernel_local}"' %{ksrc}/.config
+# 断言必须自带失败原因：grep/test 的静默失败在 CI 只呈现为一行
+# "Bad exit status (%check)"，配合 log_tail 的截尾窗口，定位只能靠重跑。
+# 两个辅助函数成功时零输出，失败时把判据写到 stderr 再退出，
+# 不依赖 rpm 给 scriptlet 传的 -e。
+assert_cfg()
+{
+    if ! grep -qxE "$1" %{ksrc}/.config; then
+        printf 'check: config assertion failed: %s\n' "$1" >&2
+        exit 1
+    fi
+}
+
+assert_file()
+{
+    if [ ! -s "$1" ]; then
+        printf 'check: missing or empty: %s\n' "$1" >&2
+        exit 1
+    fi
+}
+
+assert_cfg 'CONFIG_SECURITY=y'
+assert_cfg 'CONFIG_SECURITY_AIRY=y'
+assert_cfg 'CONFIG_AIRY_SYSCALL=y'
+assert_cfg 'CONFIG_AIRY_COREKERN=y'
+assert_cfg 'CONFIG_AIRY_LOG=y'
+assert_cfg 'CONFIG_AIRY_IPC=y'
+assert_cfg 'CONFIG_AIRY_AGENT_TRACING=y'
+assert_cfg 'CONFIG_AIRY_CAP_TABLE_SIZE=1024'
+assert_cfg 'CONFIG_IO_URING=y'
+assert_cfg 'CONFIG_USER_NS=y'
+assert_cfg 'CONFIG_LOCALVERSION="%{kernel_local}"'
 # 非特权 BPF 门禁（T23）：x86 的 spectre_v2_select_mitigation() 在 eIBRS
 # 生效且 unprivileged_ebpf_enabled() 为真时打印一条 Spectre V2 告警。该行
 # 在 0.06 s 由内核自己发出，早于任何 sysctl.d，运行期写 sysctl 消除不掉；
 # 只能由编译期默认值决定（=y 使初值为 2，永久关闭）。非特权 BPF 本身就是
 # 可利用的攻击面，关闭是加固而不是掩盖。基线若把这一项改回 not set，必须
 # 在此处中断打包，而不是留到装机后的启动日志里。
-grep -qx 'CONFIG_BPF_UNPRIV_DEFAULT_OFF=y' %{ksrc}/.config
+assert_cfg 'CONFIG_BPF_UNPRIV_DEFAULT_OFF=y'
 # 实时带宽门禁（T23）：RT_GROUP_SCHED=y 时 systemd 把叶子单元的
 # cpu.rt_runtime_us 置 0，rtkit-daemon 连自己的 canary/watchdog 线程都提不到
 # SCHED_RR，每次开机刷二十余条 err 日志，桌面音频也拿不到实时优先级。
 # 该项回退必须在打包阶段中断，而不是留到装机后的启动日志里。
-grep -qx '# CONFIG_RT_GROUP_SCHED is not set' %{ksrc}/.config
+assert_cfg '# CONFIG_RT_GROUP_SCHED is not set'
 # 完整性内建密钥门禁（T23）：产品不发布 /etc/keys/x509_ima.der 与
 # x509_evm.der，打开 LOAD_X509 只会让内核在 ima_init()/evm_init() 各打印
 # 一条 "integrity: Unable to open file"。密钥链到位前这两项必须关闭。
-grep -qx '# CONFIG_IMA_LOAD_X509 is not set' %{ksrc}/.config
-grep -qx '# CONFIG_EVM_LOAD_X509 is not set' %{ksrc}/.config
+assert_cfg '# CONFIG_IMA_LOAD_X509 is not set'
+assert_cfg '# CONFIG_EVM_LOAD_X509 is not set'
 # 引导期驱动门禁（OP-P0-01）：B50 为 NVMe-only 存储，缺 NVMe 时装载后的
 # 系统无法挂载根分区；I226-V 有线走 igc，RTL8852BE 无线走 rtw89_8852be。
 # 基线回退（如误改回 defconfig）必须在此处中断打包，而不是留到装机现场。
 %ifarch x86_64
-grep -qE '^CONFIG_BLK_DEV_NVME=[ym]$' %{ksrc}/.config
-grep -qE '^CONFIG_IGC=[ym]$' %{ksrc}/.config
-grep -qE '^CONFIG_RTW89_8852BE=[ym]$' %{ksrc}/.config
+assert_cfg '^CONFIG_BLK_DEV_NVME=[ym]$'
+assert_cfg '^CONFIG_IGC=[ym]$'
+assert_cfg '^CONFIG_RTW89_8852BE=[ym]$'
 # 显示通路门禁（真机缺陷 D-06/D-08）：没有 i915/xe 时，simpledrm 是唯一
 # 能提供 /dev/dri 的驱动，merge_config 若因依赖不满足把这两项丢掉，
 # 装机后桌面会退到 efifb 且无法再被发现。
 # CONFIG_DRM 也要守：DRM_SIMPLEDRM 是 tristate 且 depends on DRM，base
 # defconfig 里 DRM=m 时 =y 会被静默压成 =m，simpledrm 又因缺 modalias
 # 无法被 udev 加载，等于整条显示通路失效。
-grep -qx 'CONFIG_DRM=y' %{ksrc}/.config
-grep -qx 'CONFIG_SYSFB_SIMPLEFB=y' %{ksrc}/.config
-grep -qx 'CONFIG_DRM_SIMPLEDRM=y' %{ksrc}/.config
+assert_cfg 'CONFIG_DRM=y'
+assert_cfg 'CONFIG_SYSFB_SIMPLEFB=y'
+assert_cfg 'CONFIG_DRM_SIMPLEDRM=y'
 %endif
-test -s %{buildroot}/boot/vmlinuz-%{kernel_release}
-test -s %{buildroot}/boot/config-%{kernel_release}
-test -s %{buildroot}/boot/System.map-%{kernel_release}
-test -s %{ksrc}/System.map
-readelf -h %{ksrc}/vmlinux >/dev/null
+assert_file %{buildroot}/boot/vmlinuz-%{kernel_release}
+assert_file %{buildroot}/boot/config-%{kernel_release}
+assert_file %{buildroot}/boot/System.map-%{kernel_release}
+assert_file %{ksrc}/System.map
+if ! readelf -h %{ksrc}/vmlinux >/dev/null 2>&1; then
+    printf 'check: unreadable ELF: %s\n' %{ksrc}/vmlinux >&2
+    exit 1
+fi
 # 模块签名门禁：签名不是 ELF 段。scripts/sign-file 把 PKCS#7、12 字节
 # module_signature 与魔数 "~Module signature appended~\n" 依次追加在 .ko
 # 尾部，kernel/module/signing.c 的 module_sig_check() 按同一顺序读取；以
@@ -414,12 +437,20 @@ if grep -qx 'CONFIG_MODULE_SIG_ALL=y' %{ksrc}/.config; then
     done < "${kolist}"
     rm -f "${kolist}"
     echo "module signatures: $((total - unsigned))/${total} signed"
-    test "${total}" -gt 0
-    test "${unsigned}" -eq 0
+    if [ "${total}" -le 0 ]; then
+        printf 'check: no modules under %s\n' \
+            %{buildroot}/usr/lib/modules/%{kernel_release} >&2
+        exit 1
+    fi
+    if [ "${unsigned}" -ne 0 ]; then
+        printf 'check: %s of %s modules unsigned\n' \
+            "${unsigned}" "${total}" >&2
+        exit 1
+    fi
 fi
 %if %{native}
-test -s %{ksrc}/tools/perf/perf
-test -s %{ksrc}/tools/bpf/bpftool/bpftool
+assert_file %{ksrc}/tools/perf/perf
+assert_file %{ksrc}/tools/bpf/bpftool/bpftool
 %endif
 
 %post core
