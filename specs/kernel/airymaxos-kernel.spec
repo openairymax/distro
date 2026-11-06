@@ -390,7 +390,15 @@ readelf -h %{ksrc}/vmlinux >/dev/null
 if grep -qx 'CONFIG_MODULE_SIG_ALL=y' %{ksrc}/.config; then
     unsigned=0
     total=0
-    while IFS= read -r -d '' ko; do
+    # 按行读取而非 -print0 + read -d ''，也不用进程替换：scriptlet 由
+    # /bin/sh 执行（rpm 默认，构建机上即 dash），这些是 bash 扩展，
+    # dash 直接语法错误。kbuild 生成的模块路径只含 [A-Za-z0-9_./+-]，
+    # 无换行，按行不丢不重；find 先写临时文件，循环重定向进当前 shell，
+    # 计数器在循环之后仍然可用（管道会把计数器丢在子 shell 里）。
+    kolist="$(mktemp)"
+    find %{buildroot}/usr/lib/modules/%{kernel_release} \
+        -name '*.ko' > "${kolist}"
+    while IFS= read -r ko; do
         total=$((total + 1))
         # tr 先去掉二进制字节里的 NUL 再进命令替换：未签名的模块尾部是
         # 任意字节，直接替换会让 bash 对每个模块打一行「ignored null byte」，
@@ -403,8 +411,8 @@ if grep -qx 'CONFIG_MODULE_SIG_ALL=y' %{ksrc}/.config; then
                 echo "unsigned module: ${ko}"
             fi
         fi
-    done < <(find %{buildroot}/usr/lib/modules/%{kernel_release} \
-        -name '*.ko' -print0)
+    done < "${kolist}"
+    rm -f "${kolist}"
     echo "module signatures: $((total - unsigned))/${total} signed"
     test "${total}" -gt 0
     test "${unsigned}" -eq 0
