@@ -9,8 +9,10 @@
 # ——一律从 PRETTY_NAME 派生，绝不取 NAME。NAME 含中文时取 NAME 的旧写法
 # 会让 build-iso 的字符白名单直接拒绝组装镜像，也会让 GRUB 菜单在非 UTF-8
 # 控制台输出乱码。
+# VERSION 是「版本名称」的展示源（ukui-control-center 的关于页直读此键），
+# 与 PRETTY_NAME 同形：「<ASCII 短名> <VERSION_ID>」，避免两处各写一套口径。
 NAME="OpenAirymax 开源极境"
-VERSION="0.0.4 (OpenAirymax)"
+VERSION="OpenAirymax 0.0.4"
 ID=airymaxos
 ID_LIKE="openeuler"
 VERSION_ID="0.0.4"
