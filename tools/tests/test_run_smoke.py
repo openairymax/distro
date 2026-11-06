@@ -1398,13 +1398,33 @@ class RunSmokeTest(unittest.TestCase):
         self.assert_fail(res, 20)
         self.assertIn("Failed to run INIT ucode", res.stdout)
 
-    def test_fw_api_mismatch(self):
-        # API 越界时驱动会降到较低的版本继续跑，日志之外看不出任何异常
+    def test_fw_api_warn_load_ok(self):
+        # 固件比内核新时驱动先告警再忽略不认识的标志组，随后照常载入：
+        # 这是发行版常态，285H 的 BE200 即此形态，不得判负
         self.tools()
         res = self.run_smoke(**self.fw_log(
-            "iwlwifi 0000:00:14.3: api flags index 2 larger than supported"))
+            "iwlwifi 0000:01:00.0: api flags index 2 larger than supported",
+            "iwlwifi 0000:01:00.0: loaded firmware version 83.ec13314b.0 "
+            "gl-c0-fm-c0-83.ucode op_mode iwlmvm"))
+        self.assertTrue(self.tap(res, 21).startswith("ok"), res.stdout)
+        self.assertIn("wireless firmware loaded: 83.ec13314b.0", res.stdout)
+
+    def test_fw_api_device_without_load(self):
+        # 设备枚举到了、告警也在，但始终没有 loaded firmware：无线不可用
+        self.tools()
+        res = self.run_smoke(**self.fw_log(
+            "iwlwifi 0000:01:00.0: Detected crf-id 0x2001910, cnv-id 0x2001910",
+            "iwlwifi 0000:01:00.0: api flags index 2 larger than supported"))
         self.assert_fail(res, 21)
-        self.assertIn("api flags index 2 larger", res.stdout)
+        self.assertIn("wireless device without loaded firmware: 0000:01:00.0",
+                      res.stdout)
+
+    def test_fw_api_no_wireless(self):
+        # 没有无线设备的机器（验收 QEMU）本项无事可判，按通过收场
+        self.tools()
+        res = self.run_smoke(**self.fw_log("loop: module loaded"))
+        self.assertTrue(self.tap(res, 21).startswith("ok"), res.stdout)
+        self.assertIn("no iwlwifi device", res.stdout)
 
     def test_fw_no_log(self):
         # 日志读不到时三条一起判负：没有证据不等于载入成功
