@@ -150,6 +150,21 @@
       <packagereq type="mandatory">ukui-greeter</packagereq>
       <packagereq type="mandatory">ukui-themes</packagereq>
       <packagereq type="mandatory">ukui-notification-daemon</packagereq>
+      <!-- 字体：0.0.4 首装现场「文字全是方框」的根因是本组没有任何字体包。
+           fontconfig 按 lang 回退到不含汉字的西文字体，会话照常启动、TAP
+           也全绿，只有屏幕上是方框。中文取文泉驿两代（微米黑为主、正黑
+           兜底），西文取 DejaVu 与 Liberation（Sans/Serif/Mono 三族齐全，
+           Qt 与 GTK 的默认族都落在它们身上）。包名与仓库位置已按 SP3 核对 -->
+      <packagereq type="mandatory">wqy-microhei-fonts</packagereq>
+      <packagereq type="mandatory">wqy-zenhei-fonts</packagereq>
+      <packagereq type="mandatory">dejavu-fonts</packagereq>
+      <packagereq type="mandatory">liberation-fonts</packagereq>
+      <!-- 图标兜底：ukui-themes 只覆盖自己命名的图标，第三方 .desktop 与
+           主题未命名的标准图标全部落在 hicolor；adwaita 作第二兜底，面板
+           与开始菜单的通用项（搜索、电源、网络）取它的版本。缺两者时图标
+           位置是空白格，同样不影响会话启动，因此只能靠声明补齐 -->
+      <packagereq type="mandatory">hicolor-icon-theme</packagereq>
+      <packagereq type="mandatory">adwaita-icon-theme</packagereq>
       <!-- UKUI 的 Qt 风格库：ukui-panel / ukui-kwin / ukui-settings-daemon
            在运行时按名加载，却都没有声明这条依赖（基底打包缺陷）。只靠
            依赖求解进不来，缺它时面板在 CustomStyle 构造期 SIGSEGV，整片
