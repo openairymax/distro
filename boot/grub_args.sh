@@ -47,6 +47,12 @@
 # B50 的 800x600）。因此字体在生效配置目录与品牌副本目录都要落一份：前者
 # 是生成侧的一致性，后者才是引导期真正被读到的位置。
 #
+# 为什么菜单停留时间也归本文件：285H 冷启动分段里 loader 段 3.78s，其中 3s
+# 是 GRUB_TIMEOUT 的默认停留，这段时间不产出任何信息，等于每次开机向用户
+# 收 3 秒。菜单本身仍然可达——任何一个键都会中止倒数——缩短只改「不看菜单」
+# 的默认路径。它和参数行一样只能有一个来源：这里的常量；spec 里写的是安装
+# 器生成的初始文件，安装末期由本脚本归一化。
+#
 # 退出码：0 = 已收敛（含无需改动）；1 = 参数未能落地；2 = 用法错误。调用者
 #         据 1 中止安装：静默降级只会把观感问题推迟到验收现场。
 # ===========================================================================
@@ -58,6 +64,7 @@ etc=/etc
 state=/var/lib/airymaxos/grub-args
 consoles='ttyS0,115200 tty0'
 args='rhgb quiet'
+timeout=1
 mkconfig=grub2-mkconfig
 font=
 mode=apply
@@ -76,8 +83,8 @@ fail()
 usage()
 {
     printf 'usage: %s [--defaults FILE] [--cfg FILE] [--esp DIR]\n' "$0" >&2
-    printf '       [--etc DIR] [--state FILE] [--append ARGS] [--font FILE]\n' >&2
-    printf '       [--mkconfig CMD] [--check] [--no-regen]\n' >&2
+    printf '       [--etc DIR] [--state FILE] [--append ARGS] [--timeout SECS]\n' >&2
+    printf '       [--font FILE] [--mkconfig CMD] [--check] [--no-regen]\n' >&2
 }
 
 while [ $# -gt 0 ]; do
@@ -88,6 +95,7 @@ while [ $# -gt 0 ]; do
     --etc) etc=${2:?--etc 需要目录}; shift 2 ;;
     --state) state=${2:?--state 需要文件}; shift 2 ;;
     --append) args=${2?--append 需要参数}; shift 2 ;;
+    --timeout) timeout=${2:?--timeout 需要秒数}; shift 2 ;;
     --font) font=${2:?--font 需要文件}; shift 2 ;;
     --mkconfig) mkconfig=${2:?--mkconfig 需要命令}; shift 2 ;;
     --check) mode=check; shift ;;
@@ -95,6 +103,12 @@ while [ $# -gt 0 ]; do
     *) usage; exit 2 ;;
     esac
 done
+
+# 非数字的停留时间会被生成器当成 0 或解析失败，菜单随即一闪而过，误用显式
+# 失败而不是静默落一个不可预期的秒数。
+case "${timeout}" in
+'' | *[!0-9]*) usage; exit 2 ;;
+esac
 
 [ -r "${defaults}" ] || fail "no ${defaults}"
 
@@ -144,6 +158,16 @@ read_prober()
     }' "${defaults}"
 }
 
+read_timeout()
+{
+    awk -F= '/^[[:space:]]*GRUB_TIMEOUT=/ {
+        v = $2
+        gsub(/["[:space:]]/, "", v)
+        print v
+        exit
+    }' "${defaults}"
+}
+
 verify()
 {
     local line tok rc=0
@@ -160,8 +184,12 @@ verify()
         note 'GRUB_DISABLE_OS_PROBER is not true'
         rc=1
     }
+    [ "$(read_timeout)" = "${timeout}" ] || {
+        note "GRUB_TIMEOUT is not ${timeout}"
+        rc=1
+    }
     [ "${rc}" -eq 0 ] || return 1
-    note "ok: ${defaults} carries '$(console_args) ${args}'"
+    note "ok: ${defaults} carries '$(console_args) ${args}' timeout=${timeout}"
 }
 
 # 控制台集合三个方向都要成立：缺项丢一路日志，外来项指向不存在的设备并
@@ -203,7 +231,8 @@ check_consoles()
 edit()
 {
     local tmp="${defaults}.airy-tmp"
-    awk -v add="${args}" -v cons="${consoles}" -v prober=true '
+    awk -v add="${args}" -v cons="${consoles}" -v tout="${timeout}" \
+        -v prober=true '
     # 旧 console= 全部摘掉：它们的顺序与集合都属于上一次安装或手工改动，
     # 保留任何一个都可能抢走 /dev/console。
     function nocons(v,   i, n, out, tok) {
@@ -238,7 +267,7 @@ edit()
         }
         return (v == "" ? out : out " " v)
     }
-    BEGIN { seen = 0; pseen = 0 }
+    BEGIN { seen = 0; pseen = 0; tseen = 0 }
     /^[[:space:]]*GRUB_CMDLINE_LINUX=/ {
         v = substr($0, index($0, "=") + 1)
         gsub(/"/, "", v)
@@ -248,6 +277,13 @@ edit()
         seen = 1
         next
     }
+    # 只重写生效的那一条；同名多赋值时后者生效，保留前者会把旧秒数留在
+    # 文件里，下一次手工编辑看不出哪条算数。
+    /^[[:space:]]*GRUB_TIMEOUT=/ {
+        if (!tseen) print "GRUB_TIMEOUT=" tout
+        tseen = 1
+        next
+    }
     /^[[:space:]]*#?[[:space:]]*GRUB_DISABLE_OS_PROBER=/ {
         if (!pseen) print "GRUB_DISABLE_OS_PROBER=" prober
         pseen = 1
@@ -255,6 +291,7 @@ edit()
     }
     { print }
     END {
+        if (!tseen) print "GRUB_TIMEOUT=" tout
         if (!seen) print "GRUB_CMDLINE_LINUX=\"" lead(merge("")) "\""
         if (!pseen) print "GRUB_DISABLE_OS_PROBER=" prober
     }' "${defaults}" >"${tmp}" || fail "rewrite ${defaults} failed"

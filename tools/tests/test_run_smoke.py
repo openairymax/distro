@@ -106,9 +106,10 @@ enabled=0
 gpgcheck=0
 """
 
-# T15 的引导默认文件形态：安装期由 grub_args.sh 补齐参数并关闭 os-prober。
+# T15 的引导默认文件形态：安装期由 grub_args.sh 补齐参数、关闭 os-prober，
+# 并把菜单停留时间归一到 1 秒。
 GRUB_DEFAULTS = """\
-GRUB_TIMEOUT=3
+GRUB_TIMEOUT=1
 GRUB_DEFAULT=saved
 GRUB_CMDLINE_LINUX="console=ttyS0,115200 console=tty0 rhgb quiet"
 GRUB_DISABLE_OS_PROBER=true
@@ -1276,6 +1277,15 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke()
         self.assert_fail(res, 15)
         self.assertIn("os-prober not disabled", res.stdout)
+
+    def test_boot_args_timeout(self):
+        # 停留时间未归一化：安装末期那一步没跑到，每次开机多等 3 秒
+        self.tools()
+        self.write_grub(GRUB_DEFAULTS.replace("GRUB_TIMEOUT=1",
+                                              "GRUB_TIMEOUT=3"))
+        res = self.run_smoke()
+        self.assert_fail(res, 15)
+        self.assertIn("menu timeout not normalized", res.stdout)
 
     def test_boot_args_file_absent(self):
         self.tools()

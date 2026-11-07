@@ -600,13 +600,16 @@ grep -qF 'efibootmgr -o "${order}"' \
 # B50 的 /proc/cmdline 已复现）。控制台顺序同理：/dev/console 落在命令行里
 # 最后一个 console= 上，旧顺序把 VT 让给了串口，systemd-vconsole-setup 在
 # 285H 上因此每个启动周期失败。这里用 --no-regen 在临时文件上跑一遍改写，
-# 断言「补参数、去重、覆盖注释行、控制台按序重放、幂等、check 通过」。
+# 断言「补参数、去重、覆盖注释行、控制台按序重放、菜单停留时间归一化、幂等、
+# check 通过」。夹具里的 GRUB_TIMEOUT 取安装器的默认值，改写的目的是证明
+# 它会收敛到脚本常量，而不是复述常量本身。
 sh -n %{buildroot}/usr/lib/airymaxos/boot/grub_args.sh
 airy_args=%{buildroot}/usr/lib/airymaxos/boot/grub_args.sh
 airy_tmp=$(mktemp -d)
 printf 'GRUB_TIMEOUT=3\nGRUB_CMDLINE_LINUX="console=tty0 quiet"\n#GRUB_DISABLE_OS_PROBER=true\n' \
     >"${airy_tmp}/grub"
 "${airy_args}" --defaults "${airy_tmp}/grub" --no-regen >/dev/null
+grep -qxF 'GRUB_TIMEOUT=1' "${airy_tmp}/grub"
 grep -qxF 'GRUB_CMDLINE_LINUX="console=ttyS0,115200 console=tty0 quiet rhgb"' \
     "${airy_tmp}/grub"
 grep -qxF 'GRUB_DISABLE_OS_PROBER=true' "${airy_tmp}/grub"

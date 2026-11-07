@@ -861,6 +861,12 @@ t15_boot_args() {
         echo "${file}: os-prober not disabled"
         return 1
     }
+    # 停留时间是 loader 段的主要构成（285H 分段 3.78s 里 3s 在此），安装
+    # 末期由 grub_args.sh 归一化；未归一化说明那一步没跑到，按未收敛处理。
+    grep -qxF 'GRUB_TIMEOUT=1' "${file}" || {
+        echo "${file}: menu timeout not normalized"
+        return 1
+    }
     printf 'args="%s"\n' "${line}"
 }
 

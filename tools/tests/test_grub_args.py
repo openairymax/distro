@@ -3,7 +3,8 @@
 # ===========================================================================
 # test_grub_args.py — 启动参数持久来源（grub_args.sh）行为回归
 #
-# 脚本要在安装末期把启动画面参数写进 /etc/default/grub 并关闭 os-prober，
+# 脚本要在安装末期把启动画面参数写进 /etc/default/grub、关闭 os-prober，并
+# 把菜单停留时间归一到常量，
 # 因为 kickstart 的 bootloader --append 只进安装器生成的那一份 grub.cfg。
 # --no-regen 只改写输入文件，不碰块设备，因此可在临时目录里判定；每个用例
 # 只破坏一个前提，覆盖三种失败：参数缺失、探测开关未关、文件不可读。
@@ -101,6 +102,12 @@ class GrubArgsTest(unittest.TestCase):
         self.assertEqual(len(values), 1, self.text())
         return values[0]
 
+    def timeout(self):
+        values = [line.split("=", 1)[1] for line in self.text().splitlines()
+                  if line.startswith("GRUB_TIMEOUT=")]
+        self.assertEqual(len(values), 1, self.text())
+        return values[0]
+
     def test_syntax_is_posix(self):
         res = subprocess.run([SH, "-n", str(SCRIPT)], text=True,
                              capture_output=True)
@@ -138,10 +145,31 @@ class GrubArgsTest(unittest.TestCase):
     def test_other_lines_kept(self):
         self.apply()
         lines = self.text().splitlines()
-        self.assertEqual(lines[0], "GRUB_TIMEOUT=3")
+        self.assertEqual(lines[0], "GRUB_TIMEOUT=1")
         self.assertEqual(lines[1], "GRUB_DEFAULT=saved")
         self.assertEqual(lines[2], 'GRUB_TERMINAL_OUTPUT="console"')
         self.assertEqual(lines[-1], 'GRUB_DISABLE_RECOVERY="true"')
+
+    def test_timeout_normalized(self):
+        # 安装器写 3 秒，但 loader 段几乎全耗在这段没有信息的等待上（285H
+        # 分段 3.78s）。改写必须落到常量，且文件里只剩一条生效赋值。
+        self.apply()
+        self.assertEqual(self.timeout(), "1")
+
+    def test_timeout_override(self):
+        self.apply("--timeout", "5")
+        self.assertEqual(self.timeout(), "5")
+
+    def test_timeout_appended_when_absent(self):
+        body = STOCK.replace("GRUB_TIMEOUT=3\n", "")
+        self.apply(body=body)
+        self.assertEqual(self.timeout(), "1")
+
+    def test_timeout_rejected(self):
+        # 非数字秒数是用法错误：静默落 0 会让菜单一闪而过
+        res = self.apply("--timeout", "abc")
+        self.assertEqual(res.returncode, 2)
+        self.assertIn("usage:", res.stderr)
 
     def test_idempotent(self):
         self.apply()
@@ -219,6 +247,19 @@ class GrubArgsTest(unittest.TestCase):
         res = self.check()
         self.assertEqual(res.returncode, 1)
         self.assertIn("GRUB_DISABLE_OS_PROBER is not true", res.stdout)
+
+    def test_check_timeout(self):
+        # check 是装机末期与验收共用的判据：停留时间停在旧值同样是未收敛
+        body = STOCK.replace("#GRUB_DISABLE_OS_PROBER=true",
+                             "GRUB_DISABLE_OS_PROBER=true")
+        body = body.replace('GRUB_CMDLINE_LINUX="console=ttyS0,115200 '
+                            'console=tty0"',
+                            'GRUB_CMDLINE_LINUX="console=ttyS0,115200 '
+                            'console=tty0 rhgb quiet"')
+        self.write(body)
+        res = self.check()
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("GRUB_TIMEOUT is not 1", res.stdout)
 
     def test_check_foreign_console(self):
         self.write(STOCK.replace("console=tty0",
