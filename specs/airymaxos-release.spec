@@ -654,6 +654,13 @@ test "$(find "${airy_papers}" -maxdepth 1 -type f -name '*.jpg' | wc -l)" -eq 3
 # 任何一处都只在图形会话里表现为空白图标，文件系统与日志都看不出异常。
 grep -qxF "icon-theme='ukui'" \
     %{buildroot}%{_datadir}/glib-2.0/schemas/99-airymaxos-default.gschema.override
+# 默认输入法：preload-engines 为空时 ibus 只加载系统 XKB 布局，libpinyin
+# 引擎虽然装进镜像却不在会话里，桌面表现就是「没有输入法」。登录后的当前
+# 引擎取列表首位，因此这里断言的是两行的字面值，不是文件存在。
+grep -qxF "preload-engines=['libpinyin','xkb:us::eng']" \
+    %{buildroot}%{_datadir}/glib-2.0/schemas/99-airymaxos-default.gschema.override
+grep -qxF "engines-order=['libpinyin','xkb:us::eng']" \
+    %{buildroot}%{_datadir}/glib-2.0/schemas/99-airymaxos-default.gschema.override
 test -L %{buildroot}%{_datadir}/icons/ukui-icon-theme-default
 test "$(readlink %{buildroot}%{_datadir}/icons/ukui-icon-theme-default)" = ukui
 airy_st=%{buildroot}%{_datadir}/icons/hicolor/scalable/status

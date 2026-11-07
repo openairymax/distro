@@ -15,3 +15,12 @@ picture-filename='/usr/share/backgrounds/airymaxos/qilian_photo_from_zhenyi.jpg'
 # 机器上 Qt 与 GTK 应用显示两套图标。
 [org.mate.interface]
 icon-theme='ukui'
+
+# 默认输入法：preload-engines 为空时 ibus 只加载系统 XKB 布局（xkb:us::eng），
+# libpinyin 引擎虽已安装却不在会话里，用户看到的就是「没有输入法」。登录后
+# 的当前引擎取列表首位，故把 libpinyin 放前面；英文键盘保留为第二引擎，
+# Super+Space 可在两者间启停切换。engines-order 与 preload-engines 同步，
+# 免得切换菜单里的顺序与默认值各说一套。
+[org.freedesktop.ibus.general]
+preload-engines=['libpinyin','xkb:us::eng']
+engines-order=['libpinyin','xkb:us::eng']
