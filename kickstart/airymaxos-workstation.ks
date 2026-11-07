@@ -84,6 +84,51 @@ set -eu
 # %airy-embed: install-lib.sh
 # %airy-embed: disk-select.sh
 airy_pre /tmp/airymax-disk.ks /tmp/airymax-disk.json
+
+# ---- 安装期固件入口（0.0.4 首烧无网根因）----
+# 安装器 live 环境没有 airymaxos-firmware 包，%posttrans 那条链不会跑；
+# SP3 的固件树把 Intel 无线放在 intel/iwlwifi/ 且只留 .ucode.zst，驱动
+# 按裸名请求即逐条 error -2，收束于 "no suitable firmware found"。设备
+# 因此根本不出现在 anaconda 的 Devices found 里，network --activate 无
+# 从建立连接，装完首启零联网（B50 与 285H 两次复现）。
+#
+# 规则只有一份：此处嵌入 distro/firmware/fw-flat.sh 的正文，与目标机
+# %posttrans 跑的是同一实现（构建期由 tools/ks_embed.py 展开，不复制）。
+# 判据是驱动声明的请求名，不写厂商目录，ARM/RISC-V 的无线同路径受益。
+#
+# %airy-embed: fw-flat.sh
+fw_rc=0
+fw_flat_main apply /usr/lib/firmware --list /tmp/airymax-fw.list \
+    --modules "/usr/lib/modules/$(uname -r)" \
+    >/tmp/airymax-fw.log 2>&1 || fw_rc=$?
+while IFS= read -r fw_line; do
+    airy_out "AIRYMAX-FW ${fw_line}"
+done </tmp/airymax-fw.log
+[ "${fw_rc}" -eq 0 ] || airy_out "AIRYMAX-FW-FAIL rc=${fw_rc}"
+
+# 入口必须在驱动 probe 之前可见。安装器内核在 anaconda 启动前已 udev
+# 枚举过一轮，iwlwifi 那时以 error -2 收场；补完链接必须让设备重新
+# probe，否则没人再读固件。判据是 PCI 设备类 0x028000（网络/无线），
+# 覆盖 iwlwifi、ath11k、mt76、rtw88 与 ARM/RISC-V 的 PCIe 无线。
+nw_hit=0
+for nw_dir in /sys/bus/pci/devices/*; do
+    nw_cls=$(cat "${nw_dir}/class" 2>/dev/null) || continue
+    [ "${nw_cls}" = "0x028000" ] || continue
+    nw_dev=${nw_dir##*/}
+    nw_hit=$(( nw_hit + 1 ))
+    [ -L "${nw_dir}/driver" ] || continue
+    printf '%s\n' "${nw_dev}" >"${nw_dir}/driver/unbind" 2>/dev/null || :
+    nw_rc=0
+    printf '%s\n' "${nw_dev}" >/sys/bus/pci/drivers_probe 2>/dev/null ||
+        nw_rc=$?
+    airy_out "AIRYMAX-FW-REPROBE dev=${nw_dev} rc=${nw_rc}"
+done
+[ "${nw_hit}" -gt 0 ] || airy_out "AIRYMAX-FW-NOPCI no-wireless-pci"
+udevadm settle --timeout=30 2>/dev/null || :
+nmcli radio wifi on >/dev/null 2>&1 || :
+nmcli -t -f DEVICE,TYPE device 2>/dev/null | while IFS= read -r nw_line; do
+    airy_out "AIRYMAX-NET ${nw_line}"
+done
 %end
 %include /tmp/airymax-disk.ks
 

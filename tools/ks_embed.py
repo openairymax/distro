@@ -32,10 +32,15 @@ from pathlib import Path
 EINVAL = 5
 MARK = "# %airy-embed: "
 SCRIPTS = frozenset({"pre", "post", "onerror", "traceback"})
-SHARED = frozenset({"install-lib.sh", "disk-select.sh", "rtc-sync.sh"})
+SHARED = frozenset({"install-lib.sh", "disk-select.sh", "rtc-sync.sh",
+                    "fw-flat.sh"})
 PRELUDE = "install-lib.sh"
 # 依赖 airy_out/airy_fail 的脚本：展开顺序是语义，lib 必须在它们之前。
 USES_LIB = ("disk-select.sh", "rtc-sync.sh")
+# 不在 kickstart 目录里的共享脚本：fw-flat.sh 同时是 airymaxos-firmware
+# 的 Source（%%posttrans 与安装期 %pre 必须跑同一份实现），因此物理位置
+# 在 distro/firmware，不能为嵌入再复制一份——复制即两处漂移。
+ALT_DIR = {"fw-flat.sh": "firmware"}
 
 
 class EmbedError(ValueError):
@@ -76,6 +81,10 @@ def body(name: str, base: Path, line: int) -> str:
     if name not in SHARED:
         raise EmbedError(line, f"未知的共享脚本: {name or '(空)'}")
     path = base / name
+    if not path.is_file() and name in ALT_DIR:
+        alt = base.parent / ALT_DIR[name] / name
+        if alt.is_file():
+            path = alt
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as err:
