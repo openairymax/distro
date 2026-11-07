@@ -47,6 +47,16 @@ vt_dev()
     printf '%s/%s\n' "${VT_DIR}" "${vt}"
 }
 
+# 外来文本进 console 前的唯一折叠点：本平台的 VT 字体是
+# latarcyrheb-sun16，没有 CJK 字形，journal 原文逐字节搬到 /dev/console
+# 只会得到方块或空白（285H 冷启动的失败取证行就是这样）。取证行把单元
+# journal 原样搬上屏，正是这条通道的主要来源，因此折叠放在搬运入口，
+# 而不是要求每个调用方自己判断措辞。原文仍可在对应单元的 journal 里读。
+fold_ascii()
+{
+    sed 's/[^ -~]/?/g'
+}
+
 say()
 {
     local dev
@@ -78,7 +88,7 @@ unit_state()
 unit_log()
 {
     journalctl -b -u "$1" -n "${UNIT_LOG_MAX}" -o cat --no-pager \
-        2>/dev/null | sed "s#^#AIRYMAX-UNIT-JOURNAL|$1|#"
+        2>/dev/null | fold_ascii | sed "s#^#AIRYMAX-UNIT-JOURNAL|$1|#"
 }
 
 unit_evidence()
