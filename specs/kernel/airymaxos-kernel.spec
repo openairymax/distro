@@ -63,7 +63,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 5
+%global airy_release 6
 %global kernel_version 6.6.161
 %global kernel_local -alk
 %global kernel_release %{kernel_version}%{kernel_local}
@@ -547,6 +547,11 @@ depmod -a %{kernel_release}
 %endif
 
 %changelog
+* Sat Nov 07 2026 SPHARX <dev@spharx.com> - 0.0.4-6
+- kernel：intel_lpss_pci 认领 Arrow Lake-H 的 LPSS PCI ID（00:15.0
+  [8086:7778]）。缺这条 ID 时驱动不绑定，i2c-designware 没有平台设备，
+  触控板的 i2c-hid 设备无处枚举：lspci 有总线、dmesg 无 lpss 行、
+  /dev/input 下只有键盘。285H 实机以补 ID 前后对照闭环
 * Thu Nov 05 2026 SPHARX <dev@spharx.com> - 0.0.4-5
 - kernel：生成 initramfs 前先执行 systemd-sysusers --root=/。dracut 的
   inst_rule_group_owner 只按 udev 规则里的 GROUP= 从目标根 /etc/group 抄行
