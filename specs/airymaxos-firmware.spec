@@ -43,12 +43,20 @@ Summary:        Firmware closure bound to the AirymaxOS kernel ABI
 License:        AGPL-3.0-or-later
 URL:            https://atomgit.com/openairymax/agent-linux
 Source0:        fw-manifest.txt
+# 扁平入口生成器。与清单同包：清单声明「闭包应包含哪些族的文件」，生成器
+# 按驱动实际请求名补齐入口，两者是同一件事的声明面与执行面，分开装会让
+# 判定与修复各用一份口径。
+Source1:        fw-flat.sh
 BuildArch:      noarch
 # 清单第一列的包逐条显式声明；集合对账在构建前的 spec 门禁里做，而不是在
 # 解析期读文件——解析期读源文件会让 spec-lint 与 rpmlint 在缺 _sourcedir
 # 的机器上无法解析，判定面反而缩小。
 Requires:       linux-firmware
 Requires:       wireless-regdb
+# %%posttrans 用 modinfo 读驱动声明的固件名。modinfo 属 kmod；没有它时
+# 生成器只能退化为「不补入口」，而缺入口正是本包要修的那类缺陷，所以这条
+# 依赖是功能依赖，不是便利依赖。
+Requires:       kmod
 # 内核按 ABI 点名本包；Provides 用同一宏展开，两边天然对齐。
 Provides:       airymaxos-firmware-%{kernel_abi} = %{version}-%{release}
 
@@ -66,6 +74,8 @@ packages to one kernel ABI so that the two cannot drift apart silently.
 install -d -m 0755 %{buildroot}%{_datadir}/airymaxos/firmware
 install -m 0644 %{SOURCE0} \
     %{buildroot}%{_datadir}/airymaxos/firmware/fw-manifest.txt
+install -d -m 0755 %{buildroot}%{_libexecdir}/airymaxos
+install -m 0755 %{SOURCE1} %{buildroot}%{_libexecdir}/airymaxos/fw-flat.sh
 # ABI 标记与 Provides 同源：装机后不必解包 rpm 就能读出「这台机器的固件
 # 闭包对应哪个内核」。fw-closure.sh --root 用它核对镜像与清单是否同代。
 printf '%s\n' '%{kernel_abi}' \
@@ -109,30 +119,34 @@ done <"${manifest}"
 # ABI 标记与 Provides 必须逐字一致，否则内核点名的名字与包提供的名字分叉。
 test "$(cat %{buildroot}%{_datadir}/airymaxos/firmware/kernel-abi)" = \
     '%{kernel_abi}'
+# 生成器必须随包落盘且语法可解析：%%posttrans 里再发现写错，代价是一台装完
+# 没有无线的机器。这里只验形（sh -n），行为用例在
+# tools/tests/test_fw_flat.py 里用夹具树跑。
+flat='%{buildroot}%{_libexecdir}/airymaxos/fw-flat.sh'
+test -x "${flat}"
+sh -n "${flat}"
 
-%post
-# 无线固件的兼容路径。本内核（6.6.161-alk）的 iwlwifi 只按扁平文件名取
-# 固件——`modinfo -F firmware iwlwifi` 列出的都是 iwlwifi-<家族>-<版本>.ucode
-# 与 iwlwifi-<家族>-<版本>.pnvm，没有任何目录前缀；而基底 openEuler 24.03
-# LTS-SP3 的 linux-firmware 已按上游新布局把 Intel Wi-Fi 固件移进
-# intel/iwlwifi/，顶层不再留同名文件。两者的交集为空：驱动加载时逐个文件报
-# "Direct firmware load ... failed with error -2"，最后以 "no suitable
-# firmware found" 收场。此时 lspci 有卡、rfkill 全开、固件包也装了，只有
-# NetworkManager 报「未发现 Wi-Fi 设备」。2026-11-06 在 285H（BE200，
-# 8086:272b）上以补齐 13 个扁平链接做加减对照复现并闭环。
+%posttrans
+# 扁平入口。本内核（6.6.161-alk）的 iwlwifi 只按裸文件名取固件——
+# `modinfo -F firmware iwlwifi` 列出的都是 iwlwifi-<家族>-<版本>.ucode 与
+# .pnvm，没有任何目录前缀；而基底 openEuler 24.03 LTS-SP3 的 linux-firmware
+# 已按上游新布局把 Intel Wi-Fi 固件移进 intel/iwlwifi/，顶层不再留同名文件。
+# 两者的交集为空：驱动逐个文件报 "Direct firmware load ... failed with
+# error -2"，收束于 "no suitable firmware found"。此时 lspci 有卡、rfkill
+# 全开、固件包也装了，只有 NetworkManager 报「未发现 Wi-Fi 设备」。
+# 2026-11-06 在 285H（BE200，8086:272b）上以补齐 13 个扁平链接做加减对照
+# 复现并闭环。
+#
+# 这里不再列厂商目录：请求名由驱动自己声明，brcmfmac、ath11k、mt76、rtw88、
+# i915、amdgpu 以及 ARM/RISC-V 的主用无线都走 fw-flat.sh 的同一条路径。
+# 用 %%posttrans 而不是 %%post：rpm 按包顺序执行「装文件→%%post」，固件包
+# 先于 linux-firmware 落地时 %%post 看不到目标文件，只能静默跳过。
 #
 # 链接在安装事务里生成而不是打进包体：目标文件属 linux-firmware，若把链接
-# 作为本包的文件声明，同一路径会被两个包持有，dnf 事务直接失败（本文件开头
-# 的约束同理）。%%post 时 Requires 已就位，链接随固件包的实际文件集合生成，
-# 基底将来补上兼容链接或回到扁平布局时不会覆盖基底自己的文件。
-fwroot=%{_prefix}/lib/firmware
-[ -d "${fwroot}/intel/iwlwifi" ] || exit 0
-for f in "${fwroot}"/intel/iwlwifi/iwlwifi-*; do
-    [ -f "${f}" ] || continue
-    base=${f##*/}
-    [ -e "${fwroot}/${base}" ] || ln -s "intel/iwlwifi/${base}" \
-        "${fwroot}/${base}" || exit 0
-done
+# 作为本包的文件声明，同一路径会被两个包持有，dnf 事务直接失败。
+sh %{_libexecdir}/airymaxos/fw-flat.sh apply %{_prefix}/lib/firmware \
+    --list %{_datadir}/airymaxos/firmware/firmware-flat.list \
+    --modules %{_prefix}/lib/modules || :
 exit 0
 
 %files
@@ -140,6 +154,9 @@ exit 0
 %dir %{_datadir}/airymaxos/firmware
 %{_datadir}/airymaxos/firmware/fw-manifest.txt
 %{_datadir}/airymaxos/firmware/kernel-abi
+# 运行时生成：由 %%posttrans 按本机模块与实际固件树写出，不入包体。
+%ghost %{_datadir}/airymaxos/firmware/firmware-flat.list
+%{_libexecdir}/airymaxos/fw-flat.sh
 
 %changelog
 * Wed Nov 04 2026 SPHARX <dev@spharx.com> - 0.0.4-1
