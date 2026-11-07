@@ -32,7 +32,10 @@
 #  13. 部署 /usr/bin/airy-bright 与 airybright Python 包：屏幕与键盘背光
 #      的调节入口。判定与写入分属 device/plan/policy，命令行只做分派，
 #      因此在没有背光设备的机器上退 4 而不是报成功（I-25）；
-#  14. 在 %%post/%%postun 内刷新 systemd 单元缓存，在 %%posttrans 内按
+#  14. 部署 /usr/bin/airy-deb 与 airydeb Python 包：把 deb 现场转成 RPM 后
+#      交给 dnf 安装，不依赖 dpkg 与 alien；维护者脚本默认拒绝执行，data
+#      成员的绝对路径与越界链接在落盘前判死；
+#  15. 在 %%post/%%postun 内刷新 systemd 单元缓存，在 %%posttrans 内按
 #      该清单启用并启动单元。
 #
 # 单元启用（systemctl enable）只有一条实现：读 /usr/lib/airymaxos/boot-set。
@@ -67,9 +70,10 @@
 # spec-lint: source-bundle ../../system/services/airymax_probe
 # spec-lint: source-bundle ../../system/services/airymax_observe
 # spec-lint: source-bundle ../../system/services/airybright
+# spec-lint: source-bundle ../../system/services/airydeb
 
 %global airy_version 0.0.4
-%global airy_release 47
+%global airy_release 48
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -145,15 +149,21 @@ Source61:       airy-boot-watch.timer
 Source62:       con.sh
 Source63:       airymax-net-doctor.service
 Source64:       net_doctor.sh
+Source65:       airy-deb
+Source66:       airydeb-%{version}.tar.gz
 
 BuildRequires:  gcc
 BuildRequires:  python3-devel
 Requires:       bash
+Requires:       binutils
 Requires:       dnf
 Requires:       procps-ng
 Requires:       python3
 Requires:       rpm
+Requires:       rpm-build
 Requires:       systemd
+Requires:       xz
+Requires:       zstd
 Requires(post): systemd
 Requires(postun): systemd
 
@@ -234,6 +244,7 @@ install -m 0755 %{SOURCE33} %{buildroot}%{_bindir}/airy-rt-cap
 install -m 0755 %{SOURCE36} %{buildroot}%{_bindir}/airy-power
 install -m 0755 %{SOURCE40} %{buildroot}%{_bindir}/airy-probe
 install -m 0755 %{SOURCE57} %{buildroot}%{_bindir}/airy-bright
+install -m 0755 %{SOURCE65} %{buildroot}%{_bindir}/airy-deb
 install -m 0755 airy-rt-lat %{buildroot}%{_bindir}/airy-rt-lat
 install -d -m 0755 %{buildroot}%{python3_sitelib}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE25}
@@ -244,6 +255,7 @@ tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE39}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE41}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE48}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE58}
+tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE66}
 
 %check
 test -x %{buildroot}/usr/lib/airymaxos/scripts/firstboot.sh
@@ -273,6 +285,7 @@ test -x %{buildroot}%{_bindir}/airy-rt-cap
 test -x %{buildroot}%{_bindir}/airy-power
 test -x %{buildroot}%{_bindir}/airy-probe
 test -x %{buildroot}%{_bindir}/airy-bright
+test -x %{buildroot}%{_bindir}/airy-deb
 test -x %{buildroot}%{_bindir}/airy-rt-lat
 PYTHONPATH=%{buildroot}%{python3_sitelib} python3 -B -c '
 import airydisk.cli
@@ -282,7 +295,8 @@ import airymax_rt.cli
 import airymax_power.cli
 import airymax_probe.cli
 import airymax_observe.cli
-import airybright.cli'
+import airybright.cli
+import airydeb.cli'
 PYTHONPATH=%{buildroot}%{python3_sitelib} python3 -B -m airymax_observe --help >/dev/null
 test -f %{buildroot}%{_unitdir}/agentrt.target
 test -f %{buildroot}%{_unitdir}/agentrt-firstboot.service
@@ -497,6 +511,7 @@ fi
 %{_bindir}/airy-power
 %{_bindir}/airy-probe
 %{_bindir}/airy-bright
+%{_bindir}/airy-deb
 %{_bindir}/airy-rt-lat
 %{python3_sitelib}/airydisk
 %{python3_sitelib}/airyllm
@@ -506,8 +521,20 @@ fi
 %{python3_sitelib}/airymax_probe
 %{python3_sitelib}/airymax_observe
 %{python3_sitelib}/airybright
+%{python3_sitelib}/airydeb
 
 %changelog
+* Sat Nov 07 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-48
+- 部署 airy-deb 与 airydeb 包，让没有 dpkg 和 alien 的机器也能安装 .deb。
+  数据归档先用 tarfile 和 zstd 解到临时目录，再按 deb 元数据生成 spec 并
+  交给 rpmbuild 构建，最后由 dnf 装入，整条链路只依赖 rpm 系自有工具。
+- 维护者脚本默认拒绝安装并把全文打印出来，只有显式给出 --ignore-scripts
+  才继续，且安装前仍把全文写到 stderr，让用户在知情的前提下放行。
+- data 成员在落盘前逐个判定：绝对路径、.. 越界、指向归档外的符号链接与
+  硬链接、设备节点与管道一律报错中止，避免一个 deb 写出归档之外的文件。
+- deb 的 Depends 与 Recommends 只报告不映射为 Requires：Debian 与 RPM 的
+  包名空间不同，猜一个近似的包名会让安装静默拉错依赖。
+
 * Thu Nov 05 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-47
 - Fix the boot watch going silent on serial. It skipped the serial write
   whenever ttyS0 appeared in the active console list, but /dev/console
