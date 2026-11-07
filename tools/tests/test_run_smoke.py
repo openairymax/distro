@@ -1716,6 +1716,21 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke()
         self.assert_fail(res, 29)
         self.assertIn("ACPI 有触控板节点，输入子系统无设备", res.stdout)
+        # 断点在第一段：没有任何 I2C 适配器，控制器没绑上
+        self.assertIn("i2c 适配器 0 个，HID 设备 0 个", res.stdout)
+
+    def test_touchpad_no_hid_client(self):
+        # 断点在第二段：控制器绑上了，但 i2c-hid 没给触控板建客户端。
+        # 与上一条的区别决定修法，输出必须能把两者分开。
+        self.tools()
+        self.write_acpi_touchpad()
+        self.write_input_devices(touchpad=False)
+        (self.sysroot / "sys" / "bus" / "i2c" / "devices" / "i2c-0").mkdir(
+            parents=True
+        )
+        res = self.run_smoke()
+        self.assert_fail(res, 29)
+        self.assertIn("i2c 适配器 1 个，HID 设备 0 个", res.stdout)
 
     def test_touchpad_absent_hw(self):
         # 无内建触控板的机型按能力不适用通过，不记为掩盖
