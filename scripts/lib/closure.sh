@@ -667,6 +667,16 @@ cl_pool_init()
     n="$(find "$CL_POOL" -maxdepth 1 -type f -name '*.rpm' 2>/dev/null |
         wc -l)"
     [ "$n" -gt 0 ] || return 0
+    # 索引之前整池自校验：createrepo_c 的校验和取自池里那一份，先建索引就
+    # 等于把截断包登记成「正确」，dnf 此后既不会重下也不会再校验。清单之外
+    # 的池文件（失败轮次回填、人工放置）同样在清扫范围内。
+    if ! pc_sweep "$CL_POOL"; then
+        printf 'closure: 缓存池无法自校验，本轮不使用（%s）\n' "$CL_POOL" >&2
+        return 0
+    fi
+    n="$(find "$CL_POOL" -maxdepth 1 -type f -name '*.rpm' 2>/dev/null |
+        wc -l)"
+    [ "$n" -gt 0 ] || return 0
     if ! createrepo_c --quiet --general-compress-type gz "$CL_POOL" \
         >/dev/null 2>&1; then
         printf 'closure: 缓存池索引失败，本轮不使用（%s）\n' "$CL_POOL" >&2
@@ -714,8 +724,22 @@ cl_lock_write()
 {
     local dl="$1" lock="$2" rpm base nev n=0 sum
     : >"${lock}.tmp"
+    if ! pc_ready; then
+        rm -f "${lock}.tmp"
+        printf 'closure: 校验器缺失（%s），拒绝写清单\n' "$CL_RPM" >&2
+        return 1
+    fi
     while IFS= read -r rpm; do
         base="$(basename "$rpm")"
+        # 清单是把某份字节钉成基准的动作，钉住的必须是自洽的包。把截断包
+        # 写进去，下一轮就「摘要核对通过」而永远重下不到正确字节，等于把
+        # 一次传输故障固化成产品的长期缺陷。
+        if ! pc_sane "$rpm"; then
+            rm -f "${lock}.tmp"
+            printf 'closure: 拒绝把未通过自校验的包写进清单（%s）\n' \
+                "$base" >&2
+            return 1
+        fi
         sum="$(sha256sum "$rpm" | cut -d' ' -f1)" || return 1
         nev="$("$CL_RPM" -qp --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}' \
             "$rpm" 2>/dev/null)" || return 1
@@ -766,6 +790,14 @@ cl_lock_load()
         fi
         if ! pc_verify "${CL_POOL}/${base}" "${PC_SUM[$i]}"; then
             printf 'closure: 池内 %s 摘要不符\n' "$base" >&2
+            miss=$((miss + 1))
+            continue
+        fi
+        # 摘要相符仍可能是清单被污染的那一轮钉下的坏字节；重放会把它原样
+        # 收进载荷，因此这里再验一次包自洽，并把坏文件删掉让在线路径重取。
+        if ! pc_sane "${CL_POOL}/${base}"; then
+            rm -f "${CL_POOL}/${base}"
+            printf 'closure: 池内 %s 自校验失败，已清除\n' "$base" >&2
             miss=$((miss + 1))
             continue
         fi

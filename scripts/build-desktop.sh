@@ -350,6 +350,27 @@ make_repo()
         die "${E_IO}" "仓库缺少 comps 分组元数据"
 }
 
+# 载荷里每个包都必须自洽。ISO 一旦出门，装机现场的 rpm 会逐个校验，坏包
+# 的表现是 anaconda 停在「软件包校验失败」的交互确认上，而构建早已成功
+# 退场（run 42421987850：三腿同一处 Payload SHA256 ALT digest: BAD）。
+# 判据放在最后一次索引之前、出镜像之前：既覆盖本地产物，也覆盖收割来的
+# 上游字节——后者可能来自被中断的下载，dnf 对已存在的同名文件不重验。
+check_rpms()
+{
+    local rpm base log="${OUT_ABS}/logs/rpmsane.log" bad=0
+    : >"$log"
+    while IFS= read -r rpm; do
+        pc_sane "$rpm" && continue
+        base="${rpm##*/}"
+        printf '%s\n' "$base" >>"$log"
+        [ "$bad" -gt 0 ] ||
+            printf 'build-desktop: 包自校验失败: %s\n' "$base" >&2
+        bad=$((bad + 1))
+    done < <(find "$PKGDIR" -maxdepth 1 -type f -name '*.rpm' | LC_ALL=C sort)
+    [ "$bad" -eq 0 ] ||
+        die "${E_IO}" "载荷含 ${bad} 个未通过自校验的 RPM（清单 ${log}）"
+}
+
 check_comps()
 {
     local env log="${OUT_ABS}/logs/comps.log"
@@ -453,6 +474,7 @@ main()
     need find
     need sort
     need python3
+    need "${CL_RPM}"
     need_closure
     export_skip
     prep_payload
@@ -461,11 +483,13 @@ main()
     make_repo
     run_closure
     if [ "$CLOSURE_ONLY" -eq 1 ]; then
+        check_rpms
         printf '闭包池: %s（%d 个 RPM）\n' "$PKGDIR" "${#NAMES[@]}"
         return 0
     fi
     guard_payload "$PKGDIR" "$OUT_ABS" ||
         die "${E_IO}" "载荷兜底重打包失败"
+    check_rpms
     make_repo
     check_comps
     check_closure
