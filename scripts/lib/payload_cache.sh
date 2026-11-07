@@ -16,6 +16,14 @@
 #   * 池或清单不可用——回落全量收割，并打印固定格式的一行。静默降级会让
 #     人把这轮的快误当成常态，也会让「为什么还在走公网」无从归因。
 #
+# 摘要只证明「与清单一致」，不证明「包是完整的」。清单本身是上一轮写出的：
+# 那一轮若把被截断的字节收进池，摘要就把损坏钉成了锚点，此后每一轮都
+# 「核对通过」。而 dnf 对 --downloaddir 里已存在的同名文件不再校验，进程被
+# 中断时会在最终文件名上留下截断的包；createrepo_c 只读包头，也照样把截断
+# 包索引成合法仓库。因此可信的判据是两条：摘要防替换，包自校验
+# （rpm -K --nosignature）防截断。二者缺一，坏字节就会一路抵达装机现场，
+# 以「Payload SHA256 ALT digest: BAD」的形式停在 anaconda 的交互确认上。
+#
 # 回填用硬链接而不是复制：池与本轮下载目录通常同在一块盘上，硬链接省掉
 # 数 GB 的写放大；跨文件系统时 ln 失败，退回复制并记 mode=copy，使日志
 # 能回答「这一轮到底有没有多写一份盘」。
@@ -57,15 +65,56 @@ pc_verify()
     [ "$(sha256sum "$1" | cut -d' ' -f1)" = "$2" ]
 }
 
+# 包自校验：头部与载荷的摘要都要与包头里登记的相符。只读包头（rpm -qp）
+# 判不出截断——截断包的包头完好，载荷却在后面；这一点在 285H 上实测过：
+# 完整包 digests OK，截到 110000000 字节后 rc=1，而 -qp 仍能读出 NEVRA。
+pc_sane()
+{
+    "${CL_RPM:-rpm}" -K --nosignature "$1" >/dev/null 2>&1
+}
+
+# 校验器是在场的前提：判不了就不该用池，宁可回落全量收割。
+pc_ready()
+{
+    command -v "${CL_RPM:-rpm}" >/dev/null 2>&1
+}
+
+# 池里可能有清单根本不知道的文件：失败轮次回填过、或人工放过。它们同样会
+# 被 createrepo_c 索引成「正确」，所以索引之前必须整池自校验一遍，坏的
+# 删掉让 dnf 重新取。删的是字节，不是记录——下一轮仍按清单独自核对。
+pc_sweep()
+{
+    local pool="$1" rpm bad=0
+    [ -n "$pool" ] && [ -d "$pool" ] || return 0
+    if ! pc_ready; then
+        printf 'payload cache: 校验器缺失（%s），无法清扫\n' \
+            "${CL_RPM:-rpm}" >&2
+        return 1
+    fi
+    while IFS= read -r rpm; do
+        pc_sane "$rpm" && continue
+        rm -f "$rpm"
+        printf 'payload cache: purge %s (digests bad)\n' "${rpm##*/}"
+        bad=$((bad + 1))
+    done < <(find "$pool" -maxdepth 1 -type f -name '*.rpm' 2>/dev/null)
+    [ "$bad" -eq 0 ] || printf 'payload cache: purged %d\n' "$bad"
+    return 0
+}
+
 pc_fallback()
 {
     printf 'payload cache: unavailable %s — falling back to full harvest\n' "$1"
 }
 
 # 求解前核对池：与清单不符的文件立即删除，使本轮从上游重取真实字节。
+#
+# 摘要相符的条目还要过一遍包自校验：相符只说明「与清单同字节」，而清单可能
+# 正是上一轮把坏字节钉成的锚点。证伪的条目同时从内存清单里剔除，否则本轮
+# 的漂移判定会继续拿它当基准，把重新下载的正确字节判成 AIRY-PAYLOAD-DRIFT。
 pc_seed()
 {
     local pool="$1" lock="$2" base sum i hit=0 total bad=0
+    local -a sum2=() base2=() nev2=()
     if ! pc_read "$lock"; then
         pc_fallback "清单缺失或为空（${lock:-未配置}）"
         return 1
@@ -74,10 +123,23 @@ pc_seed()
         pc_fallback "候选池缺失（${pool:-未配置}）"
         return 1
     fi
+    if ! pc_ready; then
+        pc_fallback "校验器缺失（${CL_RPM:-rpm}）"
+        return 1
+    fi
     total=${#PC_BASE[@]}
     for i in "${!PC_BASE[@]}"; do
         base="${PC_BASE[$i]}"
         sum="${PC_SUM[$i]}"
+        if [ -f "${pool}/${base}" ] && ! pc_sane "${pool}/${base}"; then
+            rm -f "${pool}/${base}"
+            bad=$((bad + 1))
+            printf 'payload cache: discard %s (digests bad)\n' "$base"
+            continue
+        fi
+        sum2+=("$sum")
+        base2+=("$base")
+        nev2+=("${PC_NEV[$i]}")
         [ -f "${pool}/${base}" ] || continue
         if pc_verify "${pool}/${base}" "$sum"; then
             hit=$((hit + 1))
@@ -87,6 +149,15 @@ pc_seed()
         bad=$((bad + 1))
         printf 'payload cache: discard %s (sha256 mismatch)\n' "$base"
     done
+    if [ "${#base2[@]}" -gt 0 ]; then
+        PC_SUM=("${sum2[@]}")
+        PC_BASE=("${base2[@]}")
+        PC_NEV=("${nev2[@]}")
+    else
+        PC_SUM=()
+        PC_BASE=()
+        PC_NEV=()
+    fi
     printf 'payload cache: pool %d/%d verified\n' "$hit" "$total"
     [ "$bad" -eq 0 ]
 }
@@ -109,9 +180,14 @@ pc_stat()
 }
 
 # 通过审计的事务才回填：池的可信集合只扩大，不引入未经校验的字节。
-# 这里不再逐包 rpm -K：dnf 在整包校验通过前只用临时名，dl 里出现的最终名
-# 已经是它按 repodata 校验过的字节；池的可信度由下一轮的 pc_seed 与清单
-# 复核闭环，不需要在回填时再读一遍整包。
+#
+# 回填前逐包自校验，这是本文件曾经判断错误的地方。原先假定「dnf 只在整包
+# 校验通过后才用最终文件名」，因此把 dl 里出现的最终名一律当成已校验字节。
+# 实测不是这样：dnf 对 --downloaddir 里已存在的同名文件跳过校验，进程被
+# 中断（cl_watch 判挂死后 kill）时就在最终名上留下截断包。失败分支会在
+# 重试前调用本函数，于是截断包被吸收进池、被索引成合法仓库、被下一轮当作
+# 命中收进载荷，装机时 anaconda 报 Payload SHA256 ALT digest: BAD（run
+# 42421987850 三条腿同一处失败，firefox 153.6.0）。
 #
 # 自建包（SKIP 里的名字空间）不回填：池缓存的是上游交付的字节，本仓产物
 # 的唯一事实源是当轮的载荷目录。让旧构建留在池里，下一轮就以更低 cost 提供
@@ -125,6 +201,11 @@ pc_absorb()
         printf 'payload cache: 无法写入 %s，本轮不回填\n' "$pool" >&2
         return 0
     }
+    if ! pc_ready; then
+        printf 'payload cache: 校验器缺失（%s），本轮不回填\n' \
+            "${CL_RPM:-rpm}" >&2
+        return 0
+    fi
     while IFS= read -r rpm; do
         base="${rpm##*/}"
         [ -f "${pool}/${base}" ] && continue
@@ -134,6 +215,10 @@ pc_absorb()
             case "$base" in
             $skip) continue ;;
             esac
+        fi
+        if ! pc_sane "$rpm"; then
+            printf 'payload cache: skip %s (digests bad)\n' "$base" >&2
+            continue
         fi
         if ln "$rpm" "${pool}/${base}" 2>/dev/null; then
             kept=$((kept + 1))

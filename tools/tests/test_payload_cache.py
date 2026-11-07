@@ -12,6 +12,7 @@
 # ===========================================================================
 
 import hashlib
+import os
 import shutil
 import subprocess
 import tempfile
@@ -20,6 +21,15 @@ from pathlib import Path
 
 LIB = Path(__file__).resolve().parents[2] / "scripts" / "lib" / "payload_cache.sh"
 BASH = shutil.which("bash") or "/bin/bash"
+# 包自校验在真实构建里由 rpm -K 完成；用例只验证判据是否被调用、坏字节是否
+# 被拦下，因此注入一个只认截断标记的替身，不依赖宿主装 rpm，也不依赖真包。
+FAKE_RPM = """#!/bin/sh
+for f in "$@"; do
+    [ -f "$f" ] || continue
+    grep -q TRUNC "$f" 2>/dev/null && exit 1
+done
+exit 0
+"""
 
 
 class PoolTest(unittest.TestCase):
@@ -32,6 +42,9 @@ class PoolTest(unittest.TestCase):
         self.pool.mkdir()
         self.dl.mkdir()
         self.lock = self.root / "closure.lock"
+        self.rpm = self.root / "fake-rpm"
+        self.rpm.write_text(FAKE_RPM)
+        self.rpm.chmod(0o755)
 
     def tearDown(self):
         self._tmp.cleanup()
@@ -45,10 +58,11 @@ class PoolTest(unittest.TestCase):
         return "%s  %s  %s\n" % (sum_, base, nev)
 
     def run_lib(self, body, *args):
-        script = '. "$1"; shift; ' + body
+        script = 'CL_RPM="$FAKE_RPM"; . "$1"; shift; ' + body
         argv = [BASH, "-c", script, "bash", str(LIB)] + [str(a) for a in args]
+        env = dict(os.environ, FAKE_RPM=str(self.rpm))
         return subprocess.run(argv, capture_output=True, text=True,
-                              check=False)
+                              check=False, env=env)
 
     def test_reads_both_manifest_formats(self):
         self.lock.write_text(self.lock_line("a" * 64, "x.rpm")
@@ -120,6 +134,39 @@ class PoolTest(unittest.TestCase):
         res = self.run_lib('pc_read "$1"; pc_drift "$1" "$2" "$3"',
                            self.lock, self.dl, self.self_dir)
         self.assertEqual(res.returncode, 0, res.stderr)
+
+    def test_seed_drops_truncated_manifest_entry(self):
+        """清单本身被污染：摘要相符仍要自校验，坏项不得留下。"""
+        sum_ = self.put(self.pool / "a.rpm", b"TRUNC-partial")
+        self.lock.write_text(self.lock_line(sum_, "a.rpm"))
+        res = self.run_lib(
+            'pc_seed "$1" "$2"; rc=$?; ' +
+            'printf "left=%d\\n" "${#PC_BASE[@]}"; exit $rc',
+            self.pool, self.lock)
+        self.assertEqual(res.returncode, 1, res.stderr)
+        self.assertIn("payload cache: discard a.rpm (digests bad)", res.stdout)
+        self.assertIn("left=0", res.stdout)
+        self.assertFalse((self.pool / "a.rpm").exists())
+
+    def test_sweep_purges_unlisted_truncated_file(self):
+        """失败轮次回填的包不在清单里，索引之前也必须被清扫。"""
+        self.put(self.pool / "ok.rpm", b"payload")
+        self.put(self.pool / "bad.rpm", b"TRUNC")
+        res = self.run_lib('pc_sweep "$1"', self.pool)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("payload cache: purge bad.rpm (digests bad)", res.stdout)
+        self.assertTrue((self.pool / "ok.rpm").exists())
+        self.assertFalse((self.pool / "bad.rpm").exists())
+
+    def test_absorb_skips_truncated_bytes(self):
+        """被中断的下载不得以「事务通过」为由回填进池。"""
+        self.put(self.dl / "ok.rpm", b"payload")
+        self.put(self.dl / "cut.rpm", b"TRUNC")
+        res = self.run_lib('pc_absorb "$1" "$2"', self.pool, self.dl)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("payload cache: absorb 1 (mode=link)", res.stdout)
+        self.assertIn("payload cache: skip cut.rpm (digests bad)", res.stderr)
+        self.assertFalse((self.pool / "cut.rpm").exists())
 
 
 if __name__ == "__main__":
