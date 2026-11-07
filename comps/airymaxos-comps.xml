@@ -255,9 +255,10 @@
            ibus-libpinyin 提供中文拼音引擎 -->
       <packagereq type="default">ibus</packagereq>
       <packagereq type="default">ibus-libpinyin</packagereq>
-      <!-- 浏览器：firefox 由 openEuler EPOL 提供，列为 optional，
-           默认安装集（mandatory + default）不含浏览器 -->
-      <packagereq type="optional">firefox</packagereq>
+      <!-- 浏览器：firefox 由 openEuler EPOL 提供。必须是 default 而不是
+           optional：配方未开可选安装集，optional 等于永不安装，交付的
+           桌面连一个浏览器都没有（285H 实机反馈「找不到浏览器」）。 -->
+      <packagereq type="default">firefox</packagereq>
     </packagelist>
     <!-- 会话/窗管/登录管理器/音频栈/分级冻结的唯一定义在核心组，
          此处以组引用复用，避免同一包清单两处维护产生漂移 -->
