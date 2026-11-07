@@ -391,8 +391,8 @@ assert_cfg_off CONFIG_RT_GROUP_SCHED
 # riscv64/loongarch64 的基线 defconfig 不含 CONFIG_IMA，这两个符号在那里不可见，
 # 故判据只能落在「未启用」。两架构缺 IMA 是与 x86/arm64 的真实差异，0.0.5 需
 # 裁定是补齐三架构的 INTEGRITY/IMA，还是统一关闭；本版只记录差异、不动基线
-# （铁律①：内核配置变更一律顺延；唯一例外是下面触控板那条 I2C glue，由用户
-# 裁定在本版交付），也不在此处用断言把差异抹平。
+# （铁律①：内核配置变更一律顺延；唯一例外是下面触控板那条 LPSS ID 补丁，
+# 由用户裁定在本版交付），也不在此处用断言把差异抹平。
 assert_cfg_off CONFIG_IMA_LOAD_X509
 assert_cfg_off CONFIG_EVM_LOAD_X509
 # 引导期驱动门禁（OP-P0-01）：B50 为 NVMe-only 存储，缺 NVMe 时装载后的
@@ -402,14 +402,22 @@ assert_cfg_off CONFIG_EVM_LOAD_X509
 assert_cfg '^CONFIG_BLK_DEV_NVME=[ym]$'
 assert_cfg '^CONFIG_IGC=[ym]$'
 assert_cfg '^CONFIG_RTW89_8852BE=[ym]$'
-# 触控板门禁（ARL-H，LENOVO 83JK）：触控板挂在 i2c_hid_acpi 上，其下是
-# Designware 的 PCI glue（LPSS，8086:7750/7751/7778/777a/777b），再下才是
-# i2c-designware 控制器本体。openeuler_defconfig 把 core/platform 留在 =m
-# 而把 PCI glue 关掉，三层里缺一层的结果是 /sys/bus/i2c/devices 只剩一个
-# DMI 适配器、/proc/bus/input/devices 没有触控板条目，libinput 也看不见。
-# 该项只由 configs/defconfig-agent 打开，三步配置合并任何一步把它丢掉，
-# 都要在打包阶段中断，而不是留到装机后打 modinfo 才发现模块根本不存在。
-assert_cfg '^CONFIG_I2C_DESIGNWARE_PCI=[ym]$'
+# 触控板门禁（ARL-H，LENOVO 83JK）：触控板 ELAN06FA 挂在 \_SB.PC00.I2C0，
+# 即 PCI 00:15.0（8086:7778）。该功能由 intel-lpss-pci 认领并创建 platform
+# 设备，再由 i2c-designware-platform 绑定，i2c_hid_acpi 才有适配器可挂。
+# 基线已给出前两段（=y 与 =m）；实测缺的是 intel_lpss_pci_ids[] 里的 ARL-H
+# 条目：lspci -k 对 00:15.x/00:19.x 五个功能全部「Kernel driver in use」
+# 为空，/sys/bus/i2c/devices 只剩一个 DMI 适配器，/proc/bus/input/devices
+# 没有触控板条目。该 ID 表是本树维护的补丁，换基线时最容易整段丢，故配置
+# 两段与源码条目都在此断言。打开 CONFIG_I2C_DESIGNWARE_PCI 不是修法：它的
+# ID 表没有任何 Intel 条目，认领不到这几个功能，只会让人误以为已修。
+assert_cfg '^CONFIG_MFD_INTEL_LPSS_PCI=y$'
+assert_cfg '^CONFIG_I2C_DESIGNWARE_PLATFORM=[ym]$'
+if ! grep -q 'PCI_VDEVICE(INTEL, 0x7778)' %{ksrc}/drivers/mfd/intel-lpss-pci.c
+then
+    printf 'check: intel-lpss 缺 ARL-H 的 8086:7778 条目（补丁在换基线时丢了）\n' >&2
+    exit 1
+fi
 # 显示通路门禁（真机缺陷 D-06/D-08）：没有 i915/xe 时，simpledrm 是唯一
 # 能提供 /dev/dri 的驱动，merge_config 若因依赖不满足把这两项丢掉，
 # 装机后桌面会退到 efifb 且无法再被发现。
