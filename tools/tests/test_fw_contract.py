@@ -18,7 +18,6 @@
 
 import re
 import subprocess
-import tempfile
 import unittest
 from pathlib import Path
 
@@ -26,16 +25,18 @@ DISTRO = Path(__file__).resolve().parents[2]
 FW_SPEC = DISTRO / "specs" / "airymaxos-firmware.spec"
 KERNEL_SPEC = DISTRO / "specs" / "kernel" / "airymaxos-kernel.spec"
 MANIFEST = DISTRO / "firmware" / "fw-manifest.txt"
+FLAT = DISTRO / "firmware" / "fw-flat.sh"
 CLOSURE = DISTRO / "scripts" / "lib" / "closure.sh"
 KS_DIR = DISTRO / "kickstart"
 PACKAGE = "airymaxos-firmware"
+# 非固件提供包的功能依赖：对账时剔除，避免清单被迫写进工具包名。
+INFRA = {"kmod"}
 
 GLOBAL = re.compile(r"^%global\s+([A-Za-z_][\w]*)\s+(.+?)\s*$", re.M)
 REQUIRES = re.compile(r"^Requires:\s*(.+?)\s*$", re.M)
-# %post 到下一个段落之间的正文。兼容链接的全部逻辑都在这里，装机首启能否
-# 连上 Wi-Fi 取决于它，因此按可执行代码测，不按「写了注释」测。
-POST = re.compile(r"^%post\s*$(.*?)(?=^%[a-z]+)", re.M | re.S)
-PREFIX = "%{_prefix}"
+# %posttrans 到下一个段落之间的正文。扁平入口的全部安装期逻辑都在这里，
+# 装机首启能否连上 Wi-Fi 取决于它，因此按可执行代码测，不按「写了注释」测。
+POSTTRANS = re.compile(r"^%posttrans\s*$(.*?)(?=^%[a-z]+)", re.M | re.S)
 
 
 def globals_of(text):
@@ -48,6 +49,13 @@ def requires_of(text):
 
 def read(path):
     return path.read_text(encoding="utf-8")
+
+
+def posttrans_body():
+    found = POSTTRANS.search(read(FW_SPEC))
+    if not found:
+        raise AssertionError("固件包没有 %posttrans，扁平入口无从生成")
+    return found.group(1)
 
 
 def manifest_pkgs():
@@ -70,14 +78,6 @@ def ks_pkgs():
             if line and not line.startswith(("#", "%", "-")):
                 got.add(line)
     return got
-
-
-def alias_script(root):
-    """把 %post 正文里的 %{_prefix} 换成沙箱前缀后返回可执行脚本。"""
-    found = POST.search(read(FW_SPEC))
-    if not found:
-        raise AssertionError("固件包没有 %post，兼容链接无从生成")
-    return found.group(1).replace(PREFIX, str(root / "usr"))
 
 
 class FirmwareContractTest(unittest.TestCase):
@@ -107,9 +107,44 @@ class FirmwareContractTest(unittest.TestCase):
         """固件包的 Requires 与清单第一列相等：清单加一类器件必须同时加依赖。"""
         wanted = manifest_pkgs()
         self.assertTrue(wanted)
-        declared = requires_of(read(FW_SPEC))
+        # kmod 是生成器的功能依赖（%posttrans 用 modinfo 读驱动声明），
+        # 不是固件提供包，对账时剔除；它本身由下面单独断言。
+        declared = requires_of(read(FW_SPEC)) - INFRA
         self.assertEqual(declared, wanted,
                          "固件包 Requires 与 fw-manifest.txt 的包集合不一致")
+
+    def test_fw_installs_generator(self):
+        """生成器随包落盘、被 %posttrans 调用，且清单是它声明的产物。
+
+        这三件事必须同时成立：只装脚本不调用则入口永远补不上；只调用不装
+        则装机后第一次升级就断；清单不声明为 %ghost 会被 rpm 当成未拥有
+        文件，校验和漂移看不见。
+        """
+        text = read(FW_SPEC)
+        self.assertRegex(text, re.compile(r"^Source1:[ \t]+fw-flat\.sh[ \t]*$", re.M))
+        self.assertIn("%{_libexecdir}/airymaxos/fw-flat.sh", text)
+        self.assertRegex(text, re.compile(
+            r"^%ghost[ \t]+%\{_datadir\}/airymaxos/firmware/firmware-flat\.list", re.M))
+        self.assertTrue(FLAT.is_file(), "缺少 distro/firmware/fw-flat.sh")
+
+    def test_fw_posttrans_applies_flat(self):
+        """%posttrans 调生成器补入口，且不写死任何厂商目录。
+
+        0.0.3 的缺陷形态是「文件在 intel/iwlwifi/ 下，内核按裸名取不到」。
+        写死目录只能修 Intel Wi-Fi，brcmfmac/ath11k/mt76/rtw88 与 ARM、
+        RISC-V 的主用无线仍会复发，所以判据是「调用生成器」而不是「出现
+        某个路径」。
+        """
+        body = posttrans_body()
+        code = "\n".join(line for line in body.splitlines()
+                         if not line.lstrip().startswith("#"))
+        self.assertIn("fw-flat.sh apply", code)
+        self.assertIn("--list %{_datadir}/airymaxos/firmware/firmware-flat.list",
+                      code)
+        self.assertIn("--modules %{_prefix}/lib/modules", code)
+        self.assertNotIn("intel/iwlwifi", code)
+        self.assertIn("kmod", requires_of(read(FW_SPEC)),
+                      "生成器依赖 modinfo，缺 kmod 时静默不补入口")
 
     def test_ks_installs_package(self):
         """两个剖面都显式列出固件包，镜像里缺它在事务阶段就失败。"""
@@ -123,52 +158,6 @@ class FirmwareContractTest(unittest.TestCase):
             capture_output=True, text=True, check=True)
         got = set(out.stdout.split())
         self.assertEqual(got, manifest_pkgs() | {PACKAGE})
-
-    def run_alias(self, root):
-        return subprocess.run(["sh", "-c", alias_script(root)],
-                              capture_output=True, text=True)
-
-    def test_wifi_alias_links_flat_names(self):
-        """每个 intel/ 下的固件都要在固件根上有同名条目：内核只认扁平名，
-        缺一条就是首启「未发现 Wi-Fi 设备」。.pnvm 与 .ucode 同等对待。"""
-        names = ("iwlwifi-gl-c0-fm-c0-83.ucode", "iwlwifi-gl-c0-fm-c0.pnvm")
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            src = root / "usr" / "lib" / "firmware" / "intel" / "iwlwifi"
-            src.mkdir(parents=True)
-            for name in names:
-                (src / name).write_bytes(b"\0")
-            res = self.run_alias(root)
-            self.assertEqual(res.returncode, 0, res.stderr)
-            for name in names:
-                link = root / "usr" / "lib" / "firmware" / name
-                self.assertTrue(link.is_symlink(), name)
-                self.assertEqual(link.readlink(), Path("intel/iwlwifi") / name)
-
-    def test_wifi_alias_keeps_base_files(self):
-        """基底自带扁平文件时原样保留：链接是补齐手段，不是覆盖手段。"""
-        name = "iwlwifi-1000-5.ucode"
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            src = root / "usr" / "lib" / "firmware" / "intel" / "iwlwifi"
-            src.mkdir(parents=True)
-            (src / name).write_bytes(b"\0")
-            flat = root / "usr" / "lib" / "firmware" / name
-            flat.write_bytes(b"base")
-            res = self.run_alias(root)
-            self.assertEqual(res.returncode, 0, res.stderr)
-            self.assertFalse(flat.is_symlink())
-            self.assertEqual(flat.read_bytes(), b"base")
-
-    def test_wifi_alias_noop_on_flat_layout(self):
-        """基底回到扁平布局时脚本不产生任何条目，也不会因缺目录而失败。"""
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            fw = root / "usr" / "lib" / "firmware"
-            fw.mkdir(parents=True)
-            res = self.run_alias(root)
-            self.assertEqual(res.returncode, 0, res.stderr)
-            self.assertEqual(list(fw.iterdir()), [])
 
 
 if __name__ == "__main__":
