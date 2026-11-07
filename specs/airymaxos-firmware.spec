@@ -31,7 +31,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 1
+%global airy_release 2
 # 内核 ABI。抬基线时只改这里与内核配方的 %%(kernel_version) 两处，同源断言
 # 保证两者不会各自漂移（tools/tests/test_fw_contract.py 的 abi 用例）。
 %global kernel_abi 6.6.161
@@ -159,6 +159,11 @@ exit 0
 %{_libexecdir}/airymaxos/fw-flat.sh
 
 %changelog
+* Sat Nov 07 2026 SPHARX <dev@spharx.com> - 0.0.4-2
+- firmware：补齐 iwlwifi 扁平入口链接后抬一次 release。0.0.4-1 已按
+  intel/iwlwifi/ 布局发布，本内核驱动按裸名取固件，两者交集为空；同
+  NEVRA 不同内容在升级路径上无法区分，现场安装的 0.0.4-1 机器也就
+  看不出差异
 * Wed Nov 04 2026 SPHARX <dev@spharx.com> - 0.0.4-1
 - Ship the firmware closure of the kernel ABI: the package Provides
   airymaxos-firmware-<abi> and the kernel Requires that name, so a
