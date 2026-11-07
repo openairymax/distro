@@ -58,7 +58,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 8
+%global airy_release 9
 # 基底版本是显式输入，与 distro/repo/airymax-os.repo 及 kickstart 的
 # url/repo 行是三处同源表达。%%check 以本宏断言客户端配置，版本漂移在
 # 构建期失败，而不是等到装机后 dnf 报「找不到仓库」。
@@ -118,6 +118,7 @@ Source37:       airymax-update-notify.desktop
 Source38:       network-wired-signal-excellent-symbolic.svg
 Source39:       network-wireless-signal-excellent-error-symbolic.svg
 Source40:       network-wireless-signal-low-secure-symbolic.svg
+Source41:       50-airymax-kgaccel-env.conf
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -292,6 +293,15 @@ install -m 0644 %{SOURCE37} \
 install -d -m 0755 %{buildroot}%{_sysconfdir}/systemd/system/user@.service.d
 install -m 0644 %{SOURCE12} \
     %{buildroot}%{_sysconfdir}/systemd/system/user@.service.d/50-airymax-desktop.conf
+
+# 平台主题变量是图形会话的属性，却经用户管理器环境被全部用户单元继承。
+# 非 GUI 的 Qt 守护进程据此加载 ukui 平台主题插件，插件的字体回调随即对
+# 不存在的 QApplication 调用 setFont 并崩溃（285H：kglobalaccel5 每周期
+# 一次 SIGSEGV）。drop-in 只把该变量从这一个单元摘掉，不改插件、不改会话。
+install -d -m 0755 \
+    %{buildroot}%{_sysconfdir}/systemd/user/plasma-kglobalaccel.service.d
+install -m 0644 %{SOURCE41} \
+    %{buildroot}%{_sysconfdir}/systemd/user/plasma-kglobalaccel.service.d/50-airymax-kgaccel-env.conf
 
 # 启动日志默认只活在当前一轮：openEuler 不预建 /var/log/journal，
 # Storage=auto 因此退化为 volatile，重启即丢的证据让「上一次启动为什么
@@ -630,6 +640,12 @@ grep -qxF 'Exec=/usr/bin/airy-update notify' \
     %{buildroot}%{_sysconfdir}/xdg/autostart/airymax-update-notify.desktop
 grep -qxF 'Slice=airymax-desktop.slice' \
     %{buildroot}%{_sysconfdir}/systemd/system/user@.service.d/50-airymax-desktop.conf
+# 平台主题变量必须以 UnsetEnvironment 摘除，而不是赋空值：空值仍会被 Qt
+# 当成「指定了插件名」而去找名为空的插件，失败路径与缺失相同但日志更难读。
+grep -qxF '[Service]' \
+    %{buildroot}%{_sysconfdir}/systemd/user/plasma-kglobalaccel.service.d/50-airymax-kgaccel-env.conf
+grep -qxF 'UnsetEnvironment=QT_QPA_PLATFORMTHEME' \
+    %{buildroot}%{_sysconfdir}/systemd/user/plasma-kglobalaccel.service.d/50-airymax-kgaccel-env.conf
 # 日志留存：取值写错不会让构建失败，只会在重启后表现为「没有上一次启动」，
 # 因此断言的是生效行本身而不是文件存在。
 grep -qxF '[Journal]' \
@@ -722,6 +738,7 @@ fi
 %config(noreplace) %{_sysconfdir}/xdg/autostart/airymax-display.desktop
 %config(noreplace) %{_sysconfdir}/xdg/autostart/airymax-update-notify.desktop
 %config(noreplace) %{_sysconfdir}/systemd/system/user@.service.d/50-airymax-desktop.conf
+%config(noreplace) %{_sysconfdir}/systemd/user/plasma-kglobalaccel.service.d/50-airymax-kgaccel-env.conf
 %config(noreplace) %{_sysconfdir}/systemd/journald.conf.d/50-airymax-journald.conf
 %{_unitdir}/airymax-desktop.slice
 %{_unitdir}/airymax-desktop-ready.service
@@ -757,6 +774,20 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Sat Nov 07 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-9
+- Keep the UKUI Qt platform theme out of non-GUI Qt daemons. ukui-session
+  writes QT_QPA_PLATFORMTHEME=ukui when it starts the session, and the
+  variable ends up in the systemd user manager environment, so every user
+  unit inherits it. plasma-kglobalaccel then loads
+  libqt5-ukui-platformtheme.so, whose QGSettings font callback calls
+  QApplication::setFont on a process that only has a QCoreApplication and
+  dereferences a null instance. On the 285H this produced one SIGSEGV per
+  start cycle with exactly that frame in the core dump.
+- A user-unit drop-in unsets the variable for that unit only: the plugin is
+  never loaded there, so the callback cannot fire. GUI applications are
+  started by the session itself and keep the themed look. The plugin defect
+  remains with upstream qt5-ukui-platformtheme 3.1.4 and is tracked for
+  0.0.5 through the ukui-patches policy.
 * Sat Nov 07 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-8
 - Restore the status-bar icons missing from the graphical session. Two
   independent causes: ukui-screensaver 3.1.1 hardcodes the UKUI 4 theme name
