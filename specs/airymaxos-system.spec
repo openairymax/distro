@@ -73,7 +73,7 @@
 # spec-lint: source-bundle ../../system/services/airydeb
 
 %global airy_version 0.0.4
-%global airy_release 48
+%global airy_release 49
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -524,6 +524,11 @@ fi
 %{python3_sitelib}/airydeb
 
 %changelog
+* Sat Nov 07 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-49
+- 开机九阶段在 console 上只写 ASCII 代号，中文阶段名与关键值改写 journal。
+  VT 用 latarcyrheb-sun16，该字体没有 CJK 字形，而 Linux VT 字体上限 512
+  个字形装不进中文字库，285H 开屏九行因此全部是方块；同一份行改由 logger
+  以中文入 journal，串口与 tty 拿到的是可读代号，事后取证不受影响
 * Sat Nov 07 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-48
 - 部署 airy-deb 与 airydeb 包，让没有 dpkg 和 alien 的机器也能安装 .deb。
   数据归档先用 tarfile 和 zstd 解到临时目录，再按 deb 元数据生成 spec 并
