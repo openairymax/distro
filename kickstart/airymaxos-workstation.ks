@@ -67,7 +67,12 @@ repo --name=airymaxos-offline --baseurl=file:///run/install/repo/airymax/Package
 # 该设备的机器上把 console= 注册成幽灵项，systemd-vconsole-setup 因此
 # 失败；命令行的 console= 计数也从 2 变成 3。架构分支不允许留在这里——
 # aarch64 由同目录的独立配方按自己的控制台集合产出。
-bootloader --timeout=3 --append="console=ttyS0,115200 console=tty0 rhgb quiet"
+#
+# 菜单停留秒数与 boot/grub_args.sh 的 timeout 常量同源：安装器这一份只
+# 覆盖首启，%post 会把它归一化为 1 秒。285H 冷启动实测 loader 段 3.78s，
+# 其中 3s 是默认停留且不产出任何信息。两处不同步时，只要 grub2-mkconfig
+# 再跑一次（内核升级、grub2 包升级）就回退到长停留。
+bootloader --timeout=1 --append="console=ttyS0,115200 console=tty0 rhgb quiet"
 
 # ---- 分区作用域（真机缺陷 D-33）----
 # 安装器没有「自动」盘名：clearpart --all + autopart 会把每一块可用磁盘都

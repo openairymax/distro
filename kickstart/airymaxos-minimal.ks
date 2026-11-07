@@ -44,7 +44,12 @@ repo --name=update --baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP3/
 # console 集合按架构收敛（D-05）：x86_64 为 tty0 + ttyS0，ARM64 的 ttyAMA0
 # 不得出现在本配方——无该设备时 console= 注册成幽灵项并让
 # systemd-vconsole-setup 失败。aarch64 配方各自持有自己的控制台集合。
-bootloader --timeout=3 --append="console=ttyS0,115200 console=tty0"
+#
+# 菜单停留秒数与上面同一来源：安装器这一份只覆盖首启，%post 由
+# grub_args.sh 归一化为 1 秒。285H 冷启动实测 loader 段 3.78s，其中 3s 是
+# 默认停留且不产出任何信息。两处必须相等——不同步时，只要重建一次 grub.cfg
+# 就回退到长停留。
+bootloader --timeout=1 --append="console=ttyS0,115200 console=tty0"
 
 # 选盘、布局与选盘记录只有一份实现（kickstart/disk-select.sh），构建期由
 # tools/ks_embed.py 展开进下面的脚本段。clearpart --all 加 autopart 会把
