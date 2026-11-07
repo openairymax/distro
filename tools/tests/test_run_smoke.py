@@ -1344,6 +1344,23 @@ class RunSmokeTest(unittest.TestCase):
         self.assert_fail(res, 23)
         self.assertIn("state=failed", res.stdout)
 
+    def test_inventory_ignores_harness_report(self):
+        # 判定者不把自己的结论当证据：上报单元的失败是同一轮 TAP 结论的
+        # 搬运，同一次开机的后续每一轮都会读到它，真实根因被自指信号盖住。
+        self.tools()
+        res = self.run_smoke(FAKE_FAILED_UNITS="airymax-smoke-report.service")
+        self.assertTrue(self.tap(res, 23).startswith("ok"), res.stdout)
+        self.assertIn("units=0", res.stdout)
+
+    def test_tap_carries_boot_id(self):
+        # TAP 与写出它的那次开机绑定，报告侧据此拒绝上一轮的旧结论
+        self.tools()
+        res = self.run_smoke()
+        stamped = [line for line in res.stdout.splitlines()
+                   if line.startswith("# boot=")]
+        self.assertEqual(len(stamped), 1, res.stdout)
+        self.assertNotEqual(stamped[0], "# boot=")
+
     def test_inventory_package_drift(self):
         # 装机后多装一个包：系统构成已变，交付集合不再是实际集合
         self.tools()

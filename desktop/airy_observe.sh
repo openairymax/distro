@@ -599,7 +599,7 @@ while [ $# -gt 0 ]; do
         printf '      airy-observe --section NAME[,NAME...]\n'
         printf '      airy-observe hardware [--json] [--root DIR]\n'
         printf '      airy-observe firmware [--json] [--dmesg FILE]\n'
-        printf '      airy-observe system [--json] [--manifest FILE]\n'
+        printf '      airy-observe system [--json] [--manifest FILE] [--budget N] [--exclude UNIT]\n'
         printf '主题: kernel os boot net sched rtc\n'
         printf 'hardware: 整机硬件清点，cpu/block/net 必检，其余类别可选\n'
         printf 'firmware: 驱动期望的固件文件名与本次开机的载入实况\n'

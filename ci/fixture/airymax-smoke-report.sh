@@ -6,6 +6,7 @@
 # 等待会话内 runner 写出 /var/log/airymax/smoke.tap，按 TAP 14 判定：
 #   计划 1..N 与 ok 行必须逐项对齐（N 取自 TAP 计划本身，报告侧不复制探针
 #   数量常量）；不得出现 not ok / Bail out! / SKIP；summary 的 fail 必须为 0。
+# TAP 还必须带本轮开机的 boot_id：上一轮开机的文件不算证据，见 fresh_tap。
 # 探测工具由产品镜像自身提供，runner 不产生 SKIP；出现 SKIP 说明跑的不是
 # 本版 runner，按失败计，避免旧语义把缺失的探测放行。
 # 通过打印 AIRYMAX-SMOKE-PASS；失败打印 AIRYMAX-SMOKE-FAIL。
@@ -41,12 +42,34 @@ readonly STEP=2
 readonly TAP_TOKEN='AIRYMAX-TAP|'
 readonly CHAIN_MAX="${AIRYMAX_CHAIN_LINES:-24}"
 readonly CHAIN_TOKEN='AIRYMAX-BOOT-CHAIN|'
+readonly BOOT_ID_FILE="${AIRYMAX_BOOT_ID_FILE:-/proc/sys/kernel/random/boot_id}"
+
+boot_id()
+{
+    local id=
+    [ -r "${BOOT_ID_FILE}" ] && read -r id <"${BOOT_ID_FILE}"
+    printf '%s' "${id}"
+}
+
+# TAP 只对写出它的那次开机有效。/var/log 跨开机保留，上一轮的文件与本轮
+# 无关：285H 实测报告在开机 5 秒后读到上一轮的文件并立刻判负，而本轮的
+# runner 尚未写出结果；同一机制也能让新一轮沿用旧的通过结论。两种方向都
+# 是假证据，因此按 boot_id 对齐——读不到 id 即视为没有可用证据，宁可超时
+# 也不放行。
+fresh_tap()
+{
+    local want got
+    want="$(boot_id)"
+    [ -n "${want}" ] || return 1
+    got="$(sed -n 's/^# boot=//p' "${TAP}" 2>/dev/null | head -n 1)"
+    [ "${got}" = "${want}" ]
+}
 
 wait_tap()
 {
     local waited=0
     while :; do
-        [ -s "${TAP}" ] && return 0
+        [ -s "${TAP}" ] && fresh_tap && return 0
         [ "${waited}" -ge "${WAIT}" ] && return 1
         sleep "${STEP}"
         waited=$((waited + STEP))
