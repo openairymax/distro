@@ -58,6 +58,12 @@ airy-boot-mount.service
 # 一张看起来已经结束的画面，没有任何可归因的证据。
 airy-boot-watch.timer
 
+# 首启网络自检：首烧后没网的现场只有「网页打不开」，驱动、固件、射频、
+# 关联、DHCP 五段里哪一段断了无从得知。本单元在桌面之前把运行期事实收敛
+# 成一行 AIRYMAX-NET 结论并落 /run/airymaxos/net.state。默认关闭时症状是
+# 静默：机器照常起来，下一次现场排查仍从零开始。
+airymax-net-doctor.service
+
 # 数据盘：单元就位却默认关闭时，数据盘不挂载、容量告急也不告警，/data 只剩
 # 空目录。
 airy-disk-mount.service

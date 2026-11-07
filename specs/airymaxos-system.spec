@@ -143,6 +143,8 @@ Source59:       boot_watch.sh
 Source60:       airy-boot-watch.service
 Source61:       airy-boot-watch.timer
 Source62:       con.sh
+Source63:       airymax-net-doctor.service
+Source64:       net_doctor.sh
 
 BuildRequires:  gcc
 BuildRequires:  python3-devel
@@ -211,14 +213,15 @@ install -m 0644 %{SOURCE1} %{SOURCE2} %{SOURCE3} %{SOURCE4} %{SOURCE5} \
     %{SOURCE23} %{SOURCE24} %{SOURCE27} \
     %{SOURCE30} %{SOURCE31} %{SOURCE32} %{SOURCE35} %{SOURCE51} %{SOURCE52} \
     %{SOURCE37} %{SOURCE38} %{SOURCE42} %{SOURCE43} %{SOURCE45} \
-    %{SOURCE55} %{SOURCE60} %{SOURCE61} %{buildroot}%{_unitdir}/
+    %{SOURCE55} %{SOURCE60} %{SOURCE61} %{SOURCE63} \
+    %{buildroot}%{_unitdir}/
 install -m 0644 %{SOURCE0} %{SOURCE15} %{buildroot}%{_unitdir}/
 install -d -m 0755 %{buildroot}%{_unitdir}/user.slice.d
 install -m 0644 %{SOURCE46} \
     %{buildroot}%{_unitdir}/user.slice.d/50-airymax-memory.conf
 install -d -m 0755 %{buildroot}/usr/lib/airymaxos/scripts
 install -m 0755 %{SOURCE17} %{SOURCE18} %{SOURCE50} %{SOURCE53} \
-    %{SOURCE54} %{SOURCE56} %{SOURCE59} %{SOURCE62} \
+    %{SOURCE54} %{SOURCE56} %{SOURCE59} %{SOURCE62} %{SOURCE64} \
     %{buildroot}/usr/lib/airymaxos/scripts/
 install -d -m 0755 %{buildroot}%{_presetdir}
 install -m 0644 %{SOURCE19} %{SOURCE20} %{buildroot}%{_presetdir}/
@@ -250,6 +253,8 @@ test -x %{buildroot}/usr/lib/airymaxos/scripts/ui.sh
 test -x %{buildroot}/usr/lib/airymaxos/scripts/stage_run.sh
 test -x %{buildroot}/usr/lib/airymaxos/scripts/boot_mount.sh
 test -x %{buildroot}/usr/lib/airymaxos/scripts/boot_watch.sh
+test -x %{buildroot}/usr/lib/airymaxos/scripts/net_doctor.sh
+bash -n %{buildroot}/usr/lib/airymaxos/scripts/net_doctor.sh
 bash -n %{buildroot}/usr/lib/airymaxos/scripts/boot_set.sh
 bash -n %{buildroot}/usr/lib/airymaxos/scripts/ui.sh
 bash -n %{buildroot}/usr/lib/airymaxos/scripts/stage_run.sh
@@ -326,6 +331,22 @@ grep -qxF 'OnBootSec=60s' \
 grep -qxF 'Unit=airy-boot-watch.service' \
     %{buildroot}%{_unitdir}/airy-boot-watch.timer
 grep -qxF 'disable airy-boot-watch.timer' \
+    %{buildroot}%{_presetdir}/90-airymax.preset
+test -f %{buildroot}%{_unitdir}/airymax-net-doctor.service
+grep -qxF 'ExecStart=-/usr/lib/airymaxos/scripts/net_doctor.sh' \
+    %{buildroot}%{_unitdir}/airymax-net-doctor.service
+grep -qxF 'After=NetworkManager.service' \
+    %{buildroot}%{_unitdir}/airymax-net-doctor.service
+grep -qxF 'Before=graphical.target' \
+    %{buildroot}%{_unitdir}/airymax-net-doctor.service
+grep -qxF 'Type=oneshot' %{buildroot}%{_unitdir}/airymax-net-doctor.service
+grep -qxF 'RemainAfterExit=yes' \
+    %{buildroot}%{_unitdir}/airymax-net-doctor.service
+grep -qxF 'RuntimeDirectory=airymaxos' \
+    %{buildroot}%{_unitdir}/airymax-net-doctor.service
+grep -qxF 'RuntimeDirectoryMode=0755' \
+    %{buildroot}%{_unitdir}/airymax-net-doctor.service
+grep -qxF 'disable airymax-net-doctor.service' \
     %{buildroot}%{_presetdir}/90-airymax.preset
 test -f %{buildroot}%{_unitdir}/airy-disk-mount.service
 grep -qxF 'ExecStart=/usr/lib/airymaxos/scripts/stage_run.sh 数据分区 4 - /usr/bin/airy-disk mount' \
@@ -428,7 +449,8 @@ for unit in airy-rt-bandwidth.service airy-rt-memcap.service \
     airy-rt-memcap.timer airy-power.service airy-power.timer \
     airy-rt-coexist.service airy-rt-coexist.timer airy-disk-mount.service \
     airy-disk-health.timer airymax-update-check.timer \
-    airy-boot-mount.service airy-boot-watch.timer; do
+    airy-boot-mount.service airy-boot-watch.timer \
+    airymax-net-doctor.service; do
     grep -qxF "${unit}" %{buildroot}/usr/lib/airymaxos/boot-set || exit 1
 done
 
