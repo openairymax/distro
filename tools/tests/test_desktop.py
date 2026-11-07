@@ -277,7 +277,8 @@ class DesktopAssetTest(unittest.TestCase):
         override = parse_kv(self.asset(
             "desktop/glib-2.0/schemas/99-airymaxos-default.gschema.override"))
         self.assertEqual(list(override.sections()),
-                         ["org.mate.background", "org.mate.interface"])
+                         ["org.mate.background", "org.mate.interface",
+                          "org.freedesktop.ibus.general"])
         self.assertEqual(list(override["org.mate.background"]),
                          ["picture-filename"])
         self.assertEqual(list(override["org.mate.interface"]),
@@ -285,6 +286,14 @@ class DesktopAssetTest(unittest.TestCase):
         self.assertEqual(
             override["org.mate.interface"]["icon-theme"].strip("'\""),
             "ukui")
+        # 默认引擎取 preload-engines 首位：列表为空时 ibus 只加载系统 XKB
+        # 布局，中文引擎已安装却不在会话里，表现即「没有输入法」。
+        engines = override["org.freedesktop.ibus.general"]
+        self.assertEqual(list(engines), ["preload-engines", "engines-order"])
+        self.assertEqual(engines["preload-engines"],
+                         "['libpinyin','xkb:us::eng']")
+        self.assertEqual(engines["engines-order"],
+                         "['libpinyin','xkb:us::eng']")
 
     def test_input_env(self):
         path = self.asset("desktop/xinitrc.d/70-airymax-im.sh")
