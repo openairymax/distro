@@ -248,10 +248,16 @@ class KsSpecTest(unittest.TestCase):
             self.assertEqual(res.returncode, 0, res.stderr)
             self.assertEqual(res.stdout.splitlines(), [f"comps\t{len(names)}"])
 
-    def test_resolve_skips_optional(self):
+    def test_resolve_defaults_only(self):
+        """默认安装集收 default、丢 optional，浏览器属于前者。
+
+        配方未开可选安装集，optional 等于永不安装：0.0.4 就这样交付过
+        一个没有浏览器的桌面（285H 实机反馈）。这条断言把「浏览器必须
+        在默认集里」钉死，避免为了瘦身再把它挪回 optional。
+        """
         names = need_pkgs()
         self.assertNotIn("ukui-biometric-manager", names)
-        self.assertNotIn("firefox", names)
+        self.assertIn("firefox", names)
         with tempfile.TemporaryDirectory() as tmp:
             stage_primary(tmp, names)
             res = subprocess.run([PYTHON, str(SCRIPT), "resolve", str(KS), tmp,
