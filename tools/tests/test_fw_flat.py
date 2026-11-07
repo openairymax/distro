@@ -175,6 +175,64 @@ class FlatTest(unittest.TestCase):
         self.assertEqual(res.returncode, 1)
         self.assertIn("fail=no-entry name=x.bin", res.stderr)
 
+    def test_apply_links_compressed_variant(self):
+        """树内只留 .zst 时入口名带后缀：内核按 <name>.zst 再取一次。
+
+        SP3 的 intel/iwlwifi/ 全是 .ucode.zst（未压缩 0 个）。补成无后缀
+        的链会让内核把压缩流当裸文件解析，因此链接名必须保留真实后缀。
+        """
+        self.make("intel/iwlwifi/x.ucode.zst")
+        self.want("x.ucode")
+        res = self.run_flat("apply")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("flat=1 miss=0", res.stdout)
+        link = self.fw / "x.ucode.zst"
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(link.readlink().as_posix(),
+                         "intel/iwlwifi/x.ucode.zst")
+        self.assertEqual(self.rows(),
+                         [["x.ucode.zst", "intel/iwlwifi/x.ucode.zst"]])
+
+    def test_apply_prefers_uncompressed(self):
+        """未压缩候选优先于 .zst/.xz：少一次解压，且与内核探测顺序一致。"""
+        self.make("a/x.ucode")
+        self.make("intel/iwlwifi/x.ucode.zst")
+        self.want("x.ucode")
+        res = self.run_flat("apply")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual((self.fw / "x.ucode").readlink().as_posix(),
+                         "a/x.ucode")
+
+    def test_apply_compressed_is_idempotent(self):
+        """压缩入口同样幂等：第二轮不该把已有链判成 miss。"""
+        self.make("intel/iwlwifi/x.ucode.zst")
+        self.want("x.ucode")
+        self.assertEqual(self.run_flat("apply").returncode, 0)
+        res = self.run_flat("apply")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("flat=0 miss=0", res.stdout)
+
+    def test_check_passes_compressed(self):
+        """压缩入口的复核与未压缩同判据。"""
+        self.make("intel/iwlwifi/x.ucode.zst")
+        self.want("x.ucode")
+        self.assertEqual(self.run_flat("apply").returncode, 0)
+        res = self.run_flat("check")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("rows=1 bad=0", res.stdout)
+
+    def test_source_leaves_script_inert(self):
+        """被 kickstart 段展开时正文只定义函数：不解析位置参数、不早退。
+
+        %pre 把正文原样贴在脚本段里，$0 是安装器临时脚本。这里用 $0=sh
+        复现同一形态，正文若在末尾无条件执行就会把整段安装脚本带偏。
+        """
+        res = subprocess.run(
+            ["sh", "-c", '. "$1"; printf "sourced\\n"', "sh", str(FLAT)],
+            capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("sourced", res.stdout)
+
     def test_usage_needs_list(self):
         """缺清单路径是用法错误，与判定失败分开报。"""
         res = subprocess.run(["sh", str(FLAT), "apply", str(self.fw)],

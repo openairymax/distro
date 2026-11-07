@@ -19,12 +19,25 @@
 # .modinfo 段），按它反查安装树，三架构、全厂商走同一条路径，不再需要
 # 维护任何厂商常量。这是本脚本存在的唯一理由。
 #
-# 两种动词：
-#   apply ORIGIN --list FILE [--modules DIR] [--requests FILE]
-#       缺入口的扁平请求逐个补软链，并把自己补了哪些写进 FILE（清单）。
-#   check ORIGIN --list FILE
-#       按清单复核每条软链仍指向原目标；基线后来自己提供了同名文件也算
-#       满足（此时不再需要软链）。
+# 压缩后缀：0.0.4 首烧复现的另一半。安装器 live 环境的固件树是 SP3 布局，
+# intel/iwlwifi/ 下 165 个文件全是 .ucode.zst，未压缩的 0 个，而驱动请求
+# 的仍是裸名。本内核配了 CONFIG_FW_LOADER_COMPRESS_{ZSTD,XZ}，取不到裸名
+# 时按 <name>.zst、<name>.xz 在同一路径再各取一次
+# （kernel/drivers/base/firmware_loader/main.c 的 assign_fw）。因此入口名
+# 必须带真实后缀（x.ucode.zst -> intel/iwlwifi/x.ucode.zst）；补成无后缀
+# 的链会让内核第一次尝试就读取压缩流并按裸文件解析，等于没补。
+#
+# 两种使用形态：
+#   ① 命令行：fw-flat.sh apply|check ORIGIN --list FILE [选项]
+#   ② 被安装配方嵌入：正文由构建期的嵌入标记展开进 kickstart 脚本段后
+#      调用 fw_flat_main apply|check ...。安装器 live 环境没有本包，
+#      同一套规则只能用嵌入，故正文除函数定义外不解析位置参数，末尾
+#      按 $0 判定是否作为脚本运行。
+#
+# 为什么先建索引再查表：请求名数十条，逐条 find 整棵树是 O(请求数 ×
+# 树规模)；一次 find 建「逻辑名 → 相对路径」索引，之后每请求一次查表。
+# 树内同名文件按「未压缩 → .zst → .xz」与相对路径最短取一条，结论不随
+# find 顺序漂移。
 #
 # 链接在安装事务里生成而不是打进包体：目标文件属 linux-firmware，若把
 # 链接作为包的文件声明，同一路径会被两个包持有，dnf 事务直接失败。
@@ -32,25 +45,17 @@
 # 固件包先于 linux-firmware 落地时 %%post 看不到目标文件，只能静默跳过。
 #
 # 本脚本按 POSIX sh 写：安装期由 `sh` 调用，不保证解释器是 bash，故不用
-# local 等非 POSIX 扩展。函数之间只用带前缀的全局变量，前缀保证调用方
-# 与被调方不会互相覆盖。
+# local 等非 POSIX 扩展。函数与全局变量统一带 ff_/fw_flat_ 前缀，嵌入到
+# 装机的脚本段后不会与 install-lib.sh、disk-select.sh 互相覆盖。
 #
 # 退出码：0 成功；1 复核失败或读写失败；2 用法错误。
 # ===========================================================================
 set -eu
 
-E_FAIL=1
-E_USE=2
+FWFLAT_FAIL=1
+FWFLAT_USE=2
 
-VERB=${1:-}
-ORIGIN=${2:-}
-shift 2 2>/dev/null || true
-
-LIST=""
-MODULES="/usr/lib/modules"
-REQFILE=""
-
-usage()
+fw_flat_usage()
 {
     printf '%s\n' \
         '用法: fw-flat.sh apply|check ORIGIN --list FILE [选项]' \
@@ -63,147 +68,208 @@ usage()
         '  --requests F   请求名清单，缺省用 modinfo 从模块树读取'
 }
 
-while [ "$#" -gt 0 ]; do
-    case "$1" in
-    --list) LIST=${2:-}; shift 2 ;;
-    --modules) MODULES=${2:-}; shift 2 ;;
-    --requests) REQFILE=${2:-}; shift 2 ;;
-    -h|--help) usage; exit 0 ;;
-    *) usage >&2; exit "${E_USE}" ;;
-    esac
-done
-
-case "${VERB}" in
-apply|check) ;;
-*)
-    usage >&2
-    exit "${E_USE}"
-    ;;
-esac
-if [ -z "${ORIGIN}" ] || [ -z "${LIST}" ] || [ ! -d "${ORIGIN}" ]; then
-    usage >&2
-    exit "${E_USE}"
-fi
-
-# requests —— 驱动声明的固件名，一行一个，去重保序。
+# fw_flat_requests —— 驱动声明的固件名，一行一个，去重保序。
 # modinfo 一次可读多个模块，按批传参避免命令行超限；只读 .modinfo 段，
 # 不执行模块。读不到模块树时返回 2，由调用方决定是报错还是静默。
-requests()
+fw_flat_requests()
 {
-    if [ -n "${REQFILE}" ]; then
-        [ -r "${REQFILE}" ] || return 2
-        awk 'NF' "${REQFILE}"
+    if [ -n "${ff_reqfile}" ]; then
+        [ -r "${ff_reqfile}" ] || return 2
+        awk 'NF' "${ff_reqfile}"
         return 0
     fi
-    [ -d "${MODULES}" ] || return 2
+    [ -d "${ff_modules}" ] || return 2
     command -v modinfo >/dev/null 2>&1 || return 2
-    find "${MODULES}" -type f \( -name '*.ko' -o -name '*.ko.xz' \
+    find "${ff_modules}" -type f \( -name '*.ko' -o -name '*.ko.xz' \
         -o -name '*.ko.zst' -o -name '*.ko.gz' \) -print0 2>/dev/null |
         xargs -0 -r -n 64 modinfo -F firmware 2>/dev/null |
         awk 'NF' | sort -u
 }
 
-# missing NAME —— 该请求名在固件根上缺入口时，打印安装树内的候选相对
-# 路径（字符最短优先）。返回 0 表示缺入口；1 表示已有入口；3 表示缺入口
-# 且树内也没有同名文件（无从补起）。结果经 mf_hit 交回调用方。
-missing()
+# fw_flat_index ORIGIN DEST —— 建立「逻辑名 → 树内相对路径」索引。
+# 逻辑名是文件名去掉压缩后缀后的形态，即驱动的请求名；值保留真实相对
+# 路径，后缀随值一起带到入口名上。
+fw_flat_index()
 {
-    mf_hit=""
-
-    if [ -e "${ORIGIN}/$1" ]; then
-        return 1
-    fi
-    mf_hit=$(find "${ORIGIN}" -type f -path "*/$1" -print 2>/dev/null |
-        awk '{ print length($0) " " $0 }' | sort -n -k1,1 |
-        awk 'NR == 1 { $1 = ""; sub(/^ /, ""); print }')
-    if [ -z "${mf_hit}" ]; then
-        return 3
-    fi
-    printf '%s\n' "${mf_hit#"${ORIGIN}"/}"
+    fi_root=$1
+    while [ "${fi_root%/}" != "${fi_root}" ] && [ -n "${fi_root%/}" ]; do
+        fi_root=${fi_root%/}
+    done
+    find "${fi_root}" -type f -print 2>/dev/null |
+        awk -v root="${fi_root}/" '
+            index($0, root) == 1 {
+                rel = substr($0, length(root) + 1)
+                name = rel
+                sub(/.*\//, "", name)
+                rank = 0
+                if (name ~ /\.zst$/) { rank = 1; sub(/\.zst$/, "", name) }
+                else if (name ~ /\.xz$/) { rank = 2; sub(/\.xz$/, "", name) }
+                print name, rel, rank, length(rel)
+            }' |
+        sort -k1,1 -k3,3n -k4,4n -k2,2 |
+        awk '!seen[$1]++ { print $1, $2 }' >"$2"
 }
 
-apply_run()
+# fw_flat_lookup INDEX NAME —— 打印 NAME 对应的相对路径；查不到则空。
+fw_flat_lookup()
 {
-    ap_tmp="${LIST}.tmp.$$"
-    ap_reqs="${ap_tmp}.reqs"
-    ap_links=0
-    ap_miss=0
+    awk -v key="$2" '$1 == key { print $2; exit }' "$1"
+}
 
-    : >"${ap_tmp}"
-    if ! requests >"${ap_reqs}"; then
-        rm -f "${ap_tmp}" "${ap_reqs}"
-        printf 'fail=no-requests modules=%s\n' "${MODULES}" >&2
-        return "${E_FAIL}"
+fw_flat_apply()
+{
+    ff_tmp="${ff_list}.tmp.$$"
+    ff_reqs="${ff_tmp}.reqs"
+    ff_idx="${ff_tmp}.idx"
+    ff_links=0
+    ff_miss=0
+
+    : >"${ff_tmp}"
+    if ! fw_flat_requests >"${ff_reqs}"; then
+        rm -f "${ff_tmp}" "${ff_reqs}"
+        printf 'fail=no-requests modules=%s\n' "${ff_modules}" >&2
+        return "${FWFLAT_FAIL}"
     fi
-    while IFS= read -r ap_name; do
-        case "${ap_name}" in
-        ''|*/*) continue ;;
+    if ! fw_flat_index "${ff_origin}" "${ff_idx}"; then
+        rm -f "${ff_tmp}" "${ff_reqs}" "${ff_idx}"
+        printf 'fail=no-index origin=%s\n' "${ff_origin}" >&2
+        return "${FWFLAT_FAIL}"
+    fi
+
+    while IFS= read -r ff_name; do
+        case "${ff_name}" in
+        '' | */*) continue ;;
         esac
-        ap_rc=0
-        ap_rel=$(missing "${ap_name}") || ap_rc=$?
-        case "${ap_rc}" in
-        1) continue ;;
-        3)
+        # 已有入口（基线实体文件，或前一轮补的链）：不动，也不计入本轮。
+        if [ -e "${ff_origin}/${ff_name}" ]; then
+            continue
+        fi
+        ff_rel=$(fw_flat_lookup "${ff_idx}" "${ff_name}") || ff_rel=
+        if [ -z "${ff_rel}" ]; then
             # 请求名在树内也没有同名文件：不是布局问题而是固件缺失。这里
             # 不失败（脚本节不能阻断安装），但必须在安装日志里留一行判据，
             # 否则现场只会看到驱动 "no suitable firmware found"。
-            printf 'miss name=%s\n' "${ap_name}" >&2
-            ap_miss=$(( ap_miss + 1 ))
+            printf 'miss name=%s\n' "${ff_name}" >&2
+            ff_miss=$(( ff_miss + 1 ))
             continue
+        fi
+        ff_link=${ff_rel##*/}
+        if [ -e "${ff_origin}/${ff_link}" ]; then
+            continue
+        fi
+        if ! ln -s "${ff_rel}" "${ff_origin}/${ff_link}" 2>/dev/null; then
+            printf 'miss name=%s rel=%s\n' "${ff_name}" "${ff_rel}" >&2
+            ff_miss=$(( ff_miss + 1 ))
+            continue
+        fi
+        printf '%s %s\n' "${ff_link}" "${ff_rel}" >>"${ff_tmp}"
+        ff_links=$(( ff_links + 1 ))
+    done <"${ff_reqs}"
+    rm -f "${ff_reqs}" "${ff_idx}"
+    if ! mv "${ff_tmp}" "${ff_list}" 2>/dev/null; then
+        rm -f "${ff_tmp}"
+        printf 'fail=write-list list=%s\n' "${ff_list}" >&2
+        return "${FWFLAT_FAIL}"
+    fi
+    printf 'flat=%d miss=%d list=%s\n' "${ff_links}" "${ff_miss}" "${ff_list}"
+}
+
+fw_flat_check()
+{
+    fk_bad=0
+    fk_rows=0
+
+    if [ ! -r "${ff_list}" ]; then
+        printf 'fail=no-list list=%s\n' "${ff_list}" >&2
+        return "${FWFLAT_FAIL}"
+    fi
+    while IFS=' ' read -r fk_name fk_rel; do
+        [ -n "${fk_name}" ] || continue
+        fk_rows=$(( fk_rows + 1 ))
+        if [ ! -e "${ff_origin}/${fk_rel}" ]; then
+            printf 'fail=no-target name=%s target=%s\n' \
+                "${fk_name}" "${fk_rel}" >&2
+            fk_bad=$(( fk_bad + 1 ))
+            continue
+        fi
+        if [ -L "${ff_origin}/${fk_name}" ]; then
+            if [ "$(readlink "${ff_origin}/${fk_name}")" != "${fk_rel}" ]; then
+                printf 'fail=wrong-link name=%s target=%s\n' \
+                    "${fk_name}" "${fk_rel}" >&2
+                fk_bad=$(( fk_bad + 1 ))
+            fi
+        elif [ ! -e "${ff_origin}/${fk_name}" ]; then
+            printf 'fail=no-entry name=%s target=%s\n' \
+                "${fk_name}" "${fk_rel}" >&2
+            fk_bad=$(( fk_bad + 1 ))
+        fi
+    done <"${ff_list}"
+    printf 'rows=%d bad=%d list=%s\n' "${fk_rows}" "${fk_bad}" "${ff_list}"
+    [ "${fk_bad}" -eq 0 ] || return "${FWFLAT_FAIL}"
+}
+
+fw_flat_main()
+{
+    if [ "$#" -lt 2 ]; then
+        fw_flat_usage >&2
+        return "${FWFLAT_USE}"
+    fi
+    ff_verb=$1
+    ff_origin=$2
+    shift 2
+
+    ff_list=
+    ff_modules=/usr/lib/modules
+    ff_reqfile=
+
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+        -h | --help)
+            fw_flat_usage
+            return 0
+            ;;
+        --list | --modules | --requests) ;;
+        *)
+            fw_flat_usage >&2
+            return "${FWFLAT_USE}"
             ;;
         esac
-        if ! ln -s "${ap_rel}" "${ORIGIN}/${ap_name}" 2>/dev/null; then
-            ap_miss=$(( ap_miss + 1 ))
-            continue
+        if [ "$#" -lt 2 ]; then
+            fw_flat_usage >&2
+            return "${FWFLAT_USE}"
         fi
-        printf '%s %s\n' "${ap_name}" "${ap_rel}" >>"${ap_tmp}"
-        ap_links=$(( ap_links + 1 ))
-    done <"${ap_reqs}"
-    rm -f "${ap_reqs}"
-    if ! mv "${ap_tmp}" "${LIST}" 2>/dev/null; then
-        rm -f "${ap_tmp}"
-        printf 'fail=write-list list=%s\n' "${LIST}" >&2
-        return "${E_FAIL}"
+        case "$1" in
+        --list) ff_list=$2 ;;
+        --modules) ff_modules=$2 ;;
+        --requests) ff_reqfile=$2 ;;
+        esac
+        shift 2
+    done
+
+    case "${ff_verb}" in
+    apply | check) ;;
+    *)
+        fw_flat_usage >&2
+        return "${FWFLAT_USE}"
+        ;;
+    esac
+    if [ -z "${ff_origin}" ] || [ -z "${ff_list}" ] ||
+        [ ! -d "${ff_origin}" ]; then
+        fw_flat_usage >&2
+        return "${FWFLAT_USE}"
     fi
-    printf 'flat=%d miss=%d list=%s\n' "${ap_links}" "${ap_miss}" "${LIST}"
+
+    if [ "${ff_verb}" = apply ]; then
+        fw_flat_apply
+    else
+        fw_flat_check
+    fi
 }
 
-check_run()
-{
-    ck_bad=0
-    ck_rows=0
-
-    if [ ! -r "${LIST}" ]; then
-        printf 'fail=no-list list=%s\n' "${LIST}" >&2
-        return "${E_FAIL}"
-    fi
-    while IFS=' ' read -r ck_name ck_rel; do
-        [ -n "${ck_name}" ] || continue
-        ck_rows=$(( ck_rows + 1 ))
-        if [ ! -e "${ORIGIN}/${ck_rel}" ]; then
-            printf 'fail=no-target name=%s target=%s\n' \
-                "${ck_name}" "${ck_rel}" >&2
-            ck_bad=$(( ck_bad + 1 ))
-            continue
-        fi
-        if [ -L "${ORIGIN}/${ck_name}" ]; then
-            if [ "$(readlink "${ORIGIN}/${ck_name}")" != "${ck_rel}" ]; then
-                printf 'fail=wrong-link name=%s target=%s\n' \
-                    "${ck_name}" "${ck_rel}" >&2
-                ck_bad=$(( ck_bad + 1 ))
-            fi
-        elif [ ! -e "${ORIGIN}/${ck_name}" ]; then
-            printf 'fail=no-entry name=%s target=%s\n' \
-                "${ck_name}" "${ck_rel}" >&2
-            ck_bad=$(( ck_bad + 1 ))
-        fi
-    done <"${LIST}"
-    printf 'rows=%d bad=%d list=%s\n' "${ck_rows}" "${ck_bad}" "${LIST}"
-    [ "${ck_bad}" -eq 0 ] || return "${E_FAIL}"
-}
-
-if [ "${VERB}" = apply ]; then
-    apply_run
-else
-    check_run
-fi
+# 作为脚本运行时才执行；被 kickstart 段展开时 $0 是安装器的临时脚本，
+# 不匹配，正文只留下函数定义。
+case "${0##*/}" in
+fw-flat.sh)
+    fw_flat_main "$@" || exit $?
+    ;;
+esac
