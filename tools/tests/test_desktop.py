@@ -276,9 +276,15 @@ class DesktopAssetTest(unittest.TestCase):
     def test_schema_override_minimal(self):
         override = parse_kv(self.asset(
             "desktop/glib-2.0/schemas/99-airymaxos-default.gschema.override"))
-        self.assertEqual(list(override.sections()), ["org.mate.background"])
+        self.assertEqual(list(override.sections()),
+                         ["org.mate.background", "org.mate.interface"])
         self.assertEqual(list(override["org.mate.background"]),
                          ["picture-filename"])
+        self.assertEqual(list(override["org.mate.interface"]),
+                         ["icon-theme"])
+        self.assertEqual(
+            override["org.mate.interface"]["icon-theme"].strip("'\""),
+            "ukui")
 
     def test_input_env(self):
         path = self.asset("desktop/xinitrc.d/70-airymax-im.sh")
