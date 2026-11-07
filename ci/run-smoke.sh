@@ -1351,12 +1351,23 @@ t28_net_front() {
     printf 'net front: kylin-nm + 3 ukcc modules\n'
 }
 
+# 计数一类 sysfs 设备，目录缺失按 0：诊断只陈述观测到的数量。
+cnt_of() {
+    local -a hit=()
+
+    shopt -s nullglob
+    hit=("$1"/$2)
+    shopt -u nullglob
+    printf '%s\n' "${#hit[@]}"
+}
+
 # 触控板（0.0.4 台账 HW-02）：内建触控板挂在 ACPI 的 I2C 控制器下，由
 # intel-lpss 建总线、i2c-hid 枚举。LPSS 的 PCI ID 缺项时总线根本不存在，
 # 触控板无声消失，日志里也没有错误——只能按「ACPI 有硬件、输入子系统
 # 无设备」判定。无此硬件的机型按能力不适用通过，不记为掩盖。
 t29_touchpad() {
     local path hit=0 dev="${SYSROOT}/proc/bus/input/devices"
+    local i2c hid
 
     for path in "${SYSROOT}"/sys/bus/acpi/devices/*/path; do
         [ -r "${path}" ] || continue
@@ -1372,7 +1383,13 @@ t29_touchpad() {
         printf 'touchpad: input device present\n'
         return 0
     fi
-    printf 'ACPI 有触控板节点，输入子系统无设备（I2C 控制器可能未绑定）\n'
+    # 失败时把链路三段的数量一并给出：0 个适配器是控制器没绑上，有适配器
+    # 无 HID 设备是 i2c-hid 客户端没实例化，有 HID 设备无输入是 hid 驱动没接。
+    # 三种断点对应三套修法，只报「无设备」等于让人重跑一遍同样的猜测。
+    i2c="$(cnt_of "${SYSROOT}/sys/bus/i2c/devices" 'i2c-*')"
+    hid="$(cnt_of "${SYSROOT}/sys/bus/hid/devices" '*')"
+    printf 'ACPI 有触控板节点，输入子系统无设备（i2c 适配器 %s 个，HID 设备 %s 个）\n' \
+        "${i2c}" "${hid}"
     return 1
 }
 
