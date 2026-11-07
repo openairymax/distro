@@ -7,3 +7,11 @@
 # 与用户级设置产生双重事实来源。
 [org.mate.background]
 picture-filename='/usr/share/backgrounds/airymaxos/qilian_photo_from_zhenyi.jpg'
+
+# GTK 侧图标主题：org.mate.interface 的 schema 默认值是 menta，而本镜像的
+# 包闭包里没有 menta-icon-theme，目录也不存在。GTK 应用因此拿不到 ukui
+# 专有图标（设备、状态、应用），只剩 hicolor 里的通用图形。UKUI 自身的
+# org.ukui.style icon-theme-name 已经是 ukui，两处取值必须一致，否则同一台
+# 机器上 Qt 与 GTK 应用显示两套图标。
+[org.mate.interface]
+icon-theme='ukui'

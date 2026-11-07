@@ -58,7 +58,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 7
+%global airy_release 8
 # 基底版本是显式输入，与 distro/repo/airymax-os.repo 及 kickstart 的
 # url/repo 行是三处同源表达。%%check 以本宏断言客户端配置，版本漂移在
 # 构建期失败，而不是等到装机后 dnf 报「找不到仓库」。
@@ -115,6 +115,9 @@ Source34:       99-airymax.conf
 Source35:       clouds_moonlight_photo_from_lidecheng.jpg
 Source36:       hangzhouxihu_photo_from_lidecheng.jpg
 Source37:       airymax-update-notify.desktop
+Source38:       network-wired-signal-excellent-symbolic.svg
+Source39:       network-wireless-signal-excellent-error-symbolic.svg
+Source40:       network-wireless-signal-low-secure-symbolic.svg
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -313,6 +316,27 @@ install -m 0644 %{SOURCE10} \
 install -d -m 0755 %{buildroot}%{_datadir}/glib-2.0/schemas
 install -m 0644 %{SOURCE11} \
     %{buildroot}%{_datadir}/glib-2.0/schemas/99-airymaxos-default.gschema.override
+
+# 状态栏图标：kylin-nm 会按这三个标准名取图，ukui-themes 3.0.2 只提供带
+# ukui- 前缀或换了词序的近似件。名字缺失时 Qt 不报错，只返回空图标，托盘
+# 上留下一块透明区域，从日志里看不出任何异常。图形取自同一主题里已有的
+# 三个权威版本，不另画一套。
+airy_icons=%{buildroot}%{_datadir}/icons/hicolor/scalable/status
+install -d -m 0755 "${airy_icons}"
+install -m 0644 %{SOURCE38} \
+    "${airy_icons}/network-wired-signal-excellent-symbolic.svg"
+install -m 0644 %{SOURCE39} \
+    "${airy_icons}/network-wireless-signal-excellent-error-symbolic.svg"
+install -m 0644 %{SOURCE40} \
+    "${airy_icons}/network-wireless-signal-low-secure-symbolic.svg"
+
+# ukui-screensaver 3.1.1 在二进制里写死 QIcon::setThemeName("ukui-icon-theme-
+# default")，这是 UKUI 4 的图标包名；24.03-LTS-SP3 的 ukui-themes 3.0.2
+# 只装 ukui、ukui-classical、ukui-fashion。主题目录不存在时 Qt 静默失败，
+# 锁屏右下角的网络、音量、电源三个图标全部消失。别名目录只是指向 ukui 的
+# 符号链接，不复制任何图形，升级 ukui-themes 时自动跟随。
+install -d -m 0755 %{buildroot}%{_datadir}/icons
+ln -s ukui %{buildroot}%{_datadir}/icons/ukui-icon-theme-default
 
 airy_bgs=%{buildroot}%{_datadir}/backgrounds/airymaxos
 install -d -m 0755 "${airy_bgs}"
@@ -626,6 +650,18 @@ grep -qF "picture-filename='" \
 # 直接数目录内容，而不是逐条断言三件存在。
 airy_papers=%{buildroot}%{_datadir}/backgrounds/airymaxos
 test "$(find "${airy_papers}" -maxdepth 1 -type f -name '*.jpg' | wc -l)" -eq 3
+# 图标两处契约：GTK 侧键值与 Qt 侧主题名都必须解析到实际存在的目录。写错
+# 任何一处都只在图形会话里表现为空白图标，文件系统与日志都看不出异常。
+grep -qxF "icon-theme='ukui'" \
+    %{buildroot}%{_datadir}/glib-2.0/schemas/99-airymaxos-default.gschema.override
+test -L %{buildroot}%{_datadir}/icons/ukui-icon-theme-default
+test "$(readlink %{buildroot}%{_datadir}/icons/ukui-icon-theme-default)" = ukui
+airy_st=%{buildroot}%{_datadir}/icons/hicolor/scalable/status
+for airy_svg in network-wired-signal-excellent-symbolic.svg \
+                network-wireless-signal-excellent-error-symbolic.svg \
+                network-wireless-signal-low-secure-symbolic.svg; do
+    test -s "${airy_st}/${airy_svg}"
+done
 
 %post
 # schema 编译先于策略脚本：内置壁纸默认值（T5 验收项）不能被后续脚本的
@@ -639,6 +675,13 @@ fi
 # 锁屏仍按上游默认值弹口令框，且从文件系统上看不出差别。
 if command -v dconf >/dev/null 2>&1; then
     dconf update >/dev/null 2>&1 || :
+fi
+
+# 图标写进 hicolor 后必须重建 GTK 图标缓存：缓存里没有新条目时 GTK 与 Qt
+# （Qt 也读同一份 cache）都判定图标不存在，而缓存不会因为目录里出现新文件
+# 自动失效——这是图标装对了却仍然不显示的唯一原因。
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -f -t %{_datadir}/icons/hicolor >/dev/null 2>&1 || :
 fi
 
 %{_datadir}/airymaxos/distro/desktop/70-airymax-ukui-policy.sh
@@ -699,10 +742,29 @@ fi
 %{_datadir}/backgrounds/airymaxos/qilian_photo_from_zhenyi.jpg
 %{_datadir}/backgrounds/airymaxos/clouds_moonlight_photo_from_lidecheng.jpg
 %{_datadir}/backgrounds/airymaxos/hangzhouxihu_photo_from_lidecheng.jpg
+%{_datadir}/icons/ukui-icon-theme-default
+%{_datadir}/icons/hicolor/scalable/status/network-wired-signal-excellent-symbolic.svg
+%{_datadir}/icons/hicolor/scalable/status/network-wireless-signal-excellent-error-symbolic.svg
+%{_datadir}/icons/hicolor/scalable/status/network-wireless-signal-low-secure-symbolic.svg
 %{_datadir}/airymaxos/distro/desktop/70-airymax-ukui-policy.sh
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Sat Nov 07 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-8
+- Restore the status-bar icons missing from the graphical session. Two
+  independent causes: ukui-screensaver 3.1.1 hardcodes the UKUI 4 theme name
+  ukui-icon-theme-default while 24.03-LTS-SP3 only ships ukui, so the lock
+  screen's network, volume and power icons resolved to nothing; and the GTK
+  icon theme inherited from org.mate.interface still pointed at menta, which
+  the closure does not carry, leaving every GTK application on hicolor.
+- Ship an alias theme directory linking to ukui, point the GTK key at ukui,
+  and rebuild the hicolor cache in %post. Qt and GTK both treat icons absent
+  from that cache as missing even when the files are on disk, and the cache
+  never invalidates on its own.
+- Provide the three standard names kylin-nm requests but the theme never
+  shipped: network-wired-signal-excellent, network-wireless-signal-excellent-
+  error and network-wireless-signal-low-secure, derived from the existing
+  graphics of the same theme.
 * Tue Nov 03 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-6
 - Stop counting every SSH connection as a password failure. With
   PermitEmptyPasswords yes, sshd probes PAM with an empty password before it
