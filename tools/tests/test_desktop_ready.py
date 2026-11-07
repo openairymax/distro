@@ -131,6 +131,15 @@ class DesktopReadyTest(unittest.TestCase):
                       res.stdout)
         self.assertNotIn(READY, res.stdout)
 
+    def test_evidence_folds_non_ascii(self):
+        res = self.run_probe(FAKE_FAILED_UNITS="upower.service",
+                             **self.journal({"upower.service":
+                                             "电池服务异常退出\n"}))
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("AIRYMAX-UNIT-JOURNAL|upower.service|", res.stdout)
+        for line in res.stdout.splitlines():
+            self.assertTrue(line.isascii(), line)
+
     def test_evidence_is_bounded(self):
         body = "".join(f"line{n}\n" for n in range(40))
         res = self.run_probe(FAKE_FAILED_UNITS="upower.service",

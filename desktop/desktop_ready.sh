@@ -192,7 +192,7 @@ advise()
 # 诊断通道：每类证据独立取，取不到就跳过，绝不影响返回值。
 diag_out()
 {
-    head -n "${DIAG_MAX}" 2>/dev/null |
+    head -n "${DIAG_MAX}" 2>/dev/null | fold_ascii |
         sed "s/^/AIRYMAX-DESKTOP-DIAG ${1} /"
 }
 
