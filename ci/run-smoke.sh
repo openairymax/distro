@@ -106,6 +106,17 @@ budget_max() {
 }
 ERR_BUDGET="${AIRYMAX_SMOKE_BUDGET:-$(budget_max)}"
 
+# 判定者不把自己的结论当证据。上报单元（airymax-smoke-report.service）的失败
+# 由本轮 TAP 判定驱动，产品就绪单元在验收 ISO 又被 mask，于是它一旦红过，
+# 同一台机器上后续每一轮 T23 都会把这条旧结论再算一遍：285H 实测 11:34 的
+# 失败让 11:59 及之后每轮都为红，真实根因（包漂移）被自指信号盖住。真实失败
+# 单元仍由 AIRYMAX-BOOT-HEALTH 独立上报，排除它不丢证据。
+readonly T23_EXCLUDE="airymax-smoke-report.service"
+
+# TAP 与写出它的那次开机绑定，报告侧按同一 id 过滤：上一次开机的结论不能
+# 用来判本次（详见 airymax-smoke-report.sh 的 fresh_tap）。
+BOOT_ID=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || true)
+
 PASS=0
 FAIL=0
 
@@ -1085,7 +1096,7 @@ t23_inventory() {
     local out
     need airy-observe || return 1
     out=$(airy-observe system --manifest "${SYSROOT}/etc/airymaxos-packages" \
-        --budget "${ERR_BUDGET}" 2>&1) || {
+        --budget "${ERR_BUDGET}" --exclude "${T23_EXCLUDE}" 2>&1) || {
         printf '%s\n' "${out}"
         return 1
     }
@@ -1422,6 +1433,7 @@ printf '1..30\n'
 printf '# AirymaxOS distro smoke: target=%s date=%s\n' \
     "${TARGET}" "$(date -u '+%FT%TZ')"
 printf '# ownership: budget=%s\n' "${ERR_BUDGET}"
+printf '# boot=%s\n' "${BOOT_ID}"
 
 # T24 的首快照必须在任何探测之前取：探测本身会起子进程、耗时数秒，晚取就会
 # 把「开机期 churn」错当成本轮观测内的稳定，判据也就失去意义。

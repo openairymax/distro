@@ -28,9 +28,12 @@ BOOT_STATE = Path(__file__).resolve().parents[2] / "desktop" / "boot_state.sh"
 BASH = shutil.which("bash") or "/bin/bash"
 
 PROBES = 9
-PLAN = f"TAP version 14\n1..{PROBES}\n"
+BOOT_ID = "test-boot"
+PLAN = f"TAP version 14\n1..{PROBES}\n# boot={BOOT_ID}\n"
 GOOD = PLAN + "".join(f"ok {n} - probe {n}\n" for n in range(1, PROBES + 1))
 PASS = GOOD + f"# summary: pass={PROBES} fail=0\n"
+STALE = PASS.replace(f"# boot={BOOT_ID}", "# boot=previous-boot")
+LEGACY = PASS.replace(f"# boot={BOOT_ID}\n", "")
 CHAIN = ("graphical.target @7.178s\n"
          "└─multi-user.target @7.178s\n"
          "  └─lightdm.service @6.976s +201ms\n")
@@ -44,6 +47,8 @@ class SmokeReportTest(unittest.TestCase):
         self.bin.mkdir()
         self.tap = self.root / "smoke.tap"
         self.chain = self.root / "chain.txt"
+        self.boot = self.root / "boot_id"
+        self.boot.write_text(f"{BOOT_ID}\n", encoding="utf-8")
         fakes.link_tools(self.bin)
         fakes.report_tools(self.bin)
 
@@ -59,6 +64,7 @@ class SmokeReportTest(unittest.TestCase):
             "PATH": str(self.bin),
             "AIRYMAX_SMOKE_TAP": str(self.tap),
             "AIRYMAX_SMOKE_WAIT": "0",
+            "AIRYMAX_BOOT_ID_FILE": str(self.boot),
             "AIRYMAX_BOOT_STATE": str(BOOT_STATE),
             "FAKE_CHAIN_FILE": str(self.chain),
         }
@@ -137,6 +143,22 @@ class SmokeReportTest(unittest.TestCase):
                          [f"AIRYMAX-SMOKE-FAIL reason=timeout tap={self.tap}"])
         self.assertEqual(self.lines(res, "AIRYMAX-TAP|"), [])
         self.assertEqual(len(self.lines(res, "AIRYMAX-BOOT-CHAIN|")), 3)
+
+    def test_stale_tap_is_not_evidence(self):
+        # /var/log 跨开机保留：上一轮开机的结论与本次无关，既不能判负也不能
+        # 判过，只能继续等本轮写出（285H 实测报告在开机 5 秒后读到旧文件）。
+        res = self.report(tap=STALE)
+        self.assertEqual(res.returncode, 1)
+        self.assertEqual(self.lines(res, "AIRYMAX-SMOKE-FAIL"),
+                         [f"AIRYMAX-SMOKE-FAIL reason=timeout tap={self.tap}"])
+        self.assertEqual(self.lines(res, "AIRYMAX-TAP|"), [])
+
+    def test_unstamped_tap_is_not_evidence(self):
+        # 没有 boot 行的旧格式同理：无法证明属于本轮，就不算证据
+        res = self.report(tap=LEGACY)
+        self.assertEqual(res.returncode, 1)
+        self.assertEqual(self.lines(res, "AIRYMAX-SMOKE-FAIL"),
+                         [f"AIRYMAX-SMOKE-FAIL reason=timeout tap={self.tap}"])
 
     def test_health_reported(self):
         res = self.report()
