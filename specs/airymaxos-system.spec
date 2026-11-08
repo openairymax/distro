@@ -233,7 +233,8 @@ install -m 0644 %{SOURCE46} \
 install -d -m 0755 %{buildroot}%{_unitdir}/systemd-fsck-root.service.d \
     %{buildroot}%{_unitdir}/systemd-fsck@.service.d
 install -m 0644 %{SOURCE67} \
-    %{buildroot}%{_unitdir}/systemd-fsck-root.service.d/50-console-ascii.conf \
+    %{buildroot}%{_unitdir}/systemd-fsck-root.service.d/50-console-ascii.conf
+install -m 0644 %{SOURCE67} \
     %{buildroot}%{_unitdir}/systemd-fsck@.service.d/50-console-ascii.conf
 install -d -m 0755 %{buildroot}/usr/lib/airymaxos/scripts
 install -m 0755 %{SOURCE17} %{SOURCE18} %{SOURCE50} %{SOURCE53} \
