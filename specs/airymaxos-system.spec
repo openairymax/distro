@@ -73,7 +73,7 @@
 # spec-lint: source-bundle ../../system/services/airydeb
 
 %global airy_version 0.0.4
-%global airy_release 49
+%global airy_release 50
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -151,6 +151,7 @@ Source63:       airymax-net-doctor.service
 Source64:       net_doctor.sh
 Source65:       airy-deb
 Source66:       airydeb-%{version}.tar.gz
+Source67:       50-console-ascii.conf
 
 BuildRequires:  gcc
 BuildRequires:  python3-devel
@@ -229,6 +230,11 @@ install -m 0644 %{SOURCE0} %{SOURCE15} %{buildroot}%{_unitdir}/
 install -d -m 0755 %{buildroot}%{_unitdir}/user.slice.d
 install -m 0644 %{SOURCE46} \
     %{buildroot}%{_unitdir}/user.slice.d/50-airymax-memory.conf
+install -d -m 0755 %{buildroot}%{_unitdir}/systemd-fsck-root.service.d \
+    %{buildroot}%{_unitdir}/systemd-fsck@.service.d
+install -m 0644 %{SOURCE67} \
+    %{buildroot}%{_unitdir}/systemd-fsck-root.service.d/50-console-ascii.conf \
+    %{buildroot}%{_unitdir}/systemd-fsck@.service.d/50-console-ascii.conf
 install -d -m 0755 %{buildroot}/usr/lib/airymaxos/scripts
 install -m 0755 %{SOURCE17} %{SOURCE18} %{SOURCE50} %{SOURCE53} \
     %{SOURCE54} %{SOURCE56} %{SOURCE59} %{SOURCE62} %{SOURCE64} \
@@ -327,6 +333,10 @@ grep -qxF 'MemoryMax=85%' \
     %{buildroot}%{_unitdir}/user.slice.d/50-airymax-memory.conf
 grep -qxF 'MemorySwapMax=15%' \
     %{buildroot}%{_unitdir}/user.slice.d/50-airymax-memory.conf
+test -f %{buildroot}%{_unitdir}/systemd-fsck-root.service.d/50-console-ascii.conf
+test -f %{buildroot}%{_unitdir}/systemd-fsck@.service.d/50-console-ascii.conf
+grep -qxF 'Environment=LANG=C LC_ALL=C' \
+    %{buildroot}%{_unitdir}/systemd-fsck@.service.d/50-console-ascii.conf
 test -f %{buildroot}%{_unitdir}/airy-boot-mount.service
 grep -qxF 'ExecStart=/usr/lib/airymaxos/scripts/stage_run.sh 基础挂载 3 root,boot,efi /usr/lib/airymaxos/scripts/boot_mount.sh' \
     %{buildroot}%{_unitdir}/airy-boot-mount.service
@@ -500,6 +510,10 @@ fi
 %{_unitdir}/*.slice
 %dir %{_unitdir}/user.slice.d
 %{_unitdir}/user.slice.d/*.conf
+%dir %{_unitdir}/systemd-fsck-root.service.d
+%dir %{_unitdir}/systemd-fsck@.service.d
+%{_unitdir}/systemd-fsck-root.service.d/*.conf
+%{_unitdir}/systemd-fsck@.service.d/*.conf
 %{_unitdir}/*.target
 %{_unitdir}/*.timer
 %{_presetdir}/90-airymax.preset
@@ -524,6 +538,11 @@ fi
 %{python3_sitelib}/airydeb
 
 %changelog
+* Sun Nov 08 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-50
+- 给 systemd-fsck-root 与 systemd-fsck@ 加 locale 覆盖，把 fsck 结论钉回英文。
+  单元带 StandardOutput=journal+console，e2fsck 的中文措辞直接落到本地屏，
+  而 VT 字体没有 CJK 字形，285H 冷启动于是多出一行乱码；locale.conf 仍是
+  zh_CN.UTF-8，桌面会话的语言不受影响
 * Sat Nov 07 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-49
 - 开机九阶段在 console 上只写 ASCII 代号，中文阶段名与关键值改写 journal。
   VT 用 latarcyrheb-sun16，该字体没有 CJK 字形，而 Linux VT 字体上限 512
