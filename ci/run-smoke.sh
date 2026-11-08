@@ -1378,6 +1378,36 @@ cnt_of() {
     printf '%s\n' "${#hit[@]}"
 }
 
+# 触控板的第二段判据：内核绑定不等于桌面可用。闭包里的遗留 synaptics
+# 驱动（ukui-settings-daemon 的硬依赖）在 Xorg 里排在 libinput 之后，会把
+# 每块触控板接走；它面对 I2C-HID 触控板拿不到压力，点击与手势全失效，
+# 而 /proc/bus/input/devices 一切正常（285H 实测）。所以有 X 日志时再按
+# 「谁在驱动这块板」判一次：synaptics 命中即失败，libinput 命中才通过。
+t29_driver_owner() {
+    local dev="$1" log="${SYSROOT}/var/log/Xorg.0.log" pad
+
+    pad="$(sed -n 's/^N: Name="\(.*[Tt]ouchpad.*\)"$/\1/p' "${dev}" | head -1)"
+    if [ ! -r "${log}" ]; then
+        printf 'touchpad: input device present (X 未启动，驱动归属未判)\n'
+        return 0
+    fi
+    if [ -n "${pad}" ] &&
+        grep -qF "Using input driver 'synaptics' for '${pad}'" "${log}"; then
+        printf 'touchpad: 内核已绑定，但 X 驱动为 synaptics（%s）\n' "${pad}"
+        printf '%s\n' '  遗留驱动不认 I2C-HID 的压力与指宽，点击与手势会整体失效'
+        printf '%s\n' '  应由 /etc/X11/xorg.conf.d/90-airymax-touchpad.conf 改派 libinput'
+        return 1
+    fi
+    if [ -n "${pad}" ] &&
+        grep -qF "'libinput' for '${pad}'" "${log}"; then
+        printf 'touchpad: input device present, X 驱动 libinput\n'
+        return 0
+    fi
+    printf 'touchpad: input device present, X 日志未见触控板驱动记录（%s）\n' \
+        "${pad:-未解析到设备名}"
+    return 1
+}
+
 # 触控板（0.0.4 台账 HW-02）：内建触控板挂在 ACPI 的 I2C 控制器下，由
 # intel-lpss 建总线、i2c-hid 枚举。LPSS 的 PCI ID 缺项时总线根本不存在，
 # 触控板无声消失，日志里也没有错误——只能按「ACPI 有硬件、输入子系统
@@ -1397,8 +1427,8 @@ t29_touchpad() {
         return 0
     fi
     if grep -qi touchpad "${dev}" 2>/dev/null; then
-        printf 'touchpad: input device present\n'
-        return 0
+        t29_driver_owner "${dev}"
+        return
     fi
     # 失败时把链路三段的数量一并给出：0 个适配器是控制器没绑上，有适配器
     # 无 HID 设备是 i2c-hid 客户端没实例化，有 HID 设备无输入是 hid 驱动没接。
