@@ -160,7 +160,7 @@ network --bootproto=dhcp --activate --hostname=airymax-pc
 # 冒烟断言都从它派生。主机名与此无关：airymax-pc 是独立的小写合法标签，
 # 由上面的 network 指令直接落盘。
 rootpw --iscrypted $6$airy003root0x01$.lY1w9YA54iCwREQZCVZEoQ3xmCjcbkpWmWCrLciZeSNYA/T/6lkx4M2yFnhb13xBfbZLZQ64V01cSAkka1r30
-user --name=amuser --groups=wheel --iscrypted --password=$6$airy003user0x01$s1JW7QjW0kiAW7B51kVB2hNsabAadz4G/h6yBDRvpWzwsV7NO7Kh3ChDjLtapHZ6HGl5WoqNKi.IAY7IT5yRc/
+user --name=amuser --gecos="Airymax User" --groups=wheel --iscrypted --password=$6$airy003user0x01$s1JW7QjW0kiAW7B51kVB2hNsabAadz4G/h6yBDRvpWzwsV7NO7Kh3ChDjLtapHZ6HGl5WoqNKi.IAY7IT5yRc/
 
 # ---- 包组 ----
 # --nocore 关闭 anaconda 隐式追加的 @core（selection.core_group_enabled

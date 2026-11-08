@@ -76,7 +76,7 @@ network --bootproto=dhcp --activate --hostname=airymax-pc
 # airymaxos-workstation.ks 账户段；主机名 airymax-pc 由上面的 network
 # 指令直接落盘，与账户名无关。
 rootpw --iscrypted $6$airy003root0x01$.lY1w9YA54iCwREQZCVZEoQ3xmCjcbkpWmWCrLciZeSNYA/T/6lkx4M2yFnhb13xBfbZLZQ64V01cSAkka1r30
-user --name=amuser --groups=wheel --iscrypted --password=$6$airy003user0x01$s1JW7QjW0kiAW7B51kVB2hNsabAadz4G/h6yBDRvpWzwsV7NO7Kh3ChDjLtapHZ6HGl5WoqNKi.IAY7IT5yRc/
+user --name=amuser --gecos="Airymax User" --groups=wheel --iscrypted --password=$6$airy003user0x01$s1JW7QjW0kiAW7B51kVB2hNsabAadz4G/h6yBDRvpWzwsV7NO7Kh3ChDjLtapHZ6HGl5WoqNKi.IAY7IT5yRc/
 
 # ---- 服务与防火墙 ----
 # 启用清单只有一份：随 airymaxos-system 落盘的 /usr/lib/airymaxos/boot-set，
