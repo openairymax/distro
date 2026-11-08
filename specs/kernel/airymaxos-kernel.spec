@@ -63,7 +63,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 6
+%global airy_release 7
 %global kernel_version 6.6.161
 %global kernel_local -alk
 %global kernel_release %{kernel_version}%{kernel_local}
@@ -178,6 +178,12 @@ install.
 %package core
 Summary:        AirymaxOS kernel image
 Requires(post): dracut
+# initramfs 由 core 的 %%post 生成，生成时必须已经能看见本版本的模块树。
+# 若只依赖主包的 Requires，core 与 modules 之间没有先后约束，装机事务里
+# 二者谁先落盘由 rpm 自行排序：modules 后到时 initramfs 里没有本版本的
+# 模块，装机后首次启动即找不到根设备。把顺序写成显式依赖，事务排序就
+# 不再是实现细节。
+Requires:       airymaxos-kernel-modules = %{version}-%{release}
 Provides:       kernel-core = %{kernel_version}
 Provides:       kernel-uname-r = %{kernel_release}
 Obsoletes:      kernel-core
@@ -500,9 +506,14 @@ fi
 if command -v systemd-sysusers >/dev/null 2>&1; then
     systemd-sysusers --root=/ || :
 fi
-if [ ! -s /boot/initramfs-%{kernel_release}.img ]; then
-    dracut --force /boot/initramfs-%{kernel_release}.img %{kernel_release}
-fi
+# 每次安装都重建。判据不能是「文件是否已存在」：内核 release 字符串由
+# 上游版本与 -alk 后缀拼成，补丁级升级里两者都不变，同一路径的旧
+# initramfs 于是被当成「已经有了」而整段跳过。285H 从 0.0.4-5 升到
+# 0.0.4-6 后 /boot/initramfs-6.6.161-alk.img 仍是上一构建的 11 MiB 旧
+# 文件，里面没有新内核才加入的 LPSS 模块链，触控板在内核已修好的情况下
+# 依旧不工作；手工 dracut 后同一路径变成 29 MiB 才恢复。initramfs 与
+# vmlinuz 必须同源，这个等价关系只能由本事务直接保证。
+dracut --force /boot/initramfs-%{kernel_release}.img %{kernel_release}
 if [ ! -s /boot/initramfs-%{kernel_release}.img ]; then
     echo "airymaxos-kernel: initramfs generation failed" >&2
     exit 1
@@ -547,6 +558,16 @@ depmod -a %{kernel_release}
 %endif
 
 %changelog
+* Sun Nov 08 2026 SPHARX <dev@spharx.com> - 0.0.4-7
+- kernel：%%post core 每次安装都重建 initramfs，并用显式依赖把
+  airymaxos-kernel-modules 排在本包之前。两者都不做时，「同名 initramfs
+  已存在」会让整段生成被跳过：release 字符串由上游版本与 -alk 后缀拼成，
+  补丁级升级两者都不变，于是 0.0.4-6 装上后 /boot/initramfs-6.6.161-alk.img
+  还是上一构建的 11 MiB 旧文件，缺少新内核才加入的 LPSS 模块链，触控板
+  在内核已修好的前提下依旧不工作；手工 dracut 后同一路径变成 29 MiB 才
+  恢复。core 与 modules 之间原本没有先后约束，装机事务里谁先落盘由 rpm
+  自行排序，先落 core 时生成的 initramfs 里没有本版本模块，首次启动即
+  找不到根设备
 * Sat Nov 07 2026 SPHARX <dev@spharx.com> - 0.0.4-6
 - kernel：intel_lpss_pci 认领 Arrow Lake-H 的 LPSS PCI ID（00:15.0
   [8086:7778]）。缺这条 ID 时驱动不绑定，i2c-designware 没有平台设备，

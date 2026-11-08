@@ -47,7 +47,13 @@ VOLID="AIRYMAXOS"
 ARCH=""
 VERSION=""
 GPG_KEY=""
-KARGS="console=tty0 console=ttyS0,115200"
+# 装载器命令行只作用于安装器，不进已装系统的 grub（后者由 kickstart 的
+# bootloader --append 决定）。inst.lang 因此是「安装界面用英文、装出来的
+# 系统仍是中文」的唯一开关：安装器是 text 模式的 Linux VT，镜像 FONT 为
+# latarcyrheb-sun16，没有 CJK 字形，VGA 文本模式装不进中文字库，一旦界面
+# 跟随 ks 的 lang zh_CN.UTF-8，屏幕上的每一步都只剩方块（285H 装机实测）。
+# 装出来的系统语言仍由 ks 的 lang 决定，桌面不受影响。
+KARGS="console=tty0 console=ttyS0,115200 inst.lang=en_US.UTF-8"
 MD5=1
 PRODUCT=""
 ADDS=()
