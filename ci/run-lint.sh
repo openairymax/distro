@@ -15,7 +15,7 @@
 #   2. spec — 校验 specs/ 下所有 RPM 配方（tools/spec_lint.py，E001~E016）；
 #   3. comps — 校验 comps/ 下包组定义（tools/comps_lint.py，C001~C011），
 #      并在具备 xmllint 时按 comps/comps.dtd 做 DTD 校验；
-#   4. ks — 校验 kickstart/ 下安装配方（tools/ks_lint.py，K001~K019），共享
+#   4. ks — 校验 kickstart/ 下安装配方（tools/ks_lint.py，K001~K021），共享
 #      脚本先展开再判定；
 #   5. preset — 校验 presets/ 下 systemd 启用边界（tools/preset_lint.py，
 #      P001~P008，含目录级「唯一 blanket 且字典序最后」约束）；

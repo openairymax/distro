@@ -7,9 +7,9 @@
 # 存储布局、账户口令（K005/K006：必须 --iscrypted $6$，禁止 --lock 与
 # 明文）、脚本段闭合与失败即停、收尾状态、单例命令、安装界面互斥、
 # 桌面仓库闭包完整性、离线仓库落点、内核包身份、上游身份包排除与命令行
-# 参数语法、嵌入标记。包组引用（@组 / @^环境）由 comps_lint 交叉校验，
-# 此处不重复实现。规则编号 K001~K020 与 tools/tests/test_ks_lint.py
-# 一一对应。
+# 参数语法、嵌入标记、账户 GECOS。包组引用（@组 / @^环境）由 comps_lint
+# 交叉校验，此处不重复实现。规则编号 K001~K021 与
+# tools/tests/test_ks_lint.py 一一对应。
 #
 # 配方有两种姿态，判据不同：
 #   构建期 — 安装源为上游 https，桌面环境要求四仓库齐全（K013）；
@@ -30,6 +30,7 @@
 
 from __future__ import annotations
 
+import re
 import shlex
 import sys
 from dataclasses import dataclass, field
@@ -193,6 +194,18 @@ def opt_val(args: str, opt: str) -> str:
     return ""
 
 
+# --gecos 的内容含空格时要带引号，而 args.split() 会把带引号的值拆成两段，
+# 所以这里单独按引号边界取值，不套用 opt_val 的整词匹配。
+GECOS = re.compile(r"--gecos=(?:\"([^\"]*)\"|'([^']*)'|(\S+))")
+
+
+def gecos_val(args: str) -> str:
+    m = GECOS.search(args)
+    if m is None:
+        return ""
+    return next(part for part in m.groups() if part is not None)
+
+
 def check_src(cmds: list[Cmd], issues: list[Issue]) -> None:
     srcs = [cmd for cmd in cmds if cmd.name in SOURCES]
     if not srcs:
@@ -311,6 +324,9 @@ def check_user(cmd: Cmd, issues: list[Issue]) -> None:
     if not has_opt(cmd.args, "--iscrypted") or not val.startswith(SHA512):
         issues.append(Issue("K006", cmd.num,
                             "user must use --iscrypted --password=$6$"))
+    if not gecos_val(cmd.args):
+        issues.append(Issue("K021", cmd.num,
+                            "user must set a non-empty --gecos"))
 
 
 def check_roots(cmds: list[Cmd], issues: list[Issue]) -> None:

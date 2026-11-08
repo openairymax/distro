@@ -33,7 +33,7 @@ clearpart --all --initlabel
 autopart --type=plain --fstype=ext4
 network --bootproto=dhcp --activate
 rootpw --iscrypted $6$testsalt$hash
-user --name=demo --iscrypted --password=$6$testsalt2$hash
+user --name=demo --gecos="Demo User" --iscrypted --password=$6$testsalt2$hash
 %packages
 @airymax-core
 airymaxos-kernel
@@ -50,7 +50,7 @@ reboot
 """
 
 ROOT = "rootpw --iscrypted $6$testsalt$hash"
-USER = "user --name=demo --iscrypted --password=$6$testsalt2$hash"
+USER = "user --name=demo --gecos=\"Demo User\" --iscrypted --password=$6$testsalt2$hash"
 
 # 桌面环境基线：四个上游仓库齐全且 URL 带 $basearch，离线仓库沿用基线
 DESKTOP = (VALID
@@ -231,6 +231,16 @@ class KsLintTest(unittest.TestCase):
         text = VALID.replace(USER, "user --name=demo --iscrypted "
                                    "--password=$1$salt$hash")
         self.assertIn("K006", self.codes(text))
+
+    def test_user_gecos_missing(self):
+        text = VALID.replace(USER, "user --name=demo --iscrypted "
+                                   "--password=$6$testsalt2$hash")
+        self.assertIn("K021", self.codes(text))
+
+    def test_user_gecos_empty(self):
+        text = VALID.replace(USER, "user --name=demo --gecos=\"\" "
+                                   "--iscrypted --password=$6$testsalt2$hash")
+        self.assertIn("K021", self.codes(text))
 
     def test_http_url(self):
         text = VALID.replace("https://example.invalid/os/",
