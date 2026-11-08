@@ -15,6 +15,12 @@
 # 串口日志还原 smoke.tap 归档（验收发行方案 §9.3）。转发先于结论标记，
 # 保证 install-test.sh 命中 --boot-marker 时全文已经落盘。
 #
+# 通道分工由内容字形决定：TAP 与关键链按原文转发才可对账，而探针会报中文
+# 字体名，本地屏的 VT 字体没有 CJK 字形，同一行落到 /dev/console 只剩
+# 方块。因此明细只走串口（con_serial），journal 留一份；本地屏只留一行
+# ASCII 结论（con_put）。单元因此不再声明 journal+console——那条组合会把
+# 明细原样搬到屏幕上，正是「开机打印乱码」的来源。
+#
 # AIRYMAX-BOOT-CHAIN| 一并转发 `systemd-analyze critical-chain` 原文，
 # 供宿主侧对账 NFR-P-005 的服务级门限。本单元 After=lightdm.service，
 # 关键链在此时已经完整；产品就绪单元在验收 ISO 被 mask，因此观测点只留
@@ -30,7 +36,11 @@ set -uo pipefail
 
 BOOT_STATE="${AIRYMAX_BOOT_STATE:-/usr/lib/airymaxos/desktop/boot_state.sh}"
 if [ ! -r "${BOOT_STATE}" ]; then
+    # 通道库随 boot_state 一起消失，没有 con_put 可用；结论仍必须上屏，
+    # 否则现场只看到黑屏而无从知道是哪一件缺失。这一行是纯 ASCII 常量。
     printf 'AIRYMAX-SMOKE-FAIL reason=boot-state path=%s\n' "${BOOT_STATE}"
+    [ -w /dev/console ] &&
+        printf 'AIRYMAX-SMOKE-FAIL reason=boot-state\n' >/dev/console 2>/dev/null
     exit 1
 fi
 # shellcheck source=../../desktop/boot_state.sh
@@ -101,22 +111,32 @@ emit_tap()
 {
     local line
     while IFS= read -r line; do
-        printf '%s%s\n' "${TAP_TOKEN}" "${line}"
+        forward "${TAP_TOKEN}${line}"
     done <"${TAP}"
+}
+
+# 明细的双通道：stdout（journal 原文）与串口。本地屏不参与，见文件头。
+forward()
+{
+    printf '%s\n' "$1"
+    con_serial "$1"
 }
 
 # 关键链只在会话建立后才有意义：图形目标此时已达成，systemd 记下的
 # 单元时刻与自身耗时才是完整的。超时路径照转一次，让宿主拿到失败现场。
 boot_chain()
 {
-    systemd-analyze critical-chain --no-pager 2>/dev/null |
-        head -n "${CHAIN_MAX}" |
-        sed "s/^/${CHAIN_TOKEN}/"
+    local line
+
+    while IFS= read -r line; do
+        forward "${CHAIN_TOKEN}${line}"
+    done < <(systemd-analyze critical-chain --no-pager 2>/dev/null |
+             head -n "${CHAIN_MAX}")
 }
 
 conclude()
 {
-    printf 'AIRYMAX-SMOKE-FAIL reason=%s tap=%s\n' "$1" "${TAP}"
+    con_put "AIRYMAX-SMOKE-FAIL reason=$1 tap=${TAP}"
     return 1
 }
 
@@ -132,7 +152,7 @@ main()
     boot_chain
     boot_health || { conclude degraded; return 1; }
     verdict || { conclude tap; return 1; }
-    printf 'AIRYMAX-SMOKE-PASS tap=%s\n' "${TAP}"
+    con_put "AIRYMAX-SMOKE-PASS tap=${TAP}"
     return 0
 }
 

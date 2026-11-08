@@ -15,8 +15,11 @@ Wants=lightdm.service
 [Service]
 Type=oneshot
 ExecStart=/usr/lib/airymaxos/ci/airymax-smoke-report.sh
-StandardOutput=journal+console
-StandardError=journal+console
+# 明细按原文逐行转发，含探针报出的中文字体名；本地屏的 VT 字体没有 CJK
+# 字形，journal+console 会把明细整份搬成方块。屏幕上的结论由脚本经
+# con_put 单独写出（一行 ASCII），明细走串口与 journal 各自的通道。
+StandardOutput=journal
+StandardError=journal
 TimeoutStartSec=300
 
 [Install]
