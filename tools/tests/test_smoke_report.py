@@ -50,6 +50,10 @@ class SmokeReportTest(unittest.TestCase):
         self.chain = self.root / "chain.txt"
         self.boot = self.root / "boot_id"
         self.boot.write_text(f"{BOOT_ID}\n", encoding="utf-8")
+        # 串口与本地屏用空的普通文件顶替：con_init/con_sink 以可写性判定
+        # 通道，与真设备走同一条路径
+        (self.root / "ttyS0").touch()
+        (self.root / "console").touch()
         fakes.link_tools(self.bin)
         fakes.report_tools(self.bin)
 
@@ -121,6 +125,41 @@ class SmokeReportTest(unittest.TestCase):
             last = max(index for index, line in enumerate(out)
                        if line.startswith(token))
             self.assertLess(last, marker)
+
+    def channel(self, name):
+        path = self.root / name
+        if not path.exists():
+            return []
+        return path.read_text(encoding="utf-8").splitlines()
+
+    def test_detail_kept_off_console(self):
+        # 明细按原文转发，探针会报中文字体名；VT 字体没有 CJK 字形，同一行
+        # 落到本地屏只剩方块。屏幕只留结论，明细由串口与 journal 承接。
+        res = self.report()
+        console = self.channel("console")
+        self.assertEqual(console, [
+            "AIRYMAX-BOOT-HEALTH failed=0",
+            f"AIRYMAX-SMOKE-PASS tap={self.tap}",
+        ])
+
+    def test_detail_reaches_serial(self):
+        res = self.report()
+        serial = self.channel("ttyS0")
+        self.assertEqual([line for line in serial
+                          if line.startswith("AIRYMAX-TAP|")],
+                         [f"AIRYMAX-TAP|{line}"
+                          for line in PASS.splitlines()])
+        self.assertIn(f"AIRYMAX-SMOKE-PASS tap={self.tap}", serial)
+
+    def test_console_is_ascii(self):
+        # 本地屏的判据是字节集而不是措辞：任何非 ASCII 字节都会变成方块
+        res = self.report(tap=PASS.replace(
+            "ok 4 - probe 4", "ok 4 - probe 4 # font: 文泉驿等宽微米黑"))
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        console = self.channel("console")
+        self.assertTrue(console)
+        for line in console:
+            self.assertTrue(line.isascii(), line)
 
     def test_chain_bounded(self):
         res = self.report(chain="".join(f"unit-{n}.service @1s\n"
