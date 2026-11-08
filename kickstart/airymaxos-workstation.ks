@@ -350,6 +350,13 @@ rpm -q airymaxos-release >/dev/null 2>&1 || airy_fail INSTALL release-pkg
 #    GRUB_DISTRIBUTOR，grub-mkconfig 在 set -e 下 source 该文件），缺失即
 #    不可引导，必须在装机段结束前暴露。
 [ -r /etc/system-release ] || airy_fail INSTALL system-release
+#    安装界面与目标系统的语言必须分开：安装器是 text 模式的 Linux VT，字体
+#    没有 CJK 字形，跟随中文会让整屏安装信息变成方块（285H 实测），装载器
+#    因此带 inst.lang=en_US.UTF-8；目标系统仍要是中文桌面。anaconda 在
+#    %post 之前写 locale.conf，%post 是它的最后一步，所以这里写下的就是
+#    最终值——不依赖 inst.lang 与 ks lang 的优先级实现细节。
+printf 'LANG=zh_CN.UTF-8\n' >/etc/locale.conf
+airy_out "AIRYMAX-LOCALE-OK lang=zh_CN.UTF-8"
 
 # 2) 系统编排单元必须随镜像落盘（OS-OPS-010 的包级前提）
 airy_step 2 10 system
