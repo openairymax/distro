@@ -73,7 +73,7 @@
 # spec-lint: source-bundle ../../system/services/airydeb
 
 %global airy_version 0.0.4
-%global airy_release 50
+%global airy_release 51
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -152,6 +152,8 @@ Source64:       net_doctor.sh
 Source65:       airy-deb
 Source66:       airydeb-%{version}.tar.gz
 Source67:       50-console-ascii.conf
+Source68:       10-airymax-listen-reset.conf
+Source69:       20-airymax-listen-run.conf
 
 BuildRequires:  gcc
 BuildRequires:  python3-devel
@@ -236,6 +238,11 @@ install -m 0644 %{SOURCE67} \
     %{buildroot}%{_unitdir}/systemd-fsck-root.service.d/50-console-ascii.conf
 install -m 0644 %{SOURCE67} \
     %{buildroot}%{_unitdir}/systemd-fsck@.service.d/50-console-ascii.conf
+install -d -m 0755 %{buildroot}%{_unitdir}/dbus.socket.d
+install -m 0644 %{SOURCE68} \
+    %{buildroot}%{_unitdir}/dbus.socket.d/10-airymax-listen-reset.conf
+install -m 0644 %{SOURCE69} \
+    %{buildroot}%{_unitdir}/dbus.socket.d/20-airymax-listen-run.conf
 install -d -m 0755 %{buildroot}/usr/lib/airymaxos/scripts
 install -m 0755 %{SOURCE17} %{SOURCE18} %{SOURCE50} %{SOURCE53} \
     %{SOURCE54} %{SOURCE56} %{SOURCE59} %{SOURCE62} %{SOURCE64} \
@@ -338,6 +345,12 @@ test -f %{buildroot}%{_unitdir}/systemd-fsck-root.service.d/50-console-ascii.con
 test -f %{buildroot}%{_unitdir}/systemd-fsck@.service.d/50-console-ascii.conf
 grep -qxF 'Environment=LANG=C LC_ALL=C' \
     %{buildroot}%{_unitdir}/systemd-fsck@.service.d/50-console-ascii.conf
+test -f %{buildroot}%{_unitdir}/dbus.socket.d/10-airymax-listen-reset.conf
+grep -qxF 'ListenStream=' \
+    %{buildroot}%{_unitdir}/dbus.socket.d/10-airymax-listen-reset.conf
+test -f %{buildroot}%{_unitdir}/dbus.socket.d/20-airymax-listen-run.conf
+grep -qxF 'ListenStream=/run/dbus/system_bus_socket' \
+    %{buildroot}%{_unitdir}/dbus.socket.d/20-airymax-listen-run.conf
 test -f %{buildroot}%{_unitdir}/airy-boot-mount.service
 grep -qxF 'ExecStart=/usr/lib/airymaxos/scripts/stage_run.sh 基础挂载 3 root,boot,efi /usr/lib/airymaxos/scripts/boot_mount.sh' \
     %{buildroot}%{_unitdir}/airy-boot-mount.service
@@ -515,6 +528,8 @@ fi
 %dir %{_unitdir}/systemd-fsck@.service.d
 %{_unitdir}/systemd-fsck-root.service.d/*.conf
 %{_unitdir}/systemd-fsck@.service.d/*.conf
+%dir %{_unitdir}/dbus.socket.d
+%{_unitdir}/dbus.socket.d/*.conf
 %{_unitdir}/*.target
 %{_unitdir}/*.timer
 %{_presetdir}/90-airymax.preset
@@ -539,6 +554,13 @@ fi
 %{python3_sitelib}/airydeb
 
 %changelog
+* Sun Nov 08 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-51
+- 把 dbus.socket 的 ListenStream 从 legacy 路径 /var/run 改到 /run。发行版
+  单元写的是 /var/run/dbus/system_bus_socket，systemd 解析时自动改写并打印
+  一条含 U+2192 的告警；冷启动阶段该告警经 /dev/kmsg 直落本地屏，而 VT
+  字体 latarcyrheb-sun16 没有该字形，屏幕上多出一个方块——285H 冷启动时
+  journalctl -k -b 的非 ASCII 行就只剩这一条。改路径而不是压日志：监听地址
+  与 dbus-daemon 的 --address=systemd: 激活通道完全一致，告警不再产生
 * Sun Nov 08 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-50
 - 给 systemd-fsck-root 与 systemd-fsck@ 加 locale 覆盖，把 fsck 结论钉回英文。
   单元带 StandardOutput=journal+console，e2fsck 的中文措辞直接落到本地屏，
