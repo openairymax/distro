@@ -54,6 +54,12 @@ class SmokeReportTest(unittest.TestCase):
         # 通道，与真设备走同一条路径
         (self.root / "ttyS0").touch()
         (self.root / "console").touch()
+        # 活动控制台列表必须自己钉住：con_init 用它判断串口是否已是 /dev/console
+        # 的落点，留空即读宿主机的 /sys/class/tty/console/active。宿主机末位是
+        # ttyS0 时本地屏按去重规则被跳过，断言「结论上屏」的用例便随构建机
+        # 变化（run 42504510518 就是这样失败的）。产品命令行末位是 tty0。
+        self.active = self.root / "console_active"
+        self.active.write_text("tty0 tty1\n", encoding="utf-8")
         fakes.link_tools(self.bin)
         fakes.report_tools(self.bin)
 
@@ -72,6 +78,7 @@ class SmokeReportTest(unittest.TestCase):
             "AIRYMAX_BOOT_ID_FILE": str(self.boot),
             "AIRYMAX_BOOT_STATE": str(BOOT_STATE),
             "AIRYMAX_CON_LIB": str(CON),
+            "AIRY_CON_ACTIVE": str(self.active),
             "AIRYMAX_CONSOLE": str(self.root / "console"),
             "AIRY_CON_SERIAL": str(self.root / "ttyS0"),
             "FAKE_CHAIN_FILE": str(self.chain),
@@ -141,6 +148,17 @@ class SmokeReportTest(unittest.TestCase):
             "AIRYMAX-BOOT-HEALTH failed=0",
             f"AIRYMAX-SMOKE-PASS tap={self.tap}",
         ])
+
+    def test_serial_is_console_not_duplicated(self):
+        # 串口正是 /dev/console 的落点时，同一行写两遍只是重复噪声；去重由
+        # con_init 判定，结论仍须到串口。这一条与上一条互为两个分支，缺任一
+        # 分支的用例都会让通道判据回到「各调用方自行猜测」。
+        self.active.write_text("tty0 ttyS0\n", encoding="utf-8")
+        res = self.report()
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertEqual(self.channel("console"), [])
+        self.assertIn(f"AIRYMAX-SMOKE-PASS tap={self.tap}",
+                      self.channel("ttyS0"))
 
     def test_detail_reaches_serial(self):
         res = self.report()
