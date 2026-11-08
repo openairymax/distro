@@ -263,6 +263,17 @@ class RunSmokeTest(unittest.TestCase):
         path.write_text(body, encoding="utf-8")
         return path
 
+    def write_xorg_log(self, driver, pad="ELAN0676:00 04F3:31B9 Touchpad"):
+        """T29 第二段判据的落点：Xorg 只记录「谁在驱动这块板」。内核绑定
+        正常而驱动归属错误时，X 日志是唯一能解释点击与手势失效的证据。"""
+        log = self.sysroot / "var" / "log" / "Xorg.0.log"
+        log.parent.mkdir(parents=True, exist_ok=True)
+        log.write_text(
+            f"[    12.345] (II) Using input driver '{driver}' for '{pad}'\n",
+            encoding="utf-8",
+        )
+        return log
+
     def write_field_tools(self):
         """T27 的落点：现场诊断工具在镜像内的落盘位置。判的是打包闭包，
         不是运行行为，因此只落可执行文件，不提供任何桩逻辑。"""
@@ -1723,6 +1734,26 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke()
         self.assertTrue(self.tap(res, 29).startswith("ok"), res.stdout)
         self.assertIn("touchpad: input device present", res.stdout)
+
+    def test_touchpad_synaptics_fails(self):
+        # 内核绑定齐全、X 却被遗留驱动接管：I2C-HID 板拿不到压力，点击与
+        # 手势整体失效。只看 /proc 的旧判据在这里会误判为通过（285H 实态）。
+        self.tools()
+        self.write_acpi_touchpad()
+        self.write_input_devices()
+        self.write_xorg_log("synaptics")
+        res = self.run_smoke()
+        self.assert_fail(res, 29)
+        self.assertIn("X 驱动为 synaptics", res.stdout)
+
+    def test_touchpad_libinput_passes(self):
+        self.tools()
+        self.write_acpi_touchpad()
+        self.write_input_devices()
+        self.write_xorg_log("libinput")
+        res = self.run_smoke()
+        self.assertTrue(self.tap(res, 29).startswith("ok"), res.stdout)
+        self.assertIn("X 驱动 libinput", res.stdout)
 
     def test_touchpad_tpd0(self):
         # 另一族固件的命名（PNP0C50 挂 TPD0）：后缀不同但同属内建触控板，

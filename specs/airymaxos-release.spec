@@ -58,7 +58,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 9
+%global airy_release 10
 # 基底版本是显式输入，与 distro/repo/airymax-os.repo 及 kickstart 的
 # url/repo 行是三处同源表达。%%check 以本宏断言客户端配置，版本漂移在
 # 构建期失败，而不是等到装机后 dnf 报「找不到仓库」。
@@ -119,6 +119,7 @@ Source38:       network-wired-signal-excellent-symbolic.svg
 Source39:       network-wireless-signal-excellent-error-symbolic.svg
 Source40:       network-wireless-signal-low-secure-symbolic.svg
 Source41:       50-airymax-kgaccel-env.conf
+Source42:       90-airymax-touchpad.conf
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -271,6 +272,14 @@ install -m 0755 %{SOURCE8} \
     %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/70-airymax-im.sh
 install -m 0755 %{SOURCE18} \
     %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/60-airymax-display.sh
+
+# 触控板驱动归属：70-synaptics.conf 随 ukui-settings-daemon 的硬依赖进入闭包，
+# 且排在 40-libinput.conf 之后，会把每块触控板都交给不再维护的遗留驱动。
+# 本文件以 Xorg 的 InputClass 覆盖顺序把已归 synaptics 的触控板改派 libinput，
+# 根因与 285H 取证见文件头。目录属 xorg-x11-server，这里只落文件。
+install -d -m 0755 %{buildroot}%{_sysconfdir}/X11/xorg.conf.d
+install -m 0644 %{SOURCE42} \
+    %{buildroot}%{_sysconfdir}/X11/xorg.conf.d/90-airymax-touchpad.conf
 
 install -d -m 0755 %{buildroot}%{_sysconfdir}/grub.d
 install -m 0755 %{SOURCE19} \
@@ -550,6 +559,13 @@ grep -qxF 'lock-enabled=false' "${airy_saver}"
 sh -n %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/70-airymax-im.sh
 sh -n %{buildroot}/usr/lib/airymaxos/desktop/display_mode.sh
 sh -n %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/60-airymax-display.sh
+# 触控板改派只有「先匹配 synaptics、再改派 libinput」同时成立才生效：少了
+# MatchDriver 会连带把 evdev 触控板一起夺走，少了 Driver 则文件毫无作用，
+# 两种错法都不会让构建失败，只在装机后表现为「触控板不能用」。逐行断言。
+airy_tpad=%{buildroot}%{_sysconfdir}/X11/xorg.conf.d/90-airymax-touchpad.conf
+grep -qxF '    MatchIsTouchpad "on"' "${airy_tpad}"
+grep -qxF '    MatchDriver "synaptics"' "${airy_tpad}"
+grep -qxF '    Driver "libinput"' "${airy_tpad}"
 # 收敛入口有两个：早期钩子与会话就绪后的 autostart。任一处丢失都会退回
 # 「一次性写入」，而那正是 T10 在验收基线上失败的形态，因此两处分别断言。
 # autostart 必须是 --guard 而不是 --settle：settings-daemon 的回写晚于收敛
@@ -736,6 +752,7 @@ fi
 %config(noreplace) %{_sysconfdir}/dconf/db/local.d/00-airymax-screensaver
 %config(noreplace) %{_sysconfdir}/X11/xinit/xinitrc.d/70-airymax-im.sh
 %config(noreplace) %{_sysconfdir}/X11/xinit/xinitrc.d/60-airymax-display.sh
+%config(noreplace) %{_sysconfdir}/X11/xorg.conf.d/90-airymax-touchpad.conf
 %config(noreplace) %{_sysconfdir}/grub.d/01_airymax_display
 %config(noreplace) %{_sysconfdir}/xdg/autostart/airymax-input-method.desktop
 %config(noreplace) %{_sysconfdir}/xdg/autostart/airymax-display.desktop
@@ -777,6 +794,22 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Sun Nov 08 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-10
+- Give every touchpad to libinput. xorg-x11-drv-synaptics-legacy reaches the
+  closure as a hard dependency of ukui-settings-daemon, and its 70-synaptics.conf
+  "touchpad catchall" sorts after 40-libinput.conf, so the legacy driver claimed
+  every touchpad. On the 285H I2C-HID clickpad (ELAN06FA:00 04F3:3293) it logs
+  "invalid pressure range" and "does not report pressure, will use touch data",
+  leaving taps and gestures unusable while the kernel binding is intact, which
+  is why T29 stayed green.
+- A product-owned InputClass at /etc/X11/xorg.conf.d/90-airymax-touchpad.conf
+  matches the touchpads already assigned to synaptics and reassigns them to
+  libinput, the same mechanism 71-libinput-overrides-wacom.conf uses. Only the
+  driver assignment changes: ukui-settings-daemon libmouse.so already speaks
+  libinput for tapping, scrolling and disable-while-typing, and no package
+  dependency or upstream source is touched. The spec now asserts the three
+  matching lines at build time.
+
 * Sat Nov 07 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-9
 - Keep the UKUI Qt platform theme out of non-GUI Qt daemons. ukui-session
   writes QT_QPA_PLATFORMTHEME=ukui when it starts the session, and the
