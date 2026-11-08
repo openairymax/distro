@@ -21,7 +21,7 @@
 # AIRYMAX-BOOT-DEGRADED。
 #
 # 部署：airymaxos-release 包安装到 /usr/lib/airymaxos/desktop/。
-# 依赖：bash、systemctl、journalctl、awk、sed。
+# 依赖：bash、systemctl、journalctl、awk、sed、con.sh（console 通道）。
 # ===========================================================================
 
 UNIT_LOG_MAX="${AIRYMAX_UNIT_LOG:-12}"
@@ -30,10 +30,19 @@ CONSOLE_ACTIVE="${AIRYMAX_CONSOLE_ACTIVE:-/sys/class/tty/console/active}"
 VT_ACTIVE="${AIRYMAX_VT_ACTIVE:-/sys/class/tty/tty0/active}"
 VT_DIR="${AIRYMAX_VT_DIR:-/dev}"
 
-# 本地屏镜像：kernel cmdline 里最后一个 console= 决定 /dev/console 的去向，
-# 带串口的机器（验收机）上它是 ttyS0，单元用 journal+console 时标记行只到
-# journal 与串口，本地屏在最后一个内核行之后静止。标记行另写一份到当前
-# 活动 VT；活动 VT 本身就是被选中的 console 时跳过，避免同一行打两遍。
+# 标记行走与九阶段行同一条通道（con.sh）：单元 stdout 进 journal，串口与
+# 本地屏由 con_sink 独占。只写 /dev/console 会把去向交给命令行里最后一个
+# console=，产品镜像的末位是 tty0，于是第 8 阶段行到了串口、紧随其后的
+# AIRYMAX-DESKTOP-READY 只留在本地屏，宿主机等满超时判负
+# （run 42426433371）。通道选择的判据只写一份，见 con.sh。
+# shellcheck source=../../system/scripts/con.sh
+AIRY_CON_UI="${AIRYMAX_CONSOLE:-${UI_CONSOLE:-/dev/console}}" \
+    . "${AIRYMAX_CON_LIB:-${BASH_SOURCE[0]%/*}/../scripts/con.sh}"
+con_init
+
+# 本地屏镜像：con_sink 写的是 /dev/console 与串口，而 /dev/console 只在它
+# 正是当前活动 VT 时才看得见——console= 可能把落点固定在 tty0，现场却已经
+# 切到别的 VT。活动 VT 与 /dev/console 同源时跳过，避免同一行打两遍。
 vt_dev()
 {
     local active vt
@@ -52,18 +61,26 @@ vt_dev()
 # 只会得到方块或空白（285H 冷启动的失败取证行就是这样）。取证行把单元
 # journal 原样搬上屏，正是这条通道的主要来源，因此折叠放在搬运入口，
 # 而不是要求每个调用方自己判断措辞。原文仍可在对应单元的 journal 里读。
+#
+# 折叠按字节判定：UTF-8 locale 下 sed 的方括号区间走排序规则，'[ -~]'
+# 不再是 0x20..0x7E，字母数字会被替换成 '?'，整行证据失去可读性。locale
+# 因此钉在命令上，与调用方的 LANG 无关（ui.sh 的 _ui_ascii 同一判据）。
 fold_ascii()
 {
-    sed 's/[^ -~]/?/g'
+    LC_ALL=C sed 's/[^ -~]/?/g'
 }
 
+# 标记行的唯一出口：journal（stdout）、串口与本地屏（con_sink）、活动 VT
+# 镜像。三条落点各写一次，调用方只给措辞，不再各自决定通道。
 say()
 {
-    local dev
+    local line dev
 
-    printf "$@"
+    line="$(printf "$@")"
+    printf '%s\n' "${line}"
+    con_sink "${line}"
     dev=$(vt_dev) || return 0
-    printf "$@" >>"${dev}" 2>/dev/null
+    printf '%s\n' "${line}" >>"${dev}" 2>/dev/null
 }
 
 failed_units()

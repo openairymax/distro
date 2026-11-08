@@ -25,6 +25,7 @@ import fakes
 SCRIPT = (Path(__file__).resolve().parents[2] / "ci" / "fixture" /
           "airymax-smoke-report.sh")
 BOOT_STATE = Path(__file__).resolve().parents[2] / "desktop" / "boot_state.sh"
+CON = Path(__file__).resolve().parents[2].parent / "system" / "scripts" / "con.sh"
 BASH = shutil.which("bash") or "/bin/bash"
 
 PROBES = 9
@@ -66,6 +67,9 @@ class SmokeReportTest(unittest.TestCase):
             "AIRYMAX_SMOKE_WAIT": "0",
             "AIRYMAX_BOOT_ID_FILE": str(self.boot),
             "AIRYMAX_BOOT_STATE": str(BOOT_STATE),
+            "AIRYMAX_CON_LIB": str(CON),
+            "AIRYMAX_CONSOLE": str(self.root / "console"),
+            "AIRY_CON_SERIAL": str(self.root / "ttyS0"),
             "FAKE_CHAIN_FILE": str(self.chain),
         }
         env.update(extra)

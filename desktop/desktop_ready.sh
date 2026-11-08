@@ -189,11 +189,18 @@ advise()
     say 'AIRYMAX-DESKTOP-HINT console=tty2 cmd="%s"\n' "$1"
 }
 
-# 诊断通道：每类证据独立取，取不到就跳过，绝不影响返回值。
+# 诊断通道：每类证据独立取，取不到就跳过，绝不影响返回值。证据行走
+# con_put：journal、串口与 /dev/console 各一份，但不上活动 VT——取证是给
+# 宿主与现场串口读的，不该把十几行外文证据盖在用户屏幕的判定行上。
 diag_out()
 {
+    local line
+
     head -n "${DIAG_MAX}" 2>/dev/null | fold_ascii |
-        sed "s/^/AIRYMAX-DESKTOP-DIAG ${1} /"
+        sed "s/^/AIRYMAX-DESKTOP-DIAG ${1} /" |
+        while IFS= read -r line; do
+            con_put "${line}"
+        done
 }
 
 diag_unit()
