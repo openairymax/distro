@@ -25,6 +25,7 @@ BASE = Path(__file__).resolve().parents[2]
 SCRIPT = BASE / "desktop" / "desktop_ready.sh"
 UNIT = BASE / "desktop" / "airymax-desktop-ready.service"
 UI = BASE.parent / "system" / "scripts" / "ui.sh"
+CON = BASE.parent / "system" / "scripts" / "con.sh"
 BASH = shutil.which("bash") or "/bin/bash"
 READY = "AIRYMAX-DESKTOP-READY"
 FAIL = "AIRYMAX-DESKTOP-FAIL"
@@ -82,6 +83,8 @@ class DesktopReadyTest(unittest.TestCase):
         return {"FAKE_JOURNAL_DIR": str(log_dir)}
 
     def run_probe(self, *args, **extra):
+        self.serial = self.root / "ttyS0"
+        self.serial.write_text("", encoding="utf-8")
         env = {"PATH": str(self.bin), "HOME": str(self.root),
                "AIRYMAX_READY_WAIT": "0", "AIRYMAX_READY_POLL": "1",
                "AIRYMAX_XSESSIONS_DIR": str(self.xs),
@@ -89,11 +92,16 @@ class DesktopReadyTest(unittest.TestCase):
                "AIRYMAX_CONSOLE_ACTIVE": str(self.console_active),
                "AIRYMAX_VT_ACTIVE": str(self.vt_active),
                "AIRYMAX_UI_LIB": str(UI),
+               "AIRYMAX_CON_LIB": str(CON),
+               "AIRY_CON_SERIAL": str(self.serial),
                "UI_CONSOLE": str(self.root / "console"),
                "AIRYMAX_VT_DIR": str(self.vt_dir)}
         env.update(extra)
         return subprocess.run([BASH, str(SCRIPT), *args], env=env,
                               text=True, capture_output=True)
+
+    def serial_text(self):
+        return self.serial.read_text(encoding="utf-8")
 
     def test_ready(self):
         res = self.run_probe()
@@ -105,6 +113,24 @@ class DesktopReadyTest(unittest.TestCase):
         self.assertNotIn("AIRYMAX-UNIT-STATE|", res.stdout)
         self.assertIn("[ 8/9 ] desktop         ok   unit=lightdm "
                       "class=greeter session=1", res.stdout)
+
+    def test_marker_reaches_the_serial_console(self):
+        """单元的 stdout 只进 journal，宿主机读的是串口：标记必须自己走通道。"""
+        res = self.run_probe()
+        self.assertEqual(res.returncode, 0, res.stderr)
+        serial = self.serial_text()
+        self.assertIn(f"{READY} unit=lightdm", serial)
+        self.assertIn("AIRYMAX-BOOT-HEALTH failed=0", serial)
+        self.assertIn("[ 8/9 ] desktop", serial)
+
+    def test_evidence_reaches_the_serial_console(self):
+        res = self.run_probe(FAKE_LIGHTDM="inactive",
+                             FAKE_ACTIVE_STATE="inactive",
+                             FAKE_SUB_STATE="dead")
+        self.assertEqual(res.returncode, 1)
+        serial = self.serial_text()
+        self.assertIn(f"{DIAG} unit ActiveState=inactive", serial)
+        self.assertIn(f"{FAIL} unit=lightdm", serial)
 
     def test_stage_line_follows_the_verdict(self):
         res = self.run_probe(FAKE_FAILED_UNITS="sssd.service")
@@ -356,7 +382,8 @@ class DesktopReadyTest(unittest.TestCase):
         self.assertEqual(service["Type"], "oneshot")
         self.assertEqual(service["ExecStart"],
                          "/usr/lib/airymaxos/desktop/desktop_ready.sh")
-        self.assertEqual(service["StandardOutput"], "journal+console")
+        self.assertEqual(service["StandardOutput"], "journal")
+        self.assertEqual(service["StandardError"], "journal+console")
         self.assertEqual(service["TimeoutStartSec"], "180")
         self.assertEqual(install["WantedBy"], "graphical.target")
         self.assertNotIn("User", service)

@@ -18,7 +18,10 @@ Wants=lightdm.service
 [Service]
 Type=oneshot
 ExecStart=/usr/lib/airymaxos/desktop/desktop_ready.sh
-StandardOutput=journal+console
+# stdout 只进 journal：console 由脚本内的 con.sh 独占（串口 + /dev/console
+# + 活动 VT）。journal+console 会让同一条标记在本地屏出现两遍，也把标记的
+# 去向交给 cmdline 里最后一个 console=，串口现场因此读不到判定。
+StandardOutput=journal
 StandardError=journal+console
 TimeoutStartSec=180
 
