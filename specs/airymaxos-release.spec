@@ -120,6 +120,7 @@ Source39:       network-wireless-signal-excellent-error-symbolic.svg
 Source40:       network-wireless-signal-low-secure-symbolic.svg
 Source41:       50-airymax-kgaccel-env.conf
 Source42:       90-airymax-touchpad.conf
+Source43:       airymax-panel.conf
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -335,6 +336,16 @@ install -m 0644 %{SOURCE10} \
 install -d -m 0755 %{buildroot}%{_datadir}/glib-2.0/schemas
 install -m 0644 %{SOURCE11} \
     %{buildroot}%{_datadir}/glib-2.0/schemas/99-airymaxos-default.gschema.override
+
+# 面板落点：ukui-panel 3.1 没有 quicklaunch 插件，首启动生成的 taskbar 组
+# 只有一条空的 apps\size=0，于是面板上既没有文件管理器也没有浏览器，而
+# 应用菜单之外没有任何可见入口（285H 实机：「桌面找不到浏览器」）。这里把
+# 归一化后的面板配置装进 /etc/skel，新用户的家目录在装机器上创建时直接
+# 带上两个钉住项与托盘白名单；装机器先装包后建用户，skel 复制发生在包就位
+# 之后（/etc/skel/.bashrc 已如此落地）。
+install -d -m 0755 %{buildroot}%{_sysconfdir}/skel/.config/ukui
+install -m 0644 %{SOURCE43} \
+    %{buildroot}%{_sysconfdir}/skel/.config/ukui/panel.conf
 
 # 状态栏图标：kylin-nm 会按这三个标准名取图，ukui-themes 3.0.2 只提供带
 # ukui- 前缀或换了词序的近似件。名字缺失时 Qt 不报错，只返回空图标，托盘
@@ -750,6 +761,9 @@ fi
 %dir %{_sysconfdir}/NetworkManager/conf.d
 %config(noreplace) %{_sysconfdir}/NetworkManager/conf.d/99-airymax.conf
 %config(noreplace) %{_sysconfdir}/dconf/db/local.d/00-airymax-screensaver
+%dir %{_sysconfdir}/skel/.config
+%dir %{_sysconfdir}/skel/.config/ukui
+%config(noreplace) %{_sysconfdir}/skel/.config/ukui/panel.conf
 %config(noreplace) %{_sysconfdir}/X11/xinit/xinitrc.d/70-airymax-im.sh
 %config(noreplace) %{_sysconfdir}/X11/xinit/xinitrc.d/60-airymax-display.sh
 %config(noreplace) %{_sysconfdir}/X11/xorg.conf.d/90-airymax-touchpad.conf

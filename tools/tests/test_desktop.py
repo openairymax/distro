@@ -90,6 +90,8 @@ ASSETS = (
     ("desktop/glib-2.0/schemas/99-airymaxos-default.gschema.override",
      "%{_datadir}/glib-2.0/schemas/"
      "99-airymaxos-default.gschema.override"),
+    ("desktop/skel/airymax-panel.conf",
+     "%{_sysconfdir}/skel/.config/ukui/panel.conf"),
     ("release/wallpapers/qilian_photo_from_zhenyi.jpg",
      "%{_datadir}/backgrounds/airymaxos/qilian_photo_from_zhenyi.jpg"),
     ("release/wallpapers/clouds_moonlight_photo_from_lidecheng.jpg",
@@ -228,6 +230,24 @@ class DesktopAssetTest(unittest.TestCase):
             self.assertIn(dst, self.spec, f"{rel} has no install target")
             self.assertIn(dst, self.spec.split("%files", 1)[1],
                           f"{dst} missing from %files")
+
+    def test_panel_pins_default_apps(self):
+        """新用户面板必须自带文件管理器与浏览器两个落点。
+
+        ukui-panel 3.1 首次启动生成的 taskbar 组只有一条空的 apps\\size=0，
+        钉住项只认 apps\\N\\desktop（该版本没有 quicklaunch 插件），因此
+        全新家目录的面板上一个应用图标都没有，浏览器只能从菜单找。判据落在
+        预置配置的内容上，而不是某个包的安装日志。
+        """
+        panel = parse_kv(self.asset("desktop/skel/airymax-panel.conf"))
+        taskbar = panel["taskbar"]
+        key = "apps\\{}\\desktop"
+        pinned = {taskbar[key.format(idx)]
+                  for idx in range(1, int(taskbar["apps\\size"]) + 1)}
+        self.assertEqual(pinned, {"/usr/share/applications/peony.desktop",
+                                  "/usr/share/applications/firefox.desktop"})
+        self.assertIn("taskbar", panel["panel1"]["plugins"])
+        self.assertIn("kylin-nm", panel["statusnotifier"]["showApp"])
 
     def test_wallpaper_path_is_single_source(self):
         xml = ET.parse(self.asset(
