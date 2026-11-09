@@ -196,6 +196,7 @@ class RunSmokeTest(unittest.TestCase):
         self.write_field_tools()
         self.write_net_front()
         self.write_tray()
+        self.write_vconsole()
 
     def write_net_front(self, kylin=True, modules=NET_MODULES):
         """T28 的落点：面板与控制中心共用的网络前端闭包。判的是文件是否
@@ -346,6 +347,36 @@ class RunSmokeTest(unittest.TestCase):
         path.write_text("".join(f"{name}\n" for name in names),
                         encoding="utf-8")
         return path
+
+    def write_vconsole(self, font="latarcyrheb-sun32", w=16, h=32,
+                       psf2=True, write_font=True):
+        """T22 的落点：/etc/vconsole.conf 的 FONT 与它指向的字体文件。
+        判据读 PSF2 头的前 32 字节（偏移 24/28 为 height/width），沙箱只需
+        复刻这段头。psf2=False 时写成 PSF1（magic 0x36），用于复现「换成
+        大字号之前」的现场：文件在、路径对，字号却仍是固定的 8 列。"""
+        conf = self.sysroot / "etc" / "vconsole.conf"
+        conf.parent.mkdir(parents=True, exist_ok=True)
+        conf.write_text(f'KEYMAP="us"\nFONT="{font}"\n', encoding="utf-8")
+        fontdir = self.sysroot / "usr" / "lib" / "kbd" / "consolefonts"
+        fontdir.mkdir(parents=True, exist_ok=True)
+        path = fontdir / f"{font}.psfu"
+        if not write_font:
+            if path.exists():
+                path.unlink()
+            return conf
+        head = bytearray(32)
+        if psf2:
+            head[0:4] = bytes((114, 181, 74, 134))
+            head[8:12] = (32).to_bytes(4, "little")
+            head[16:20] = (256).to_bytes(4, "little")
+            head[20:24] = (h * w // 8).to_bytes(4, "little")
+            head[24:28] = h.to_bytes(4, "little")
+            head[28:32] = w.to_bytes(4, "little")
+        else:
+            head[0] = 0x36
+        path = fontdir / f"{font}.psfu"
+        path.write_bytes(bytes(head))
+        return conf
 
     def write_cmdline(self, body=CMDLINE):
         """T22 的落点：安装器写入引导项后，内核实际拿到的命令行。"""
@@ -1382,6 +1413,32 @@ class RunSmokeTest(unittest.TestCase):
         self.assert_fail(res, 22)
         self.assertIn("systemd-vconsole-setup: failed (want active)",
                       res.stdout)
+
+    def test_console_font_psf1(self):
+        # 285H 的原始现场：FONT 指向的文件存在、路径也对，但它是 PSF1，
+        # 没有尺寸字段、固定 8 列，在 2880 宽的屏上仍是不可读的细条
+        self.tools()
+        self.write_vconsole(psf2=False)
+        res = self.run_smoke()
+        self.assert_fail(res, 22)
+        self.assertIn("is not a PSF2 font", res.stdout)
+
+    def test_console_font_too_small(self):
+        # 换成 PSF2 也可能换小了：判据取几何而不是文件名，型号改小仍要拦
+        self.tools()
+        self.write_vconsole(w=8, h=16)
+        res = self.run_smoke()
+        self.assert_fail(res, 22)
+        self.assertIn("is 8x16, below 12x24", res.stdout)
+
+    def test_console_font_absent(self):
+        # 配置写着字体名但镜像没带该文件：setfont 失败后 VT 回落到默认小字，
+        # 日志里只有一行告警，控制台看起来「什么都没改」
+        self.tools()
+        self.write_vconsole(font="no-such-font", write_font=False)
+        res = self.run_smoke()
+        self.assert_fail(res, 22)
+        self.assertIn("font no-such-font is absent from", res.stdout)
 
     def test_console_runtime_absent(self):
         # 读不到本次命令行即无从判定，按失败计而不是放行
