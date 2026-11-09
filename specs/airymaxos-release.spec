@@ -60,7 +60,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 12
+%global airy_release 13
 # 基底版本是显式输入，与 distro/repo/airymax-os.repo 及 kickstart 的
 # url/repo 行是三处同源表达。%%check 以本宏断言客户端配置，版本漂移在
 # 构建期失败，而不是等到装机后 dnf 报「找不到仓库」。
@@ -585,11 +585,14 @@ test "${airy_rule}" = 'amuser ALL=(ALL) NOPASSWD: ALL'
 # 一致。残留的内核层回写会让静态名与运行名分叉，这里断言它不再被打包。
 ! test -e %{buildroot}%{_sysconfdir}/sysctl.d/99-airymax-hostname.conf
 # 锁屏策略：键名拼错或取值被改回 true 都不会让构建失败，只会在装机后以
-# 「每五分钟一次口令框」的形式出现，所以两个键都要逐字断言。
+# 「每五分钟一次口令框」或「唤醒后取不掉的锁屏」的形式出现，所以三个锁定
+# 入口都要逐字断言。sleep-activation-enabled 与另两个键独立判定，只关两个
+# 键仍会在挂起唤醒时锁屏（0.0.4 的 285H 实机现象）。
 airy_saver=%{buildroot}%{_sysconfdir}/dconf/db/local.d/00-airymax-screensaver
 grep -qxF '[org/ukui/screensaver]' "${airy_saver}"
 grep -qxF 'idle-lock-enabled=false' "${airy_saver}"
 grep -qxF 'lock-enabled=false' "${airy_saver}"
+grep -qxF 'sleep-activation-enabled=false' "${airy_saver}"
 sh -n %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/70-airymax-im.sh
 sh -n %{buildroot}/usr/lib/airymaxos/desktop/display_mode.sh
 sh -n %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/60-airymax-display.sh
@@ -840,6 +843,20 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Mon Nov 09 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-13
+- Close the last lock entry that a suspend reaches. The 285H was reported as
+  "stuck at boot" after the lid was closed and reopened; the screen was the
+  ukui screensaver unlock prompt, and the empty-password delivery account has
+  no password to type. The compiled system db already carried
+  lock-enabled=false and idle-lock-enabled=false, so the idle path was closed,
+  but org.ukui.screensaver sleep-activation-enabled was still true and its
+  description is precisely "lock the screen when the system goes sleep"; the
+  three keys are evaluated independently. Set it false in the same policy
+  source, and extend the %check line assertions to all three so a later edit
+  cannot reopen one of them silently. The screensaver picture and DPMS stance
+  are unchanged, and manual locking still works through
+  ukui-screensaver-command -l.
+
 * Mon Nov 09 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-12
 - Initialize the mixer once on first boot so a fresh install is not silent.
   On the 285H the HDA codec powers up with Master at index 0 of 87 (-65.25 dB)
