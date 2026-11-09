@@ -203,6 +203,35 @@ def check_seeds(have, pres, want, out):
         bad(out, "seeds/missing", "%s 属默认安装集却未冻结" % name)
 
 
+DESKTOP = re.compile(r"^%global\s+ukui_desktop_version\s+(\S+)\s*$", re.M)
+
+
+def desktop_want(root):
+    """发行版声明的桌面版本；缺声明时返回空串。"""
+    path = Path(root) / "distro/specs/airymaxos-release.spec"
+    hit = DESKTOP.search(path.read_text(encoding="utf-8")) \
+        if path.is_file() else None
+    return hit.group(1) if hit else ""
+
+
+def check_desktop(root, led, out):
+    """桌面版本只有一份：控制中心台账的 Version 必须等于发行版宏。"""
+    want = desktop_want(root)
+    if not want:
+        bad(out, "desktop/macro", "airymaxos-release.spec 缺少 "
+            "ukui_desktop_version")
+        return
+    rec = next((c for c in led.get("components", [])
+                if c.get("name") == "ukui-control-center"), {})
+    hit = NVRA.match(rec.get("nvra", ""))
+    if not hit:
+        bad(out, "desktop/nvra", "ukui-control-center nvra=%s"
+            % rec.get("nvra"))
+    elif hit.group(2) != want:
+        bad(out, "desktop/version", "台账 %s != 发行版 %s"
+            % (hit.group(2), want))
+
+
 def check_docs(docs, pres, out):
     delta = Path(docs) / "ukui-delta.md"
     feas = Path(docs) / "ukui-424-feasibility.md"
@@ -244,6 +273,7 @@ def main():
     out = []
     check_schema(led, base, out)
     check_items(led, base, out)
+    check_desktop(root, led, out)
     pres = {c.get("name") for c in led.get("components", [])
             if c.get("state") == "present"}
     try:

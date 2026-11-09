@@ -1,0 +1,175 @@
+From 354eaef4c59308e58792258fc37bfef4d74eaaf5 Mon Sep 17 00:00:00 2001
+From: huayadong <huayadong@kylinos.cn>
+Date: Wed, 4 Jan 2023 15:03:57 +0800
+Subject: [PATCH] xxxxxxxxxxxxxxxxxx
+
+---
+ data/95-SeatDefaults.conf                     |  2 ++
+ .../userinfo/qtdbus/userdispatcher.cpp        |  4 ++--
+ .../account/userinfo/qtdbus/userdispatcher.h  |  2 +-
+ plugins/account/userinfo/userinfo.cpp         | 20 ++++++-------------
+ registeredQDbus/sysdbusregister.cpp           | 10 +++++++---
+ registeredQDbus/sysdbusregister.h             |  2 +-
+ ukui-control-center.pro                       |  7 +++++--
+ 7 files changed, 24 insertions(+), 23 deletions(-)
+ create mode 100644 data/95-SeatDefaults.conf
+
+diff --git a/data/95-SeatDefaults.conf b/data/95-SeatDefaults.conf
+new file mode 100644
+index 0000000..bf666a2
+--- /dev/null
++++ b/data/95-SeatDefaults.conf
+@@ -0,0 +1,2 @@
++[SeatDefaults]
++autologin-user=
+diff --git a/plugins/account/userinfo/qtdbus/userdispatcher.cpp b/plugins/account/userinfo/qtdbus/userdispatcher.cpp
+index a13d4fa..8617b79 100644
+--- a/plugins/account/userinfo/qtdbus/userdispatcher.cpp
++++ b/plugins/account/userinfo/qtdbus/userdispatcher.cpp
+@@ -104,7 +104,7 @@ void UserDispatcher::change_user_name(QString newName){
+     useriface->call("SetRealName", QVariant(newName));
+ }
+ 
+-void UserDispatcher::change_user_autologin(QString username){
++void UserDispatcher::change_user_autologin(bool checked, QString username){
+     QDBusInterface * tmpSysinterface = new QDBusInterface("com.control.center.qt.systemdbus",
+                                                           "/",
+                                                           "com.control.center.interface",
+@@ -114,7 +114,7 @@ void UserDispatcher::change_user_autologin(QString username){
+         qCritical() << "Create Client Interface Failed When : " << QDBusConnection::systemBus().lastError();
+         return;
+     }
+-    tmpSysinterface->call("setAutoLoginStatus", username);
++    tmpSysinterface->call("setAutoLoginStatus", checked, username);
+ 
+     delete tmpSysinterface;
+     tmpSysinterface = nullptr;
+diff --git a/plugins/account/userinfo/qtdbus/userdispatcher.h b/plugins/account/userinfo/qtdbus/userdispatcher.h
+index b498c15..41b2425 100644
+--- a/plugins/account/userinfo/qtdbus/userdispatcher.h
++++ b/plugins/account/userinfo/qtdbus/userdispatcher.h
+@@ -51,7 +51,7 @@ public:
+     QString change_user_pwd(QString pwd, QString hint);
+     void change_user_type(int atype);
+     void change_user_face(QString facefile);
+-    void change_user_autologin(QString username);
++    void change_user_autologin(bool checked, QString username);
+     void change_user_name(QString newName);
+     bool get_autoLogin_status();
+ 
+diff --git a/plugins/account/userinfo/userinfo.cpp b/plugins/account/userinfo/userinfo.cpp
+index 44359cf..ab25591 100644
+--- a/plugins/account/userinfo/userinfo.cpp
++++ b/plugins/account/userinfo/userinfo.cpp
+@@ -791,11 +791,15 @@ void UserInfo::setUserConnect(){
+         Q_UNUSED(checked)
+         showChangeGroupDialog();
+     });
++    UserInfomation username = allUserInfoMap.value(g_get_user_name());
++    autoLoginSBtn->setChecked(!getAutomaticLogin().compare(username.username, Qt::CaseSensitive));
+ 
+     //自动登录登录
+     connect(autoLoginSBtn, &SwitchButton::checkedChanged, autoLoginSBtn, [=](bool checked){
+         UserInfomation user = allUserInfoMap.value(g_get_user_name());
+ 
++        UserDispatcher * userdispatcher  = new UserDispatcher(user.objpath);
++
+         QString autoUser = getAutomaticLogin();
+         qDebug() << "Current Auto User:" << autoUser;
+ 
+@@ -826,19 +830,7 @@ void UserInfo::setUserConnect(){
+                 qDebug() << "call setAutoLoginStatus failed" << ret.error();
+             }
+         } else {
+-            QDBusMessage message = QDBusMessage::createMethodCall("org.freedesktop.Accounts",
+-                                                      user.objpath,
+-                                                      "org.freedesktop.Accounts.User",
+-                                                      "SetAutomaticLogin");
+-
+-            message << checked;
+-            QDBusMessage response = QDBusConnection::systemBus().call(message);
+-            if (response.type() == QDBusMessage::ErrorMessage){
+-
+-                autoLoginSBtn->blockSignals(true);
+-                autoLoginSBtn->setChecked(!checked);
+-                autoLoginSBtn->blockSignals(false);
+-            }
++            userdispatcher->change_user_autologin(checked, user.username);
+         }
+     });
+ 
+@@ -1041,7 +1033,7 @@ bool UserInfo::isLastAdmin(QString uname){
+ 
+ QString UserInfo::getAutomaticLogin() {
+ 
+-    QString filename = "/etc/lightdm/lightdm.conf";
++    QString filename = "/usr/share/lightdm/lightdm.conf.d/95-SeatDefaults.conf";
+     autoSettings = new QSettings(filename, QSettings::IniFormat);
+     autoSettings->beginGroup("SeatDefaults");
+ 
+diff --git a/registeredQDbus/sysdbusregister.cpp b/registeredQDbus/sysdbusregister.cpp
+index 193568d..7f26c97 100644
+--- a/registeredQDbus/sysdbusregister.cpp
++++ b/registeredQDbus/sysdbusregister.cpp
+@@ -167,7 +167,7 @@ int SysdbusRegister::setNoPwdLoginStatus(bool status,QString username)
+ }
+ 
+ // 设置自动登录状态
+-int SysdbusRegister::setAutoLoginStatus(QString username) {
++int SysdbusRegister::setAutoLoginStatus(bool checked, QString username) {
+     //密码校验
+     QDBusConnection conn = connection();
+     QDBusMessage msg = message();
+@@ -175,11 +175,15 @@ int SysdbusRegister::setAutoLoginStatus(QString username) {
+     if (!authoriyAutoLogin(conn.interface()->servicePid(msg.service()).value())){
+         return 0;
+     }
+-    QString filename = "/etc/lightdm/lightdm.conf";
++    QString filename = "/usr/share/lightdm/lightdm.conf.d/95-SeatDefaults.conf";
+     QSharedPointer<QSettings>  autoSettings = QSharedPointer<QSettings>(new QSettings(filename, QSettings::IniFormat));
+     autoSettings->beginGroup("SeatDefaults");
+ 
+-    autoSettings->setValue("autologin-user", username);
++    if(true == checked){
++        autoSettings->setValue("autologin-user", username);
++    }else{
++        autoSettings->setValue("autologin-user", "");
++    }
+ 
+     autoSettings->endGroup();
+     autoSettings->sync();
+diff --git a/registeredQDbus/sysdbusregister.h b/registeredQDbus/sysdbusregister.h
+index 020c165..0aca90d 100644
+--- a/registeredQDbus/sysdbusregister.h
++++ b/registeredQDbus/sysdbusregister.h
+@@ -95,7 +95,7 @@ public slots:
+     Q_SCRIPTABLE QString getNoPwdLoginStatus();
+ 
+     // 设置自动登录状态
+-    Q_SCRIPTABLE int setAutoLoginStatus(QString username);
++    Q_SCRIPTABLE int setAutoLoginStatus(bool checked, QString username);
+ 
+     Q_SCRIPTABLE int DeleteUser(qint64 userId, bool removeWhole);
+ 
+diff --git a/ukui-control-center.pro b/ukui-control-center.pro
+index 39966b2..9866f65 100644
+--- a/ukui-control-center.pro
++++ b/ukui-control-center.pro
+@@ -36,9 +36,12 @@ search_file.files = shell/res/search.xml
+ 
+ INCLUDEPATH += /usr/lib/gcc/aarch64-linux-gnu/9/include/
+ 
+-INSTALLS += qm_files \
+-            search_file
++lightdm.files = data/95-SeatDefaults.conf
++lightdm.path = /usr/share/lightdm/lightdm.conf.d/
+ 
++INSTALLS += qm_files \
++            search_file \
++            lightdm
+ HEADERS += \
+     shell/utils/mthread.h \
+     shell/utils/xatom-helper.h
+-- 
+2.39.1
+

@@ -1,0 +1,12 @@
+diff -u -r ukui-control-center-3.1.2/shell/mainwindow.cpp ukui-control-center-3.1.2/shell/mainwindow.cpp
+--- ukui-control-center-3.1.2/shell/mainwindow.cpp	2023-04-03 13:52:30.000000000 +0800
++++ ukui-control-center-3.1.2/shell/mainwindow.cpp	2023-06-17 23:00:33.000000000 +0800
+@@ -724,7 +724,7 @@
+                                                       "QPushButton:pressed{background-color:%2;border-radius: 6px;}").arg(hoverColor).arg(clickColor));
+         }
+ 
+-        connect(qtSettings, &QGSettings::changed, this, [=,&hoverColor](const QString &key) {
++        connect(qtSettings, &QGSettings::changed, this, [=](const QString &key) {
+             if (key == "styleName") {
+                 iconBtn->reLoadIcon();
+                 hoverColor = this->pluginBtnHoverColor(qtSettings->get("style-name").toString(), true);

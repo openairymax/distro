@@ -1,0 +1,65 @@
+From 48d56e7ed801ec81bb287190690e0f23decc8299 Mon Sep 17 00:00:00 2001
+From: peijiankang <peijiankang@kylinos.cn>
+Date: Wed, 21 Jun 2023 17:34:27 +0800
+Subject: [PATCH] cpuinfo in arm system is null
+
+---
+ shell/utils/utils.cpp | 40 ++++++++++++++++------------------------
+ 1 file changed, 16 insertions(+), 24 deletions(-)
+
+diff --git a/shell/utils/utils.cpp b/shell/utils/utils.cpp
+index 1d61dac..7e418f5 100644
+--- a/shell/utils/utils.cpp
++++ b/shell/utils/utils.cpp
+@@ -57,32 +57,24 @@ QVariantMap Utils::getModuleHideStatus() {
+ }
+ 
+ QString Utils::getCpuInfo() {
+-    QFile file("/proc/cpuinfo");
+-
+-    if (file.open(QIODevice::ReadOnly)) {
+-        QString buffer = file.readAll();
+-        QStringList modelLine = buffer.split('\n').filter(QRegularExpression("^model name"));
+-        QStringList modelLineWayland = buffer.split('\n').filter(QRegularExpression("^Hardware"));
+-        QStringList lines = buffer.split('\n');
+-
+-        if (modelLine.isEmpty()) {
+-            if (modelLineWayland.isEmpty()) {
+-                return "Unknown";
+-            }
+-            modelLine = modelLineWayland;
++    QString result = "";
++    QProcess process;
++    process.start("lscpu");
++    process.waitForFinished();
++    QString output = process.readAll();
++    QStringList outputlist = output.split("\n");
++    
++    for (QString str : outputlist) {
++        if (str.contains("型号名称")){ 
++            result = QString(str).right(str.length() - 28);
++            break;
++        }
++        else if(str.contains("Model name")) {
++            result = QString(str).right(str.length() - 33);
++            break;
+         }
+-
+-
+-        int count = lines.filter(QRegularExpression("^processor")).count();
+-
+-        QString result;
+-        result.append(modelLine.first().split(':').at(1));
+-        result = result.trimmed();
+-
+-        return result;
+     }
+-
+-    return QString();
++    return result;
+ }
+ 
+ 
+-- 
+2.33.0
+

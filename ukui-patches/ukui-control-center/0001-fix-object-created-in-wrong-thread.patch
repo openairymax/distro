@@ -1,0 +1,59 @@
+From 4a7799b78457d9fa9017fa5a2f5b0d4c4c7ec9af Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=E4=BE=AF=E7=BA=A2=E5=8B=8B?= <houhongxun@kylinos.cn>
+Date: Tue, 25 Jun 2024 14:21:22 +0800
+Subject: [PATCH] fix object created in wrong thread
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Signed-off-by: 侯红勋 <houhongxun@kylinos.cn>
+---
+ plugins/time-language/datetime/datetime.cpp | 14 ++++++++------
+ 1 file changed, 8 insertions(+), 6 deletions(-)
+
+diff --git a/plugins/time-language/datetime/datetime.cpp b/plugins/time-language/datetime/datetime.cpp
+index 86e0518..e657a08 100644
+--- a/plugins/time-language/datetime/datetime.cpp
++++ b/plugins/time-language/datetime/datetime.cpp
+@@ -783,6 +783,12 @@ void DateTime::synctimeFormatSlot(bool status,bool outChange)
+             connect(syncThread, &CGetSyncRes::finished, this, [=](){
+                 syncThread->deleteLater();
+                 ui->radioButton_2->setEnabled(true);
++		if (syncThreadFlag == false) { //创建线程一直查时间同步是否成功
++        		CSyncTime *syncTimeThread = new CSyncTime(this,successMSG,failMSG);
++        		connect(syncTimeThread,SIGNAL(finished()),syncTimeThread,SLOT(deleteLater()));
++        		syncTimeThread->start();
++        		syncThreadFlag = true;
++		}
+             });
+             syncThread->start();
+             ui->radioButton_2->setEnabled(false);
+@@ -954,6 +960,7 @@ CGetSyncRes::~CGetSyncRes()
+ }
+ void CGetSyncRes::run()
+ {
++	syncThreadFlag = false;
+     for(qint8 i = 0; i < 80; ++i) {
+         if (this->dataTimeUI->getSyncStatus() == false) {
+             this->dataTimeUI->syncNetworkRetLabel->setText("");
+@@ -971,16 +978,11 @@ void CGetSyncRes::run()
+         } else {                                               //同步时间成功
+             DateTime::syncRTC();
+             this->dataTimeUI->syncNetworkRetLabel->setText(successMSG);
++	    syncThreadFlag = true;
+             return;
+         }
+     }
+     this->dataTimeUI->syncNetworkRetLabel->setText(failMSG);
+-    if (syncThreadFlag == false) { //创建线程一直查时间同步是否成功
+-        CSyncTime *syncTimeThread = new CSyncTime(this->dataTimeUI,successMSG,failMSG);
+-        connect(syncTimeThread,SIGNAL(finished()),syncTimeThread,SLOT(deleteLater()));
+-        syncTimeThread->start();
+-        syncThreadFlag = true;
+-    }
+     return;
+ }
+ 
+-- 
+2.33.0
+

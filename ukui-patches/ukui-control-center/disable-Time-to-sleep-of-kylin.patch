@@ -1,0 +1,58 @@
+From 6228f293811cb8e37dc55af92372e81838cb38ad Mon Sep 17 00:00:00 2001
+From: peijiankang <peijiankang@kylinos.cn>
+Date: Sun, 18 Jun 2023 11:36:28 +0800
+Subject: [PATCH] disable Time to sleep of kylin
+
+---
+ plugins/system/power/power.cpp |  4 ++++
+ shell/utils/utils.cpp          | 10 ++++++++++
+ shell/utils/utils.h            |  1 +
+ 3 files changed, 14 insertions(+)
+
+diff --git a/plugins/system/power/power.cpp b/plugins/system/power/power.cpp
+index 62aae31..ee61ceb 100644
+--- a/plugins/system/power/power.cpp
++++ b/plugins/system/power/power.cpp
+@@ -535,6 +535,10 @@ void Power::InitUI(QWidget *widget)
+     mverticalLayout->addStretch();
+ 
+     retranslateUi();
++    if(!Utils::getCommunity().compare("kylin", Qt::CaseSensitive)){
++        mSleepLabel->hide();
++        mSleepComboBox->hide();
++    }
+ }
+ 
+ void Power::retranslateUi()
+diff --git a/shell/utils/utils.cpp b/shell/utils/utils.cpp
+index 24d5f56..d61994e 100644
+--- a/shell/utils/utils.cpp
++++ b/shell/utils/utils.cpp
+@@ -264,3 +264,13 @@ bool Utils::isZJY()
+     }
+     return true;
+ }
++
++QString Utils::getCommunity()
++{
++    QString filename = "/etc/os-release";
++    QSettings osSettings(filename, QSettings::IniFormat);
++
++    QString versionID = osSettings.value("ID").toString();
++
++    return versionID;
++}
+diff --git a/shell/utils/utils.h b/shell/utils/utils.h
+index c905ff4..71fb3bd 100644
+--- a/shell/utils/utils.h
++++ b/shell/utils/utils.h
+@@ -49,5 +49,6 @@ namespace Utils
+     bool isTablet();
+     bool isZJY();
+     QString getHostName();
++    QString getCommunity();
+ }
+ #endif // UTILS_H
+-- 
+2.33.0
+

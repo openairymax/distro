@@ -1,0 +1,27 @@
+From a7e979d343f35dda8aaf0fc864d4e7b2189ed1ab Mon Sep 17 00:00:00 2001
+From: tanyulong2021 <tanyulong@kylinos.cn>
+Date: Wed, 1 Mar 2023 15:03:01 +0800
+Subject: [PATCH] fix add group failed issue
+
+---
+ group-manager-server/group_manager_server.cpp | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/group-manager-server/group_manager_server.cpp b/group-manager-server/group_manager_server.cpp
+index 974ef68..f8051b6 100644
+--- a/group-manager-server/group_manager_server.cpp
++++ b/group-manager-server/group_manager_server.cpp
+@@ -128,8 +128,8 @@ bool group_manager_server::add(QString groupName, QString groupId)
+     QString groupadd = "/usr/sbin/groupadd";
+     QString addgroup = "/usr/sbin/addgroup";
+     QString command;
+-    QFile groupaddFile("/usr/sbin/addgroup");
+-    QFile addgroupFile("/usr/sbin/groupadd");
++    QFile groupaddFile("/usr/sbin/groupadd");
++    QFile addgroupFile("/usr/sbin/addgroup");
+ 
+     QProcess p(0);
+     QStringList args;
+-- 
+2.33.0
+

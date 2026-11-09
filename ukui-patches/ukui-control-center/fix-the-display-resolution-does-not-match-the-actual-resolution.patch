@@ -1,0 +1,26 @@
+From 154ef4cd4ba90888c467d00a91337764628538ca Mon Sep 17 00:00:00 2001
+From: huayadong <huayadong@kylinos.cn>
+Date: Tue, 4 Jun 2024 09:13:48 +0800
+Subject: [PATCH] 
+ fix-the-display-resolution-does-not-match-the-actual-resolution.patch
+
+---
+ plugins/system/display/outputconfig.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/plugins/system/display/outputconfig.cpp b/plugins/system/display/outputconfig.cpp
+index a25f215..601215c 100644
+--- a/plugins/system/display/outputconfig.cpp
++++ b/plugins/system/display/outputconfig.cpp
+@@ -231,7 +231,7 @@ void OutputConfig::initConnection()
+     });
+     //监听，否则无法处理修改分辨率/刷新率未保存
+     connect(mOutput.data(), &KScreen::Output::currentModeIdChanged, this, [=]() {
+-        if (!mIsRestore || !mOutput->currentMode()) {
++        if (!mOutput->currentMode()) {
+             mIsRestore = true;
+             return;
+         }
+-- 
+2.43.0
+

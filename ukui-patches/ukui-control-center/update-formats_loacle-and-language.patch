@@ -1,0 +1,29 @@
+diff --git a/plugins/time-language/area/area.cpp b/plugins/time-language/area/area.cpp
+index 5345b36..611bf9d 100644
+--- a/plugins/time-language/area/area.cpp
++++ b/plugins/time-language/area/area.cpp
+@@ -184,8 +185,7 @@ void Area::initLanguage()
+     HLineFrame *lineF_2 = new HLineFrame();
+ 
+     QStringList res = getUserDefaultLanguage();
+-    QString lang = res.at(1);
+-    int langIndex = lang.split(':').at(0) == "zh_CN.UTF-8" ? 0 : 1;
++    int langIndex= res.at(1).contains("zh_CN", Qt::CaseInsensitive) ? 0 : 1;
+ 
+     if (0 == langIndex) {
+         chineseFrame->showSelectedIcon(true);
+@@ -222,9 +222,8 @@ void Area::initComponent() {
+     ui->countrycomboBox->addItem(tr("CN"));
+ 
+     QStringList res = getUserDefaultLanguage();
+-    QString lang = res.at(1);
+-    int langIndex = lang.split(':').at(0) == "zh_CN.UTF-8" ? 1 : 0;
+-    int formatIndex = res.at(0) == "zh_CN.UTF-8" ? 1 : 0;
++    int langIndex= res.at(1).contains("zh_CN", Qt::CaseInsensitive) ? 1 : 0;
++    int formatIndex= res.at(0).contains("zh_CN", Qt::CaseInsensitive) ? 1 : 0;
+    // ui->langcomboBox->setCurrentIndex(langIndex);
+     ui->countrycomboBox->setCurrentIndex(formatIndex);
+ 
+-- 
+2.41.0
+

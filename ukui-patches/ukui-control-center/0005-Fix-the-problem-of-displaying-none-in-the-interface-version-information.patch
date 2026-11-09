@@ -1,0 +1,41 @@
+From 1cc7cdb36a52cb242c14e503e8b8b186b3d495d4 Mon Sep 17 00:00:00 2001
+From: peijiankang <peijiankang@kylinos.cn>
+Date: Fri, 23 Dec 2022 16:10:47 +0800
+Subject: [PATCH] Fix the problem of displaying none in the interface version
+ information
+
+---
+ shell/ukccabout.cpp | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/shell/ukccabout.cpp b/shell/ukccabout.cpp
+index 547d6f3..371fccf 100644
+--- a/shell/ukccabout.cpp
++++ b/shell/ukccabout.cpp
+@@ -99,7 +99,7 @@ QString UkccAbout::getUkccVersion() {
+     char *q = NULL;
+     QString version = "none";
+ 
+-    pp = popen("dpkg -l  ukui-control-center | grep  ukui-control-center", "r");
++    pp = popen("rpm -q  ukui-control-center", "r");
+     if(NULL == pp)
+         return version;
+ 
+@@ -108,12 +108,12 @@ QString UkccAbout::getUkccVersion() {
+         *q = '\0';
+ 
+         QString content = line;
+-        QStringList list = content.split(" ");
++        QStringList list = content.split("-");
+ 
+         list.removeAll("");
+ 
+         if (list.size() >= 3)
+-            version = list.at(2);
++            version = list.at(3);
+     }
+ 
+     free(line);
+-- 
+2.33.0
+

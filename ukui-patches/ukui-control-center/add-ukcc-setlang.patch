@@ -1,0 +1,99 @@
+From 19bc5d463a5a3ea11961b999982eb033cea532b6 Mon Sep 17 00:00:00 2001
+From: peijiankang <peijiankang@kylinos.cn>
+Date: Thu, 29 Jun 2023 10:38:35 +0800
+Subject: [PATCH] add ukcc-setlang
+
+---
+ plugins/time-language/area/area.cpp        |  9 ++++++++-
+ plugins/time-language/area/area.pro        |  5 ++++-
+ plugins/time-language/area/ukcc-setlang.sh | 15 +++++++++++++++
+ 3 files changed, 27 insertions(+), 2 deletions(-)
+ create mode 100644 plugins/time-language/area/ukcc-setlang.sh
+
+diff --git a/plugins/time-language/area/area.cpp b/plugins/time-language/area/area.cpp
+index 15e5b8e..a6b6bf7 100644
+--- a/plugins/time-language/area/area.cpp
++++ b/plugins/time-language/area/area.cpp
+@@ -27,6 +27,7 @@
+ #include <QTimer>
+ #include <QGSettings>
+ #include <QMessageBox>
++#include <QProcess>
+ #include "languageFrame.h"
+ #include "../../../shell/component/Frame/hlineframe.h"
+ 
+@@ -202,12 +203,16 @@ void Area::initLanguage()
+     connect(chineseFrame, &LanguageFrame::clicked, this, [=](){
+         englishFrame->showSelectedIcon(false);
+         m_areaInterface->call("SetLanguage","zh_CN.UTF-8");
++        QString cmdtest = QString("bash /usr/bin/ukcc-setlang.sh %1").arg("zh_CN.UTF-8");
++        QProcess::execute (cmdtest); 
+         showMessageBox(2);
+     });
+ 
+     connect(englishFrame, &LanguageFrame::clicked, this, [=](){
+         chineseFrame->showSelectedIcon(false);
+         m_areaInterface->call("SetLanguage","en_US.UTF-8");
++        QString cmdtest = QString("bash /usr/bin/ukcc-setlang.sh %1").arg("en_US.UTF-8");
++        QProcess::execute (cmdtest); 
+         showMessageBox(2);
+     });
+ }
+@@ -341,11 +346,13 @@ QStringList Area::getUserDefaultLanguage() {
+         propertyMap = reply.value();
+         if (propertyMap.keys().contains("FormatsLocale")) {
+             formats = propertyMap.find("FormatsLocale").value().toString();
++	    if(formats.isEmpty())
++                formats = QLocale::system().name()+ ".UTF-8";
+         }
+         if(language.isEmpty() && propertyMap.keys().contains("Language")) {
+             language = propertyMap.find("Language").value().toString();
+ 	    if(language.isEmpty())
+-		    language = QLocale::system().name()+ ".UTF-8";
++                language = QLocale::system().name()+ ".UTF-8";
+         }
+     } else {
+         qDebug() << "reply failed";
+diff --git a/plugins/time-language/area/area.pro b/plugins/time-language/area/area.pro
+index 1fb2fa0..a8df728 100644
+--- a/plugins/time-language/area/area.pro
++++ b/plugins/time-language/area/area.pro
+@@ -17,10 +17,13 @@ include(../../../shell/component/ImageUtil/imageutil.pri)
+ include(../../../shell/component/AddBtn/addbtn.pri)
+ include(../../../shell/component/Label/label.pri)
+ 
++setlang.files = $$PWD/ukcc-setlang.sh
++setlang.path = /usr/bin/
++
+ TARGET = $$qtLibraryTarget(area)
+ DESTDIR = ../..
+ target.path = $${PLUGIN_INSTALL_DIRS}
+-INSTALLS += target
++INSTALLS += target setlang
+ 
+ LIBS += -L$$[QT_INSTALL_DIRS] -lgsettings-qt
+ 
+diff --git a/plugins/time-language/area/ukcc-setlang.sh b/plugins/time-language/area/ukcc-setlang.sh
+new file mode 100644
+index 0000000..67413f7
+--- /dev/null
++++ b/plugins/time-language/area/ukcc-setlang.sh
+@@ -0,0 +1,15 @@
++#!/bin/sh
++
++language_name=$1
++
++touch ~/.bash_profile || exit 1
++
++grep -rin "LANG=" ~/.bash_profile
++
++result=$?
++
++if [ $result -eq 0 ];then
++    sed -i "s/LANG=.*/LANG=\"$language_name\"/g" ~/.bash_profile
++else
++    echo "LANG=\"$locale_name\"" >> ~/.bash_profile
++fi
+-- 
+2.33.0
+

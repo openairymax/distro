@@ -1,0 +1,77 @@
+From 67187a2ac22acad835b8e78a5007a77776c34742 Mon Sep 17 00:00:00 2001
+From: peijiankang <peijiankang@kylinos.cn>
+Date: Fri, 10 May 2024 15:44:06 +0800
+Subject: [PATCH] fix cpuinfo error of ukui-control-center-3.1.2
+
+---
+ shell/utils/utils.cpp | 34 ++++++++++++++++++++++++++++++++++
+ shell/utils/utils.h   |  1 +
+ 2 files changed, 35 insertions(+)
+
+diff --git a/shell/utils/utils.cpp b/shell/utils/utils.cpp
+index 3c859a1..0680ab9 100644
+--- a/shell/utils/utils.cpp
++++ b/shell/utils/utils.cpp
+@@ -57,6 +57,39 @@ QVariantMap Utils::getModuleHideStatus() {
+ }
+ 
+ QString Utils::getCpuInfo() {
++    QFile file("/proc/cpuinfo");
++
++    if (file.open(QIODevice::ReadOnly)) {
++        QString buffer = file.readAll();
++        QStringList modelLine = buffer.split('\n').filter(QRegularExpression("^model name"));
++        QStringList modelLineWayland = buffer.split('\n').filter(QRegularExpression("^Hardware"));
++        QStringList lines = buffer.split('\n');
++
++        if (modelLine.isEmpty()) {
++            if (modelLineWayland.isEmpty()) {
++                QString lscpuresult = getlscpuinfo();
++		if (lscpuresult == "")
++                    return "Unknown";
++		return lscpuresult;
++            }
++            modelLine = modelLineWayland;
++        }
++
++
++        int count = lines.filter(QRegularExpression("^processor")).count();
++
++        QString result;
++        result.append(modelLine.first().split(':').at(1));
++        result = result.trimmed();
++
++        return result;
++    }
++
++    return QString();
++}
++
++QString Utils::getlscpuinfo()
++{
+     QString result = "";
+     QProcess process;
+     process.start("lscpu");
+@@ -74,6 +107,7 @@ QString Utils::getCpuInfo() {
+             break;
+         }
+     }
++    result = result.trimmed();
+     return result;
+ }
+ 
+diff --git a/shell/utils/utils.h b/shell/utils/utils.h
+index 71fb3bd..86e6150 100644
+--- a/shell/utils/utils.h
++++ b/shell/utils/utils.h
+@@ -40,6 +40,7 @@ namespace Utils
+     QRect sizeOnCursor();
+     QVariantMap getModuleHideStatus();
+     QString getCpuInfo();
++    QString getlscpuinfo();
+     QString getCpuArchitecture();
+     bool isExistEffect();
+     bool isExistBattery();
+-- 
+2.43.0
+

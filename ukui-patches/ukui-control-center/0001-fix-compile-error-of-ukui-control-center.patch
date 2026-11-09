@@ -1,0 +1,39 @@
+From 5e47f424d62f41d983ed1f9bcf26786ee0a74834 Mon Sep 17 00:00:00 2001
+From: peijiankang <peijiankang@kylinos.cn>
+Date: Wed, 1 Mar 2023 16:33:16 +0800
+Subject: [PATCH] fix compile error of ukui-control-center
+
+---
+ changeUserPwd/run-passwd.cpp | 2 +-
+ translate_generation.sh      | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/changeUserPwd/run-passwd.cpp b/changeUserPwd/run-passwd.cpp
+index c48297d..3b416ec 100644
+--- a/changeUserPwd/run-passwd.cpp
++++ b/changeUserPwd/run-passwd.cpp
+@@ -362,7 +362,7 @@ static gboolean io_watch_stdout (GIOChannel *source, GIOCondition condition, Pas
+                                          "Your password has been changed after you verify!");
+                 } */else {
+                     error = g_error_new (PASSWD_ERROR, PASSWD_ERROR_UNKNOWN,
+-                                         str->str);
++                                         "Unknown error");
+                 }
+ 
+                 /* At this point, passwd might have exited, in which case
+diff --git a/translate_generation.sh b/translate_generation.sh
+index 7bf4000..c971497 100755
+--- a/translate_generation.sh
++++ b/translate_generation.sh
+@@ -7,7 +7,7 @@ version=(`echo $ID`)
+ for ts in "${ts_list[@]}"
+ do
+     printf "\nprocess ${ts}\n"
+-    if [ "$version" == "fedora" ] || [ "$version" == "opensuse-leap" ] || [ "$version" == "opensuse-tumbleweed" ];then
++    if [ "$version" == "fedora" ] || [ "$version" == "opensuse-leap" ] || [ "$version" == "opensuse-tumbleweed" ] || [ "$version" == "openEuler" ];then
+         lrelease-qt5 "${ts}"
+     else
+ 	lrelease "${ts}"
+-- 
+2.33.0
+

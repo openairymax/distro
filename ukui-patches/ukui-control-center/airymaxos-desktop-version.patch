@@ -1,0 +1,54 @@
+From: Liren Wang <wangliren@spharx.cn>
+Subject: [PATCH] about: show desktop version from a controlled file
+
+The desktop row always printed "UKUI": setupDesktopComponent() parsed
+XDG_CURRENT_DESKTOP and then unconditionally overwrote the label, so the
+parsed value never reached the UI and no version was ever shown.
+
+Drop the dead environment parsing and read the distribution's controlled
+file instead. /etc/airymaxos/desktop-version is shipped by
+airymaxos-release, which keeps the desktop version in one place; a missing
+or malformed file falls back to the bare desktop name.
+---
+--- a/plugins/system/about/about.cpp
++++ b/plugins/system/about/about.cpp
+@@ -901,26 +901,22 @@
+ 
+ }
+ 
++/* 桌面版本由发行版受控文件提供，缺省只显示桌面名 */
++static QString airymaxDesktop()
++{
++    QFile file(QStringLiteral("/etc/airymaxos/desktop-version"));
++    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
++        return QStringLiteral("UKUI");
++    const QString text = QString::fromUtf8(file.readAll()).trimmed();
++    if (!text.startsWith(QStringLiteral("UKUI")))
++        return QStringLiteral("UKUI");
++    return text;
++}
++
+ /* 获取桌面信息 */
+ void About::setupDesktopComponent()
+ {
+-    // 获取当前桌面环境
+-    QString dEnv;
+-    foreach (dEnv, QProcess::systemEnvironment()) {
+-        if (dEnv.startsWith("XDG_CURRENT_DESKTOP"))
+-            break;
+-    }
+-
+-    // 设置当前桌面环境信息
+-    if (!dEnv.isEmpty()) {
+-        QString desktop = dEnv.section("=", -1, -1);
+-        if (desktop.contains("UKUI", Qt::CaseInsensitive)) {
+-            mDesktopLabel_2->setText("UKUI");
+-        } else {
+-            mDesktopLabel_2->setText(desktop);
+-        }
+-    }
+-    mDesktopLabel_2->setText("UKUI");
++    mDesktopLabel_2->setText(airymaxDesktop());
+     ChangedSlot();
+ 
+     QDBusConnection::systemBus().connect(QString(), QString("/org/freedesktop/Accounts/User1000"),

@@ -248,7 +248,25 @@ check_args()
             KS="${DISTRO_ROOT}/kickstart/airymaxos-minimal.ks"
         fi
     fi
+    default_specs
     default_srcs
+}
+
+# 上游重建配方位于 ukui-patches/，不在 build-rpms 的缺省 specs 下；未显式
+# 给出 --spec-dir 时按仓库布局补齐两个目录。显式给出时完全由调用方决定，
+# 不再追加，避免"传了参数还偷偷多编一个包"。
+default_specs()
+{
+    local dir
+    if [ "${#SPEC_DIRS[@]}" -ne 0 ]; then
+        return 0
+    fi
+    for dir in "${DISTRO_ROOT}/specs" \
+        "${DISTRO_ROOT}/ukui-patches/ukui-control-center"; do
+        if [ -d "${dir}" ]; then
+            SPEC_DIRS+=("${dir}")
+        fi
+    done
 }
 
 # airymaxos-system 的 Source 位于 distro 之外的 system/ 子树，distro 根内

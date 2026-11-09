@@ -1,0 +1,52 @@
+From 5b7f91085ed6f4fd6d5a5f3fe0a90fac17dfa64a Mon Sep 17 00:00:00 2001
+From: peijiankang <peijiankang@kylinos.cn>
+Date: Mon, 22 May 2023 14:38:31 +0800
+Subject: [PATCH] fix createuser critical vulnerabilities
+
+---
+ registeredQDbus/sysdbusregister.cpp | 7 +++++--
+ registeredQDbus/sysdbusregister.h   | 2 +-
+ 2 files changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/registeredQDbus/sysdbusregister.cpp b/registeredQDbus/sysdbusregister.cpp
+index 7f26c97..46766c3 100644
+--- a/registeredQDbus/sysdbusregister.cpp
++++ b/registeredQDbus/sysdbusregister.cpp
+@@ -303,7 +303,9 @@ int SysdbusRegister::changeOtherUserPasswd(QString username, QString pwd){
+ int SysdbusRegister::createUser(QString name, QString fullname, int accounttype, QString faceicon, QString pwd){
+ 
+     //密码校验
+-    if (!checkCreateAuthorization()){
++    QDBusConnection conn = connection();
++    QDBusMessage msg = message();
++    if (!checkCreateAuthorization(conn.interface()->servicePid(msg.service()).value())){
+         return 0;
+     }
+ 
+@@ -336,8 +338,9 @@ int SysdbusRegister::createUser(QString name, QString fullname, int accounttype,
+ 
+ }
+ 
+-bool SysdbusRegister::checkCreateAuthorization()
++bool SysdbusRegister::checkCreateAuthorization(qint64 id)
+ {
++    _id = id;
+ 
+     if (_id == 0)
+         return false;
+diff --git a/registeredQDbus/sysdbusregister.h b/registeredQDbus/sysdbusregister.h
+index 0aca90d..9c413e6 100644
+--- a/registeredQDbus/sysdbusregister.h
++++ b/registeredQDbus/sysdbusregister.h
+@@ -51,7 +51,7 @@ public:
+     ~SysdbusRegister();
+ 
+ public:
+-    bool checkCreateAuthorization();
++    bool checkCreateAuthorization(qint64 id);
+     bool checkAuthorization(qint64 id);
+     bool authoriyLogin(qint64 id);
+     bool authoriyAutoLogin(qint64 id);
+-- 
+2.39.1
+

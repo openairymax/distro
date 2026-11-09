@@ -1,0 +1,481 @@
+From ca565257e0d1950af7ba9e66dd93671d65ba9de5 Mon Sep 17 00:00:00 2001
+From: peijiankang <peijiankang@kylinos.cn>
+Date: Wed, 16 Aug 2023 15:22:05 +0800
+Subject: [PATCH] fix build error of libkscreen-qt5-5.27.6
+
+---
+ changeOtherUserPwd/changeOtherUserPwd.pro         | 4 ++--
+ changeUserPwd/changeUserPwd.pro                   | 4 ++--
+ checkUserPwdWithPAM/checkUserPwdWithPAM.pro       | 4 ++--
+ libukcc/libukcc.pro                               | 2 +-
+ plugins/account/userinfo/userinfo.pro             | 2 +-
+ plugins/account/userinfo_intel/userinfo_intel.pro | 2 +-
+ plugins/application/autoboot/autoboot.pro         | 2 +-
+ plugins/application/defaultapp/defaultapp.pro     | 2 +-
+ plugins/devices/keyboard/keyboard.pro             | 2 +-
+ plugins/devices/mouse/mouse.pro                   | 2 +-
+ plugins/devices/shortcut/shortcut.pro             | 2 +-
+ plugins/devices/touchpad/touchpad.pro             | 2 +-
+ plugins/network/proxy/proxy.pro                   | 2 +-
+ plugins/network/vpn/vpn.pro                       | 2 +-
+ plugins/personalized/fonts/fonts.pro              | 2 +-
+ plugins/personalized/screenlock/screenlock.pro    | 2 +-
+ plugins/personalized/screensaver/screensaver.pro  | 2 +-
+ plugins/personalized/theme/theme.pro              | 2 +-
+ plugins/personalized/wallpaper/wallpaper.pro      | 2 +-
+ plugins/security-updates/backup/backup.pro        | 2 +-
+ plugins/system/backup_intel/backup_intel.pro      | 2 +-
+ plugins/system/display/display.pro                | 2 +-
+ plugins/system/display_hw/display_hw.pro          | 2 +-
+ plugins/system/notice/notice.pro                  | 4 ++--
+ plugins/system/power/power.pro                    | 2 +-
+ plugins/time-language/area/area.pro               | 2 +-
+ plugins/time-language/datetime/datetime.pro       | 2 +-
+ registeredQDbus/registeredQDbus.pro               | 2 +-
+ registeredSession/registeredSession.pro           | 2 +-
+ shell/shell.pro                                   | 2 +-
+ tastenbrett/tastenbrett.pro                       | 2 +-
+ 31 files changed, 35 insertions(+), 35 deletions(-)
+
+diff --git a/changeOtherUserPwd/changeOtherUserPwd.pro b/changeOtherUserPwd/changeOtherUserPwd.pro
+index ab2bef1..fe1a0d7 100644
+--- a/changeOtherUserPwd/changeOtherUserPwd.pro
++++ b/changeOtherUserPwd/changeOtherUserPwd.pro
+@@ -3,7 +3,7 @@ QT -= gui
+ TARGET = changeotheruserpwd
+ TEMPLATE = app
+ 
+-CONFIG += c++11
++CONFIG += c++17
+ CONFIG -= app_bundle
+ 
+ # The following define makes your compiler emit warnings if you use
+@@ -15,7 +15,7 @@ DEFINES += QT_DEPRECATED_WARNINGS
+ 
+ ##加载gio库和gio-unix库
+ CONFIG        += link_pkgconfig \
+-                 C++11
++                 C++17
+ PKGCONFIG     += gio-2.0 \
+                  gio-unix-2.0 \
+ 
+diff --git a/changeUserPwd/changeUserPwd.pro b/changeUserPwd/changeUserPwd.pro
+index e2e085e..e183362 100644
+--- a/changeUserPwd/changeUserPwd.pro
++++ b/changeUserPwd/changeUserPwd.pro
+@@ -3,7 +3,7 @@ QT -= gui
+ TARGET = changeuserpwd
+ TEMPLATE = app
+ 
+-CONFIG += c++11
++CONFIG += c++17
+ CONFIG -= app_bundle
+ 
+ # The following define makes your compiler emit warnings if you use
+@@ -15,7 +15,7 @@ DEFINES += QT_DEPRECATED_WARNINGS
+ 
+ ##加载gio库和gio-unix库
+ CONFIG        += link_pkgconfig \
+-                 C++11
++                 C++17
+ PKGCONFIG     += gio-2.0 \
+                  gio-unix-2.0 \
+ 
+diff --git a/checkUserPwdWithPAM/checkUserPwdWithPAM.pro b/checkUserPwdWithPAM/checkUserPwdWithPAM.pro
+index 97f51f0..feb4609 100644
+--- a/checkUserPwdWithPAM/checkUserPwdWithPAM.pro
++++ b/checkUserPwdWithPAM/checkUserPwdWithPAM.pro
+@@ -3,7 +3,7 @@ QT -= gui
+ TARGET = checkUserPwd
+ TEMPLATE = app
+ 
+-CONFIG += c++11
++CONFIG += c++17
+ CONFIG -= app_bundle
+ 
+ # The following define makes your compiler emit warnings if you use
+@@ -15,7 +15,7 @@ DEFINES += QT_DEPRECATED_WARNINGS
+ 
+ ##加载gio库和gio-unix库
+ CONFIG        += link_pkgconfig \
+-                 C++11
++                 C++17
+ PKGCONFIG     += gio-2.0 \
+                  gio-unix-2.0 \
+ 
+diff --git a/libukcc/libukcc.pro b/libukcc/libukcc.pro
+index 0532757..0565d03 100644
+--- a/libukcc/libukcc.pro
++++ b/libukcc/libukcc.pro
+@@ -4,7 +4,7 @@ TARGET = ukcc
+ TEMPLATE = lib
+ DEFINES += LIBUKCC_LIBRARY
+ 
+-CONFIG += c++11
++CONFIG += c++17
+ 
+ include(interface.pri)
+ include(widgets.pri)
+diff --git a/plugins/account/userinfo/userinfo.pro b/plugins/account/userinfo/userinfo.pro
+index 31a769e..c4a38a4 100644
+--- a/plugins/account/userinfo/userinfo.pro
++++ b/plugins/account/userinfo/userinfo.pro
+@@ -29,7 +29,7 @@ DEFINES += ENABLEPQ
+ 
+ ##加载gio库和gio-unix库
+ CONFIG        += link_pkgconfig \
+-                 C++11
++                 C++17
+ PKGCONFIG     += gio-2.0 \
+                  gio-unix-2.0 \
+                  gsettings-qt
+diff --git a/plugins/account/userinfo_intel/userinfo_intel.pro b/plugins/account/userinfo_intel/userinfo_intel.pro
+index c6802de..7c8250b 100644
+--- a/plugins/account/userinfo_intel/userinfo_intel.pro
++++ b/plugins/account/userinfo_intel/userinfo_intel.pro
+@@ -21,7 +21,7 @@ LIBS          += -L$$[QT_INSTALL_LIBS] -lcrypt -lpam
+ 
+ ##加载gio库和gio-unix库
+ CONFIG        += link_pkgconfig \
+-                 C++11
++                 C++17
+ PKGCONFIG     += gio-2.0 \
+                  gio-unix-2.0
+ 
+diff --git a/plugins/application/autoboot/autoboot.pro b/plugins/application/autoboot/autoboot.pro
+index d17a6b2..74587f4 100644
+--- a/plugins/application/autoboot/autoboot.pro
++++ b/plugins/application/autoboot/autoboot.pro
+@@ -25,7 +25,7 @@ INCLUDEPATH   +=  \
+ 
+ ##加载gio库和gio-unix库，用于处理desktop文件
+ CONFIG        += link_pkgconfig \
+-                 C++11
++                 C++17
+ PKGCONFIG     += gio-2.0 \
+                  gio-unix-2.0 \
+                  gsettings-qt
+diff --git a/plugins/application/defaultapp/defaultapp.pro b/plugins/application/defaultapp/defaultapp.pro
+index 9b2516e..cb98a13 100644
+--- a/plugins/application/defaultapp/defaultapp.pro
++++ b/plugins/application/defaultapp/defaultapp.pro
+@@ -19,7 +19,7 @@ INSTALLS += target
+ 
+ ##加载gio库和gio-unix库，用于处理desktop文件
+ CONFIG        += link_pkgconfig \
+-                 C++11
++                 C++17
+ PKGCONFIG     += gio-2.0 \
+                  gio-unix-2.0 \
+                  gsettings-qt
+diff --git a/plugins/devices/keyboard/keyboard.pro b/plugins/devices/keyboard/keyboard.pro
+index 318d5c9..f24b1f7 100644
+--- a/plugins/devices/keyboard/keyboard.pro
++++ b/plugins/devices/keyboard/keyboard.pro
+@@ -26,7 +26,7 @@ INCLUDEPATH   +=  \
+ LIBS          +=  -L$$[QT_INSTALL_LIBS] -lgsettings-qt -lX11
+ 
+ CONFIG        += link_pkgconfig \
+-                 C++11
++                 C++17
+ PKGCONFIG     += libmatekbd \
+                  gsettings-qt \
+ 
+diff --git a/plugins/devices/mouse/mouse.pro b/plugins/devices/mouse/mouse.pro
+index f17308f..2d0a376 100644
+--- a/plugins/devices/mouse/mouse.pro
++++ b/plugins/devices/mouse/mouse.pro
+@@ -27,7 +27,7 @@ LIBS          +=  -L$$[QT_INSTALL_LIBS]  -lXi -lgsettings-qt
+ 
+ ##加载gio库和gio-unix库
+ CONFIG        += link_pkgconfig \
+-                 C++11
++                 C++17
+ PKGCONFIG     += gio-2.0 \
+                  gio-unix-2.0 \
+                  gsettings-qt \
+diff --git a/plugins/devices/shortcut/shortcut.pro b/plugins/devices/shortcut/shortcut.pro
+index 1dc22f8..501b4a6 100644
+--- a/plugins/devices/shortcut/shortcut.pro
++++ b/plugins/devices/shortcut/shortcut.pro
+@@ -21,7 +21,7 @@ INCLUDEPATH += \
+ 
+ LIBS        += -L$$[QT_INSTALL_LIBS] -lgsettings-qt -ldconf
+ 
+-CONFIG += link_pkgconfig c++11
++CONFIG += link_pkgconfig c++17
+ 
+ PKGCONFIG += gio-2.0 \
+              gio-unix-2.0 \
+diff --git a/plugins/devices/touchpad/touchpad.pro b/plugins/devices/touchpad/touchpad.pro
+index 220d4d5..a56d6dd 100644
+--- a/plugins/devices/touchpad/touchpad.pro
++++ b/plugins/devices/touchpad/touchpad.pro
+@@ -24,7 +24,7 @@ INCLUDEPATH   +=  \
+ LIBS          +=  -L$$[QT_INSTALL_LIBS] -lXi -lgsettings-qt
+ 
+ CONFIG        += link_pkgconfig \
+-                 C++11
++                 C++17
+ 
+ PKGCONFIG     += gsettings-qt \
+                  xi \
+diff --git a/plugins/network/proxy/proxy.pro b/plugins/network/proxy/proxy.pro
+index 5c39bf6..341af15 100644
+--- a/plugins/network/proxy/proxy.pro
++++ b/plugins/network/proxy/proxy.pro
+@@ -24,7 +24,7 @@ LIBS          += -L$$[QT_INSTALL_LIBS] -lgsettings-qt
+ 
+ ##加载gio库和gio-unix库，用于获取和设置enum类型的gsettings
+ CONFIG        += link_pkgconfig \
+-                 C++11
++                 C++17
+ PKGCONFIG     += gio-2.0 \
+                  gio-unix-2.0 \
+                  gsettings-qt \
+diff --git a/plugins/network/vpn/vpn.pro b/plugins/network/vpn/vpn.pro
+index 3f8341f..438c61d 100644
+--- a/plugins/network/vpn/vpn.pro
++++ b/plugins/network/vpn/vpn.pro
+@@ -12,7 +12,7 @@ QT       += widgets
+ 
+ TEMPLATE = lib
+ CONFIG += plugin \
+-          += c++11 \
++          += c++17 \
+           link_pkgconfig
+ 
+ PKGCONFIG     += gsettings-qt
+diff --git a/plugins/personalized/fonts/fonts.pro b/plugins/personalized/fonts/fonts.pro
+index fe0046e..912ebfe 100644
+--- a/plugins/personalized/fonts/fonts.pro
++++ b/plugins/personalized/fonts/fonts.pro
+@@ -21,7 +21,7 @@ INSTALLS += target
+ 
+ ##加载gio库和gio-unix库，用于获取gsettings的默认值
+ CONFIG        += link_pkgconfig \
+-                 C++11
++                 C++17
+ PKGCONFIG     += gio-2.0 \
+                  gio-unix-2.0 \
+                  gsettings-qt \
+diff --git a/plugins/personalized/screenlock/screenlock.pro b/plugins/personalized/screenlock/screenlock.pro
+index 2d85f82..534b296 100644
+--- a/plugins/personalized/screenlock/screenlock.pro
++++ b/plugins/personalized/screenlock/screenlock.pro
+@@ -29,7 +29,7 @@ LIBS += -L$$[QT_INSTALL_LIBS] -lgsettings-qt
+ 
+ ##加载gio库和gio-unix库
+ CONFIG        += link_pkgconfig \
+-                 C++11
++                 C++17
+ PKGCONFIG     += gsettings-qt \
+                  gio-2.0 \
+ #                 gio-unix-2.0
+diff --git a/plugins/personalized/screensaver/screensaver.pro b/plugins/personalized/screensaver/screensaver.pro
+index 4b31837..aa204b1 100644
+--- a/plugins/personalized/screensaver/screensaver.pro
++++ b/plugins/personalized/screensaver/screensaver.pro
+@@ -30,7 +30,7 @@ LIBS          += -L$$[QT_INSTALL_LIBS] -lgsettings-qt
+ 
+ ##加载gio库和gio-unix库
+ CONFIG        += link_pkgconfig \
+-                 C++11
++                 C++17
+ PKGCONFIG     += gio-2.0 \
+                  gio-unix-2.0 \
+                  gsettings-qt \
+diff --git a/plugins/personalized/theme/theme.pro b/plugins/personalized/theme/theme.pro
+index 280e908..e920678 100644
+--- a/plugins/personalized/theme/theme.pro
++++ b/plugins/personalized/theme/theme.pro
+@@ -14,7 +14,7 @@ QT       += widgets KConfigCore KI18n x11extras concurrent dbus
+ TEMPLATE = lib
+ CONFIG += plugin \
+           link_pkgconfig \
+-          c++11
++          c++17
+ TARGET = $$qtLibraryTarget(theme)
+ DESTDIR = ../..
+ target.path = $${PLUGIN_INSTALL_DIRS}
+diff --git a/plugins/personalized/wallpaper/wallpaper.pro b/plugins/personalized/wallpaper/wallpaper.pro
+index d72c355..4500445 100644
+--- a/plugins/personalized/wallpaper/wallpaper.pro
++++ b/plugins/personalized/wallpaper/wallpaper.pro
+@@ -27,7 +27,7 @@ LIBS += -L$$[QT_INSTALL_LIBS] -lgsettings-qt
+ 
+ ##加载gio库和gio-unix库，用于获取和设置enum类型的gsettings
+ CONFIG        += link_pkgconfig \
+-                 C++11
++                 C++17
+ PKGCONFIG     += gio-2.0 \
+                  gio-unix-2.0 \
+                  gsettings-qt \
+diff --git a/plugins/security-updates/backup/backup.pro b/plugins/security-updates/backup/backup.pro
+index 929a599..2c0f547 100644
+--- a/plugins/security-updates/backup/backup.pro
++++ b/plugins/security-updates/backup/backup.pro
+@@ -20,7 +20,7 @@ INCLUDEPATH   +=  \
+ 
+ ##加载gio库和gio-unix库
+ CONFIG        += link_pkgconfig \
+-                 C++11
++                 C++17
+ PKGCONFIG     += gio-2.0 \
+                  gio-unix-2.0 \
+                  gsettings-qt
+diff --git a/plugins/system/backup_intel/backup_intel.pro b/plugins/system/backup_intel/backup_intel.pro
+index ddec214..2c006c3 100644
+--- a/plugins/system/backup_intel/backup_intel.pro
++++ b/plugins/system/backup_intel/backup_intel.pro
+@@ -20,7 +20,7 @@ INCLUDEPATH   +=  \
+ 
+ ##加载gio库和gio-unix库
+ CONFIG        += link_pkgconfig \
+-                 C++11
++                 C++17
+ PKGCONFIG     += gio-2.0 \
+                  gio-unix-2.0
+ 
+diff --git a/plugins/system/display/display.pro b/plugins/system/display/display.pro
+index e28b289..191dc8b 100644
+--- a/plugins/system/display/display.pro
++++ b/plugins/system/display/display.pro
+@@ -11,7 +11,7 @@ include(../../../shell/component/Label/label.pri)
+ 
+ QT            += widgets core gui quickwidgets quick xml KScreen dbus concurrent
+ TEMPLATE = lib
+-CONFIG        += c++11   link_pkgconfig plugin
++CONFIG        += c++17   link_pkgconfig plugin
+ 
+ TARGET = $$qtLibraryTarget(display)
+ DESTDIR = ../..
+diff --git a/plugins/system/display_hw/display_hw.pro b/plugins/system/display_hw/display_hw.pro
+index 9dd22dc..9b4230f 100644
+--- a/plugins/system/display_hw/display_hw.pro
++++ b/plugins/system/display_hw/display_hw.pro
+@@ -7,7 +7,7 @@ include(../../../env.pri)
+ 
+ QT            += widgets core gui quickwidgets quick xml KScreen  dbus concurrent KConfigCore
+ TEMPLATE = lib
+-CONFIG        += c++11   link_pkgconfig plugin
++CONFIG        += c++17   link_pkgconfig plugin
+ 
+ TARGET = $$qtLibraryTarget(display_hw)
+ DESTDIR = ../..
+diff --git a/plugins/system/notice/notice.pro b/plugins/system/notice/notice.pro
+index 3a7acf5..199e6e7 100644
+--- a/plugins/system/notice/notice.pro
++++ b/plugins/system/notice/notice.pro
+@@ -15,7 +15,7 @@ target.path = $${PLUGIN_INSTALL_DIRS}
+ 
+ ##加载gio库和gio-unix库，用于处理desktop文件
+ CONFIG        += link_pkgconfig \
+-                 C++11
++                 C++17
+ PKGCONFIG     += gio-2.0 \
+                  gio-unix-2.0 \
+ #                 Qt5X
+@@ -27,7 +27,7 @@ INCLUDEPATH   +=  \
+ LIBS          +=  -L$$[QT_INSTALL_LIBS] -lgsettings-qt -ldconf
+ 
+ 
+-CONFIG += c++11 \
++CONFIG += c++17 \
+           link_pkgconfig \
+ 
+ PKGCONFIG += gsettings-qt \
+diff --git a/plugins/system/power/power.pro b/plugins/system/power/power.pro
+index 6a44de7..8ebd708 100644
+--- a/plugins/system/power/power.pro
++++ b/plugins/system/power/power.pro
+@@ -19,7 +19,7 @@ LIBS     += -L$$[QT_INSTALL_LIBS] -lgsettings-qt -lupower-glib
+ 
+ CONFIG +=  \
+           link_pkgconfig \
+-          c++11
++          c++17
+ 
+ PKGCONFIG += gsettings-qt \
+              gio-2.0 \
+diff --git a/plugins/time-language/area/area.pro b/plugins/time-language/area/area.pro
+index 1fb2fa0..ed5bb9b 100644
+--- a/plugins/time-language/area/area.pro
++++ b/plugins/time-language/area/area.pro
+@@ -26,7 +26,7 @@ LIBS += -L$$[QT_INSTALL_DIRS] -lgsettings-qt
+ 
+ ##加载gio库和gio-unix库，用于处理时间
+ CONFIG        += link_pkgconfig \
+-                 C++11
++                 C++17
+ PKGCONFIG     += gio-2.0 \
+                  gio-unix-2.0 \
+                  gsettings-qt \
+diff --git a/plugins/time-language/datetime/datetime.pro b/plugins/time-language/datetime/datetime.pro
+index 9366797..8b29255 100644
+--- a/plugins/time-language/datetime/datetime.pro
++++ b/plugins/time-language/datetime/datetime.pro
+@@ -9,7 +9,7 @@ QT       += widgets dbus x11extras svg
+ TEMPLATE = lib
+ CONFIG += plugin \
+           link_pkgconfig \
+-          C++11
++          C++17
+ 
+ include(../../../env.pri)
+ include(../../../shell/component/Frame/frame.pri)
+diff --git a/registeredQDbus/registeredQDbus.pro b/registeredQDbus/registeredQDbus.pro
+index ba307db..e33d4e5 100644
+--- a/registeredQDbus/registeredQDbus.pro
++++ b/registeredQDbus/registeredQDbus.pro
+@@ -5,7 +5,7 @@ greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
+ TARGET = launchSysDbus
+ TEMPLATE = app
+ 
+-CONFIG += console c++11 link_pkgconfig
++CONFIG += console c++17 link_pkgconfig
+ CONFIG -= app_bundle
+ 
+ PKGCONFIG     += gio-2.0 \
+diff --git a/registeredSession/registeredSession.pro b/registeredSession/registeredSession.pro
+index 915a40d..e9a88f0 100644
+--- a/registeredSession/registeredSession.pro
++++ b/registeredSession/registeredSession.pro
+@@ -5,7 +5,7 @@ greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
+ TARGET = ukui-control-center-session
+ TEMPLATE = app
+ 
+-CONFIG += c++11 console link_pkgconfig
++CONFIG += c++17 console link_pkgconfig
+ CONFIG -= app_bundle
+ 
+ QMAKE_CXXFLAGS *= -D_FORTIFY_SOURCE=2 -O2
+diff --git a/shell/shell.pro b/shell/shell.pro
+index 7800921..fe52181 100644
+--- a/shell/shell.pro
++++ b/shell/shell.pro
+@@ -31,7 +31,7 @@ DEFINES+=KYDEBUG
+ 
+ ##加载gio库和gio-unix库，用于处理desktop文件
+ CONFIG        += link_pkgconfig \
+-                 C++11
++                 C++17
+ PKGCONFIG     += gio-2.0 \
+                  gio-unix-2.0 \
+                  gsettings-qt \
+diff --git a/tastenbrett/tastenbrett.pro b/tastenbrett/tastenbrett.pro
+index bc6a4c7..c1caa47 100644
+--- a/tastenbrett/tastenbrett.pro
++++ b/tastenbrett/tastenbrett.pro
+@@ -5,7 +5,7 @@ greaterThan(QT_MAJOR_VERSION, 4): QT += widgets x11extras quickwidgets quick
+ 
+ 
+ LIBS          += -L$$[QT_INSTALL_LIBS] -lgsettings-qt -lX11 -lxkbcommon -lxkbfile
+-CONFIG += c++11
++CONFIG += c++17
+ 
+ 
+ # The following define makes your compiler emit warnings if you use
+-- 
+2.33.0
+
