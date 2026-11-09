@@ -374,6 +374,29 @@ persist=$(airy-disk persist 2>&1) || {
     airy_fail INSTALL disk-fstab
 }
 airy_out "AIRYMAX-DISK-OK ${persist}"
+#    cyrus-sasl 是纯服务端插件包：saslauthd 与 /usr/lib64/sasl2 下的机制插件，
+#    桌面形态没有任何组件依赖它（`rpm -q --whatrequires cyrus-sasl` 在整机上
+#    为空）。它的 ldapdb 插件在每次 SASL 初始化时扫目录并尝试注册，而该插件
+#    要求 ldapdb_uri 只从 /etc/sasl2/<appname>.conf 读取，装机后目录为空，
+#    于是每个链接 libcurl 的进程（dnf 最典型）都稳定留下两条 auth.err：
+#    ldapdb_canonuser_plug_init() failed ... 与 _sasl_plugin_load failed。
+#    285H 的 A/B 取证：移除该插件的三条文件后计数 1→0，恢复后 0→1；写全局
+#    /etc/sasl2/sasl2.conf 无效（实现按 appname 取文件）。删文件会在包升级时
+#    复活，所以修在装配期：不装这个包，而不是事后打补丁。保留 cyrus-sasl-lib
+#    ——libsasl2.so.3 是运行期共享库，与插件无关。
+#    clean_requirements_on_remove 关掉：该开关会连带摘掉「无人依赖」的
+#    cyrus-sasl-lib，而依赖关系里查不到它不等于运行期没人用。
+#    --disablerepo 全关：移除只看本地 RPMDB，不需要任何仓库元数据。装机
+#    环境里的唯一仓库是载荷 file:// 目录，让 dnf 去读它既慢又引入「仓库
+#    不可读即整段失败」的额外失败面；285H 离线实测该形态 rc=0。
+dnf -y remove --disablerepo='*' cyrus-sasl \
+    --setopt=clean_requirements_on_remove=false ||
+    airy_fail INSTALL sasl-prune
+rpm -q cyrus-sasl >/dev/null 2>&1 && airy_fail INSTALL sasl-plugin-left
+[ -e /usr/lib64/libsasl2.so.3 ] || airy_fail INSTALL sasl-lib-missing
+[ -z "$(ls /usr/lib64/sasl2/libldapdb.so* 2>/dev/null)" ] ||
+    airy_fail INSTALL sasl-ldapdb-left
+airy_out "AIRYMAX-SASL-OK pruned=cyrus-sasl kept=libsasl2.so.3"
 #    交付包集合随镜像落盘（V-15）：0.0.4 的包对账以这份集合为基准，装机后
 #    任何增删都体现为 missing 或 extra，而不是悄悄改变系统构成。
 rpm -qa --qf '%{NAME}\n' | LC_ALL=C sort -u >/etc/airymaxos-packages ||
