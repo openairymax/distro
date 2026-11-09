@@ -368,10 +368,14 @@ class MainTest(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.root = Path(self._tmp.name)
         self.docs = self.root / "docs"
-        for sub in ("distro/lockfile", "distro/comps", "docs"):
+        for sub in ("distro/lockfile", "distro/comps", "distro/specs", "docs"):
             (self.root / sub).mkdir(parents=True)
         (self.root / "distro/lockfile/base.yaml").write_text(
             BASE_YAML, encoding="utf-8")
+        # 桌面版本与台账 ukui-control-center 的 Version 必须同值：校验器读的就是
+        # 发行版配方里的宏，缺宏即失败，所以夹具必须给出与台账一致的声明。
+        (self.root / "distro/specs/airymaxos-release.spec").write_text(
+            "%global ukui_desktop_version 3.1.2\n", encoding="utf-8")
         (self.root / "distro/lockfile/ukui-components.yaml").write_text(
             LEDGER, encoding="utf-8")
         (self.root / "distro/comps/airymaxos-comps.xml").write_text(
@@ -403,6 +407,13 @@ class MainTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("seeds/missing", err)
         self.assertIn("1 项失败", err)
+
+    def test_desktop_macro_drift(self):
+        (self.root / "distro/specs/airymaxos-release.spec").write_text(
+            "%global ukui_desktop_version 3.1.3\n", encoding="utf-8")
+        code, _, err = self.run_main()
+        self.assertEqual(code, 1)
+        self.assertIn("desktop/version", err)
 
     def test_missing_ledger(self):
         (self.root / "distro/lockfile/ukui-components.yaml").unlink()
