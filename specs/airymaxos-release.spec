@@ -60,7 +60,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 11
+%global airy_release 12
 # 基底版本是显式输入，与 distro/repo/airymax-os.repo 及 kickstart 的
 # url/repo 行是三处同源表达。%%check 以本宏断言客户端配置，版本漂移在
 # 构建期失败，而不是等到装机后 dnf 报「找不到仓库」。
@@ -123,6 +123,8 @@ Source40:       network-wireless-signal-low-secure-symbolic.svg
 Source41:       50-airymax-kgaccel-env.conf
 Source42:       90-airymax-touchpad.conf
 Source43:       airymax-panel.conf
+Source44:       airymax-audio-init.service
+Source45:       audio_init.sh
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -209,12 +211,16 @@ install -d -m 0755 %{buildroot}%{_unitdir}
 install -m 0644 %{SOURCE3} %{buildroot}%{_unitdir}/airymax-desktop.slice
 install -m 0644 %{SOURCE13} \
     %{buildroot}%{_unitdir}/airymax-desktop-ready.service
+install -m 0644 %{SOURCE44} \
+    %{buildroot}%{_unitdir}/airymax-audio-init.service
 
 install -d -m 0755 %{buildroot}/usr/lib/airymaxos/desktop
 install -m 0755 %{SOURCE14} \
     %{buildroot}/usr/lib/airymaxos/desktop/desktop_ready.sh
 install -m 0644 %{SOURCE15} \
     %{buildroot}/usr/lib/airymaxos/desktop/boot_state.sh
+install -m 0755 %{SOURCE45} \
+    %{buildroot}/usr/lib/airymaxos/desktop/audio_init.sh
 install -m 0755 %{SOURCE17} \
     %{buildroot}/usr/lib/airymaxos/desktop/display_mode.sh
 install -m 0755 %{SOURCE26} \
@@ -473,6 +479,19 @@ grep -qxF 'WantedBy=graphical.target' \
     %{buildroot}%{_unitdir}/airymax-desktop-ready.service
 bash -n %{buildroot}/usr/lib/airymaxos/desktop/desktop_ready.sh
 bash -n %{buildroot}/usr/lib/airymaxos/desktop/boot_state.sh
+# 首启音频初始化：条件取反写错（少了 !）会让每次启动都重设音量，把用户
+# 调好的值抹掉，而这在服务状态里看不出来；触发点写错则单元永不执行，症状
+# 仍是"开箱没声音"。两处都断言生效行本身。
+grep -qxF 'ConditionPathExists=!/var/lib/alsa/asound.state' \
+    %{buildroot}%{_unitdir}/airymax-audio-init.service
+grep -qxF 'WantedBy=sound.target' \
+    %{buildroot}%{_unitdir}/airymax-audio-init.service
+grep -qxF 'After=alsa-state.service' \
+    %{buildroot}%{_unitdir}/airymax-audio-init.service
+bash -n %{buildroot}/usr/lib/airymaxos/desktop/audio_init.sh
+test -x %{buildroot}/usr/lib/airymaxos/desktop/audio_init.sh
+grep -qF '" init "' %{buildroot}/usr/lib/airymaxos/desktop/audio_init.sh
+grep -qF '" store"' %{buildroot}/usr/lib/airymaxos/desktop/audio_init.sh
 test -r %{buildroot}/usr/lib/airymaxos/desktop/boot_state.sh
 # 录屏与观察点：实现是 POSIX sh，用 sh -n 断言而不是 bash -n，否则一份
 # dash 下不可执行的脚本会被构建期放过。
@@ -787,7 +806,9 @@ fi
 %config(noreplace) %{_sysconfdir}/systemd/journald.conf.d/50-airymax-journald.conf
 %{_unitdir}/airymax-desktop.slice
 %{_unitdir}/airymax-desktop-ready.service
+%{_unitdir}/airymax-audio-init.service
 /usr/lib/airymaxos/desktop/desktop_ready.sh
+/usr/lib/airymaxos/desktop/audio_init.sh
 /usr/lib/airymaxos/desktop/boot_state.sh
 /usr/lib/airymaxos/desktop/display_mode.sh
 /usr/lib/airymaxos/desktop/xserver
@@ -819,6 +840,24 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Mon Nov 09 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-12
+- Initialize the mixer once on first boot so a fresh install is not silent.
+  On the 285H the HDA codec powers up with Master at index 0 of 87 (-65.25 dB)
+  and Master/Speaker Playback Switch off. Upstream /lib/alsa/init/hda only
+  covers two old laptops and exits with the generic path; the generic method
+  runs only through an explicit `alsactl init`, and alsa-state.service in
+  rdaemon mode restores but never initializes (measured: with
+  /var/lib/alsa/asound.state moved aside, restarting the unit left the mixer
+  at 30/off). The silent state is then written back by the daemon at shutdown
+  and imported by PulseAudio as 0% volume plus mute in its per-device store,
+  so the machine stays silent across reboots while every unit reports success.
+  airymax-audio-init.service runs at sound.target, gated by
+  ConditionPathExists=!/var/lib/alsa/asound.state, so it touches the mixer
+  exactly once; afterwards the user volume is owned by alsa-state.
+  `alsactl init` exits 99 when the generic method applies, which is success
+  and must not be logged as a failure. No codec-specific table is added, so
+  ARM and RISC-V take the same path.
+
 * Mon Nov 09 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-11
 - Give touchpads usable click semantics before a session applies them. The
   driver reassignment in 90-airymax-touchpad.conf only decides who drives the
