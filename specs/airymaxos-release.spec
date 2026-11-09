@@ -586,6 +586,9 @@ airy_nm=%{buildroot}%{_sysconfdir}/NetworkManager/conf.d/99-airymax.conf
 grep -qxF '[main]' "${airy_nm}"
 grep -qxF 'dns=default' "${airy_nm}"
 grep -qxF 'rc-manager=symlink' "${airy_nm}"
+# 外部 dhclient 对路由器下发的 domain 选项报 err（285H 实测每租两条），
+# 而 DHCP 本身成功。后端必须是内置客户端，否则 T23 的 err 预算永远压不到 0。
+grep -qxF 'dhcp=internal' "${airy_nm}"
 grep -qxF '[connectivity]' "${airy_nm}"
 grep -qxF 'enabled=false' "${airy_nm}"
 # 服务器档的键与上面的策略互斥：no-auto-default 会关掉插线自动 DHCP，
