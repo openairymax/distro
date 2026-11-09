@@ -60,7 +60,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 10
+%global airy_release 11
 # 基底版本是显式输入，与 distro/repo/airymax-os.repo 及 kickstart 的
 # url/repo 行是三处同源表达。%%check 以本宏断言客户端配置，版本漂移在
 # 构建期失败，而不是等到装机后 dnf 报「找不到仓库」。
@@ -276,10 +276,12 @@ install -m 0755 %{SOURCE8} \
 install -m 0755 %{SOURCE18} \
     %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/60-airymax-display.sh
 
-# 触控板驱动归属：70-synaptics.conf 随 ukui-settings-daemon 的硬依赖进入闭包，
-# 且排在 40-libinput.conf 之后，会把每块触控板都交给不再维护的遗留驱动。
-# 本文件以 Xorg 的 InputClass 覆盖顺序把已归 synaptics 的触控板改派 libinput，
-# 根因与 285H 取证见文件头。目录属 xorg-x11-server，这里只落文件。
+# 触控板驱动归属与按下语义：70-synaptics.conf 随 ukui-settings-daemon 的硬依赖
+# 进入闭包，且排在 40-libinput.conf 之后，会把每块触控板都交给不再维护的遗留
+# 驱动。本文件以 Xorg 的 InputClass 覆盖顺序把已归 synaptics 的触控板改派
+# libinput，再以第二段把 tapping/click 方法写进驱动层——libinput 的 Tapping
+# 缺省关闭，等会话内的 settings-daemon 打开，登录界面前轻点无反应。根因与
+# 285H 取证见文件头。目录属 xorg-x11-server，这里只落文件。
 install -d -m 0755 %{buildroot}%{_sysconfdir}/X11/xorg.conf.d
 install -m 0644 %{SOURCE42} \
     %{buildroot}%{_sysconfdir}/X11/xorg.conf.d/90-airymax-touchpad.conf
@@ -579,6 +581,12 @@ airy_tpad=%{buildroot}%{_sysconfdir}/X11/xorg.conf.d/90-airymax-touchpad.conf
 grep -qxF '    MatchIsTouchpad "on"' "${airy_tpad}"
 grep -qxF '    MatchDriver "synaptics"' "${airy_tpad}"
 grep -qxF '    Driver "libinput"' "${airy_tpad}"
+# 驱动归属与按下语义是两件事：改派成功只保证送到 libinput，Tapping 仍按
+# libinput 缺省保持关闭，直到会话内的 settings-daemon 打开它。驱动层的默认
+# 段因此也逐行断言——少了它，登录界面前轻点无反应，表现仍是「触控板不能用」。
+grep -qxF '    Option "Tapping" "on"' "${airy_tpad}"
+grep -qxF '    Option "TappingButtonMap" "lrm"' "${airy_tpad}"
+grep -qxF '    Option "ClickMethod" "buttonareas"' "${airy_tpad}"
 # 收敛入口有两个：早期钩子与会话就绪后的 autostart。任一处丢失都会退回
 # 「一次性写入」，而那正是 T10 在验收基线上失败的形态，因此两处分别断言。
 # autostart 必须是 --guard 而不是 --settle：settings-daemon 的回写晚于收敛
@@ -811,6 +819,21 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Mon Nov 09 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-11
+- Give touchpads usable click semantics before a session applies them. The
+  driver reassignment in 90-airymax-touchpad.conf only decides who drives the
+  device; libinput still reports Tapping Enabled Default = 0 on the 285H, and
+  the value is only raised once ukui-settings-daemon reads
+  org.ukui.peripherals-touchpad inside a session. At the greeter, on the first
+  login before the daemon settles, and after the daemon restarts, a light tap
+  does nothing, which reads as "the touchpad does not work". A second
+  InputClass sets Tapping, TappingButtonMap=lrm, TappingDrag,
+  ClickMethod=buttonareas, ScrollMethod=twofinger, NaturalScrolling=off and
+  DisableWhileTyping=on at driver level with the same values the desktop
+  stores, so the control centre still owns the setting and nothing changes
+  once the session applies it. The build now asserts the three defaults that
+  carry the click experience.
+
 * Sun Nov 08 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-10
 - Give every touchpad to libinput. xorg-x11-drv-synaptics-legacy reaches the
   closure as a hard dependency of ukui-settings-daemon, and its 70-synaptics.conf
