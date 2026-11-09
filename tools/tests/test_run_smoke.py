@@ -31,6 +31,7 @@ SCRIPT = Path(__file__).resolve().parents[2] / "ci" / "run-smoke.sh"
 DESKTOP = Path(__file__).resolve().parents[2] / "desktop"
 SERVICES = Path(__file__).resolve().parents[3] / "system" / "services"
 DISPLAY_MODE = DESKTOP / "display_mode.sh"
+FLAT = Path(__file__).resolve().parents[2] / "firmware" / "fw-flat.sh"
 BASH = shutil.which("bash") or "/bin/bash"
 
 # T23 的交付包集合：装机 %post 写下的清单，也是沙箱 rpm 数据库的默认内容。
@@ -298,18 +299,32 @@ class RunSmokeTest(unittest.TestCase):
 
     def write_wifi_firmware(self, name="iwlwifi-gl-c0-fm-c0-83.ucode",
                             flat=True, legacy=False):
-        """T26 的落点：基底的新布局（intel/iwlwifi/）与固件根上的兼容链接；
-        legacy 模拟基底回到扁平布局的形态。"""
+        """T26 的落点：基底的新布局（intel/iwlwifi/）与固件根上的兼容链接。
+        清单与自证日志是安装期 %posttrans 的产物，判据由随镜像交付的
+        fw-flat.sh 复核；legacy 模拟基底回到扁平布局（清单为空、根上直接
+        是文件）。"""
         fw = self.sysroot / "usr" / "lib" / "firmware"
         link = fw / name
         src = fw / "intel" / "iwlwifi"
+        tool = self.sysroot / "usr" / "libexec" / "airymaxos" / "fw-flat.sh"
+        tool.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(FLAT, tool)
+        tool.chmod(0o755)
+        listf = (self.sysroot / "usr" / "share" / "airymaxos" / "firmware"
+                 / "firmware-flat.list")
+        listf.parent.mkdir(parents=True, exist_ok=True)
+        fwlog = (self.sysroot / "var" / "log" / "airymaxos"
+                 / "firmware-flat.log")
+        fwlog.parent.mkdir(parents=True, exist_ok=True)
         if legacy:
             if src.is_dir():
                 shutil.rmtree(src)
-            if link.is_symlink():
+            if link.is_symlink() or link.exists():
                 link.unlink()
             fw.mkdir(parents=True, exist_ok=True)
             link.write_bytes(b"\0")
+            listf.write_text("", encoding="utf-8")
+            fwlog.write_text("flat=0 miss=0 list=/tmp/x\n", encoding="utf-8")
             return link
         src.mkdir(parents=True, exist_ok=True)
         (src / name).write_bytes(b"\0")
@@ -317,6 +332,10 @@ class RunSmokeTest(unittest.TestCase):
             link.unlink()
         if flat:
             link.symlink_to(f"intel/iwlwifi/{name}")
+        listf.write_text(f"{name} intel/iwlwifi/{name}\n", encoding="utf-8")
+        fwlog.write_text("2026-11-09T00:00:00Z fw-flat apply\n"
+                         f"flat={1 if flat else 0} miss=0 list={listf}\n",
+                         encoding="utf-8")
         return link
 
     def write_manifest(self, names=PACKAGES):
@@ -1626,6 +1645,18 @@ class RunSmokeTest(unittest.TestCase):
         self.write_wifi_firmware(legacy=True)
         res = self.run_smoke()
         self.assertIn("iwlwifi flat files: 1", res.stdout)
+
+    def test_wifi_fw_no_flat_list(self):
+        # 安装期 %posttrans 没跑过（0.0.4 首装的实测形态）：入口是空的，清单
+        # 也不存在。判负必须落在「清单缺失」这一句上，而不是逐条列 143 个
+        # 未补入口的文件名——后者把判据与产物混在一起，现场无从定位。
+        self.tools()
+        self.write_wifi_firmware(flat=False)
+        (self.sysroot / "usr" / "share" / "airymaxos" / "firmware"
+         / "firmware-flat.list").unlink()
+        res = self.run_smoke()
+        self.assert_fail(res, 26)
+        self.assertIn("fail=no-list", res.stdout)
 
     def test_obs_bench_absent(self):
         # 观测工具没装进镜像：现场演示与故障定位都无从下手
