@@ -49,7 +49,7 @@
 #   T19–T21 固件：内核日志里没有「固件表无匹配」「微码 INIT 未运行」
 #       「API 版本越界」三条失败签名
 #   T22 运行期控制台：本次启动的命令行与默认文件同源，systemd-vconsole-setup
-#       未失败
+#       未失败，控制台字体几何不低于 12x24（2880x1800 上的 8x16 不可读）
 #   T23 系统完整性：失败单元、本次开机 err 日志（自有/固件/外来三层）与包集合
 #       对账三面同时干净。固件层的 ACPICA 表缺陷只列明细、不进预算。
 #   T24 桌面会话收敛：本轮冒烟全程核心进程 pid 不变，开机期没有崩溃重启；
@@ -1082,6 +1082,58 @@ t21_fw_api() {
     printf 'wireless firmware loaded: %s\n' "${ver}"
 }
 
+# 控制台字体的判据取几何，不取名字：同一个名字在不同 kbd 包里可以换尺寸，
+# 只比对字符串时字体改小仍会通过，而那正是 285H 的现场——九行阶段行已全为
+# ASCII，字号却还是 8x16。PSF2 头在偏移 24/28 给出真实 height/width；PSF1
+# 没有尺寸字段（固定 8 列），在任何 2880 宽容量的屏幕上都不足，因此这里要求
+# PSF2，指过去也判失败。
+t22_font_geom() {
+    local conf="$1" font file hdr h w
+    local -a head=()
+
+    [ -r "${conf}" ] || {
+        printf '%s unreadable\n' "${conf}"
+        return 1
+    }
+    font=$(sed -n 's/^[[:space:]]*FONT="\{0,1\}\([^"]*\)"\{0,1\}[[:space:]]*$/\1/p' \
+        "${conf}" | tail -n 1)
+    [ -n "${font}" ] || {
+        printf '%s carries no FONT\n' "${conf}"
+        return 1
+    }
+    for file in "${SYSROOT}/usr/lib/kbd/consolefonts/${font}.psfu.gz" \
+                "${SYSROOT}/usr/lib/kbd/consolefonts/${font}.psf.gz" \
+                "${SYSROOT}/usr/lib/kbd/consolefonts/${font}.psfu" \
+                "${SYSROOT}/usr/lib/kbd/consolefonts/${font}.psf"; do
+        [ -r "${file}" ] && break
+        file=
+    done
+    [ -n "${file}" ] || {
+        printf 'font %s is absent from %s\n' "${font}" \
+            "${SYSROOT}/usr/lib/kbd/consolefonts"
+        return 1
+    }
+    # od 每 16 字节换一行，先用 tr 摊平再交给 read：read 只吃一行，分行时
+    # 数组会只有 16 个元素，几何字段永远读不到。
+    case "${file}" in
+    *.gz) hdr=$(zcat "${file}" 2>/dev/null | od -An -tu1 -N32 | tr -s ' \n' ' ') ;;
+    *) hdr=$(od -An -tu1 -N32 "${file}" 2>/dev/null | tr -s ' \n' ' ') ;;
+    esac
+    read -r -a head <<<"${hdr}"
+    if [ "${#head[@]}" -ne 32 ] || [ "${head[0]}" -ne 114 ] ||
+        [ "${head[1]}" -ne 181 ]; then
+        printf '%s is not a PSF2 font\n' "${file}"
+        return 1
+    fi
+    h=$(( head[24] + head[25] * 256 + head[26] * 65536 + head[27] * 16777216 ))
+    w=$(( head[28] + head[29] * 256 + head[30] * 65536 + head[31] * 16777216 ))
+    [ "${w}" -ge 12 ] && [ "${h}" -ge 24 ] || {
+        printf 'console font %s is %sx%s, below 12x24\n' "${font}" "${w}" "${h}"
+        return 1
+    }
+    printf 'console font %s: %sx%s\n' "${font}" "${w}" "${h}"
+}
+
 # T22 运行期控制台：默认文件只说明「下一次 grub2-mkconfig 会写出什么」，而
 # HW-05 的现场是已启动的内核带着三处 console=（含 ttyAMA0），
 # systemd-vconsole-setup 锁不住 /dev/console 而每轮启动失败。只查默认文件时，
@@ -1099,7 +1151,8 @@ t22_console_state() {
     cons_check "${line}" /proc/cmdline || return 1
     state=$(systemctl show systemd-vconsole-setup.service -p ActiveState \
         --value 2>/dev/null)
-    expect "${state}" active systemd-vconsole-setup
+    expect "${state}" active systemd-vconsole-setup || return 1
+    t22_font_geom "${SYSROOT}/etc/vconsole.conf"
 }
 
 # T23 系统完整性：0.0.4 判据①要三个面同时干净——失败单元为 0、本次开机
