@@ -24,7 +24,7 @@
 #      anaconda 留下的 openEuler 引导项替换为置顶的 AirymaxOS 条目，并清掉
 #      本机 ESP 上的同名残留条目，使固件菜单里不再出现上游名字；
 #   8. %%post 只执行装配后才能确定的运行期动作：编译 glib schema、屏蔽桌面
-#      自带 AI 控制面单元、在运行中的系统上重载 systemd。
+#      自带 AI 控制面单元、收敛控制台字体、在运行中的系统上重载 systemd。
 #   9. 声明默认启动画面主题：以 /usr/share/plymouth/themes/default.plymouth
 #      符号链接指向 tribar。0.0.4 的启动路径用 plymouth.enable=0 关掉了
 #      plymouth（见 grub_args.sh 头部），主题因此只是随镜像待命；日后 KMS
@@ -33,6 +33,10 @@
 #      会让安装事务整体失败。
 #  10. 部署网络全局策略 /etc/NetworkManager/conf.d/99-airymax.conf：桌面
 #      形态的 DNS 管理与连通性探测口径，与镜像的包闭包成对断言。
+#  11. 把控制台字体切到 16x32：8x16 在 2880x1800 的面板上把一屏铺成
+#      360x112 个字形，开机阶段行事实上无法辨读（285H 实机）。字体文件由
+#      kbd 提供，本包只改 /etc/vconsole.conf 的 FONT 一行；该路径归
+#      systemd-udev，本包不能持有，理由见 %%post 注释。
 #
 # 静态资产一律由 %%install 直接落到最终路径，%%post 不复制文件，同一路径只有
 # 一处事实来源。
@@ -60,7 +64,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 13
+%global airy_release 14
 # 桌面版本随冻结点滚动，写在 /etc/airymaxos/desktop-version，供控制中心
 # 「关于」页读取。控制中心自己不猜版本：缺文件即只显示桌面名。此宏与
 # lockfile/ukui-components.yaml 的 ukui-control-center 版本由
@@ -792,6 +796,28 @@ fi
 
 %{_datadir}/airymaxos/distro/desktop/70-airymax-ukui-policy.sh
 
+# 控制台字体。默认的 latarcyrheb-sun16 是 8x16；在 285H 的 2880x1800 面板上
+# 一屏是 360x112 个约 0.8x1.7 mm 的字形，九行阶段行即使全是 ASCII 也读不出
+# 来（2026-11-09 实机）。同一 kbd 字体集里的 latarcyrheb-sun32 是 16x32，
+# 切过去得到 180x56，不需要改内核配置，也不影响桌面：X 跑在 fbdev 上用自己的
+# 分辨率与 Xft 字号。
+#
+# 只能在这里改。%%{_sysconfdir}/vconsole.conf 归 systemd-udev 包，本包再持有
+# 同一路径会让安装事务整体失败（与 /etc/motd、plymouthd.conf 同一条约束）；
+# vconsole.conf.d 的 drop-in 要 systemd 256，基线是 255。因此按行替换 FONT，
+# 其余键（KEYMAP 等本包并不拥有的口径）原样保留。字体文件缺席时一个字节都不
+# 写：指向不存在的字体只会让控制台黑屏，比小字更糟。
+airy_font=latarcyrheb-sun32
+airy_fonts=%{_prefix}/lib/kbd/consolefonts
+if [ -f "${airy_fonts}/${airy_font}.psfu.gz" ]; then
+    if grep -q '^[[:space:]]*FONT=' %{_sysconfdir}/vconsole.conf 2>/dev/null; then
+        sed -i "s|^[[:space:]]*FONT=.*|FONT=\"${airy_font}\"|" \
+            %{_sysconfdir}/vconsole.conf || :
+    else
+        printf 'FONT="%s"\n' "${airy_font}" >>%{_sysconfdir}/vconsole.conf || :
+    fi
+fi
+
 if [ -d /run/systemd/system ]; then
     systemctl daemon-reload >/dev/null 2>&1 || :
 fi
@@ -865,6 +891,20 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Mon Nov 09 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-14
+- Move the virtual console to a 16x32 font. The image ships
+  latarcyrheb-sun16 (8x16), and on the 285H's 2880x1800 panel that lays
+  the screen out as 360x112 cells of roughly 0.8x1.7 mm each, so the nine
+  boot stage lines stay unreadable in practice even now that ui.sh emits
+  ASCII on that channel. latarcyrheb-sun32 belongs to the same kbd font
+  set and gives 180x56 with no kernel change; the desktop is unaffected
+  because X runs on fbdev at its own resolution with Xft sizes.
+- /etc/vconsole.conf belongs to systemd-udev, so this package cannot own
+  it without breaking the install transaction, and vconsole.conf.d needs
+  systemd 256 while the base carries 255. %post therefore replaces the
+  FONT line only: KEYMAP and every key this package does not own survive,
+  and nothing is written when the font file is absent, because a font
+  that is not there blanks the console instead of enlarging it.
 * Mon Nov 09 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-13
 - Close the last lock entry that a suspend reaches. The 285H was reported as
   "stuck at boot" after the lid was closed and reopened; the screen was the
