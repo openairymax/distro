@@ -1,0 +1,51 @@
+From 01afac8a63b6ab603d920a5296ffefbc6f5245ba Mon Sep 17 00:00:00 2001
+From: peijiankang <peijiankang@kylinos.cn>
+Date: Fri, 30 Jun 2023 16:36:43 +0800
+Subject: [PATCH] fix changeusertype error
+
+---
+ plugins/account/userinfo/changeusertype.cpp | 21 +++++----------------
+ 1 file changed, 5 insertions(+), 16 deletions(-)
+
+diff --git a/plugins/account/userinfo/changeusertype.cpp b/plugins/account/userinfo/changeusertype.cpp
+index 8ec8f6b..a36f2e7 100644
+--- a/plugins/account/userinfo/changeusertype.cpp
++++ b/plugins/account/userinfo/changeusertype.cpp
+@@ -25,17 +25,10 @@ ChangeUserType::ChangeUserType(QString objpath, QWidget *parent) :
+     setMinimumSize(QSize(520, 390));
+     setWindowTitle(tr("UserType"));
+ 
+-    if (Utils::isCommunity()) {
+-        cutiface = new QDBusInterface("com.control.center.qt.systemdbus",
+-                                      "/",
+-                                      "com.control.center.interface",
+-                                      QDBusConnection::systemBus());
+-    } else {
+-        cutiface = new QDBusInterface("org.freedesktop.Accounts",
+-                                      _objpath,
+-                                      "org.freedesktop.Accounts.User",
+-                                      QDBusConnection::systemBus());
+-    }
++    cutiface = new QDBusInterface("org.freedesktop.Accounts",
++                                  _objpath,
++                                  "org.freedesktop.Accounts.User",
++                                  QDBusConnection::systemBus());
+ 
+     initUI();
+     setConnect();
+@@ -190,11 +183,7 @@ void ChangeUserType::setConnect(){
+         close();
+     });
+     connect(cutConfirmBtn, &QPushButton::clicked, this, [=]{
+-        if (Utils::isCommunity()) {
+-            cutiface->call("SetAccountType", _objpath, cutTypesBtnGroup->checkedId());
+-        } else {
+-            cutiface->call("SetAccountType", cutTypesBtnGroup->checkedId());
+-        }
++        cutiface->call("SetAccountType", cutTypesBtnGroup->checkedId());
+ 
+         accept();
+     });
+-- 
+2.33.0
+

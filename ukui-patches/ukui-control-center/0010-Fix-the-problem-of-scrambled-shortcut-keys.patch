@@ -1,0 +1,27 @@
+From 1c127130f57ea4085b26b42771716196df20e96b Mon Sep 17 00:00:00 2001
+From: peijiankang <peijiankang@kylinos.cn>
+Date: Mon, 9 Jan 2023 09:39:04 +0800
+Subject: [PATCH] Fix the problem of scrambled shortcut keys
+
+---
+ plugins/devices/shortcut/shortcut.cpp | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/plugins/devices/shortcut/shortcut.cpp b/plugins/devices/shortcut/shortcut.cpp
+index 44efa56..a5084a9 100644
+--- a/plugins/devices/shortcut/shortcut.cpp
++++ b/plugins/devices/shortcut/shortcut.cpp
+@@ -100,6 +100,10 @@ int Shortcut::pluginTypes()
+ 
+ QWidget *Shortcut::pluginUi()
+ {
++    //修复快捷键中文乱码问题
++    const QString locale = QLocale::system().name();
++    (void) setlocale(LC_ALL, QString(locale + ".UTF-8").toStdString().c_str());
++    
+     if (mFirstLoad) {
+         mFirstLoad = false;
+ 
+-- 
+2.33.0
+

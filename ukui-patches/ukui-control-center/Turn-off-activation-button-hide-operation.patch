@@ -1,0 +1,38 @@
+From 582a7b5cfa58e1036b4a60b9d651c50d5da6fd00 Mon Sep 17 00:00:00 2001
+From: peijiankang <peijiankang@kylinos.cn>
+Date: Mon, 19 Jun 2023 17:03:10 +0800
+Subject: [PATCH] Turn off activation button hide operation
+
+---
+ plugins/system/about/about.cpp | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/plugins/system/about/about.cpp b/plugins/system/about/about.cpp
+index 3917b6b..3d474fa 100644
+--- a/plugins/system/about/about.cpp
++++ b/plugins/system/about/about.cpp
+@@ -50,6 +50,8 @@
+ #include <QStorageInfo>
+ #include <QtMath>
+ 
++#include "../../../shell/utils/utils.h"
++
+ About::About() : mFirstLoad(true)
+ {
+     pluginName = tr("About");
+@@ -683,8 +685,10 @@ void About::setupSerialComponent()
+     }
+     mSequenceLabel_2->setText(serial);
+     mSequenceLabel_2->setStyleSheet("color : #2FB3E8");
+-    if (serial.isEmpty())
+-        mActivationBtn->hide();
++    if(Utils::getCommunity().compare("kylin", Qt::CaseSensitive)){
++        if (serial.isEmpty())
++            mActivationBtn->hide();
++    }
+     if (status == 0) {  //未激活  激活或未激活应通过status判断
+          if (!trial_dateRes.isEmpty()) {  //试用期
+             mStatusLabel_2->setText(tr("Inactivated"));
+-- 
+2.33.0
+

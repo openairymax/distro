@@ -1,0 +1,25 @@
+From d5649623556085cb7f97cbc9e047c77514a554a5 Mon Sep 17 00:00:00 2001
+From: peijiankang <peijiankang@kylinos.cn>
+Date: Mon, 29 Jan 2024 11:33:15 +0800
+Subject: [PATCH] fix build error of ddcutil-2.0.0
+
+---
+ registeredQDbus/sysdbusregister.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/registeredQDbus/sysdbusregister.cpp b/registeredQDbus/sysdbusregister.cpp
+index 46766c3..ab63fb8 100644
+--- a/registeredQDbus/sysdbusregister.cpp
++++ b/registeredQDbus/sysdbusregister.cpp
+@@ -761,7 +761,7 @@ void SysdbusRegister::_getDisplayInfoThread()
+                         display.edidHash = edidHash;
+                         display.I2C_busType = QString::number(dlist_loc->info[i].path.path.i2c_busno);
+                         ddca_create_edid_display_identifier(dlist_loc->info[i].edid_bytes,&did);
+-                        ddca_create_display_ref(did,&ddca_dref);
++                        ddca_get_display_ref(did,&ddca_dref);
+                         ddca_open_display2(ddca_dref,false,&display.ddca_dh_loc);
+                         displayInfo_V.append(display);
+                     }
+-- 
+2.41.0
+

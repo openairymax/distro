@@ -1,0 +1,25 @@
+diff -Naur ukui-control-center-3.1.2-O/plugins/system/about/about.cpp ukui-control-center-3.1.2~/plugins/system/about/about.cpp
+--- ukui-control-center-3.1.2-O/plugins/system/about/about.cpp	2023-06-13 14:49:20.975918427 +0800
++++ ukui-control-center-3.1.2~/plugins/system/about/about.cpp	2023-06-14 00:13:15.785946666 +0800
+@@ -683,9 +683,9 @@
+     }
+     mSequenceLabel_2->setText(serial);
+     mSequenceLabel_2->setStyleSheet("color : #2FB3E8");
+-    if (!serial.isEmpty())
++    if (serial.isEmpty())
+         mActivationBtn->hide();
+-    if (dateRes.isEmpty()) {  //未激活
++    if (status == 0) {  //未激活  激活或未激活应通过status判断
+          if (!trial_dateRes.isEmpty()) {  //试用期
+             mStatusLabel_2->setText(tr("Inactivated"));
+             mStatusLabel_2->setStyleSheet("color : red ");
+@@ -707,7 +707,8 @@
+         mStatusLabel_2->setStyleSheet("");
+         mStatusLabel_2->setText(tr("Activated"));
+         mTimeLabel_2->setText(dateRes);
+-         mActivationBtn->setText(tr("Extend"));
++        mActivationBtn->setText(tr("Extend"));
++        mActivationBtn->show();
+     }
+     connect(mActivationBtn, &QPushButton::clicked, this, &About::runActiveWindow);
+ }

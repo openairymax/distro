@@ -61,6 +61,11 @@
 
 %global airy_version 0.0.4
 %global airy_release 13
+# 桌面版本随冻结点滚动，写在 /etc/airymaxos/desktop-version，供控制中心
+# 「关于」页读取。控制中心自己不猜版本：缺文件即只显示桌面名。此宏与
+# lockfile/ukui-components.yaml 的 ukui-control-center 版本由
+# lockfile/ukui_check.py 校验相等，不允许各写一份。
+%global ukui_desktop_version 3.1.2
 # 基底版本是显式输入，与 distro/repo/airymax-os.repo 及 kickstart 的
 # url/repo 行是三处同源表达。%%check 以本宏断言客户端配置，版本漂移在
 # 构建期失败，而不是等到装机后 dnf 报「找不到仓库」。
@@ -173,6 +178,13 @@ sed -i 's|^BUILD_ID=.*$|BUILD_ID="%{airy_build_id}"|' \
 printf 'BUILD_ID=%s\n' '%{airy_build_id}' \
     > %{buildroot}%{_sysconfdir}/airymaxos-build
 chmod 0644 %{buildroot}%{_sysconfdir}/airymaxos-build
+
+# 桌面版本是「关于」页「桌面」一栏的唯一输入。控制中心只读本文件、不猜
+# 版本；缺文件时它回落为桌面名，界面上不会编造版本号。
+install -d -m 0755 %{buildroot}%{_sysconfdir}/airymaxos
+printf 'UKUI %s\n' '%{ukui_desktop_version}' \
+    > %{buildroot}%{_sysconfdir}/airymaxos/desktop-version
+chmod 0644 %{buildroot}%{_sysconfdir}/airymaxos/desktop-version
 
 # 单行发行版标识与登录横幅同取 PRETTY_NAME，版本号只在 os-release 出现一次。
 # system-release 格式遵循上游惯例 <distributor> release <版本>，其中 distributor
@@ -399,6 +411,10 @@ grep -qxF 'ID=airymaxos' %{buildroot}/usr/lib/os-release
 grep -qxF 'VERSION_ID="%{version}"' %{buildroot}/usr/lib/os-release
 grep -qxF 'ID_LIKE="openeuler"' %{buildroot}/usr/lib/os-release
 test -L %{buildroot}%{_sysconfdir}/os-release
+# 桌面版本被控制中心原样显示，格式固定为 "UKUI <版本>"。控制中心对不合格式
+# 的内容回落为桌面名，构建期先挡住不合格内容，免得装机后只看到退化的界面。
+LC_ALL=C grep -qxE 'UKUI [0-9][0-9A-Za-z._-]*' \
+    %{buildroot}%{_sysconfdir}/airymaxos/desktop-version
 # 命名两层模型在这里被锁定为可执行断言：PRETTY_NAME 的格式必须是
 # 「<ASCII 短名> <VERSION_ID>」，短名即 distributor。ISO 卷标与 .treeinfo、
 # 引导菜单条目名、/etc/system-release、/etc/issue 首行四处都从这一条派生，
@@ -492,7 +508,7 @@ bash -n %{buildroot}/usr/lib/airymaxos/desktop/audio_init.sh
 test -x %{buildroot}/usr/lib/airymaxos/desktop/audio_init.sh
 # 断言取调用点本身：脚本里是 `"${ALSACTL}" init` 与 `"${ALSACTL}" store`，
 # 命令行中没有引号。此前写成 '" store"'（引号参与匹配）永不成立，把正确实现
-# 判成红的，整轮组装停在 %check（run 42578858068）。子命令两侧的空格是
+# 判成红的，整轮组装停在 %%check（run 42578858068）。子命令两侧的空格是
 # 唯一的可匹配锚点。
 grep -qF ' init ' %{buildroot}/usr/lib/airymaxos/desktop/audio_init.sh
 grep -qF ' store ' %{buildroot}/usr/lib/airymaxos/desktop/audio_init.sh
@@ -785,6 +801,8 @@ fi
 %{_sysconfdir}/os-release
 /usr/lib/os-release
 %{_sysconfdir}/airymaxos-build
+%dir %{_sysconfdir}/airymaxos
+%{_sysconfdir}/airymaxos/desktop-version
 %{_sysconfdir}/airymaxos-release
 %{_sysconfdir}/system-release
 %config(noreplace) %{_sysconfdir}/issue

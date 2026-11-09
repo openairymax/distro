@@ -1,0 +1,38 @@
+From bb0c313ac7eb6a3f3d99e3ab86b41946feab53aa Mon Sep 17 00:00:00 2001
+From: root <root@localhost.localdomain>
+Date: Thu, 21 Dec 2023 15:36:28 +0800
+Subject: [PATCH] 
+ ukui-control-center-3.1.2-repair-freelogin-autologin-not-available
+
+---
+ plugins/account/userinfo/userinfo.cpp | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/plugins/account/userinfo/userinfo.cpp b/plugins/account/userinfo/userinfo.cpp
+index 8288eb1..ebc21b9 100644
+--- a/plugins/account/userinfo/userinfo.cpp
++++ b/plugins/account/userinfo/userinfo.cpp
+@@ -823,7 +823,7 @@ void UserInfo::setUserConnect(){
+                                                                QDBusConnection::systemBus());
+ 
+             qDebug() << "call" << "method: deleteuser";
+-            QDBusReply<int> ret = tmpSysinterface->call("setAutoLoginStatus", user.objpath, checked);
++            QDBusReply<int> ret = tmpSysinterface->call("setAutoLoginStatus", checked, user.username);
+ 
+             if (ret == 0) {
+                 autoLoginSBtn->blockSignals(true);
+@@ -852,8 +852,9 @@ void UserInfo::setUserConnect(){
+             return;
+         }
+ 
+-        QDBusReply<bool> ret = piface.call("setNoPwdLoginStatus", checked, user.username);
+-        if (ret == false) {
++        QDBusReply<int> ret = piface.call("setNoPwdLoginStatus", checked, user.username);
++
++        if (ret == 0) {
+             nopwdLoginSBtn->blockSignals(true);
+             nopwdLoginSBtn->setChecked(!checked);
+             nopwdLoginSBtn->blockSignals(false);
+-- 
+2.33.0
+

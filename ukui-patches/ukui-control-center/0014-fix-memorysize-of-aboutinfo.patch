@@ -1,0 +1,51 @@
+From b37c6f1491e04a28808660b57bb0b51cb23759a3 Mon Sep 17 00:00:00 2001
+From: peijiankang <peijiankang@kylinos.cn>
+Date: Thu, 30 Mar 2023 10:36:31 +0800
+Subject: [PATCH] fix memorysize of aboutinfo
+
+---
+ plugins/system/about/about.cpp | 28 ++++++++++++++--------------
+ 1 file changed, 14 insertions(+), 14 deletions(-)
+
+diff --git a/plugins/system/about/about.cpp b/plugins/system/about/about.cpp
+index 824b781..e783d9b 100644
+--- a/plugins/system/about/about.cpp
++++ b/plugins/system/about/about.cpp
+@@ -879,20 +879,20 @@ void About::setupKernelCompenent()
+     QString kernal = QSysInfo::kernelType() + " " + QSysInfo::kernelVersion();
+     getTotalMemory();
+ 
+-    QDBusInterface *memoryDbus = new QDBusInterface("com.control.center.qt.systemdbus",
+-                                                             "/",
+-                                                             "com.control.center.interface",
+-                                                             QDBusConnection::systemBus(), this);
+-   if (memoryDbus->isValid()) {
+-       QDBusReply<QString>  result = memoryDbus->call("getMemory");
+-       qDebug()<<"memory :"<<result;
+-       if (!result.value().isEmpty()) {
+-            memorySize.clear();
+-            memorySize.append(result + "GB" + mMemAvaliable);
+-       }
+-   }
+-   if (memorySize == "0GB")
+-       memorySize = mMemtotal + mMemAvaliable;
++//    QDBusInterface *memoryDbus = new QDBusInterface("com.control.center.qt.systemdbus",
++//                                                             "/",
++//                                                             "com.control.center.interface",
++//                                                             QDBusConnection::systemBus(), this);
++//   if (memoryDbus->isValid()) {
++//       QDBusReply<QString>  result = memoryDbus->call("getMemory");
++//       qDebug()<<"memory :"<<result;
++//       if (!result.value().isEmpty()) {
++//            memorySize.clear();
++//            memorySize.append(result + "GB" + mMemAvaliable);
++//       }
++//   }
++//   if (memorySize == "0GB")
++    memorySize = mMemtotal + mMemAvaliable;
+ 
+     qDebug()<<kernal;
+     mKernelLabel_2->setText(kernal);
+-- 
+2.39.1
+

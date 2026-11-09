@@ -1,0 +1,28 @@
+From d155a8511018a478fc55486075761c664913ef34 Mon Sep 17 00:00:00 2001
+From: peijiankang <peijiankang@kylinos.cn>
+Date: Thu, 29 Dec 2022 14:08:05 +0800
+Subject: [PATCH] modify icon theme not display
+
+---
+ shell/utils/utils.cpp | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/shell/utils/utils.cpp b/shell/utils/utils.cpp
+index 9c97e3e..24d5f56 100644
+--- a/shell/utils/utils.cpp
++++ b/shell/utils/utils.cpp
+@@ -187,9 +187,9 @@ bool Utils::isCommunity()
+     QString filename = "/etc/os-release";
+     QSettings osSettings(filename, QSettings::IniFormat);
+ 
+-    QString versionID = osSettings.value("VERSION_ID").toString();
++    QString versionID = osSettings.value("ID").toString();
+ 
+-    if (versionID.compare("22.04", Qt::CaseSensitive)) {
++    if (versionID.compare("openEuler", Qt::CaseSensitive)) {
+         return false;
+     }
+     return true;
+-- 
+2.33.0
+
