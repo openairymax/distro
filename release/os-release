@@ -2,16 +2,19 @@
 # AirymaxOS release identity — single source of truth for VERSION_ID.
 # Installed as /usr/lib/os-release with /etc/os-release symlinked to it.
 #
-# 两层展示名，规则只有一条：NAME 是给人读的完整名（可含中文），PRETTY_NAME
-# 是给机器链用的 ASCII 短名 + 版本号，且格式固定为 "<短名> <VERSION_ID>"。
-# 凡进入 ASCII-only 通道的品牌面——ISO 卷标与 .treeinfo、引导菜单产品名、
-# /etc/system-release（anaconda 由此派生 GRUB_DISTRIBUTOR）、/etc/issue 首行
-# ——一律从 PRETTY_NAME 派生，绝不取 NAME。NAME 含中文时取 NAME 的旧写法
-# 会让 build-iso 的字符白名单直接拒绝组装镜像，也会让 GRUB 菜单在非 UTF-8
-# 控制台输出乱码。
+# 品牌串规则只有一条：凡进入非 UTF-8 通道的名字一律 ASCII。NAME 与
+# PRETTY_NAME 都在这条规则内，原因是二者的消费方都在控制台侧：
+#   - PRETTY_NAME 派生 ISO 卷标与 .treeinfo、/etc/system-release、
+#     /etc/issue 首行，build-iso 的字符白名单直接拒绝非 ASCII；
+#   - NAME 被 openEuler 的 /etc/grub.d/10_linux 原样读进菜单标题
+#     （OS_NAME="$(grep ^NAME= /etc/os-release ...)"，模板
+#     "%s (%s) %s"），而 GRUB 只加载 unicode.pf2——该字体不含 CJK 字形，
+#     中文全部落空。285H 实测：菜单标题的「开源极境」四个字整段不显示。
+# 产品中文名不进 os-release，只落文档与桌面侧展示；os-release 是机器面。
+# NAME 与 PRETTY_NAME 同词根，由 run-smoke 的 T9 逐条断言。
 # VERSION 是「版本名称」的展示源（ukui-control-center 的关于页直读此键），
 # 与 PRETTY_NAME 同形：「<ASCII 短名> <VERSION_ID>」，避免两处各写一套口径。
-NAME="OpenAirymax 开源极境"
+NAME="OpenAirymax"
 VERSION="OpenAirymax 0.0.4"
 ID=airymaxos
 ID_LIKE="openeuler"

@@ -502,7 +502,7 @@ t8_hostname() {
 
 # T9: 品牌（os-release 是发行版身份的唯一载体，桌面与会话代理都读它）
 t9_brand() {
-    local file="${SYSROOT}/etc/os-release" ver pretty dist
+    local file="${SYSROOT}/etc/os-release" ver pretty dist name
     [ -r "${file}" ] || {
         echo "${file} unreadable"
         return 1
@@ -531,9 +531,18 @@ t9_brand() {
         ;;
     esac
     expect "${dist} ${ver}" "${pretty}" "os-release PRETTY_NAME" || return 1
-    # NAME 是给人读的完整名（按 0.0.4 口径含中文），只要求以同一短名起头：
-    # 两处品牌面仍是同一个词根，底座名（openEuler）在此判失败。
-    expect_prefix "$(os_rel NAME)" "${dist}" "os-release NAME" || return 1
+    # NAME 与 PRETTY_NAME 同一通道：openEuler 的 /etc/grub.d/10_linux 把
+    # NAME 原样写进引导菜单标题，而 GRUB 只加载不含 CJK 字形的 unicode.pf2，
+    # 非 ASCII 会整段不显示。故 NAME 必须是 ASCII 且以同一短名起头——底座名
+    # （openEuler）在此判失败。
+    name="$(os_rel NAME)"
+    case "${name}" in
+    ''|*[!A-Za-z0-9._\ -]*)
+        echo "os-release NAME: ${name:-absent} (want ASCII '<brand>...')"
+        return 1
+        ;;
+    esac
+    expect_prefix "${name}" "${dist}" "os-release NAME" || return 1
     # 登录前的品牌面与 os-release 同一事实源：/etc/issue 首行逐字等于
     # PRETTY_NAME。文件缺失时 sed 给出空串，由 expect 报出差异。
     expect "$(sed -n 1p "${SYSROOT}/etc/issue")" "${pretty}" "issue 首行" ||
