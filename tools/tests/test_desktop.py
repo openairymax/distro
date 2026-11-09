@@ -409,7 +409,8 @@ class DesktopAssetTest(unittest.TestCase):
             key, _, value = line.partition("=")
             keys[key] = value
         self.assertEqual(keys, {"idle-lock-enabled": "false",
-                                "lock-enabled": "false"})
+                                "lock-enabled": "false",
+                                "sleep-activation-enabled": "false"})
         self.assertIn("[org/ukui/screensaver]", text)
         self.assertIn("Requires:       dconf", self.spec)
         self.assertIn("dconf update", self.spec)
