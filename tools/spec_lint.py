@@ -27,6 +27,12 @@
 # 归档名由目录名与配方 Version 拼成（<目录名>-<Version>.tar.gz），必须被某个
 # Source 引用；目录由构建驱动在 staging 时代为归档，因此不得以同名文件入库。
 #
+# 上游 tarball 用 URL 取源：
+#   # spec-lint: source-url <文件名> <https URL> <sha256>
+# 文件名必须被某个 Source 引用，且不得以同名文件入库——摘要就是唯一事实源，
+# 仓库里再放一份副本会形成第二个真相源。URL 必须是字面 https 地址，不接受
+# % 宏：宏展开后的地址无法在评审时复算，摘要也就失去了锚点。
+#
 # 退出码：0 通过；1 存在问题；2 用法或读取错误。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
@@ -74,6 +80,10 @@ DIRECTIVE = "spec-lint:"
 GEN = re.compile(rf"^#\s*{DIRECTIVE}\s*generated-source\s+(\S+)$")
 ROOT = re.compile(rf"^#\s*{DIRECTIVE}\s*source-root\s+(\S+)$")
 BUNDLE = re.compile(rf"^#\s*{DIRECTIVE}\s*source-bundle\s+(\S+)$")
+URL = re.compile(rf"^#\s*{DIRECTIVE}\s*source-url\s+(\S+)\s+(\S+)\s+"
+                 r"([0-9a-f]{64})$")
+RPM = re.compile(rf"^#\s*{DIRECTIVE}\s*source-rpm\s+(\S+)\s+(\S+)\s+"
+                 r"([0-9a-f]{64})$")
 DIRECTIVE_LINE = re.compile(rf"^\s*#\s*{DIRECTIVE}")
 CMT = re.compile(r"^\s*#")
 CMT_MACRO = re.compile(r"(?<!%)%(?:\{|\w)")
@@ -198,6 +208,38 @@ def parse_bundles(lines: list[str], path: Path,
             src = (path.parent / hit.group(1)).resolve()
             out.append((num, src, f"{src.name}-{ver}.tar.gz"))
     return out
+
+
+def parse_fetch(lines: list[str],
+                pattern: re.Pattern) -> list[tuple[int, str, str, str]]:
+    out = []
+    for num, raw in enumerate(lines, 1):
+        hit = pattern.match(raw.strip())
+        if hit:
+            out.append((num, hit.group(1), hit.group(2), hit.group(3)))
+    return out
+
+
+def check_fetch(kind: str, items: list[tuple[int, str, str, str]],
+                tags: dict, index: dict[str, set[Path]],
+                macros: dict[str, str], issues: list[Issue]) -> set[str]:
+    refs: set[str] = set()
+    for tag in tags:
+        if SRC.match(tag):
+            refs.add(expand(tags[tag][1], macros))
+    names: set[str] = set()
+    for num, name, url, _sum in items:
+        if "/" in name or not url.startswith("https://") or "%" in url:
+            issues.append(Issue("E010", num, f"bad {kind}: {name} {url}"))
+        if name in names:
+            issues.append(Issue("E010", num, f"duplicate {kind}: {name}"))
+        if name not in refs:
+            issues.append(Issue("E010", num, f"{kind} not referenced: {name}"))
+        if index.get(name):
+            issues.append(Issue("E010", num,
+                                f"{kind} must not be committed: {name}"))
+        names.add(name)
+    return names
 
 
 def check_bundles(bundles: list[tuple[int, Path, str]], tags: dict,
@@ -379,6 +421,9 @@ def lint_text(text: str, path: Path, root: Path) -> list[Issue]:
     index = build_index(roots)
     gen |= check_bundles(parse_bundles(lines, path, ver), tags, index,
                          macros, issues)
+    for kind, pattern in (("source-url", URL), ("source-rpm", RPM)):
+        gen |= check_fetch(kind, parse_fetch(lines, pattern), tags, index,
+                           macros, issues)
     check_tags(tags, ver, issues)
     check_name(tags, path, issues)
     check_srcs(tags, index, macros, gen, issues)

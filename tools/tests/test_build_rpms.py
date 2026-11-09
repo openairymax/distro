@@ -11,6 +11,7 @@
 # Version: 0.0.3
 # ===========================================================================
 
+import hashlib
 import shutil
 import subprocess
 import tempfile
@@ -22,8 +23,8 @@ DISTRO = SCRIPT.parent.parent
 BASH = shutil.which("bash") or "/bin/bash"
 
 TOOLS = ("basename", "cat", "cmp", "cp", "cut", "date", "dirname", "find",
-         "gzip", "mkdir", "nproc", "rm", "sed", "sha256sum", "sort", "tar",
-         "uname")
+         "gzip", "mkdir", "mv", "nproc", "rm", "sed", "sha256sum", "sort",
+         "tar", "uname")
 
 SPEC = """\
 Name:           airymaxos-demo
@@ -99,6 +100,40 @@ done
 printf 'signature\\n' > "$out"
 """
 
+CURL = """\
+#!/bin/sh
+out=""; url=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+    -o) shift; out=$1 ;;
+    https://*) url=$1 ;;
+    esac
+    shift
+done
+[ -n "$out" ] && [ -n "$url" ] || exit 2
+printf 'payload\\n' > "$out"
+"""
+
+CURL_FAIL = """\
+#!/bin/sh
+exit 7
+"""
+
+RPM2CPIO = """\
+#!/bin/sh
+printf 'payload\\n'
+"""
+
+CPIO = """\
+#!/bin/sh
+last=""
+for a in "$@"; do last="$a"; done
+[ -n "$last" ] || exit 2
+cat > "$last"
+"""
+
+PAYLOAD = b"payload\n"
+
 
 class BuildRpmsTest(unittest.TestCase):
     def setUp(self):
@@ -117,12 +152,16 @@ class BuildRpmsTest(unittest.TestCase):
         self._tmp.cleanup()
 
     def tools(self, *fakes):
+        # 可重复调用：full() 之后再补一个假工具不该碰已就位的条目。
         for name in TOOLS:
+            path = self.bin / name
             src = shutil.which(name)
-            if src:
-                (self.bin / name).symlink_to(src)
+            if src and not (path.exists() or path.is_symlink()):
+                path.symlink_to(src)
         for name, body in fakes:
             path = self.bin / name
+            if path.exists() or path.is_symlink():
+                path.unlink()
             path.write_text(body, encoding="utf-8")
             path.chmod(0o755)
 
@@ -313,6 +352,74 @@ class BuildRpmsTest(unittest.TestCase):
         self.spec.write_text(BUNDLE, encoding="utf-8")
         res = self.run_script("--out", str(self.out), "--spec", str(self.spec))
         self.assertEqual(res.returncode, 5)
+
+    def url_spec(self, url="https://example.invalid/demo.conf", digest=None):
+        digest = digest or hashlib.sha256(PAYLOAD).hexdigest()
+        self.spec.write_text(
+            SPEC.replace(
+                "Source0:        demo.conf",
+                f"# spec-lint: source-url demo.conf {url} {digest}\n"
+                "Source0:        demo.conf"),
+            encoding="utf-8")
+        # 本地同名文件必须缺席：取源走 URL 而不是静默回落仓库里的副本。
+        (self.specs / "demo.conf").unlink()
+
+    def test_source_url_fetch(self):
+        self.full()
+        self.tools(("curl", CURL))
+        self.url_spec()
+        res = self.run_script("--out", str(self.out), "--spec", str(self.spec),
+                              "--arch", "x86_64")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        staged = (self.out / "work" / "rpmbuild" / "SOURCES" / "demo.conf")
+        self.assertEqual(staged.read_bytes(), PAYLOAD)
+        digest = hashlib.sha256(PAYLOAD).hexdigest()
+        self.assertIn(f"src {digest} demo.conf\n", self.manifest())
+
+    def test_source_url_digest_mismatch(self):
+        self.full()
+        self.tools(("curl", CURL))
+        self.url_spec(digest="0" * 64)
+        res = self.run_script("--out", str(self.out), "--spec", str(self.spec))
+        self.assertEqual(res.returncode, 6)
+        self.assertIn("源摘要不符", res.stderr)
+
+    def test_source_url_https_only(self):
+        self.full()
+        self.tools(("curl", CURL))
+        self.url_spec(url="http://example.invalid/demo.conf")
+        res = self.run_script("--out", str(self.out), "--spec", str(self.spec))
+        self.assertEqual(res.returncode, 5)
+        self.assertIn("https", res.stderr)
+
+    def test_source_rpm_member(self):
+        self.full()
+        self.tools(("curl", CURL), ("rpm2cpio", RPM2CPIO), ("cpio", CPIO))
+        digest = hashlib.sha256(PAYLOAD).hexdigest()
+        self.spec.write_text(
+            SPEC.replace(
+                "Source0:        demo.conf",
+                "# spec-lint: source-rpm demo.conf "
+                f"https://example.invalid/demo.src.rpm {digest}\n"
+                "Source0:        demo.conf"),
+            encoding="utf-8")
+        (self.specs / "demo.conf").unlink()
+        res = self.run_script("--out", str(self.out), "--spec", str(self.spec),
+                              "--arch", "x86_64")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        staged = (self.out / "work" / "rpmbuild" / "SOURCES" / "demo.conf")
+        self.assertEqual(staged.read_bytes(), PAYLOAD)
+
+    def test_source_url_cache_reuse(self):
+        # 摘要命中缓存即不再联网：发布重放不能依赖上游站点是否还在线。
+        self.full()
+        self.tools(("curl", CURL))
+        self.url_spec()
+        args = ("--out", str(self.out), "--spec", str(self.spec),
+                "--arch", "x86_64")
+        self.assertEqual(self.run_script(*args).returncode, 0)
+        self.tools(("curl", CURL_FAIL))
+        self.assertEqual(self.run_script(*args).returncode, 0)
 
     def manifest(self):
         return (self.out / "build-manifest.txt").read_text(encoding="utf-8")

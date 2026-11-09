@@ -10,6 +10,16 @@
 # 驱动在 staging 阶段把该目录打成确定性归档（<目录名>-<Version>.tar.gz），
 # 配方以该文件名作为 Source 引用；归档不入库，由本次构建现场生成。
 #
+# 上游 tarball 用 `# spec-lint: source-url <文件名> <URL> <sha256>` 声明：
+# 驱动下载到 --out 下的源缓存（跨轮复用，命中摘要即不再联网），逐字校验
+# 摘要后才送进 rpmbuild。tarball 不入库，配方里的摘要就是唯一事实源；
+# 只接受 https，取不到或摘要不符一律失败，不回落本地同名文件。
+#
+# 上游只发布 src.rpm、不发布裸 tarball 时用
+# `# spec-lint: source-rpm <成员名> <src.rpm URL> <sha256>`：驱动下载并校验
+# 官方 src.rpm，再从里面取出成员名对应的文件。摘要钉住的是整份 src.rpm，
+# 成员内容随之被传递固定，判据仍是一个可复算的摘要。
+#
 # 退出码（190-distribution/01-rpm-packaging.md §8）：
 #   0 成功；2 AIRY_EEXIST；5 AIRY_EINVAL；6 AIRY_EIO；
 #   11 AIRY_ENOTSUP；12 AIRY_EPERM。
@@ -46,6 +56,7 @@ SPECS=()
 SPEC_DIRS=()
 SRC_DIRS=()
 DEFS=()
+FETCHED=()
 OUT_ABS=""
 WORK=""
 TOPDIR=""
@@ -78,7 +89,8 @@ usage()
   DIR/RPMS/<arch>/*.rpm        构建产物
   DIR/repo/<stream>/<arch>/    可选 dnf 仓库（repodata 已签名）
   DIR/build-manifest.txt       配方与 RPM 的 SHA-256 清单，附 stage/arch 与
-                               起止时刻、耗时（预算门禁的实测来源）
+                               起止时刻、耗时（预算门禁的实测来源）；
+                               source-url 取来的 tarball 记作 src 行
 
 构建来源指纹（build-manifest.txt 的 build_id=）按 scripts/lib/buildid.sh 的
 优先级取值：AIRYMAX_BUILD_ID → AIRYMAX_RUN_ID + AIRYMAX_COMMIT → git 短 sha
@@ -297,6 +309,95 @@ bundle_cfg()
         "$spec")
 }
 
+url_cfg()
+{
+    src_cfg source-url "$1"
+}
+
+rpm_cfg()
+{
+    src_cfg source-rpm "$1"
+}
+
+src_cfg()
+{
+    sed -n -E \
+        "s/^#[[:space:]]*spec-lint:[[:space:]]*$1[[:space:]]+([^[:space:]]+)[[:space:]]+([^[:space:]]+)[[:space:]]+([0-9a-f]{64})[[:space:]]*\$/\1 \2 \3/p" \
+        "$2"
+}
+
+digest_ok()
+{
+    local got
+    got="$(sum_of "$1")" || return 1
+    [ "$got" = "$2" ]
+}
+
+check_src_url()
+{
+    local name="$1" url="$2"
+    case "$url" in
+    https://*) ;;
+    *) die "${E_INVAL}" "取源 URL 只接受 https: $name（$url）" ;;
+    esac
+    case "$name" in
+    */*|'') die "${E_INVAL}" "取源文件名非法: $name" ;;
+    esac
+}
+
+dl_src()
+{
+    local url="$1" sum="$2" dst="$3" tmp got
+    if [ -f "$dst" ] && digest_ok "$dst" "$sum"; then
+        return 0
+    fi
+    need curl
+    mkdir -p "$(dirname "$dst")"
+    tmp="$(dirname "$dst")/.$(basename "$dst").part.$$"
+    if ! curl -fsSL --retry 3 --connect-timeout 20 -o "$tmp" "$url"; then
+        rm -f "$tmp"
+        die "${E_IO}" "下载源失败: $(basename "$dst")（$url）"
+    fi
+    if ! got="$(sum_of "$tmp")"; then
+        rm -f "$tmp"
+        die "${E_IO}" "sha256sum 失败: $tmp"
+    fi
+    if [ "$got" != "$sum" ]; then
+        rm -f "$tmp"
+        die "${E_IO}" "源摘要不符: $(basename "$dst") 期望 $sum 实得 $got"
+    fi
+    mv -f "$tmp" "$dst"
+}
+
+fetch_src()
+{
+    local name="$1" url="$2" sum="$3" dst
+    check_src_url "$name" "$url"
+    dst="$OUT_ABS/src-cache/$name"
+    dl_src "$url" "$sum" "$dst"
+    stage_src "$dst"
+}
+
+fetch_rpm()
+{
+    local member="$1" url="$2" sum="$3" rpm dir
+    check_src_url "$member" "$url"
+    rpm="$OUT_ABS/src-cache/$(basename "$url")"
+    dl_src "$url" "$sum" "$rpm"
+    need rpm2cpio
+    need cpio
+    dir="$WORK/extract/${member}.d"
+    rm -rf "$dir"
+    mkdir -p "$dir"
+    if ! ( cd "$dir" && rpm2cpio "$rpm" | cpio -idm --quiet -- "$member" ); then
+        die "${E_IO}" "从 src.rpm 取出成员失败: $member（$rpm）"
+    fi
+    if [ ! -f "$dir/$member" ]; then
+        die "${E_IO}" "src.rpm 内不存在成员: $member"
+    fi
+    stage_src "$dir/$member"
+}
+
 make_bundle()
 {
     local dir="$1" name="$2" dst="$TOPDIR/SOURCES/$2"
@@ -314,8 +415,10 @@ make_bundle()
 
 stage_spec()
 {
-    local spec="$1" base name file stem log cfg dir bname
+    local spec="$1" base name file stem log cfg dir bname url sum
     local -A bundles=()
+    local -A urls=()
+    local -A rpms=()
     base="$(dirname "$spec")"
     stem="$(basename "${spec%.spec}")"
     log="$WORK/logs/${stem}.rpmspec.log"
@@ -330,10 +433,30 @@ stage_spec()
         [ -n "$bname" ] || continue
         bundles["$bname"]="$dir"
     done <<< "$cfg"
+    while read -r bname url sum; do
+        [ -n "$sum" ] || continue
+        urls["$bname"]="$url $sum"
+    done <<< "$(url_cfg "$spec")"
+    while read -r bname url sum; do
+        [ -n "$sum" ] || continue
+        rpms["$bname"]="$url $sum"
+    done <<< "$(rpm_cfg "$spec")"
     while IFS= read -r name; do
         name="$(basename "$name")"
         if [ -n "${bundles[$name]:-}" ]; then
             make_bundle "${bundles[$name]}" "$name"
+            continue
+        fi
+        if [ -n "${urls[$name]:-}" ]; then
+            read -r url sum <<< "${urls[$name]}"
+            FETCHED+=("$sum $name")
+            fetch_src "$name" "$url" "$sum"
+            continue
+        fi
+        if [ -n "${rpms[$name]:-}" ]; then
+            read -r url sum <<< "${rpms[$name]}"
+            FETCHED+=("$sum $name")
+            fetch_rpm "$name" "$url" "$sum"
             continue
         fi
         if ! file="$(find_src "$name" "$base" "${SRC_DIRS[@]}" \
@@ -455,6 +578,13 @@ write_manifest()
                 die "${E_IO}" "sha256sum 失败: $file"
             printf 'spec %s %s\n' "$sum" "$(basename "$file")"
         done < <(printf '%s\n' "${SPECS[@]}" | sort)
+        # 按 URL 取源的条目把摘要写进清单：发布后回答「这一版取了哪个上游
+        # tarball」不必回读配方注释，摘要与配方声明也在此对上同一行。
+        if [ "${#FETCHED[@]}" -gt 0 ]; then
+            while IFS= read -r file; do
+                printf 'src %s\n' "$file"
+            done < <(printf '%s\n' "${FETCHED[@]}" | sort -u)
+        fi
         while IFS= read -r file; do
             rel="${file#"$OUT_ABS"/}"
             sum="$(sum_of "$file")" ||
