@@ -81,6 +81,9 @@ install -m 0755 %{SOURCE1} %{buildroot}%{_libexecdir}/airymaxos/fw-flat.sh
 printf '%s\n' '%{kernel_abi}' \
     > %{buildroot}%{_datadir}/airymaxos/firmware/kernel-abi
 chmod 0644 %{buildroot}%{_datadir}/airymaxos/firmware/kernel-abi
+# 安装期自证日志所在目录。%%files 用 %%dir 声明它，rpmbuild 会在 buildroot
+# 里校验该路径存在；只在目标机 %%posttrans 里 mkdir 不够，构建期就直接失败。
+install -d -m 0755 %{buildroot}%{_localstatedir}/log/airymaxos
 
 %check
 # 清单是判定面唯一的输入，格式错会让门禁静默少判，故在这里逐行验形：
