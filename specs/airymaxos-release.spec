@@ -64,7 +64,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 14
+%global airy_release 15
 # 桌面版本随冻结点滚动，写在 /etc/airymaxos/desktop-version，供控制中心
 # 「关于」页读取。控制中心自己不猜版本：缺文件即只显示桌面名。此宏与
 # lockfile/ukui-components.yaml 的 ukui-control-center 版本由
@@ -609,11 +609,14 @@ test "${airy_rule}" = 'amuser ALL=(ALL) NOPASSWD: ALL'
 # 一致。残留的内核层回写会让静态名与运行名分叉，这里断言它不再被打包。
 ! test -e %{buildroot}%{_sysconfdir}/sysctl.d/99-airymax-hostname.conf
 # 锁屏策略：键名拼错或取值被改回 true 都不会让构建失败，只会在装机后以
-# 「每五分钟一次口令框」或「唤醒后取不掉的锁屏」的形式出现，所以三个锁定
-# 入口都要逐字断言。sleep-activation-enabled 与另两个键独立判定，只关两个
-# 键仍会在挂起唤醒时锁屏（0.0.4 的 285H 实机现象）。
+# 「每五分钟一次口令框」或「唤醒后取不掉的锁屏」的形式出现，所以四个锁定
+# 入口都要逐字断言。idle-activation-enabled 一关掉即不再拉起
+# ukui-screensaver-dialog --session-idle，这是 0.0.4 的 285H 复验结论；
+# sleep-activation-enabled 与另三个键独立判定，只关其中几个仍会在挂起唤醒
+# 时锁屏。
 airy_saver=%{buildroot}%{_sysconfdir}/dconf/db/local.d/00-airymax-screensaver
 grep -qxF '[org/ukui/screensaver]' "${airy_saver}"
+grep -qxF 'idle-activation-enabled=false' "${airy_saver}"
 grep -qxF 'idle-lock-enabled=false' "${airy_saver}"
 grep -qxF 'lock-enabled=false' "${airy_saver}"
 grep -qxF 'sleep-activation-enabled=false' "${airy_saver}"
@@ -891,6 +894,21 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Mon Nov 09 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-15
+- Stop the idle path from covering the desktop. 0.0.4-13 closed
+  idle-lock-enabled and lock-enabled, but org.ukui.screensaver
+  idle-activation-enabled was still true, and UKUI 3.1 does not show a
+  neutral picture for it: it launches ukui-screensaver-dialog
+  --session-idle, a screen shaped like the login prompt with the account
+  name and a login button. The 285H reproduced it every five idle
+  minutes; the dialog does not verify a password once the lock keys are
+  false, but it still takes the whole session until the user acts, which
+  reads as "the system locked itself again". Setting
+  idle-activation-enabled=false stops the dialog from being spawned at
+  all; verified on the machine by killing the dialog and observing that
+  no --session-idle process returned. DPMS blanking by ukui-power-manager
+  is untouched, manual locking still works, and %check now asserts all
+  four keys.
 * Mon Nov 09 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-14
 - Move the virtual console to a 16x32 font. The image ships
   latarcyrheb-sun16 (8x16), and on the 285H's 2880x1800 panel that lays

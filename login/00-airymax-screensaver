@@ -19,12 +19,20 @@
 # 锁定屏幕」，与另两个键各自独立判定。空口令账户在锁屏上无口令可输，
 # 于是挂起唤醒等于把机器锁死。三个锁定入口必须一并收敛，缺一即复发。
 #
-# 收敛范围：关「空闲锁定」「屏保激活即锁定」「睡眠即锁定」三个键。屏保
-# 画面本身（idle-activation-enabled）与 DPMS 省电策略不动；需要锁屏时仍可
-# 手动执行 ukui-screensaver-command -l。greeter 侧由 lightdm 的 autologin
-# 座位处理，不由本文件覆盖。
+# 为什么连「空闲激活」也一并关掉（0.0.4 285H 复验）：UKUI 3.1 的空闲激活
+# 不是一张中性的屏保画面，而是 ukui-screensaver-dialog --session-idle——一张
+# 与登录界面同形的对话，带用户头像与「登录」按钮。前两个键关掉后它不再校
+# 验口令（同账户可直接结束），但每次空闲 5 分钟仍会盖住桌面，用户看到的是
+# 「系统又锁上了」，必须先操作一次才能回到桌面。285H 实测：关闭
+# idle-activation-enabled 后再无 --session-idle 进程拉起，桌面保持可见。
+#
+# 收敛范围：关「空闲激活」「空闲锁定」「屏保激活即锁定」「睡眠即锁定」四
+# 个键。DPMS 省电（由 ukui-power-manager 的熄屏策略负责）不动，显示器照常
+# 熄灭；需要锁屏时仍可手动执行 ukui-screensaver-command -l。greeter 侧由
+# lightdm 的 autologin 座位处理，不由本文件覆盖。
 # ===========================================================================
 [org/ukui/screensaver]
+idle-activation-enabled=false
 idle-lock-enabled=false
 lock-enabled=false
 sleep-activation-enabled=false
