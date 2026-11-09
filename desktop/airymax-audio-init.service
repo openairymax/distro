@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
+# ===========================================================================
+# airymax-audio-init — 首次开机的声卡混音器初始化
+#
+# 只在 /var/lib/alsa/asound.state 不存在时执行，即首启一次。状态文件一旦
+# 落盘，用户音量由 alsa-state.service 保存与恢复，本单元不再介入；反过来，
+# 状态文件被清掉（重装、手工删除）时会重新初始化，这正是想要的行为。
+#
+# 触发点是 sound.target：上游 99-systemd.rules 在 controlC* 出现时投递
+# 该目标，声卡就绪才拉起本单元，不需要在主路径上轮询。Before=sound.target
+# 让初始化先于目标达成，After=alsa-state.service 保证顺序落在守护进程的
+# 一次恢复之后，避免两侧同时写混音器。图形会话晚于 sound.target，因此
+# PulseAudio 首次读到的就是初始化后的值。
+# ===========================================================================
+[Unit]
+Description=AirymaxOS first-boot sound card initialization
+Documentation=https://atomgit.com/openairymax/agent-linux
+ConditionPathExists=!/var/lib/alsa/asound.state
+After=alsa-state.service
+Before=sound.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/airymaxos/desktop/audio_init.sh
+# 健康路径只写 journal，console 留给九阶段打印；失败标记由脚本写 stderr，
+# 这里放行到 console，卡在"没有声音"时现场就能看到归因行。
+StandardOutput=journal
+StandardError=journal+console
+TimeoutStartSec=30
+
+[Install]
+WantedBy=sound.target

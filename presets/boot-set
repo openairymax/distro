@@ -72,6 +72,12 @@ airy-disk-health.timer
 # 升级通道：不启用则装完即静默失效，从任何服务状态都看不出来。
 airymax-update-check.timer
 
+# 首启音频初始化：HDA 功放上电停在索引 0（Master 0/87，-65 dB，开关 off），
+# 上游初始化数据库只白名单两台笔记本，alsa-state 在状态文件缺失时又不初始化，
+# 于是首启的静音被固化成 asound.state 与 PulseAudio 的 0%/muted。不启用时症状
+# 是"开箱没声音"，从任何服务状态都看不出来，且跨重启自愈不了。
+airymax-audio-init.service
+
 # 上游单元：被兜底 preset 关掉后，症状是「蓝牙不可用」「音频爆音」这类
 # 功能不好用，而不是启动失败。
 bluetooth.service
