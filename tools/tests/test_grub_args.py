@@ -117,7 +117,8 @@ class GrubArgsTest(unittest.TestCase):
         res = self.apply()
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
         self.assertEqual(self.cmdline(),
-                         "console=ttyS0,115200 console=tty0 rhgb quiet")
+                         "console=ttyS0,115200 console=tty0 loglevel=5 "
+                         "plymouth.enable=0")
         self.assertEqual(self.prober(), "true")
         self.assertIn("updated:", res.stdout)
 
@@ -130,7 +131,8 @@ class GrubArgsTest(unittest.TestCase):
                              'console=ttyS0,115200"')
         self.apply(body=body)
         self.assertEqual(self.cmdline(),
-                         "console=ttyS0,115200 console=tty0 rhgb quiet")
+                         "console=ttyS0,115200 console=tty0 loglevel=5 "
+                         "plymouth.enable=0")
 
     def test_ghost_console_dropped(self):
         # 现场手工加进去的 ARM64 控制台在 x86_64 上是幽灵项，抢占 /dev/console
@@ -140,7 +142,8 @@ class GrubArgsTest(unittest.TestCase):
                              'console=ttyAMA0,115200 console=tty0"')
         self.apply(body=body)
         self.assertEqual(self.cmdline(),
-                         "console=ttyS0,115200 console=tty0 rhgb quiet")
+                         "console=ttyS0,115200 console=tty0 loglevel=5 "
+                         "plymouth.enable=0")
 
     def test_other_lines_kept(self):
         self.apply()
@@ -183,7 +186,8 @@ class GrubArgsTest(unittest.TestCase):
         # 手改过的文件可能没有引号；生成器读不出这种行，必须归一化
         self.apply(body='GRUB_TIMEOUT=3\nGRUB_CMDLINE_LINUX=console=tty0\n')
         self.assertEqual(self.cmdline(),
-                         "console=ttyS0,115200 console=tty0 rhgb quiet")
+                         "console=ttyS0,115200 console=tty0 loglevel=5 "
+                         "plymouth.enable=0")
         self.assertNotIn("GRUB_CMDLINE_LINUX=console", self.text())
 
     def test_commented_prober_replaced(self):
@@ -202,7 +206,8 @@ class GrubArgsTest(unittest.TestCase):
             'GRUB_CMDLINE_LINUX="console=ttyS0,115200 console=tty0"\n', "")
         self.apply(body=body)
         self.assertEqual(self.cmdline(),
-                         "console=ttyS0,115200 console=tty0 rhgb quiet")
+                         "console=ttyS0,115200 console=tty0 loglevel=5 "
+                         "plymouth.enable=0")
 
     def test_extra_arg_replaces_set(self):
         # --append 是「替换附加参数集合」，控制台仍在最前由常量给出
@@ -233,8 +238,31 @@ class GrubArgsTest(unittest.TestCase):
         self.write()
         res = self.check()
         self.assertEqual(res.returncode, 1)
-        self.assertIn("missing: rhgb", res.stdout)
-        self.assertIn("missing: quiet", res.stdout)
+        self.assertIn("missing: loglevel=5", res.stdout)
+        self.assertIn("missing: plymouth.enable=0", res.stdout)
+
+    def test_stale_splash_args_dropped(self):
+        # merge 只补不删：升级机器上旧画面参数一定还在文件里，留着它们等于
+        # 把屏幕重新交给 splash 与 quiet，同一份配置出现两种观感。
+        body = STOCK.replace('GRUB_CMDLINE_LINUX="console=ttyS0,115200 '
+                             'console=tty0"',
+                             'GRUB_CMDLINE_LINUX="console=ttyS0,115200 '
+                             'console=tty0 rhgb quiet"')
+        self.apply(body=body)
+        self.assertEqual(self.cmdline(),
+                         "console=ttyS0,115200 console=tty0 loglevel=5 "
+                         "plymouth.enable=0")
+
+    def test_check_rejects_stale_args(self):
+        body = STOCK.replace('GRUB_CMDLINE_LINUX="console=ttyS0,115200 '
+                             'console=tty0"',
+                             'GRUB_CMDLINE_LINUX="console=ttyS0,115200 '
+                             'console=tty0 rhgb quiet loglevel=5 '
+                             'plymouth.enable=0"')
+        self.write(body)
+        res = self.check()
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("stale: rhgb", res.stdout)
 
     def test_check_prober_off(self):
         body = STOCK.replace("#GRUB_DISABLE_OS_PROBER=true",
@@ -323,7 +351,8 @@ class GrubArgsTest(unittest.TestCase):
         self.assertIn("regenerated:", res.stdout)
         state = self.state.read_text(encoding="utf-8")
         self.assertIn("cfg=" + str(cfg), state)
-        self.assertIn("args=console=ttyS0,115200 console=tty0 rhgb quiet",
+        self.assertIn("args=console=ttyS0,115200 console=tty0 loglevel=5 "
+                      "plymouth.enable=0",
                       state)
 
     def test_regen_failure_keeps_previous(self):

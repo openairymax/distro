@@ -26,9 +26,11 @@
 #   8. %%post 只执行装配后才能确定的运行期动作：编译 glib schema、屏蔽桌面
 #      自带 AI 控制面单元、在运行中的系统上重载 systemd。
 #   9. 声明默认启动画面主题：以 /usr/share/plymouth/themes/default.plymouth
-#      符号链接指向 tribar，kickstart 的 rhgb 因此有画面可显示。不改
-#      /etc/plymouth/plymouthd.conf 与 plymouthd.defaults——两者都归
-#      plymouth 包，同名文件被两个包同时持有会让安装事务整体失败。
+#      符号链接指向 tribar。0.0.4 的启动路径用 plymouth.enable=0 关掉了
+#      plymouth（见 grub_args.sh 头部），主题因此只是随镜像待命；日后 KMS
+#      覆盖到位、去掉那个参数即生效。不改 /etc/plymouth/plymouthd.conf 与
+#      plymouthd.defaults——两者都归 plymouth 包，同名文件被两个包同时持有
+#      会让安装事务整体失败。
 #  10. 部署网络全局策略 /etc/NetworkManager/conf.d/99-airymax.conf：桌面
 #      形态的 DNS 管理与连通性探测口径，与镜像的包闭包成对断言。
 #
@@ -623,13 +625,14 @@ grep -qxF '[ -d /sys/firmware/efi ] || skip "no efivarfs (BIOS boot)"' \
 grep -qF 'efibootmgr -o "${order}"' \
     %{buildroot}/usr/lib/airymaxos/boot/efi_brand.sh
 # 启动参数持久化：bootloader --append 只进安装器本次生成的 grub.cfg，不进
-# /etc/default/grub，此后每次 grub2-mkconfig 都会把 rhgb quiet 丢掉（真机
+# /etc/default/grub，此后每次 grub2-mkconfig 都会把 append 的内容丢掉（真机
 # B50 的 /proc/cmdline 已复现）。控制台顺序同理：/dev/console 落在命令行里
 # 最后一个 console= 上，旧顺序把 VT 让给了串口，systemd-vconsole-setup 在
 # 285H 上因此每个启动周期失败。这里用 --no-regen 在临时文件上跑一遍改写，
-# 断言「补参数、去重、覆盖注释行、控制台按序重放、菜单停留时间归一化、幂等、
-# check 通过」。夹具里的 GRUB_TIMEOUT 取安装器的默认值，改写的目的是证明
-# 它会收敛到脚本常量，而不是复述常量本身。
+# 断言「补参数、去重、覆盖注释行、控制台按序重放、摘掉旧画面参数、菜单停留
+# 时间归一化、幂等、check 通过」。夹具里的 GRUB_TIMEOUT 取安装器的默认值，
+# 命令行里的 quiet 是升级机器上必然还留着的旧画面参数，改写的目的是证明两
+# 者都会收敛到脚本常量，而不是复述常量本身。
 sh -n %{buildroot}/usr/lib/airymaxos/boot/grub_args.sh
 airy_args=%{buildroot}/usr/lib/airymaxos/boot/grub_args.sh
 airy_tmp=$(mktemp -d)
@@ -637,7 +640,7 @@ printf 'GRUB_TIMEOUT=3\nGRUB_CMDLINE_LINUX="console=tty0 quiet"\n#GRUB_DISABLE_O
     >"${airy_tmp}/grub"
 "${airy_args}" --defaults "${airy_tmp}/grub" --no-regen >/dev/null
 grep -qxF 'GRUB_TIMEOUT=1' "${airy_tmp}/grub"
-grep -qxF 'GRUB_CMDLINE_LINUX="console=ttyS0,115200 console=tty0 quiet rhgb"' \
+grep -qxF 'GRUB_CMDLINE_LINUX="console=ttyS0,115200 console=tty0 loglevel=5 plymouth.enable=0"' \
     "${airy_tmp}/grub"
 grep -qxF 'GRUB_DISABLE_OS_PROBER=true' "${airy_tmp}/grub"
 airy_sum=$(sha256sum <"${airy_tmp}/grub")

@@ -50,10 +50,12 @@ repo --name=airymaxos-offline --baseurl=file:///run/install/repo/airymax/Package
 # 故障恢复（install-test.sh 依赖 login: 哨兵）。只给串口时真机故障即黑屏，
 # 现场无从取证；只给 tty0 时无头验收看不到任何输出。
 #
-# rhgb quiet 把本地屏幕交给 plymouth 启动画面，不再逐行滚动内核日志。
-# quiet 只压到 loglevel 4：告警以上仍打印，全部消息照样进 journal 与
-# ttyS0（安装验收依赖的 login: 哨兵来自 agetty，不受影响）。按 Esc 或
-# 删掉这两个参数即可回到逐行日志，现场排障不需要重装。
+# 0.0.4 起本地屏幕逐行打印内核与 systemd 日志，不再有启动画面。
+# plymouth.enable=0 让 plymouth 的单元条件失配；285H 实测这条路径上的
+# plymouth-read-write 是 oneshot，不设时限时默认就是无限，plymouthd 不应答
+# 即永久阻塞 sysinit.target，屏幕停在最后一行、SSH 也不上线。loglevel=5
+# 保留 info 级消息、压掉 debug：告警以上照常打印，卡住时能看出停在哪一步。
+# 两路日志仍然都在：屏幕与外接串口同时收到内核与 systemd 的输出。
 #
 # 顺序是语义：kernel 把 /dev/console 路由到命令行里最后一个 console=。
 # 串口在前、tty0 在后，/dev/console 才是 VT；反过来（0.0.3 的写法）在
@@ -72,7 +74,7 @@ repo --name=airymaxos-offline --baseurl=file:///run/install/repo/airymax/Package
 # 覆盖首启，%post 会把它归一化为 1 秒。285H 冷启动实测 loader 段 3.78s，
 # 其中 3s 是默认停留且不产出任何信息。两处不同步时，只要 grub2-mkconfig
 # 再跑一次（内核升级、grub2 包升级）就回退到长停留。
-bootloader --timeout=1 --append="console=ttyS0,115200 console=tty0 rhgb quiet"
+bootloader --timeout=1 --append="console=ttyS0,115200 console=tty0 loglevel=5 plymouth.enable=0"
 
 # ---- 分区作用域（真机缺陷 D-33）----
 # 安装器没有「自动」盘名：clearpart --all + autopart 会把每一块可用磁盘都
@@ -186,9 +188,9 @@ airymaxos-kernel-devel
 # 系统编排单元与首启脚本（airymaxos-system）：随镜像落盘但不在此启用，
 # 启用边界见 %post 注释
 airymaxos-system
-# 启动画面（bootloader 行的 rhgb）：plymouth 只被桌面闭包间接依赖，
-# 闭包一调整就会静默消失，rhgb 随即退化为黑屏。显式列出，让「有画面」
-# 成为配方自身可判定的性质。
+# plymouth 与主题仍随镜像落盘：启动路径已经用 plymouth.enable=0 关掉它，
+# 但闭包里的其他包可能把它间接带回来；显式列出使「装着但不参与启动」成为
+# 配方自身可判定的性质，也让日后 KMS 覆盖到位时只需去掉一个内核参数。
 plymouth
 
 # 内核与发行版标识唯一：上游包组（@core 及其派生）携带 kernel、
@@ -208,7 +210,7 @@ plymouth
 
 # ---- 安装后脚本 ----
 # 两个收尾步骤都必须在目标根内执行，且顺序固定：
-#   1. grub_args.sh 把 rhgb quiet 与 GRUB_DISABLE_OS_PROBER 写进
+#   1. grub_args.sh 把启动参数与 GRUB_DISABLE_OS_PROBER 写进
 #      /etc/default/grub 并重建 grub.cfg。bootloader --append 只作用于
 #      安装器本次生成的 grub.cfg，anaconda 不写 /etc/default/grub，此后
 #      任何一次 grub2-mkconfig 都会丢掉启动参数（真机 B50 已复现）。
@@ -249,9 +251,9 @@ done
 export ANA_INSTALL_PATH="${root}"
 airy_keep || exit 1
 # 固件只决定 ESP 品牌化，不决定启动参数：参数落在 /etc/default/grub，两条
-# 腿写法相同。把整段按固件提前退出，非 EFI 装机就永远拿不到 rhgb quiet 与
-# 关闭的 os-prober，装完第一次 grub2-mkconfig 即退回逐行滚日志——BIOS 腿
-# 的冒烟 T15 正是这么失败的。
+# 腿写法相同。把整段按固件提前退出，非 EFI 装机就永远拿不到启动参数与关闭
+# 的 os-prober，装完第一次 grub2-mkconfig 即退回未收敛状态——BIOS 腿的冒烟
+# T15 正是这么失败的。
 uefi=0
 if [ -d /sys/firmware/efi ]; then
     uefi=1

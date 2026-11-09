@@ -87,11 +87,11 @@ systemctl --root=/ enable airymax-smoke-report.service
 #     永远不会执行，正是最需要证据的那一类故障。
 systemctl --root=/ enable airymax-alive.timer
 
-# 7) 冷启动取证面：产品默认把内核口压到 loglevel 4，验收镜像要能回答
+# 7) 冷启动取证面：产品默认在 loglevel 5 上逐行打印，验收镜像还要回答
 #    「卡在哪」。三处缺口各补一层，只动本夹具，不进产品配方：
-#    a) 内核口放开——去掉 quiet/rhgb 并加 ignore_loglevel，让 dmesg、
+#    a) 内核口放开——去掉 loglevel=5 并加 ignore_loglevel，让 debug 级、
 #       hung task、NMI watchdog 这类内核侧事实直接落串口。启动失败常常
-#       发生在用户态之前，静默的内核口等于没有证据。
+#       发生在用户态之前，被压掉的那一级等于没有证据。
 #    b) journald 转发到串口——登录管理器、X 服务器、桌面会话的日志由
 #       各自进程写 journal，systemd 作业表没有新行时串口就静止；转发后
 #       即使 PID1 不再打印状态，串口仍能看到它们发出的最后一行。
@@ -113,7 +113,7 @@ systemctl --root=/ enable airymax-alive.timer
 #    会以「启动日志很安静」的形式暴露，而不是让验收镜像装不完。
 command -v grubby >/dev/null 2>&1 &&
     grubby --update-kernel=ALL \
-        --remove-args="quiet rhgb" \
+        --remove-args="quiet rhgb loglevel=5" \
         --args="ignore_loglevel systemd.show_status=yes" >/dev/null || :
 
 install -d -m 0755 /etc/systemd/journald.conf.d

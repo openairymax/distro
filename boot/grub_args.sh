@@ -11,9 +11,21 @@
 # 为什么需要这一步：kickstart 的 bootloader --append 只作用于安装器本次生成
 # 的 grub.cfg，anaconda 不把它写进 /etc/default/grub。此后任何一次
 # grub2-mkconfig（内核升级、grub2 包升级、手工重建）都以 /etc/default/grub
-# 为唯一输入，启动画面参数随即消失，表现为「装好有画面，升级一次又逐行滚
-# 日志」。真机 B50 取证：/proc/cmdline 缺 rhgb quiet，且 grub.cfg 的 linux
-# 行与 /etc/default/grub 完全一致——缺失发生在生成期，不是运行期。
+# 为唯一输入，append 的参数随即消失，表现为「装好时参数在，升级一次全丢」。
+# 真机 B50 取证：/proc/cmdline 与 grub.cfg 的 linux 行逐字一致，但都缺
+# 安装器 append 的内容——缺失发生在生成期，不是运行期。
+#
+# 为什么本地屏幕逐行打印而不是启动画面：0.0.4 关闭 plymouth。285H 实测
+# （2026-11-09）冷启动停在 "Tell Plymouth To Write Out Runtime Data"：
+# 该单元 Type=oneshot，而 oneshot 不设 TimeoutStartSec 时默认就是 infinity，
+# plymouthd 不应答即无界阻塞 sysinit.target，网络栈与 SSH 一起不上线，屏幕
+# 停在最后一行不再变化，现场无从判断卡在哪一步。同一台机器更早一次启动该
+# 单元 15ms 完成——故障是间歇的，不是必现的配置错误。该机 iGPU 无 KMS，
+# plymouth 只能在 simpledrm 的 2880x1800 上绘制，画面本身也不可用。
+# plymouth.enable=0 让 plymouth-start.service 的条件失配，启动路径上再没有
+# 任何 plymouth 单元；loglevel=5 保留 info 级消息、压掉 debug，内核与
+# systemd 的阶段行都留在屏幕上。装着的 plymouth 与主题不动，等 KMS 覆盖
+# 到位再谈画面。
 #
 # 为什么控制台集合也由本脚本持有：kernel 把 /dev/console 路由到命令行里
 # 最后一个 console=，因此顺序本身就是语义。0.0.3 的安装器把 tty0 写在前面，
@@ -63,7 +75,11 @@ cfg=
 etc=/etc
 state=/var/lib/airymaxos/grub-args
 consoles='ttyS0,115200 tty0'
-args='rhgb quiet'
+args='loglevel=5 plymouth.enable=0'
+# 旧版本写进命令行的画面参数。merge 只补不删，升级机器上它们一定还在；
+# 不在这里摘掉，同一份配置在全新安装与升级两条路径上会得到两种观感——
+# 前者逐行打印，后者被 splash 与 quiet 重新藏起来。
+stale='rhgb quiet'
 timeout=1
 mkconfig=grub2-mkconfig
 font=
@@ -179,6 +195,11 @@ verify()
         note "missing: ${tok}"
         rc=1
     done
+    for tok in ${stale}; do
+        case " ${line} " in
+        *" ${tok} "*) note "stale: ${tok}"; rc=1 ;;
+        esac
+    done
     check_consoles "${line}" || rc=1
     [ "$(read_prober)" = true ] || {
         note 'GRUB_DISABLE_OS_PROBER is not true'
@@ -232,14 +253,16 @@ edit()
 {
     local tmp="${defaults}.airy-tmp"
     awk -v add="${args}" -v cons="${consoles}" -v tout="${timeout}" \
-        -v prober=true '
+        -v prober=true -v drop="${stale}" '
     # 旧 console= 全部摘掉：它们的顺序与集合都属于上一次安装或手工改动，
-    # 保留任何一个都可能抢走 /dev/console。
+    # 保留任何一个都可能抢走 /dev/console。stale 里的旧画面参数同理——它们
+    # 与新策略直接冲突，留着等于没改。
     function nocons(v,   i, n, out, tok) {
         n = split(v, tok, /[[:space:]]+/)
         out = ""
         for (i = 1; i <= n; i++) {
             if (tok[i] == "" || tok[i] ~ /^console=/) continue
+            if (index(" " drop " ", " " tok[i] " ") > 0) continue
             out = (out == "" ? tok[i] : out " " tok[i])
         }
         return out

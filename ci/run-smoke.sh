@@ -41,7 +41,7 @@
 #   T12 免密提权：交付账户能以 NOPASSWD 完成一次非交互提权
 #   T13 免密桌面：空闲锁屏关闭，交付账户在 nopasswdlogin 组内
 #   T14 运行期软件源：已安装系统的每个启用段都指向可解析的基底镜像
-#   T15 启动参数：/etc/default/grub 持有 rhgb quiet，os-prober 已关闭
+#   T15 启动参数：/etc/default/grub 持有 loglevel=5 plymouth.enable=0，os-prober 已关闭
 #   T16 观测工具：airy-bench / airy-observe / airy-demo 随镜像交付且自检为 ok
 #   T17 系统盘布局：/ 与 /data 各挂在一个分区上，且不是同一个分区
 #   T18 构建来源：os-release 的 BUILD_ID 与 /etc/airymaxos-build 逐字相同，
@@ -799,8 +799,10 @@ t14_repos() {
 # 「装完有启动画面、升级一次又逐行滚日志」，所以在默认文件上判定；同时
 # 断言 os-prober 已关闭，否则同盘其他发行版的内核会并进本产品菜单。
 #
-# 期望按剖面分：桌面剖面要 rhgb quiet，最小剖面不要——那会把无图形系统唯一
-# 可用的串口日志藏进 splash。剖面按显示管理器是否在位判定。
+# 期望按剖面不再分叉：0.0.4 起启动路径上没有 plymouth，两个剖面都要求
+# plymouth.enable=0 与 loglevel=5，并把 rhgb/quiet 判为未收敛。桌面剖面过去
+# 独有的 rhgb quiet 正是把启动信息藏起来的那条路径——285H 卡在 plymouth 的
+# oneshot 单元上时，屏幕既没有进展也没有原因。
 #
 # 控制台顺序一并判定：/dev/console 落在命令行里最后一个 console= 上。
 # 285H 现场的 "tty0 ttyS0" 让 VT 让位给串口，systemd-vconsole-setup 锁不住
@@ -843,18 +845,25 @@ t15_boot_args() {
     }
     line=$(sed -n 's/^GRUB_CMDLINE_LINUX="\(.*\)"$/\1/p' "${file}" |
         head -n 1)
-    # 启动画面参数只属于桌面剖面：最小剖面不装图形，rhgb quiet 只会把唯一
-    # 可用的串口日志藏起来。剖面按显示管理器是否在位判定，与配方里的差异
-    # 同源；两个剖面共同要求的是控制台集合与菜单范围（D-30）。
-    if [ -e "${SYSROOT}/usr/bin/lightdm" ]; then
-        for tok in rhgb quiet; do
-            case " ${line} " in
-            *" ${tok} "*) continue ;;
-            esac
-            printf '%s: GRUB_CMDLINE_LINUX lacks %s\n' "${file}" "${tok}"
+    # 逐行日志是产品口径，不随剖面变化：两个剖面都要 plymouth.enable=0 与
+    # loglevel=5，任何一处缺失都说明安装末期的 grub_args.sh 没跑到。
+    for tok in loglevel=5 plymouth.enable=0; do
+        case " ${line} " in
+        *" ${tok} "*) continue ;;
+        esac
+        printf '%s: GRUB_CMDLINE_LINUX lacks %s\n' "${file}" "${tok}"
+        return 1
+    done
+    # 旧画面参数留在文件里等于没改：grub_args.sh 收敛时摘掉，这里兜住回归。
+    for tok in rhgb quiet; do
+        case " ${line} " in
+        *" ${tok} "*)
+            printf '%s: GRUB_CMDLINE_LINUX still carries %s\n' \
+                "${file}" "${tok}"
             return 1
-        done
-    fi
+            ;;
+        esac
+    done
     cons_check "${line}" GRUB_CMDLINE_LINUX || return 1
     t15_brand_cfg || return 1
     grep -qxF 'GRUB_DISABLE_OS_PROBER=true' "${file}" || {
