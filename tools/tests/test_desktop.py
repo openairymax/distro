@@ -408,7 +408,8 @@ class DesktopAssetTest(unittest.TestCase):
                 continue
             key, _, value = line.partition("=")
             keys[key] = value
-        self.assertEqual(keys, {"idle-lock-enabled": "false",
+        self.assertEqual(keys, {"idle-activation-enabled": "false",
+                                "idle-lock-enabled": "false",
                                 "lock-enabled": "false",
                                 "sleep-activation-enabled": "false"})
         self.assertIn("[org/ukui/screensaver]", text)
