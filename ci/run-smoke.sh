@@ -711,6 +711,17 @@ t13_passwordless_desktop() {
             echo "lock-enabled not disabled in ${f}"
             return 1
         }
+        # 空闲激活与睡眠锁定是另外两个独立入口：285H 实测只关前两个键时，
+        # 空闲 5 分钟仍会拉起 ukui-screensaver-dialog 盖住桌面，合盖唤醒则
+        # 停在锁屏问句。四个键必须在镜像上同时为 false，缺一即复发。
+        grep -qxF 'idle-activation-enabled=false' "${f}" || {
+            echo "idle-activation-enabled not disabled in ${f}"
+            return 1
+        }
+        grep -qxF 'sleep-activation-enabled=false' "${f}" || {
+            echo "sleep-activation-enabled not disabled in ${f}"
+            return 1
+        }
         echo "screensaver policy ok (offline check)"
         return 0
     fi
@@ -719,6 +730,10 @@ t13_passwordless_desktop() {
         "lock-enabled" || return 1
     expect "$(dconf read /org/ukui/screensaver/idle-lock-enabled 2>&1)" false \
         "idle-lock-enabled" || return 1
+    expect "$(dconf read /org/ukui/screensaver/idle-activation-enabled 2>&1)" false \
+        "idle-activation-enabled" || return 1
+    expect "$(dconf read /org/ukui/screensaver/sleep-activation-enabled 2>&1)" false \
+        "sleep-activation-enabled" || return 1
     id -nG amuser 2>/dev/null | tr ' ' '\n' | grep -qxF nopasswdlogin || {
         echo "amuser not in nopasswdlogin"
         return 1

@@ -455,7 +455,9 @@ class RunSmokeTest(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("[org/ukui/screensaver]\n"
                         "idle-lock-enabled=false\n"
-                        "lock-enabled=false\n", encoding="utf-8")
+                        "lock-enabled=false\n"
+                        "idle-activation-enabled=false\n"
+                        "sleep-activation-enabled=false\n", encoding="utf-8")
         return path
 
     def write_esp(self):
