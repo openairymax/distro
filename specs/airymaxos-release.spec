@@ -490,8 +490,12 @@ grep -qxF 'After=alsa-state.service' \
     %{buildroot}%{_unitdir}/airymax-audio-init.service
 bash -n %{buildroot}/usr/lib/airymaxos/desktop/audio_init.sh
 test -x %{buildroot}/usr/lib/airymaxos/desktop/audio_init.sh
-grep -qF '" init "' %{buildroot}/usr/lib/airymaxos/desktop/audio_init.sh
-grep -qF '" store"' %{buildroot}/usr/lib/airymaxos/desktop/audio_init.sh
+# 断言取调用点本身：脚本里是 `"${ALSACTL}" init` 与 `"${ALSACTL}" store`，
+# 命令行中没有引号。此前写成 '" store"'（引号参与匹配）永不成立，把正确实现
+# 判成红的，整轮组装停在 %check（run 42578858068）。子命令两侧的空格是
+# 唯一的可匹配锚点。
+grep -qF ' init ' %{buildroot}/usr/lib/airymaxos/desktop/audio_init.sh
+grep -qF ' store ' %{buildroot}/usr/lib/airymaxos/desktop/audio_init.sh
 test -r %{buildroot}/usr/lib/airymaxos/desktop/boot_state.sh
 # 录屏与观察点：实现是 POSIX sh，用 sh -n 断言而不是 bash -n，否则一份
 # dash 下不可执行的脚本会被构建期放过。
