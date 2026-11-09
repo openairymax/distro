@@ -146,7 +146,7 @@ sh -n "${flat}"
 # 作为本包的文件声明，同一路径会被两个包持有，dnf 事务直接失败。
 #
 # 每次调用把自证行追加到 /var/log/airymaxos/firmware-flat.log。0.0.4-2 的
-# 验收（run 42527984078）里目标系统固件根没有任何扁平入口，而 %posttrans 的
+# 验收（run 42527984078）里目标系统固件根没有任何扁平入口，而 %%posttrans 的
 # stdout 不进 install.log、清单又没随证据采集，只能靠「入口不存在」反推本节
 # 跑没跑——这正是 W-N1「失败必须自证」缺的半边。落盘后 T26 的失败行直接带
 # 安装期事实（flat=/miss=/fail=）。
@@ -173,7 +173,7 @@ exit 0
 %ghost %{_localstatedir}/log/airymaxos/firmware-flat.log
 
 %changelog
-* Sun Nov 09 2026 SPHARX <dev@spharx.com> - 0.0.4-3
+* Mon Nov 09 2026 SPHARX <dev@spharx.com> - 0.0.4-3
 - firmware：%%posttrans 的自证行落盘 /var/log/airymaxos/firmware-flat.log。
   0.0.4-2 的验收（run 42527984078）里目标系统固件根没有扁平入口，但
   install.log 只留安装器 %%pre 的输出，本节跑没跑、跑出什么无从判断；
