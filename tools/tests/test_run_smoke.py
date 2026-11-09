@@ -76,9 +76,9 @@ HOSTNAME = "airymax-pc"
 # 构建来源指纹：同一版本号会随每次提交产出不同镜像，T18 要求 os-release 的
 # BUILD_ID 与 /etc/airymaxos-build 逐字相同。
 BUILD_ID = "r12345678-g0a1b2c3d4e5f"
-# 两层展示名：NAME 是人读的完整名（可含中文），PRETTY_NAME 是 ASCII 短名 +
-# 版本号，T9 判定的是二者的派生不变式而不是具体字符串。
-OS_RELEASE = ('NAME="OpenAirymax 开源极境"\n'
+# 品牌串全 ASCII：NAME 进 GRUB 菜单标题（unicode.pf2 无 CJK 字形），
+# PRETTY_NAME 进 ISO 卷标与 /etc/issue；T9 判定的是不变式而非具体字符串。
+OS_RELEASE = ('NAME="OpenAirymax"\n'
               'VERSION="0.0.4 (OpenAirymax)"\n'
               "ID=airymaxos\n"
               'VERSION_ID="0.0.4"\n'
@@ -1001,12 +1001,23 @@ class RunSmokeTest(unittest.TestCase):
 
     def test_brand_name_is_base(self):
         self.tools()
-        # NAME 允许含中文，但词根必须与 PRETTY_NAME 的短名同源；底座名直接判
-        # 失败，避免只改 os-release 一处就蒙过品牌面。
-        self.write_osrel(OS_RELEASE.replace("OpenAirymax 开源极境", "openEuler"))
+        # NAME 的词根必须与 PRETTY_NAME 的短名同源；底座名直接判失败，避免
+        # 只改 os-release 一处就蒙过品牌面。
+        self.write_osrel(OS_RELEASE.replace('NAME="OpenAirymax"',
+                                            'NAME="openEuler"'))
         res = self.run_smoke()
         self.assert_fail(res, 9)
         self.assertIn("os-release NAME: openEuler", res.stdout)
+
+    def test_brand_name_not_ascii(self):
+        self.tools()
+        # NAME 被 grub 的 10_linux 原样写进菜单标题，而 unicode.pf2 没有 CJK
+        # 字形，中文在引导菜单上整段不显示；该通道只收 ASCII。
+        self.write_osrel(OS_RELEASE.replace('NAME="OpenAirymax"',
+                                            'NAME="OpenAirymax 开源极境"'))
+        res = self.run_smoke()
+        self.assert_fail(res, 9)
+        self.assertIn("want ASCII", res.stdout)
 
     def test_brand_pretty_no_version(self):
         self.tools()
@@ -1020,8 +1031,8 @@ class RunSmokeTest(unittest.TestCase):
 
     def test_brand_pretty_not_ascii(self):
         self.tools()
-        # 短名要进引导菜单、ISO 卷标与 NVRAM，全是非 UTF-8 通道；中文名只允许
-        # 出现在 NAME。
+        # 短名要进引导菜单、ISO 卷标与 NVRAM，全是非 UTF-8 通道；os-release
+        # 的两个名字键都只收 ASCII。
         self.write_osrel(OS_RELEASE.replace('PRETTY_NAME="OpenAirymax 0.0.4"',
                                             'PRETTY_NAME="开源极境 0.0.4"'))
         res = self.run_smoke()
