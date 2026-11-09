@@ -107,18 +107,19 @@ enabled=0
 gpgcheck=0
 """
 
-# T15 的引导默认文件形态：安装期由 grub_args.sh 补齐参数、关闭 os-prober，
-# 并把菜单停留时间归一到 1 秒。
+# T15 的引导默认文件形态：安装期由 grub_args.sh 补齐参数、摘掉旧画面参数、
+# 关闭 os-prober，并把菜单停留时间归一到 1 秒。两个剖面（桌面/最小）在
+# 参数集合上一致：0.0.4 不再用启动画面遮蔽阶段行。
 GRUB_DEFAULTS = """\
 GRUB_TIMEOUT=1
 GRUB_DEFAULT=saved
-GRUB_CMDLINE_LINUX="console=ttyS0,115200 console=tty0 rhgb quiet"
+GRUB_CMDLINE_LINUX="console=ttyS0,115200 console=tty0 loglevel=5 plymouth.enable=0"
 GRUB_DISABLE_OS_PROBER=true
 """
 
 # T22 的本次启动命令行：与默认文件同源才是收敛后的形态。
 CMDLINE = ("BOOT_IMAGE=/vmlinuz-6.6.157-alk console=ttyS0,115200 "
-           "console=tty0 rhgb quiet\n")
+           "console=tty0 loglevel=5 plymouth.enable=0\n")
 
 # T17 的挂载视图与块层表：/ 与 /data 各占一个分区。挂载视图每行
 # 「挂载点|源」（与 fakes.FINDMNT 一致），块层表格式由 fakes.LSBLK 定义
@@ -558,8 +559,8 @@ class RunSmokeTest(unittest.TestCase):
         fakes.link_tools(self.bin)
         fakes.smoke_tools(self.bin, omit)
         self.contest(omit)
-        # 沙箱默认代表桌面剖面：显示管理器在位，T15 因此要求 rhgb quiet。
-        # 最小剖面用 set_profile(False) 摘掉它，只查控制台与菜单范围（D-30）。
+        # T15 的期望与剖面无关：逐行日志是两个剖面共同的产品口径，显示
+        # 管理器在不在都不改它。
         self.set_profile()
 
     def set_profile(self, desktop=True):
@@ -1237,8 +1238,8 @@ class RunSmokeTest(unittest.TestCase):
         self.tools()
         res = self.run_smoke()
         self.assertIn("ok 15 - T15 durable boot arguments", res.stdout)
-        self.assertIn('args="console=ttyS0,115200 console=tty0 rhgb quiet"',
-                      res.stdout)
+        self.assertIn('args="console=ttyS0,115200 console=tty0 loglevel=5'
+                      ' plymouth.enable=0"', res.stdout)
 
     def test_boot_args_console_order(self):
         # /dev/console 取最后一个 console=；tty0 必须在末位，否则
@@ -1273,31 +1274,42 @@ class RunSmokeTest(unittest.TestCase):
         self.assertIn("brand grub.cfg differs from the generated one",
                       res.stdout)
 
-    def test_boot_args_no_rhgb(self):
-        # 参数缺失的现场：图形启动画面消失，开机逐行滚日志
+    def test_boot_args_no_loglevel(self):
+        # 内核口压低到 warning 的现场：启动阶段行消失，卡住时屏幕静止
         self.tools()
-        self.write_grub(GRUB_DEFAULTS.replace(" rhgb", ""))
+        self.write_grub(GRUB_DEFAULTS.replace(" loglevel=5", ""))
         res = self.run_smoke()
         self.assert_fail(res, 15)
-        self.assertIn("GRUB_CMDLINE_LINUX lacks rhgb", res.stdout)
+        self.assertIn("GRUB_CMDLINE_LINUX lacks loglevel=5", res.stdout)
 
-    def test_boot_args_no_quiet(self):
+    def test_boot_args_no_plymouth(self):
+        # 未关 plymouth：oneshot 的写回单元无界等待即卡死 sysinit（285H）
         self.tools()
-        self.write_grub(GRUB_DEFAULTS.replace(" quiet", ""))
+        self.write_grub(GRUB_DEFAULTS.replace(" plymouth.enable=0", ""))
         res = self.run_smoke()
         self.assert_fail(res, 15)
-        self.assertIn("GRUB_CMDLINE_LINUX lacks quiet", res.stdout)
+        self.assertIn("GRUB_CMDLINE_LINUX lacks plymouth.enable=0",
+                      res.stdout)
+
+    def test_boot_args_stale_splash(self):
+        # 升级机器上旧画面参数仍在：启动画面重新遮蔽阶段行，等于没改
+        self.tools()
+        self.write_grub(GRUB_DEFAULTS.replace(
+            "plymouth.enable=0", "plymouth.enable=0 rhgb quiet"))
+        res = self.run_smoke()
+        self.assert_fail(res, 15)
+        self.assertIn("GRUB_CMDLINE_LINUX still carries rhgb", res.stdout)
 
     def test_boot_args_minimal_profile(self):
-        # 最小剖面不装图形：启动画面参数不在期望里，两个剖面共同要求的是
-        # 控制台集合与菜单范围。判定若只认桌面，最小装机要么被误判失败，
-        # 要么反过来把串口日志藏进 splash（D-30）。
+        # 最小剖面与桌面剖面在引导参数上一致：逐行日志不依赖图形栈，判定
+        # 若只认桌面，最小装机要么被误判失败，要么反过来把阶段行藏起来
+        # （D-30）。
         self.tools()
         self.set_profile(desktop=False)
-        self.write_grub(GRUB_DEFAULTS.replace(" rhgb quiet", ""))
         res = self.run_smoke()
         self.assertIn("ok 15 - T15 durable boot arguments", res.stdout)
-        self.assertIn('args="console=ttyS0,115200 console=tty0"', res.stdout)
+        self.assertIn('args="console=ttyS0,115200 console=tty0 loglevel=5'
+                      ' plymouth.enable=0"', res.stdout)
 
     def test_boot_args_prober_enabled(self):
         # os-prober 未关：同盘其他发行版的内核会并进本产品启动菜单
