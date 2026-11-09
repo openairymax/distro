@@ -205,6 +205,46 @@ class SpecLintTest(unittest.TestCase):
             "x\n", encoding="utf-8")
         self.assertIn("E010", self.codes(text))
 
+    def url_line(self, url="https://example.invalid/demo.conf",
+                 digest="0" * 64):
+        return f"# spec-lint: source-url demo.conf {url} {digest}\n"
+
+    def urler(self, line=None):
+        return VALID.replace("Source0:        demo.conf",
+                             (line or self.url_line())
+                             + "Source0:        demo.conf")
+
+    def test_source_url(self):
+        (self.root / "demo.conf").unlink()
+        self.assertEqual(self.codes(self.urler()), [])
+
+    def test_url_http_rejected(self):
+        line = self.url_line(url="http://x/demo.conf")
+        self.assertIn("E010", self.codes(self.urler(line)))
+
+    def test_url_unsourced(self):
+        text = self.urler().replace("Source0:        demo.conf",
+                                    "Source0:        other.conf")
+        self.assertIn("E010", self.codes(text))
+
+    def test_url_committed(self):
+        self.assertIn("E010", self.codes(self.urler()))
+
+    def test_url_dup(self):
+        line = self.url_line()
+        self.assertIn("E010", self.codes(self.urler(line + line)))
+
+    def test_source_rpm(self):
+        line = ("# spec-lint: source-rpm demo.conf "
+                "https://example.invalid/demo.src.rpm " + "0" * 64 + "\n")
+        (self.root / "demo.conf").unlink()
+        self.assertEqual(self.codes(self.urler(line)), [])
+
+    def test_rpm_committed(self):
+        line = ("# spec-lint: source-rpm demo.conf "
+                "https://example.invalid/demo.src.rpm " + "0" * 64 + "\n")
+        self.assertIn("E010", self.codes(self.urler(line)))
+
     def test_changelog(self):
         text = VALID.replace("* Sat Oct 17 2026", "* 2026-10-17")
         self.assertIn("E011", self.codes(text))
