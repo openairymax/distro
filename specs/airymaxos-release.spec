@@ -64,7 +64,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 15
+%global airy_release 16
 # 桌面版本随冻结点滚动，写在 /etc/airymaxos/desktop-version，供控制中心
 # 「关于」页读取。控制中心自己不猜版本：缺文件即只显示桌面名。此宏与
 # lockfile/ukui-components.yaml 的 ukui-control-center 版本由
@@ -129,7 +129,7 @@ Source37:       airymax-update-notify.desktop
 Source38:       network-wired-signal-excellent-symbolic.svg
 Source39:       network-wireless-signal-excellent-error-symbolic.svg
 Source40:       network-wireless-signal-low-secure-symbolic.svg
-Source41:       50-airymax-kgaccel-env.conf
+Source41:       50-airymax-no-qpa-theme.conf
 Source42:       90-airymax-touchpad.conf
 Source43:       airymax-panel.conf
 Source44:       airymax-audio-init.service
@@ -332,12 +332,15 @@ install -m 0644 %{SOURCE12} \
 
 # 平台主题变量是图形会话的属性，却经用户管理器环境被全部用户单元继承。
 # 非 GUI 的 Qt 守护进程据此加载 ukui 平台主题插件，插件的字体回调随即对
-# 不存在的 QApplication 调用 setFont 并崩溃（285H：kglobalaccel5 每周期
-# 一次 SIGSEGV）。drop-in 只把该变量从这一个单元摘掉，不改插件、不改会话。
-install -d -m 0755 \
-    %{buildroot}%{_sysconfdir}/systemd/user/plasma-kglobalaccel.service.d
-install -m 0644 %{SOURCE41} \
-    %{buildroot}%{_sysconfdir}/systemd/user/plasma-kglobalaccel.service.d/50-airymax-kgaccel-env.conf
+# 不存在的 QApplication 调用 setFont 并崩溃（285H 复现 3/3：kglobalaccel5
+# 每次 `dconf update` 一次 SIGSEGV，kscreen_backend_launcher 同样失败）。
+# 同一份内容装进两个单元的 drop-in 目录，不改插件、不改会话；理由与
+# 0.0.5 的收尾口径见 desktop/50-airymax-no-qpa-theme.conf 文件头。
+for airy_unit in plasma-kglobalaccel.service plasma-kscreen.service; do
+    install -d -m 0755 "%{buildroot}%{_sysconfdir}/systemd/user/${airy_unit}.d"
+    install -m 0644 %{SOURCE41} \
+        "%{buildroot}%{_sysconfdir}/systemd/user/${airy_unit}.d/50-airymax-no-qpa-theme.conf"
+done
 
 # 启动日志默认只活在当前一轮：openEuler 不预建 /var/log/journal，
 # Storage=auto 因此退化为 volatile，重启即丢的证据让「上一次启动为什么
@@ -735,10 +738,16 @@ grep -qxF 'Slice=airymax-desktop.slice' \
     %{buildroot}%{_sysconfdir}/systemd/system/user@.service.d/50-airymax-desktop.conf
 # 平台主题变量必须以 UnsetEnvironment 摘除，而不是赋空值：空值仍会被 Qt
 # 当成「指定了插件名」而去找名为空的插件，失败路径与缺失相同但日志更难读。
-grep -qxF '[Service]' \
-    %{buildroot}%{_sysconfdir}/systemd/user/plasma-kglobalaccel.service.d/50-airymax-kgaccel-env.conf
-grep -qxF 'UnsetEnvironment=QT_QPA_PLATFORMTHEME' \
-    %{buildroot}%{_sysconfdir}/systemd/user/plasma-kglobalaccel.service.d/50-airymax-kgaccel-env.conf
+# 每个非 GUI Qt 守护进程都必须各自持有这份 drop-in（用户管理器启动之后
+# 才被写入的变量，只能在单元自身的环境里摘除），且两处内容必须逐字相等，
+# 否则「改了一个单元忘了另一个」只会在实机上表现为偶发崩溃。
+for airy_unit in plasma-kglobalaccel.service plasma-kscreen.service; do
+    airy_drop=%{buildroot}%{_sysconfdir}/systemd/user/${airy_unit}.d/50-airymax-no-qpa-theme.conf
+    grep -qxF '[Service]' "${airy_drop}"
+    grep -qxF 'UnsetEnvironment=QT_QPA_PLATFORMTHEME' "${airy_drop}"
+done
+cmp %{buildroot}%{_sysconfdir}/systemd/user/plasma-kglobalaccel.service.d/50-airymax-no-qpa-theme.conf \
+    %{buildroot}%{_sysconfdir}/systemd/user/plasma-kscreen.service.d/50-airymax-no-qpa-theme.conf
 # 日志留存：取值写错不会让构建失败，只会在重启后表现为「没有上一次启动」，
 # 因此断言的是生效行本身而不是文件存在。
 grep -qxF '[Journal]' \
@@ -859,7 +868,8 @@ fi
 %config(noreplace) %{_sysconfdir}/xdg/autostart/airymax-display.desktop
 %config(noreplace) %{_sysconfdir}/xdg/autostart/airymax-update-notify.desktop
 %config(noreplace) %{_sysconfdir}/systemd/system/user@.service.d/50-airymax-desktop.conf
-%config(noreplace) %{_sysconfdir}/systemd/user/plasma-kglobalaccel.service.d/50-airymax-kgaccel-env.conf
+%config(noreplace) %{_sysconfdir}/systemd/user/plasma-kglobalaccel.service.d/50-airymax-no-qpa-theme.conf
+%config(noreplace) %{_sysconfdir}/systemd/user/plasma-kscreen.service.d/50-airymax-no-qpa-theme.conf
 %config(noreplace) %{_sysconfdir}/systemd/journald.conf.d/50-airymax-journald.conf
 %{_unitdir}/airymax-desktop.slice
 %{_unitdir}/airymax-desktop-ready.service
@@ -897,6 +907,22 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Mon Nov 09 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-16
+- Keep the platform theme out of every non-GUI Qt daemon, not just one.
+  0.0.4-9 removed QT_QPA_PLATFORMTHEME from plasma-kglobalaccel.service
+  alone, on the strength of that unit crashing with a QCoreApplication in
+  the core dump. On the 285H the same `sudo dconf update` also takes
+  plasma-kscreen.service down: kscreen_backend_launcher has a
+  QGuiApplication, and QApplication::setFont dereferences the same null
+  instance from the plugin's QGSettings font callback. Both units now
+  carry the drop-in, installed from one source file so the two copies
+  cannot drift, and %check compares them byte for byte.
+- The drop-in stays per unit rather than moving to user@.service:
+  ukui-session writes the variable into the user manager environment
+  after that manager has started (show-environment on the 285H lists it),
+  so UnsetEnvironment at user@.service start would never see the value.
+  Verified reproducible 3/3 on the machine before the change and left for
+  the 0.0.5 plugin fix tracked by the ukui-patches policy.
 * Mon Nov 09 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-15
 - Stop the idle path from covering the desktop. 0.0.4-13 closed
   idle-lock-enabled and lock-enabled, but org.ukui.screensaver
