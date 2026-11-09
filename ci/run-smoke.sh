@@ -1291,40 +1291,44 @@ t25_desktop_assets() {
 # 的是内核日志，而验收跑在 QEMU 里没有 Intel 网卡，驱动根本不加载，这条缺陷
 # 因此一路全绿到真机才发作。
 #
-# 判据改为与硬件无关的路径事实：固件根上必须有与 intel/iwlwifi/ 同名的条目
-# （由 airymaxos-firmware 的兼容链接提供）。基底若回到扁平布局，「根上有
-# iwlwifi-*.ucode」同样成立；两种布局都没有，说明固件根本没进镜像。
+# 判据与 W-N1 的 SSoT 同源：安装期 %posttrans 由 fw-flat.sh 把驱动请求名补成
+# 固件根上的入口，清单 firmware-flat.list 每行「入口名 树内相对路径」。这里调
+# 随镜像交付的同一个脚本 check 复核清单，测试与产品不各写一套。旧实现要求
+# intel/iwlwifi/ 下每个文件在根上都有同名条目，比契约更严：该目录里只有被驱动
+# 请求的那部分是内核会去取的，其余是更高 API 的现成资源，判据因此永远为负。
+#
+# 清单缺失说明 %posttrans 没在目标系统跑过（0.0.4 首装即此形态），失败行同时
+# 带出安装期自证日志的最后一行；清单为空说明基底本身就是扁平布局，此时要求
+# 根上有 iwlwifi-*.ucode。
 t26_wifi_fw_layout() {
-    local root="${SYSROOT}/usr/lib/firmware" src f b n=0 miss=
+    local root="${SYSROOT}/usr/lib/firmware" out f n=0
+    local tool="${SYSROOT}/usr/libexec/airymaxos/fw-flat.sh"
+    local list="${SYSROOT}/usr/share/airymaxos/firmware/firmware-flat.list"
+    local fwlog="${SYSROOT}/var/log/airymaxos/firmware-flat.log"
 
-    src="${root}/intel/iwlwifi"
-    if [ -d "${src}" ]; then
-        for f in "${src}"/*; do
-            [ -f "${f}" ] || continue
-            n=$((n + 1))
-            b=${f##*/}
-            [ -e "${root}/${b}" ] || miss="${miss} ${b}"
-        done
-        [ "${n}" -gt 0 ] || {
-            echo "no firmware under intel/iwlwifi"
-            return 1
-        }
-        [ -z "${miss}" ] || {
-            printf 'flat path missing:%s\n' "${miss}"
-            return 1
-        }
-        printf 'iwlwifi flat links: %s\n' "${n}"
-        return 0
-    fi
-    for f in "${root}"/iwlwifi-*.ucode; do
-        [ -e "${f}" ] || continue
-        n=$((n + 1))
-    done
-    [ "${n}" -gt 0 ] || {
-        echo "no iwlwifi firmware in image"
+    [ -x "${tool}" ] || {
+        echo "fw-flat.sh missing: ${tool}"
         return 1
     }
-    printf 'iwlwifi flat files: %s\n' "${n}"
+    if ! out=$("${tool}" check "${root}" --list "${list}" 2>&1); then
+        printf '%s\n' "${out}"
+        [ -r "${fwlog}" ] && tail -n 1 "${fwlog}"
+        return 1
+    fi
+    printf '%s\n' "${out}"
+    case "${out}" in
+    rows=0*)
+        for f in "${root}"/iwlwifi-*.ucode; do
+            [ -e "${f}" ] || continue
+            n=$((n + 1))
+        done
+        [ "${n}" -gt 0 ] || {
+            echo "no iwlwifi firmware in image"
+            return 1
+        }
+        printf 'iwlwifi flat files: %s\n' "${n}"
+        ;;
+    esac
 }
 
 # 现场诊断工具闭包（0.0.4 台账 P-01）：0.0.3 在 B50 与 285H 首启后网络不通，

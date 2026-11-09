@@ -143,6 +143,9 @@ class FirmwareContractTest(unittest.TestCase):
                       code)
         self.assertIn("--modules %{_prefix}/lib/modules", code)
         self.assertNotIn("intel/iwlwifi", code)
+        self.assertIn("%{_localstatedir}/log/airymaxos/firmware-flat.log", code,
+                      "自证行必须落盘：%posttrans 的 stdout 不进 install.log，"
+                      "目标系统跑没跑过本节只能靠它判")
         self.assertIn("kmod", requires_of(read(FW_SPEC)),
                       "生成器依赖 modinfo，缺 kmod 时静默不补入口")
 
