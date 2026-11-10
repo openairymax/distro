@@ -39,7 +39,12 @@
 #      .deb 转发 airy-deb，.rpm 交 dnf；回显、确认与提权复用 airydeb.interact，
 #      桌面双击与终端命令只走这一条入口；
 #  16. 在 %%post/%%postun 内刷新 systemd 单元缓存，在 %%posttrans 内按
-#      该清单启用并启动单元。
+#      该清单启用并启动单元；
+#  17. 部署 ukui_compat.sh 并在 %%posttrans 内补齐 ukui 服务声明与二进制
+#      落点之间的差：ukui-interface 的 D-Bus 服务文件写
+#      Exec=/usr/libexec/ukui-*server，二进制却在 /usr/bin，激活时按绝对
+#      路径 execve 失败，控制中心各模块打开即空。清单从实际存在的二进制
+#      推导，不维护第二份文件名表（DESKTOP-UKUI-01）。
 #
 # 单元启用（systemctl enable）只有一条实现：读 /usr/lib/airymaxos/boot-set。
 # 装机由 kickstart 按清单下启用位（镜像内无法启用未来会在目标机跑的单元），
@@ -77,7 +82,7 @@
 # spec-lint: source-bundle ../../system/services/airypkg
 
 %global airy_version 0.0.4
-%global airy_release 52
+%global airy_release 53
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -160,6 +165,7 @@ Source68:       10-airymax-listen-reset.conf
 Source69:       20-airymax-listen-run.conf
 Source70:       airy-pkg
 Source71:       airypkg-%{version}.tar.gz
+Source72:       ukui_compat.sh
 
 BuildRequires:  gcc
 BuildRequires:  python3-devel
@@ -252,7 +258,7 @@ install -m 0644 %{SOURCE69} \
 install -d -m 0755 %{buildroot}/usr/lib/airymaxos/scripts
 install -m 0755 %{SOURCE17} %{SOURCE18} %{SOURCE50} %{SOURCE53} \
     %{SOURCE54} %{SOURCE56} %{SOURCE59} %{SOURCE62} %{SOURCE64} \
-    %{buildroot}/usr/lib/airymaxos/scripts/
+    %{SOURCE72} %{buildroot}/usr/lib/airymaxos/scripts/
 install -d -m 0755 %{buildroot}%{_presetdir}
 install -m 0644 %{SOURCE19} %{SOURCE20} %{buildroot}%{_presetdir}/
 install -m 0644 %{SOURCE49} %{buildroot}/usr/lib/airymaxos/boot-set
@@ -295,6 +301,24 @@ bash -n %{buildroot}/usr/lib/airymaxos/scripts/stage_run.sh
 bash -n %{buildroot}/usr/lib/airymaxos/scripts/boot_mount.sh
 bash -n %{buildroot}/usr/lib/airymaxos/scripts/boot_watch.sh
 bash -n %{buildroot}/usr/lib/airymaxos/scripts/con.sh
+# ukui 兼容链接的判据是「链接落在 /usr/bin，且重复执行不再新建」。用临时树
+# 验证：对构建机的 /usr/libexec 真建链需要 root，也会污染构建环境。
+test -x %{buildroot}/usr/lib/airymaxos/scripts/ukui_compat.sh
+bash -n %{buildroot}/usr/lib/airymaxos/scripts/ukui_compat.sh
+ukui_root="$(mktemp -d)"
+install -d -m 0755 "${ukui_root}/usr/bin"
+install -m 0755 "$(command -v true)" "${ukui_root}/usr/bin/ukui-touchpadserver"
+install -m 0755 "$(command -v true)" "${ukui_root}/usr/bin/ukui-mouseserver"
+install -m 0755 "$(command -v true)" "${ukui_root}/usr/bin/not-a-ukui-tool"
+bash %{buildroot}/usr/lib/airymaxos/scripts/ukui_compat.sh "${ukui_root}" >/dev/null
+test "$(readlink "${ukui_root}/usr/libexec/ukui-touchpadserver")" \
+    = /usr/bin/ukui-touchpadserver
+test "$(readlink "${ukui_root}/usr/libexec/ukui-mouseserver")" \
+    = /usr/bin/ukui-mouseserver
+test ! -e "${ukui_root}/usr/libexec/not-a-ukui-tool"
+test -z "$(bash %{buildroot}/usr/lib/airymaxos/scripts/ukui_compat.sh \
+    "${ukui_root}")"
+rm -rf "${ukui_root}"
 test "$(bash -c '. %{buildroot}/usr/lib/airymaxos/scripts/ui.sh; ui_total')" = 9
 # 阶段行与卡点报告共用 con.sh 的通道判据；source 失败时 ui_total 仍能打印，
 # 上面那条断言看不出缺失，故这里直接断言判据函数确实被引入。
@@ -519,7 +543,13 @@ fi
 # 失败不回滚，单元自身会留下 failed 状态供归因。管理员要关掉某项治理应
 # mask 单元，enable 对 masked 无效。只有 systemd 在跑时才动作：镜像
 # 合成的 chroot 与装机前的 %%posttrans 都不该改启用位。
+# ukui 的 D-Bus 服务声明把 Exec 指向 /usr/libexec，二进制却在 /usr/bin，
+# 激活即失败，控制中心各模块打开是空的。补齐动作不依赖 systemd 是否在跑：
+# 镜像合成与升级都要落链接，否则新装的机器仍要等一次人工干预。
 %posttrans
+if [ -x /usr/lib/airymaxos/scripts/ukui_compat.sh ]; then
+    /usr/lib/airymaxos/scripts/ukui_compat.sh || :
+fi
 if [ -d /run/systemd/system ] && [ -x /usr/lib/airymaxos/scripts/boot_set.sh ]; then
     /usr/lib/airymaxos/scripts/boot_set.sh || :
 fi
@@ -566,6 +596,15 @@ fi
 %{python3_sitelib}/airypkg
 
 %changelog
+* Tue Nov 10 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-53
+- 补齐 ukui 服务声明与二进制落点之间的差。ukui-interface 的 12 个
+  cn.kylinos.* D-Bus 服务文件写 Exec=/usr/libexec/ukui-*server，同一批 RPM
+  把二进制装在 /usr/bin，/usr/libexec 下没有任何一个；D-Bus 按绝对路径
+  execve，激活直接报 No such file or directory，285H 上控制中心的触控板、
+  鼠标、键盘、电源等模块打开即空，而 ukui-*server 本体完好、手工执行正常。
+  新增 ukui_compat.sh 在 %posttrans 建兼容链接，清单从实际存在的
+  /usr/bin/ukui-*server 推导，不维护第二份文件名表；%check 用临时树断言
+  链接目标与幂等性
 * Tue Nov 10 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-52
 - 新增 /usr/bin/airy-pkg 与 airypkg 包：本地 .deb/.rpm 按后缀分派，
   .deb 转发 airy-deb 的 convert+dnf 路径，.rpm 直接交 dnf；回显、确认与
