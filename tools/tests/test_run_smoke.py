@@ -1740,6 +1740,69 @@ class RunSmokeTest(unittest.TestCase):
         self.assert_fail(res, 26)
         self.assertIn("fail=no-list", res.stdout)
 
+    def test_wifi_fw_miss_only_last_segment(self):
+        # 旧段里记着上一轮的缺项，最后一轮已经补齐：判据只看最后一段。
+        # 否则一台装好一次的机器会因为历史缺项永远红，判据也就失去意义。
+        self.tools()
+        self.write_wifi_firmware()
+        fwlog = (self.sysroot / "var" / "log" / "airymaxos"
+                 / "firmware-flat.log")
+        fwlog.write_text(
+            "2026-11-08T00:00:00Z fw-flat apply\n"
+            "flat=1 miss=2 list=/tmp/x\n"
+            "miss name=brcmfmac4356-pcie.bin rel=brcm/x\n"
+            "miss name=ath11k/WCN6855/hw2.0/board-2.bin rel=ath11k/x\n"
+            "2026-11-09T00:00:00Z fw-flat apply\n"
+            "flat=1 miss=0 list=/tmp/x\n", encoding="utf-8")
+        res = self.run_smoke()
+        self.assertTrue(self.tap(res, 26).startswith("ok"), res.stdout)
+        self.assertIn("flat=1 miss=0", res.stdout)
+
+    def test_wifi_fw_miss_names_fail(self):
+        # 驱动请求了、树里没有：补不齐的那部分必须让 T26 红，并打出名字。
+        # 这类缺项 check 永远判绿——它复核的是清单与产物的关系，而清单里
+        # 根本不会有取不到的条目。
+        self.tools()
+        self.write_wifi_firmware()
+        fwlog = (self.sysroot / "var" / "log" / "airymaxos"
+                 / "firmware-flat.log")
+        fwlog.write_text(
+            "2026-11-09T00:00:00Z fw-flat apply\n"
+            "flat=1 miss=2 list=/tmp/x\n"
+            "miss name=brcmfmac4356-pcie.bin rel=brcm/x\n"
+            "miss name=ath11k/WCN6855/hw2.0/board-2.bin rel=ath11k/x\n",
+            encoding="utf-8")
+        res = self.run_smoke()
+        self.assert_fail(res, 26)
+        self.assertIn("T26 FAIL flat=1 miss=2", res.stdout)
+        self.assertIn("miss name=brcmfmac4356-pcie.bin", res.stdout)
+        self.assertIn("miss name=ath11k/WCN6855/hw2.0/board-2.bin",
+                      res.stdout)
+
+    def test_wifi_fw_log_absent(self):
+        # 日志不存在说明安装期补齐从未跑过：没有自证不能当合格
+        self.tools()
+        self.write_wifi_firmware()
+        (self.sysroot / "var" / "log" / "airymaxos"
+         / "firmware-flat.log").unlink()
+        res = self.run_smoke()
+        self.assert_fail(res, 26)
+        self.assertIn("firmware-flat log missing", res.stdout)
+
+    def test_wifi_fw_log_incomplete(self):
+        # 只有段头没有结论（安装中途被打断）：把 fail= 原文带出来再判负，
+        # 现场才知道是缺输入还是写失败
+        self.tools()
+        self.write_wifi_firmware()
+        fwlog = (self.sysroot / "var" / "log" / "airymaxos"
+                 / "firmware-flat.log")
+        fwlog.write_text("2026-11-09T00:00:00Z fw-flat apply\n"
+                         "fail=no-requests modules=\n", encoding="utf-8")
+        res = self.run_smoke()
+        self.assert_fail(res, 26)
+        self.assertIn("no flat= line", res.stdout)
+        self.assertIn("fail=no-requests", res.stdout)
+
     def test_obs_bench_absent(self):
         # 观测工具没装进镜像：现场演示与故障定位都无从下手
         self.tools(omit=("airy-bench",))
