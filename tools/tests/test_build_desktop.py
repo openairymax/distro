@@ -646,9 +646,9 @@ class BuildDesktopTest(unittest.TestCase):
         digest = hashlib.sha256(iso.read_bytes()).hexdigest()
         self.assertEqual((iso.parent / f"{iso.name}.sha256").read_text(
             encoding="utf-8"), f"{digest}  {iso.name}\n")
-        body = iso.read_text(encoding="utf-8")
-        self.assertIn("=== /airymax/payload-manifest.txt", body)
-        self.assertIn("=== /airymax/Packages/repodata/repomd.xml", body)
+        body = fakes.iso_payload(iso)
+        self.assertIn(b"=== /airymax/payload-manifest.txt", body)
+        self.assertIn(b"=== /airymax/Packages/repodata/repomd.xml", body)
         app = iso.read_bytes()[APP_OFF:APP_OFF + 512].decode("latin-1")
         self.assertRegex(app, r"ISO MD5SUM = [0-9a-f]{32}")
 
@@ -659,8 +659,7 @@ class BuildDesktopTest(unittest.TestCase):
         extra.write_text("extra payload\n", encoding="utf-8")
         res = self.build("--arch", "x86_64", "--add", str(extra))
         self.assertEqual(res.returncode, 0, res.stderr)
-        self.assertIn("=== /extra.txt",
-                      self.iso().read_text(encoding="utf-8"))
+        self.assertIn(b"=== /extra.txt", fakes.iso_payload(self.iso()))
 
 
 if __name__ == "__main__":
