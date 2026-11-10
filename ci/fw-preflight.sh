@@ -107,17 +107,45 @@ fp_parse()
 
 # fp_tree LIST ROOT —— 按名字集建空文件骨架。目录条目（以 / 结尾）与绝对
 # 路径跳过：前者不是可请求的固件，后者不落在固件根之下，建了也索引不到。
+#
+# 两遍建，且失败不再静默中止。一遍边建目录边建文件时，只要名字集里同时有
+# `a/b` 与 `a/b/c`（固件包用目录符号链接表达布局时就是这样），先落的
+# `a/b` 是普通文件，后一条建目录直接 ENOTDIR，预演在第一条冲突处中止，
+# 日志只剩 fail=no-tree——哪个名字、哪一步、什么错误都没留下（run
+# 42783532965 四架构同时复现，只能靠猜）。两遍之后目录先成型，冲突只影响
+# 那一个名字；判据仍是 fw-flat 的 miss 计数，这里不另立一套。
+#
+# 名字既是文件又是目录时以目录为准，与真树一致：符号链接指向目录的条目在
+# `find -type f` 里本来就不出现，骨架照此丢弃才与装机后的索引同形。
+# 其余失败（空间不足、权限、名字超长）计入 ft_bad 并报出首条原文。
 fp_tree()
 {
     [ -r "$1" ] || return 1
-    while IFS= read -r ft_rel; do
-        [ -n "${ft_rel}" ] || continue
-        case "${ft_rel}" in
-        /* | */) continue ;;
-        esac
-        install -d "$2/$(dirname "${ft_rel}")" 2>/dev/null || return 1
-        : >"$2/${ft_rel}" 2>/dev/null || return 1
-    done <"$1"
+    mkdir -p "$2" 2>/dev/null || return 1
+    ft_names=0
+    ft_bad=0
+    ft_why=
+    for ft_step in dir file; do
+        while IFS= read -r ft_rel; do
+            [ -n "${ft_rel}" ] || continue
+            case "${ft_rel}" in
+            /* | */) continue ;;
+            esac
+            if [ "${ft_step}" = dir ]; then
+                ft_names=$(( ft_names + 1 ))
+                ft_err=$( { mkdir -p "$2/$(dirname "${ft_rel}")"; } 2>&1 ) &&
+                    continue
+            else
+                ft_err=$( { : >"$2/${ft_rel}"; } 2>&1 ) && continue
+                # 目录已经占了同名位置：真树里这是指向目录的符号链接，
+                # 它不进 find -type f 的索引，骨架也不该留下同名空文件。
+                [ -d "$2/${ft_rel}" ] && continue
+            fi
+            ft_bad=$(( ft_bad + 1 ))
+            [ -n "${ft_why}" ] || ft_why="${ft_step}:${ft_rel}:${ft_err}"
+        done <"$1"
+    done
+    [ "${ft_bad}" -eq 0 ]
 }
 
 # fp_report TEXT —— 从 fw-flat 的输出里取 flat/miss 两个计数与逐条缺件。
@@ -208,8 +236,9 @@ fp_main()
         fp_mods="${fp_tmp}/mods/usr/lib/modules"
     fi
     if ! fp_tree "${fp_fw}" "${fp_tmp}/root"; then
-        printf 'AIRYMAX-FW-PREFLIGHT arch=%s fail=no-tree firmware=%s\n' \
-            "${fp_arch}" "${fp_fw}"
+        printf 'AIRYMAX-FW-PREFLIGHT arch=%s fail=no-tree names=%s bad=%s firmware=%s\n' \
+            "${fp_arch}" "${ft_names:-0}" "${ft_bad:-0}" "${fp_fw}"
+        printf 'tree %s\n' "${ft_why:-unknown}" >&2
         exit "${FP_FAIL}"
     fi
     set -- apply "${fp_tmp}/root" --list "${fp_tmp}/flat.list" \

@@ -103,6 +103,27 @@ class PreTest(unittest.TestCase):
             capture_output=True, text=True)
         self.assertEqual(res.returncode, 2)
 
+    def test_name_also_a_directory(self):
+        """名字集里 a/b 与 a/b/c 并存时以目录为先，与真树的索引同形。
+
+        固件包用目录符号链接表达布局时，同一路径既是条目又是若干条目的
+        前缀。先建文件会让后续建目录 ENOTDIR，整轮预演中止在第一条冲突。
+        """
+        self.have("a/b", "a/b/c")
+        self.want("c")
+        res = self.run_pre()
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("flat=1 miss=0", res.stdout)
+
+    def test_tree_failure_names_the_entry(self):
+        """骨架建不起来时报出条目与 errno，不能只留一个 no-tree。"""
+        self.have("a" * 300)
+        self.want("x.ucode")
+        res = self.run_pre()
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("fail=no-tree", res.stdout)
+        self.assertIn("bad=1", res.stdout)
+
     def test_unreadable_names_fail(self):
         """名字集读不到时如实失败，不退化成「零个固件、全部命中」。"""
         res = subprocess.run(
