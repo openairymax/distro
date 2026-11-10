@@ -64,7 +64,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 16
+%global airy_release 17
 # 桌面版本随冻结点滚动，写在 /etc/airymaxos/desktop-version，供控制中心
 # 「关于」页读取。控制中心自己不猜版本：缺文件即只显示桌面名。此宏与
 # lockfile/ukui-components.yaml 的 ukui-control-center 版本由
@@ -134,6 +134,9 @@ Source42:       90-airymax-touchpad.conf
 Source43:       airymax-panel.conf
 Source44:       airymax-audio-init.service
 Source45:       audio_init.sh
+Source46:       airymaxos-deb.xml
+Source47:       airy-pkg-install.desktop
+Source48:       mimeapps.list
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -143,6 +146,12 @@ Requires:       systemd
 # 仍按上游默认值索要口令。dconf 属桌面闭包，这里显式声明以免闭包调整后
 # 静默失去编译步骤。
 Requires:       dconf
+# 本地包双击入口依赖两处缓存与类型库：mime 类型声明要 update-mime-database
+# 编译后才被识别，处理程序列表要 update-desktop-database 刷新后默认项才能
+# 解析。两者分属 shared-mime-info 与 desktop-file-utils，都属桌面闭包，
+# 显式声明以免闭包调整后静默失去编译步骤，只留下「双击没反应」。
+Requires:       shared-mime-info
+Requires:       desktop-file-utils
 # 安装期品牌化靠 efibootmgr 写 NVRAM；它本就属引导闭包（scripts/lib/
 # closure.sh CL_BOOT），这里显式声明，免得后续精简闭包时静默丢工具。
 Requires:       efibootmgr
@@ -325,6 +334,20 @@ install -m 0644 %{SOURCE24} \
     %{buildroot}%{_sysconfdir}/xdg/autostart/airymax-display.desktop
 install -m 0644 %{SOURCE37} \
     %{buildroot}%{_sysconfdir}/xdg/autostart/airymax-update-notify.desktop
+
+# 本地包的双击入口：类型声明、处理程序与默认项三件必须同时到位。
+# 基线 mimeapps.list 的两种包类型都指向本镜像不存在的程序，桌面因此把
+# 双击退回归档器；只补桌面文件不补默认项，或只补默认项不补 glob，都会
+# 退回同一症状。默认项落 /etc/xdg（XDG_CONFIG_DIRS 首位）而不是
+# /usr/share/applications，理由见 desktop/mimeapps.list 文件头。
+install -d -m 0755 %{buildroot}%{_datadir}/mime/packages
+install -m 0644 %{SOURCE46} \
+    %{buildroot}%{_datadir}/mime/packages/airymaxos-deb.xml
+install -d -m 0755 %{buildroot}%{_datadir}/applications
+install -m 0644 %{SOURCE47} \
+    %{buildroot}%{_datadir}/applications/airy-pkg-install.desktop
+install -d -m 0755 %{buildroot}%{_sysconfdir}/xdg
+install -m 0644 %{SOURCE48} %{buildroot}%{_sysconfdir}/xdg/mimeapps.list
 
 install -d -m 0755 %{buildroot}%{_sysconfdir}/systemd/system/user@.service.d
 install -m 0644 %{SOURCE12} \
@@ -809,6 +832,16 @@ if command -v gtk-update-icon-cache >/dev/null 2>&1; then
     gtk-update-icon-cache -f -t %{_datadir}/icons/hicolor >/dev/null 2>&1 || :
 fi
 
+# 新增的 mime 类型与处理程序也要重建缓存：mime 缓存没有新类型时 xdg-mime
+# 查不到 .deb/.rpm 的 glob，桌面文件缓存没有新条目时默认项指向的程序被
+# 判为不存在，两种情况在用户侧都只表现为「双击没反应」。
+if command -v update-mime-database >/dev/null 2>&1; then
+    update-mime-database %{_datadir}/mime >/dev/null 2>&1 || :
+fi
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database %{_datadir}/applications >/dev/null 2>&1 || :
+fi
+
 %{_datadir}/airymaxos/distro/desktop/70-airymax-ukui-policy.sh
 
 # 控制台字体。默认的 latarcyrheb-sun16 是 8x16；在 285H 的 2880x1800 面板上
@@ -867,6 +900,9 @@ fi
 %config(noreplace) %{_sysconfdir}/xdg/autostart/airymax-input-method.desktop
 %config(noreplace) %{_sysconfdir}/xdg/autostart/airymax-display.desktop
 %config(noreplace) %{_sysconfdir}/xdg/autostart/airymax-update-notify.desktop
+%config(noreplace) %{_sysconfdir}/xdg/mimeapps.list
+%{_datadir}/applications/airy-pkg-install.desktop
+%{_datadir}/mime/packages/airymaxos-deb.xml
 %config(noreplace) %{_sysconfdir}/systemd/system/user@.service.d/50-airymax-desktop.conf
 %config(noreplace) %{_sysconfdir}/systemd/user/plasma-kglobalaccel.service.d/50-airymax-no-qpa-theme.conf
 %config(noreplace) %{_sysconfdir}/systemd/user/plasma-kscreen.service.d/50-airymax-no-qpa-theme.conf
@@ -907,6 +943,11 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Tue Nov 10 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-17
+- 注册本地包的双击入口：/usr/share/mime/packages/airymaxos-deb.xml 声明
+  .deb/.rpm 的 glob，/usr/share/applications/airy-pkg-install.desktop 提供
+  处理程序，/etc/xdg/mimeapps.list 把两种类型指向它；%%post 重建 mime 与
+  桌面文件缓存。基线默认项指向本镜像不存在的程序，双击此前一律落归档器
 * Mon Nov 09 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-16
 - Keep the platform theme out of every non-GUI Qt daemon, not just one.
   0.0.4-9 removed QT_QPA_PLATFORMTHEME from plasma-kglobalaccel.service

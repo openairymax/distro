@@ -80,6 +80,12 @@ ASSETS = (
      "%{_sysconfdir}/xdg/autostart/airymax-input-method.desktop"),
     ("desktop/autostart/airymax-display.desktop",
      "%{_sysconfdir}/xdg/autostart/airymax-display.desktop"),
+    ("desktop/airymaxos-deb.xml",
+     "%{_datadir}/mime/packages/airymaxos-deb.xml"),
+    ("desktop/airy-pkg-install.desktop",
+     "%{_datadir}/applications/airy-pkg-install.desktop"),
+    ("desktop/mimeapps.list",
+     "%{_sysconfdir}/xdg/mimeapps.list"),
     ("desktop/user@.service.d/50-airymax-desktop.conf",
      "%{_sysconfdir}/systemd/system/user@.service.d/"
      "50-airymax-desktop.conf"),
@@ -337,6 +343,26 @@ class DesktopAssetTest(unittest.TestCase):
                          "/usr/bin/ibus-daemon -drx")
         self.assertEqual(entry["Desktop Entry"]["NoDisplay"], "true")
         self.assertNotIn("OnlyShowIn", entry["Desktop Entry"])
+
+    def test_local_package_entry(self):
+        # 双击走的是 MIME 默认项，不是文件关联对话框：三种包类型都必须落到
+        # 同一处理程序，缺一条就退回归档器（基线的两个默认项都指向本镜像里
+        # 不存在的程序）。处理程序带 --ask，安装前必须让用户看见包名。
+        entry = parse_kv(self.asset("desktop/airy-pkg-install.desktop"))
+        desk = entry["Desktop Entry"]
+        self.assertEqual(desk["Exec"], "/usr/bin/airy-pkg install --ask %f")
+        self.assertEqual(desk["Terminal"], "true")
+        kinds = desk["MimeType"].strip(";").split(";")
+        defaults = parse_kv(self.asset("desktop/mimeapps.list"))
+        for mime in ("application/vnd.debian.binary-package",
+                     "application/x-deb", "application/x-rpm"):
+            self.assertIn(mime, kinds)
+            self.assertEqual(defaults["Default Applications"][mime],
+                             "airy-pkg-install.desktop")
+        globs = {item.get("pattern") for item in ET.parse(
+            self.asset("desktop/airymaxos-deb.xml")).getroot().iter()
+            if item.tag.endswith("glob")}
+        self.assertEqual(globs, {"*.deb", "*.rpm"})
 
     def test_lightdm_seat(self):
         conf = parse_kv(self.asset("desktop/lightdm/50-airymax.conf"))

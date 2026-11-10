@@ -1,0 +1,12 @@
+# AirymaxOS 本地包默认处理程序
+#
+# 基线的 mimeapps.list 把 application/vnd.debian.binary-package 指向
+# org.gnome.FileRoller、application/x-rpm 指向 gpk-install-local-file，
+# 两者在本镜像里都不存在，桌面于是把双击退回到归档器。这里不改基线文件
+# （它归 shared-mime-info），只在 XDG_CONFIG_DIRS 的首位另放一份：
+# 用户级与系统级默认项都从这里读，先于 XDG_DATA_DIRS/applications 的
+# 基线副本，双击因此落到 airy-pkg-install.desktop。
+[Default Applications]
+application/vnd.debian.binary-package=airy-pkg-install.desktop
+application/x-deb=airy-pkg-install.desktop
+application/x-rpm=airy-pkg-install.desktop
