@@ -240,7 +240,7 @@ class BuildIsoTest(unittest.TestCase):
         res = self.build("--arch", "x86_64", "--no-md5")
         self.assertEqual(res.returncode, 0, res.stderr)
         iso = self.out / ISO_NAME
-        self.assertNotIn("ISO MD5SUM", iso.read_text(encoding="utf-8"))
+        self.assertNotIn(b"ISO MD5SUM", fakes.iso_payload(iso))
 
     def test_gpg_key(self):
         self.full(("gpg", fakes.GPG))

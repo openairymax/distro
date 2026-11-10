@@ -346,9 +346,9 @@ class ImageCiTest(unittest.TestCase):
         self.assertIn("result=pass", manifest)
         iso = self.out / "iso" / ISO_NAME
         self.assertTrue(iso.is_file())
-        body = iso.read_text(encoding="utf-8")
-        self.assertIn("airymaxos-offline", body)
-        self.assertIn("=== /airymax/payload-manifest.txt", body)
+        body = fakes.iso_payload(iso)
+        self.assertIn(b"airymaxos-offline", body)
+        self.assertIn(b"=== /airymax/payload-manifest.txt", body)
 
     def test_desktop_chain(self):
         self.tools(desk=True)
@@ -365,9 +365,9 @@ class ImageCiTest(unittest.TestCase):
         self.assertIn("stage iso=pass", manifest)
         iso = self.out / "desktop" / "iso" / ISO_NAME
         self.assertTrue(iso.is_file())
-        self.assertIn("airymaxos-offline", iso.read_text(encoding="utf-8"))
-        self.assertIn("=== /airymax/payload-manifest.txt",
-                      iso.read_text(encoding="utf-8"))
+        body = fakes.iso_payload(iso)
+        self.assertIn(b"airymaxos-offline", body)
+        self.assertIn(b"=== /airymax/payload-manifest.txt", body)
 
     def test_desktop_marker_missing(self):
         self.tools(desk=True)
@@ -406,9 +406,9 @@ class ImageCiTest(unittest.TestCase):
         self.assertIn("# AIRYMAX-ACCEPTANCE-FIXTURE",
                       ks.read_text(encoding="utf-8"))
         iso = self.out / "desktop" / "iso" / ISO_NAME
-        body = iso.read_text(encoding="utf-8")
-        self.assertIn("=== /run-smoke.sh", body)
-        self.assertIn("=== /fixture/airymax-smoke-run.sh", body)
+        body = fakes.iso_payload(iso)
+        self.assertIn(b"=== /run-smoke.sh", body)
+        self.assertIn(b"=== /fixture/airymax-smoke-run.sh", body)
 
     def test_acceptance_smoke_fail(self):
         self.tools(desk=True)

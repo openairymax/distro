@@ -17,6 +17,14 @@ from pathlib import Path
 
 DISTRO = Path(__file__).resolve().parents[2]
 
+# 伪工具产出的 ISO 是二进制容器：前 16 个扇区是系统区，第 17 个是 PVD，
+# 卷空间大小以 32 位整数写在 PVD 偏移 80。载荷从第 18 个扇区开始。
+# 断言只关心注入的文件段落，必须按字节取载荷：整盘按 UTF-8 解码会在卷
+# 空间字节 >= 0x80 时随机失败（镜像长到 128 扇区即触发）。
+ISO_BLK = 2048
+ISO_PVD = 16 * ISO_BLK
+ISO_BODY = ISO_PVD + ISO_BLK
+
 TOOLS = ("awk", "base64", "basename", "bash", "cat", "cmp", "cp", "cut",
          "date", "dd", "dirname", "find", "git", "grep", "head", "install",
          "mkdir", "mv", "od", "python3", "readlink", "rm", "sed", "seq",
@@ -33,6 +41,20 @@ def osrel(key):
     text = (DISTRO / "release" / "os-release").read_text(encoding="utf-8")
     hit = re.search(rf'^{key}="?(.*?)"?$', text, re.M)
     return hit.group(1) if hit else ""
+
+
+def iso_payload(path):
+    """取伪 ISO 的载荷区字节：PVD 之后，按卷空间大小截断并去掉尾部填充。
+
+    Args:
+        path: 伪工具产出的 ISO 路径。
+
+    Returns:
+        载荷区字节串；注入的文件以 `=== /<路径>` 段落起头。
+    """
+    data = Path(path).read_bytes()
+    total = int.from_bytes(data[ISO_PVD + 80:ISO_PVD + 84], "little")
+    return data[ISO_BODY:total * ISO_BLK].rstrip(b"\0")
 
 
 MKKSISO = """\
