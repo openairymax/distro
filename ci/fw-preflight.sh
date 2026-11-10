@@ -189,17 +189,73 @@ fp_fw_list()
     [ -s "$2" ] || return 1
 }
 
+# fp_mod_diag TEXT —— 解包失败的证据走 stderr。容器日志会原样留下它，而
+# 只落在被丢掉的变量里等于没写：run 42790132617 四个架构都只剩一行
+# fail=no-modfiles，包坏、工具坏、还是包里本来就没文件，无从分辨。
+fp_mod_diag()
+{
+    printf 'diag %s\n' "$*" >&2
+}
+
 # fp_mod_tree RPM OUT —— 把模块包解到 OUT，返回模块根。用 cpio 直接解而
-# 不装包：预演只要 *.ko* 里的 MODULE_FIRMWARE()，装进宿主反而会覆盖正在
+# 不装包：预演只要 *.ko* 里的 MODULE_FIRMWARE()，装进主机反而会覆盖正在
 # 运行的内核模块。
+#
+# 解出目录但一个文件都没有（返回 6）与「解包本身失败」（返回 1）必须分开：
+# 前者要么是包真的只有目录，要么是工具链吃不下该包的载荷压缩；后者是
+# cpio 报了错。两种情况修法完全不同，而此前它们都收束成同一个 fail=。
 fp_mod_tree()
 {
     install -d "$2" || return 1
     command -v "${FP_RPM2CPIO}" >/dev/null 2>&1 || return 3
     command -v "${FP_CPIO}" >/dev/null 2>&1 || return 4
-    "${FP_RPM2CPIO}" "$1" 2>/dev/null |
-        (cd "$2" && "${FP_CPIO}" -idm --quiet 2>/dev/null) || return 1
+    # find 缺席时下面的计数会读成 0 个文件，看起来就像「包里只有目录」。
+    # 工具缺与包缺必须各有名字，否则每轮都得从头猜一遍。
+    command -v find >/dev/null 2>&1 || {
+        fp_mod_diag "no-find path=${PATH}"
+        return 7
+    }
+    fm_err="$2.err"
+    # 管道放进 if 条件里：set -e 下普通管道失败会直接终止脚本，下面的
+    # fm_rc=$? 永远拿不到非零值，cpio 的错误原文也随 stderr 重定向一起丢掉。
+    # 这就是 run 42790132617 只留下一个分类名的原因之一。
+    if "${FP_RPM2CPIO}" "$1" 2>"${fm_err}.rpm" |
+        (cd "$2" && "${FP_CPIO}" -idm --quiet 2>"${fm_err}.cpio")
+    then
+        fm_rc=0
+    else
+        fm_rc=$?
+        fp_mod_diag "extract rc=${fm_rc} cpio=$("${FP_CPIO}" --version 2>&1 |
+            sed -n '1p')"
+        fp_mod_diag "rpm2cpio-err=$(sed -n '1,2p' "${fm_err}.rpm" 2>/dev/null |
+            tr '\n' ' ')"
+        fp_mod_diag "cpio-err=$(sed -n '1,2p' "${fm_err}.cpio" 2>/dev/null |
+            tr '\n' ' ')"
+        return 1
+    fi
     [ -d "$2/usr/lib/modules" ] || return 5
+    fm_files=$(find "$2/usr/lib/modules" -type f 2>/dev/null | wc -l)
+    [ "${fm_files}" -eq 0 ] || return 0
+    # 目录建起来了、文件却一个都没有：包自己怎么说、树里剩下什么、哪件工具
+    # 不在，三样一起留下。此前只报 no-modfiles，包空、工具缺、还是 find
+    # 不在，读日志的人无从分辨（run 42790132617 四架构同形）。
+    fp_mod_diag "no-files files=${fm_files} dirs=$(find "$2/usr/lib/modules" \
+        -type d 2>/dev/null | wc -l) top=$(find "$2/usr/lib/modules" \
+        -mindepth 1 2>/dev/null | sed -n '1p;2p;3p' | tr '\n' ' ')"
+    fp_mod_diag "tools find=$(command -v find || echo none) \
+cpio=$(command -v "${FP_CPIO}" || echo none) \
+rpm2cpio=$(command -v "${FP_RPM2CPIO}" || echo none)"
+    fp_mod_diag "cpio-err=$(sed -n '1,2p' "${fm_err}.cpio" 2>/dev/null |
+        tr '\n' ' ')"
+    if command -v rpm >/dev/null 2>&1; then
+        fm_qf='%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}'
+        fm_qf="${fm_qf} %{PAYLOADCOMPRESSOR}/%{PAYLOADFORMAT}"
+        fm_id=$(rpm -qp --qf "${fm_qf}" "$1" 2>/dev/null) || :
+        fm_n=$(rpm -qlp "$1" 2>/dev/null | wc -l) || :
+        fp_mod_diag "rpm=${fm_id} files=${fm_n}"
+    fi
+    rm -f "${fm_err}.rpm" "${fm_err}.cpio"
+    return 6
 }
 
 # fp_main —— 建骨架、跑补齐、按计数判定。骨架在临时目录里，退出即删：
@@ -235,6 +291,8 @@ fp_main()
             3) fp_rc=no-rpm2cpio ;;
             4) fp_rc=no-cpio ;;
             5) fp_rc=no-modroot ;;
+            6) fp_rc=no-modfiles ;;
+            7) fp_rc=no-find ;;
             *) fp_rc=no-modules ;;
             esac
             printf 'AIRYMAX-FW-PREFLIGHT arch=%s fail=%s rpm=%s\n' \
