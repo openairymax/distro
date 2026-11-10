@@ -19,8 +19,10 @@
 #   AIRYMAX_SMOKE_BUILD_ID  发布清单记录的构建来源指纹。给出时要求与本机
 #                       BUILD_ID 逐字相同，把「装的是这一轮产出的镜像」变成
 #                       可判定事实；缺省只校验机内两处一致。
-#   AIRYMAX_SMOKE_BUDGET  外来 err 的棘轮预算；缺省读脚本同目录 err-budget 的
-#                       foreign_max，读不到即为 0（最严），不因缺文件放行。
+#   AIRYMAX_SMOKE_BUDGET_FILE  分层 err 的棘轮预算文件；缺省读脚本同目录的
+#                       err-budget。机器类别与指纹由 airy-observe 按 `--root`
+#                       指向的 sysfs 现场判定，文件里没有本机所属的组即判负
+#                       （最严），不因缺组放行。
 #
 # 覆盖:
 #   T1  UKUI X11 会话：loginctl 会话属性、ukui-session 进程、X server 可达
@@ -50,8 +52,9 @@
 #       「API 版本越界」三条失败签名
 #   T22 运行期控制台：本次启动的命令行与默认文件同源，systemd-vconsole-setup
 #       未失败，控制台字体几何不低于 12x24（2880x1800 上的 8x16 不可读）
-#   T23 系统完整性：失败单元、本次开机 err 日志（自有/固件/外来三层）与包集合
-#       对账三面同时干净。固件层的 ACPICA 表缺陷只列明细、不进预算。
+#   T23 系统完整性：失败单元、本次开机 err 日志（自有/平台/基底/未知四层）与
+#       包集合对账三面同时干净。平台层与基底层各有一份预算，前者按机器指纹
+#       记账；自有层与未知层无预算。
 #   T24 桌面会话收敛：本轮冒烟全程核心进程 pid 不变，开机期没有崩溃重启；
 #       判定为 churn 时同附内核段错误行（崩溃落点）与 coredumpctl 的死亡方式
 #       （SIGSEGV/SIGABRT），把「崩了」推进到「怎么崩、崩在哪」
@@ -92,20 +95,12 @@ START_WAIT="${AIRYMAX_SMOKE_WAIT:-30}"
 HOSTNAME_WANT="${AIRYMAX_SMOKE_HOST:-airymax-pc}"
 SYSROOT="${AIRYMAX_SMOKE_ROOT:-}"
 
-# 外来 err 的棘轮预算：与脚本同目录的 err-budget，一行 foreign_max=N。
-# 文件缺失或格式不合法一律按 0 处理——「读不到就放行」等于把棘轮拆掉，
-# 而本项的失败面只需要一次静默放宽就会失去意义。
-budget_max() {
-    local file="${BASH_SOURCE[0]%/*}" num
-    [ "${file}" = "${BASH_SOURCE[0]}" ] && file=.
-    file="${file}/err-budget"
-    num=$(sed -n 's/^foreign_max=//p' "${file}" 2>/dev/null | tail -n 1)
-    case "${num}" in
-    '' | *[!0-9]*) printf '0\n' ;;
-    *) printf '%s\n' "${num}" ;;
-    esac
-}
-ERR_BUDGET="${AIRYMAX_SMOKE_BUDGET:-$(budget_max)}"
+# 分层 err 的棘轮预算：与脚本同目录的版本化文件。哪一层、多少条由
+# airy-observe 判定，本脚本只负责把文件路径传下去——判定分散到两处，
+# 门禁与现场工具迟早各说各话。
+SELF_DIR="${BASH_SOURCE[0]%/*}"
+[ "${SELF_DIR}" = "${BASH_SOURCE[0]}" ] && SELF_DIR=.
+BUDGET_FILE="${AIRYMAX_SMOKE_BUDGET_FILE:-${SELF_DIR}/err-budget}"
 
 # 判定者不把自己的结论当证据。上报单元（airymax-smoke-report.service）的失败
 # 由本轮 TAP 判定驱动，产品就绪单元在验收 ISO 又被 mask，于是它一旦红过，
@@ -1042,15 +1037,15 @@ t18_build_id() {
 # 日志。三条都以「驱动仍然加载成功」收场，模块列表与 sysfs 都看不出，只看
 # 模块表会全部判过；日志读不到时同样判负，因为「没有证据」不等于「载入成功」。
 fw_clean() { # fw_clean <失败签名> <现象>
-    local log hit
+    local log bad
     need dmesg || return 1
     log=$(dmesg 2>/dev/null) || {
         printf 'kernel log unreadable: cannot rule out %s\n' "$2"
         return 1
     }
-    hit=$(printf '%s\n' "${log}" | grep -Ei "$1")
-    [ -z "${hit}" ] || {
-        printf '%s\n' "${hit}"
+    bad=$(printf '%s\n' "${log}" | grep -Ei "$1")
+    [ -z "${bad}" ] || {
+        printf '%s\n' "${bad}"
         return 1
     }
 }
@@ -1185,17 +1180,19 @@ t22_console_state() {
 # err 不能一刀切。基底与上游组件本身就会周期性打印 err（rtkit 拿不到实时
 # 优先级、ACPI 表重复、LDAP 插件找不到 schema），在真机上消除不掉；一律判
 # 失败只会让本项长期为红，失去信号价值。判定因此在 airy-observe system 内部
-# 分层：产品自有单元（airymax-、airy- 前缀）的 err 必须为 0；外来条目按内容
-# 去重后与 err-budget 的棘轮预算比较，超出即失败，预算随版本单调下降至 0。
+# 分四层：产品自有单元（airymax-、airy- 前缀）与读不到归属的条目必须为 0；
+# 平台层（ACPI 表、热区）与基底层各有一份预算，互不挪用，平台层还按机器
+# 指纹记账（同一块盘换到另一台机器不继承额度）。
 #
 # 判定取 airy-observe system 的 state，不在这里二次解析 systemctl 与 rpm：
 # 同一套判定只能有一份实现，否则门禁与现场工具迟早各说各话。预算同样不写死
-# 在脚本里，由同目录的版本化文件给出。
+# 在脚本里，由同目录的版本化文件给出；机器类别与指纹取自本机 sysfs。
 t23_inventory() {
     local out
     need airy-observe || return 1
     out=$(airy-observe system --manifest "${SYSROOT}/etc/airymaxos-packages" \
-        --budget "${ERR_BUDGET}" --exclude "${T23_EXCLUDE}" 2>&1) || {
+        --root "${SYSROOT}/sys" --budget-file "${BUDGET_FILE}" \
+        --exclude "${T23_EXCLUDE}" 2>&1) || {
         printf '%s\n' "${out}"
         return 1
     }
@@ -1207,7 +1204,7 @@ t23_inventory() {
         ;;
     esac
     # 状态干净不等于没发生过 err：外来条目在预算之内时 state 仍是 ok。
-    # 只留首行计数，「foreign=2」就永远说不清是哪两条，err-budget 的棘轮
+    # 只留首行计数，「base=2」就永远说不清是哪两条，err-budget 的棘轮
     # 只能靠猜着收紧。首行之后补上本轮 err 明细（上限 8 行，超出以一行
     # 告知剩余条数），计数与明细对得上，棘轮才有可依据的证据。
     printf '%s\n' "${out}" | head -n 1
@@ -1504,12 +1501,12 @@ t28_net_front() {
 
 # 计数一类 sysfs 设备，目录缺失按 0：诊断只陈述观测到的数量。
 cnt_of() {
-    local -a hit=()
+    local -a paths=()
 
     shopt -s nullglob
-    hit=("$1"/$2)
+    paths=("$1"/$2)
     shopt -u nullglob
-    printf '%s\n' "${#hit[@]}"
+    printf '%s\n' "${#paths[@]}"
 }
 
 # 触控板的第二段判据：内核绑定不等于桌面可用。闭包里的遗留 synaptics
@@ -1547,16 +1544,16 @@ t29_driver_owner() {
 # 触控板无声消失，日志里也没有错误——只能按「ACPI 有硬件、输入子系统
 # 无设备」判定。无此硬件的机型按能力不适用通过，不记为掩盖。
 t29_touchpad() {
-    local path hit=0 dev="${SYSROOT}/proc/bus/input/devices"
+    local path tpad=0 dev="${SYSROOT}/proc/bus/input/devices"
     local i2c hid
 
     for path in "${SYSROOT}"/sys/bus/acpi/devices/*/path; do
         [ -r "${path}" ] || continue
         case "$(cat "${path}")" in
-        *.TPAD | *.TPD0 | *.TPD1) hit=1 ;;
+        *.TPAD | *.TPD0 | *.TPD1) tpad=1 ;;
         esac
     done
-    if [ "${hit}" -eq 0 ]; then
+    if [ "${tpad}" -eq 0 ]; then
         printf 'no i2c-hid touchpad in ACPI\n'
         return 0
     fi
@@ -1602,7 +1599,7 @@ printf 'TAP version 14\n'
 printf '1..30\n'
 printf '# AirymaxOS distro smoke: target=%s date=%s\n' \
     "${TARGET}" "$(date -u '+%FT%TZ')"
-printf '# ownership: budget=%s\n' "${ERR_BUDGET}"
+printf '# ownership: budget-file=%s\n' "${BUDGET_FILE}"
 printf '# boot=%s\n' "${BOOT_ID}"
 
 # T24 的首快照必须在任何探测之前取：探测本身会起子进程、耗时数秒，晚取就会

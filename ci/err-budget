@@ -1,35 +1,105 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
 # ===========================================================================
-# err-budget — 开机 err 的棘轮基线（T23 外来层）
+# err-budget — 开机 err 的分层棘轮基线（T23）
 #
-# 度量：本次开机 err 级及以上日志中，不属于产品自有单元（UNIT /
-#       _SYSTEMD_UNIT / _SYSTEMD_USER_UNIT / SYSLOG_IDENTIFIER 不带
-#       airymax-、airy- 前缀）、也不属于固件层（内核转发的 ACPICA 诊断：
-#       「ACPI BIOS Error (bug)」「ACPI Error」）的条目，经 pid 归一化后按
-#       「内容 + 单元」去重的条数。
+# 度量：本次开机 err 级及以上日志，经 pid 与会话/崩溃序号归一化后，按
+#       「内容 + 单元」去重的条数，分四层记账：
 #
-# 为什么要有这个文件：基底与上游组件本身就会打印 err（rtkit 拿不到实时
-# 优先级、LDAP 插件找不到 schema），在真机上消除不掉。若一律判失败，T23
-# 长期为红，判据就失去信号价值；若一律放过，真正的缺陷也会被噪声掩盖。
-# 棘轮是两者之间唯一可判定的中间态：每条外来 err 要么被消除，要么被显式
-# 记账，预算只许下降。
+#         owned     产品单元（UNIT/_SYSTEMD_UNIT/_SYSTEMD_USER_UNIT/
+#                   SYSLOG_IDENTIFIER 带 airymax-、airy- 前缀）的 err，
+#                   以及任何「dumped core」崩溃行。额度恒为 0。
+#         platform  内核转发的固件自述矛盾（ACPI BIOS Error (bug)、ACPI
+#                   Error）与热区告警。按机器指纹记账，换机不继承。
+#         base      镜像交付的上游组件自身打印的 err。按机器类别记账。
+#         unknown   读不到归属的条目（非 JSON 行、无单元也无标识）。额度恒为 0。
 #
-# 规则：
-#   1. 产品自有单元的 err 不在预算内，必须为 0（由 airy-observe 直接判定）。
-#   2. 固件层的 err 不计入本预算：它们说的是主板 DSDT 的表缺陷，发行版
-#      不改固件就消除不掉，且每次开机逐字重现。固件面由 airy-observe fw 与
-#      T19–T21 单独判定，本文件不为其背书。
-#   3. 本值只能单调下降；下降必须伴随一次实测与提交，不得无证据调低。
-#   4. 降到 0 后本文件仍保留 0，作为「外来 err 也清零」的硬约束。
-#   5. 文件缺失或格式不合法时，run-smoke.sh 按 0 处理（最严），不静默放行。
+# 为什么要分层：三类 err 的来历完全不同——固件表的缺陷改不了固件就消除不掉，
+# 基底组件的会话竞争由上游决定，产品缺陷必须修代码。混在一个阈值下只有两种
+# 结局：为让真机过而抬高阈值，或真机长期为红。两种都让判据失去意义。
 #
-# 取值来历：26 → 2。26 为 2026-11-02 验收镜像（run 41825173300 的
-# install-usb 腿）实测条数，构成为 UKUI 会话启动期崩溃重启 26 条 coredump；
-# 该崩溃已消除。2 为 2026-11-06 验收镜像（run 42162907596）三条腿
-# （usb/cdrom-bios/cdrom-uefi）各自实测的同一结果：owned=0 foreign=2
-# firmware=0，两条均为 pulseaudio 的 pid.c「Daemon already running」，
-# 属基底会话对同一守护进程的三次并发启动，产品侧不持有该启动顺序。
-# 该并发来自基底 UKUI 会话，本仓无启动点；消除它需要产品侧单一 owner，
-# 归 0.0.5 首启网络与音频会话一并治理。届时按实测再收紧至 0。
+# 记账规则：
+#   1. owned 层不得有预算。文件里出现 owned 条目即整组作废（防止有人给自有
+#      缺陷留额度）。
+#   2. platform 条目必须带机器指纹，指纹由 DMI 的 product_name、board_name、
+#      bios_version 三项算出；同一块盘插到另一台机器上，旧主板的额度不继承。
+#   3. base 条目必须带日期与单元名（归因证据），说明「为何不是我们的单元」。
+#   4. 缺组即判负。换机器类别而文件里没有对应组时判失败，不回退到另一组，
+#      也不当作 0 放行——静默放宽只需一次，棘轮就失效了。
+#   5. 能消除的不进预算。条目一旦被修掉，必须按实测删除，不允许无证据调数。
+#   6. 组内条目数即额度；每条都必须能在真机上逐字重现。
+#
+# 取值来历：
+#   26  2026-11-02 验收镜像（run 41825173300，install-usb 腿）：UKUI 会话启动
+#       期崩溃重启产生的 coredump。该崩溃已消除。
+#   2   2026-11-06 验收镜像（run 42162907596），三条腿各自同一结果：0.0.4 之前
+#       的 foreign 计数，两条均为 pulseaudio「Daemon already running」。
+#   本次 2026-11-10 285H（83JK / LNVNB161216 / QLCN24WW）实测 133 条 err，
+#       归一化去重后 owned=2 platform=35 base=18 unknown=0：
+#         - owned 的 2 条为 airymax-smoke-report.service（判定者自身的旧结论，
+#           由 run-smoke.sh 排除）与 airymax-update-check.service（树内已修）。
+#         - platform 的 35 条全为 ACPICA 在 XHCI/TXHC 端口上重复建命名对象与
+#           \_TZ.TZ00._TMP 的 AE_NOT_FOUND，属主板 DSDT 自述矛盾。
+#         - base 的 18 条在单元名归一化后收敛为 7 类：pulseaudio 会话竞争 1、
+#           ldapdb 插件 1、elfutils 未编入的 coredump 提示 1、kscreen_backend 与
+#           kglobalaccel5 崩溃各 1、proc_thermal_pci 的 RAPL 1、iwlwifi 会话保护 1。
+#           其中崩溃行按规则 1 归入 owned，两条 DHCP 相关行由本版 dhcp=internal
+#           消除，故 real 组只记 5 条基底。
+#
+# 崩溃为什么不记预算：kscreen_backend 与 kglobalaccel5 的 core 属于真实缺陷，
+# 记进预算等于把「崩了」变成「在预算内崩了」。修代码，不加额度。
 # ===========================================================================
-foreign_max=2
+
+# 285H（真机，DMI 83JK）—— 平台条目按指纹 3ba63f38b87a 记账，仅本机生效。
+class=real
+platform 3ba63f38b87a 2026-11-10 ACPI BIOS Error (bug): Failure creating named object [\_SB.PC00.TXHC.RHUB.SS01._UPC]
+platform 3ba63f38b87a 2026-11-10 ACPI Error: AE_ALREADY_EXISTS, During name lookup/catalog
+platform 3ba63f38b87a 2026-11-10 ACPI BIOS Error (bug): Failure creating named object [\_SB.PC00.TXHC.RHUB.SS01._PLD]
+platform 3ba63f38b87a 2026-11-10 ACPI BIOS Error (bug): Failure creating named object [\_SB.PC00.TXHC.RHUB.SS02._UPC]
+platform 3ba63f38b87a 2026-11-10 ACPI BIOS Error (bug): Failure creating named object [\_SB.PC00.TXHC.RHUB.SS02._PLD]
+platform 3ba63f38b87a 2026-11-10 ACPI BIOS Error (bug): Failure creating named object [\_SB.PC00.TXHC.RHUB.SS03._UPC]
+platform 3ba63f38b87a 2026-11-10 ACPI BIOS Error (bug): Failure creating named object [\_SB.PC00.TXHC.RHUB.SS03._PLD]
+platform 3ba63f38b87a 2026-11-10 ACPI BIOS Error (bug): Failure creating named object [\_SB.PC00.TXHC.RHUB.SS04._UPC]
+platform 3ba63f38b87a 2026-11-10 ACPI BIOS Error (bug): Failure creating named object [\_SB.PC00.TXHC.RHUB.SS04._PLD]
+platform 3ba63f38b87a 2026-11-10 ACPI BIOS Error (bug): Failure creating named object [\_SB.PC00.XHCI.RHUB.HS01._UPC]
+platform 3ba63f38b87a 2026-11-10 ACPI BIOS Error (bug): Failure creating named object [\_SB.PC00.XHCI.RHUB.HS01._PLD]
+platform 3ba63f38b87a 2026-11-10 ACPI BIOS Error (bug): Failure creating named object [\_SB.PC00.XHCI.RHUB.HS02._UPC]
+platform 3ba63f38b87a 2026-11-10 ACPI BIOS Error (bug): Failure creating named object [\_SB.PC00.XHCI.RHUB.HS02._PLD]
+platform 3ba63f38b87a 2026-11-10 ACPI BIOS Error (bug): Failure creating named object [\_SB.PC00.XHCI.RHUB.HS03._UPC]
+platform 3ba63f38b87a 2026-11-10 ACPI BIOS Error (bug): Failure creating named object [\_SB.PC00.XHCI.RHUB.HS03._PLD]
+platform 3ba63f38b87a 2026-11-10 ACPI BIOS Error (bug): Failure creating named object [\_SB.PC00.XHCI.RHUB.HS04._UPC]
+platform 3ba63f38b87a 2026-11-10 ACPI BIOS Error (bug): Failure creating named object [\_SB.PC00.XHCI.RHUB.HS04._PLD]
+platform 3ba63f38b87a 2026-11-10 ACPI BIOS Error (bug): Failure creating named object [\_SB.PC00.XHCI.RHUB.HS05._UPC]
+platform 3ba63f38b87a 2026-11-10 ACPI BIOS Error (bug): Failure creating named object [\_SB.PC00.XHCI.RHUB.HS05._PLD]
+platform 3ba63f38b87a 2026-11-10 ACPI BIOS Error (bug): Failure creating named object [\_SB.PC00.XHCI.RHUB.HS06._UPC]
+platform 3ba63f38b87a 2026-11-10 ACPI BIOS Error (bug): Failure creating named object [\_SB.PC00.XHCI.RHUB.HS06._PLD]
+platform 3ba63f38b87a 2026-11-10 ACPI BIOS Error (bug): Failure creating named object [\_SB.PC00.XHCI.RHUB.HS07._UPC]
+platform 3ba63f38b87a 2026-11-10 ACPI BIOS Error (bug): Failure creating named object [\_SB.PC00.XHCI.RHUB.HS07._PLD]
+platform 3ba63f38b87a 2026-11-10 ACPI BIOS Error (bug): Failure creating named object [\_SB.PC00.XHCI.RHUB.HS08._UPC]
+platform 3ba63f38b87a 2026-11-10 ACPI BIOS Error (bug): Failure creating named object [\_SB.PC00.XHCI.RHUB.HS08._PLD]
+platform 3ba63f38b87a 2026-11-10 ACPI BIOS Error (bug): Failure creating named object [\_SB.PC00.XHCI.RHUB.HS09._UPC]
+platform 3ba63f38b87a 2026-11-10 ACPI BIOS Error (bug): Failure creating named object [\_SB.PC00.XHCI.RHUB.HS09._PLD]
+platform 3ba63f38b87a 2026-11-10 ACPI BIOS Error (bug): Failure creating named object [\_SB.PC00.XHCI.RHUB.HS10._UPC]
+platform 3ba63f38b87a 2026-11-10 ACPI BIOS Error (bug): Failure creating named object [\_SB.PC00.XHCI.RHUB.HS10._PLD]
+platform 3ba63f38b87a 2026-11-10 ACPI BIOS Error (bug): Failure creating named object [\_SB.PC00.XHCI.RHUB.SS01._UPC]
+platform 3ba63f38b87a 2026-11-10 ACPI BIOS Error (bug): Failure creating named object [\_SB.PC00.XHCI.RHUB.SS01._PLD]
+platform 3ba63f38b87a 2026-11-10 ACPI BIOS Error (bug): Failure creating named object [\_SB.PC00.XHCI.RHUB.SS02._UPC]
+platform 3ba63f38b87a 2026-11-10 ACPI BIOS Error (bug): Failure creating named object [\_SB.PC00.XHCI.RHUB.SS02._PLD]
+platform 3ba63f38b87a 2026-11-10 ACPI BIOS Error (bug): Could not resolve symbol [\_SB.PC00.LPCB.MXTP], AE_NOT_FOUND
+platform 3ba63f38b87a 2026-11-10 ACPI Error: Aborting method \_TZ.TZ00._TMP due to previous error (AE_NOT_FOUND)
+# pulseaudio 的会话竞争：基底 UKUI 会话并发 autospawn，本仓无启动点；
+# 0.0.5 收归单一 user 单元（autospawn=no）后，按实测删除本条。
+base 2026-11-10 user-session [pulseaudio] pid.c: Daemon already running.
+# ldapdb：基底 cyrus-sasl 的插件初始化在无 LDAP schema 时返回 EINVAL。
+base 2026-11-10 user-session ldapdb_canonuser_plug_init() failed in sasl_canonuser_add_plugin()
+# systemd-coredump：基底 systemd 构建时未启用 libelf，每次收崩溃都打印一条。
+base 2026-11-10 coredump elfutils disabled, parsing ELF objects not supported
+# proc_thermal_pci：ALK 内核在此平台没有 RAPL MMIO 接口可加，属硬件能力边界。
+base 2026-11-10 kernel proc_thermal_pci 0000:00:04.0: failed to add RAPL MMIO interface
+# iwlwifi：省电与漫游参数下的会话保护超时提示，不影响连接（见 §4.6.1 无线分档）。
+base 2026-11-10 kernel iwlwifi 0000:01:00.0: Not associated and the session protection is over already...
+
+# 验收机的 QEMU 腿（安装 ISO 与冷启动）。虚拟机的 DSDT 由 QEMU 生成，没有
+# 真机的 ACPI 自述矛盾，故本组只有基底条目。
+class=qemu
+# 单元名归一化（session-N.scope → user-session）后由 2 条收紧到 1 条。
+base 2026-11-06 user-session [pulseaudio] pid.c: Daemon already running.
