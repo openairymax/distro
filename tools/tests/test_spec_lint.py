@@ -281,6 +281,17 @@ class SpecLintTest(unittest.TestCase):
     def test_changelog_weekday_ok(self):
         self.assertEqual(self.codes(), [])
 
+    def test_command_v_builtin(self):
+        bad = VALID.replace(
+            "%check\n",
+            '%check\ninstall -m 0755 "$(command -v true)" %{buildroot}/x\n')
+        self.assertIn("E018", self.codes(bad))
+
+    def test_command_v_probe_ok(self):
+        ok = VALID.replace("%check\n",
+                           "%check\ncommand -v sh >/dev/null 2>&1\n")
+        self.assertEqual(self.codes(ok), [])
+
     def test_real_specs(self):
         root = Path(__file__).resolve().parents[2]
         specs = sorted((root / "specs").rglob("*.spec"))

@@ -5,7 +5,7 @@
 #
 # 只依赖标准库，供 distro/ci 在无 rpmbuild 的构建机上做前置门禁。规则来源：
 # docs-linux/190-distribution/01-rpm-packaging.md 与
-# docs-linux/50-engineering-standards。规则编号 E001~E016 与测试一一对应。
+# docs-linux/50-engineering-standards。规则编号 E001~E018 与测试一一对应。
 #
 # E015 检查注释中的裸 % 宏：rpm 在剥离注释前展开宏，若宏体带续行反斜杠
 # （如 openEuler 的 %install），续行会吞掉后续 preamble，报 Name 等字段缺失。
@@ -87,6 +87,12 @@ RPM = re.compile(rf"^#\s*{DIRECTIVE}\s*source-rpm\s+(\S+)\s+(\S+)\s+"
 DIRECTIVE_LINE = re.compile(rf"^\s*#\s*{DIRECTIVE}")
 CMT = re.compile(r"^\s*#")
 CMT_MACRO = re.compile(r"(?<!%)%(?:\{|\w)")
+# command -v 对 shell 内建回的是名字而不是路径（true 就回 "true"）。把它
+# 塞进 $( ) 当文件来源，install/cp 取到的是当前目录下的同名文件，构建期
+# 必失败（run 42815827730 的 %check）。判存在的写法 `command -v X >/dev/null`
+# 不在本规则内。
+SUB_BUILTIN = re.compile(r"\$\(\s*command\s+-v\s+"
+                         r"(?:true|false|test|echo|printf|cd|umask)\b")
 
 
 def strip_cmt(line: str) -> str:
@@ -380,6 +386,9 @@ def check_scan(lines: list[str], issues: list[Issue]) -> None:
             issues.append(Issue("E006", num, "BuildRoot is forbidden"))
         if BAD.search(raw):
             issues.append(Issue("E013", num, "placeholder marker found"))
+        if not CMT.match(raw) and SUB_BUILTIN.search(raw):
+            issues.append(Issue("E018", num, "command -v of a builtin is "
+                                             "not a file path"))
 
 
 def check_ver(ver: str, root: Path, issues: list[Issue]) -> None:

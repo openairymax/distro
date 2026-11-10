@@ -307,9 +307,14 @@ test -x %{buildroot}/usr/lib/airymaxos/scripts/ukui_compat.sh
 bash -n %{buildroot}/usr/lib/airymaxos/scripts/ukui_compat.sh
 ukui_root="$(mktemp -d)"
 install -d -m 0755 "${ukui_root}/usr/bin"
-install -m 0755 "$(command -v true)" "${ukui_root}/usr/bin/ukui-touchpadserver"
-install -m 0755 "$(command -v true)" "${ukui_root}/usr/bin/ukui-mouseserver"
-install -m 0755 "$(command -v true)" "${ukui_root}/usr/bin/not-a-ukui-tool"
+# 桩直接写成脚本，不借 `command -v true` 取可执行文件：true 是 shell 内建，
+# command -v 对它回的是名字 "true" 而不是路径，install 于是去 stat 当前目录
+# 下的文件 true，%%check 在容器里必然失败（run 42815827730）。桩只需要「存在
+# 且可执行」，内容是什么与判据无关。
+for ukui_stub in ukui-touchpadserver ukui-mouseserver not-a-ukui-tool; do
+    printf '#!/bin/sh\nexit 0\n' > "${ukui_root}/usr/bin/${ukui_stub}"
+    chmod 0755 "${ukui_root}/usr/bin/${ukui_stub}"
+done
 bash %{buildroot}/usr/lib/airymaxos/scripts/ukui_compat.sh "${ukui_root}" >/dev/null
 test "$(readlink "${ukui_root}/usr/libexec/ukui-touchpadserver")" \
     = /usr/bin/ukui-touchpadserver
