@@ -149,6 +149,21 @@ class FirmwareContractTest(unittest.TestCase):
         self.assertIn("kmod", requires_of(read(FW_SPEC)),
                       "生成器依赖 modinfo，缺 kmod 时静默不补入口")
 
+    def test_preflight_shares_flat_rules(self):
+        """构建期预演复用同一份补齐实现，且不写死厂商目录。
+
+        预演若自己列一套规则，预演绿了装机照样缺件；写死厂商目录则只能覆盖
+        Intel Wi-Fi，ARM 与 RISC-V 的主用无线不在 intel/ 下。
+        """
+        pre = DISTRO / "ci" / "fw-preflight.sh"
+        self.assertTrue(pre.is_file(), "缺少 distro/ci/fw-preflight.sh")
+        text = pre.read_text(encoding="utf-8")
+        self.assertIn("firmware/fw-flat.sh", text)
+        for vendor in ("intel/iwlwifi", "brcm/", "ath11k", "rtw88", "mt76"):
+            self.assertNotIn(vendor, text)
+        self.assertIn("AIRYMAX-FW-PREFLIGHT arch=", text,
+                      "预演必须留一行带架构名的自证行")
+
     def test_ks_installs_package(self):
         """两个剖面都显式列出固件包，镜像里缺它在事务阶段就失败。"""
         got = ks_pkgs()
