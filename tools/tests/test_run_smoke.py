@@ -20,6 +20,7 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -34,8 +35,17 @@ DISPLAY_MODE = DESKTOP / "display_mode.sh"
 FLAT = Path(__file__).resolve().parents[2] / "firmware" / "fw-flat.sh"
 BASH = shutil.which("bash") or "/bin/bash"
 
+sys.path.insert(0, str(SERVICES))
+from airymax_observe import sys as osys  # noqa: E402
+
 # T23 的交付包集合：装机 %post 写下的清单，也是沙箱 rpm 数据库的默认内容。
 PACKAGES = ("airymaxos-desktop", "airymaxos-system", "kernel-alk")
+
+# T23 预算按机器类别与指纹记账，身份必须取自被测视图而不是宿主主板。这里
+# 落 285H 实测的三项 DMI，指纹用 airy-observe 的同一算法算出，不另抄一份。
+DMI = {"product_name": "83JK", "board_name": "LNVNB161216",
+       "bios_version": "QLCN24WW"}
+FP = osys.machine_fp(DMI)
 
 # T24 的核心进程：名字是内核 comm 的 15 字节视角，不是 unit 名。
 SESSION_PROCS = ("ukui-panel", "ukui-kwin_x11", "ukui-settings-d",
@@ -197,6 +207,7 @@ class RunSmokeTest(unittest.TestCase):
         self.write_net_front()
         self.write_tray()
         self.write_vconsole()
+        self.write_dmi()
 
     def write_net_front(self, kylin=True, modules=NET_MODULES):
         """T28 的落点：面板与控制中心共用的网络前端闭包。判的是文件是否
@@ -244,6 +255,14 @@ class RunSmokeTest(unittest.TestCase):
             elif unit_path.exists():
                 unit_path.unlink()
         return bindir
+
+    def write_dmi(self, values=None):
+        """T23 的机器身份：预算按机器类别与指纹取组，身份来自被测视图。"""
+        root = self.sysroot / "sys" / osys.DMI_REL
+        root.mkdir(parents=True, exist_ok=True)
+        for key, value in (values or DMI).items():
+            (root / key).write_text(f"{value}\n", encoding="utf-8")
+        return root
 
     def write_acpi_touchpad(self, node="PNP0C50:00", path=TPAD_PATH):
         """T29 的落点：ACPI 命名空间里存在触控板节点，但输入子系统是否
@@ -1451,12 +1470,14 @@ class RunSmokeTest(unittest.TestCase):
         self.assertIn("proc/cmdline unreadable", res.stdout)
 
     def test_inventory_ok(self):
-        # 三个面同时干净：无失败单元、本次开机无 err、包集合与交付清单一致
+        # 三个面同时干净：无失败单元、本次开机无 err、包集合与交付清单一致。
+        # 预算文件用仓内那一份：它同时是被发布镜像的棘轮基线，解析不了就会
+        # 在这里先红，而不是等到装机现场。
         self.tools()
         res = self.run_smoke()
         self.assertIn("ok 23 - T23 system inventory", res.stdout)
-        self.assertIn("state=ok units=0 errors=0 owned=0 foreign=0"
-                      " firmware=0 unknown=0", res.stdout)
+        self.assertIn("state=ok units=0 errors=0 owned=0 platform=0"
+                      " base=0 unknown=0 class=real", res.stdout)
         self.assertIn("packages=ok", res.stdout)
 
     def test_inventory_failed_unit(self):
@@ -1493,11 +1514,11 @@ class RunSmokeTest(unittest.TestCase):
 
     def test_inventory_journal_err(self):
         # 日志刷错但没有单元失败：另一侧的证据必须独立成立。纯文本行拿不到
-        # 归属单元，按未知层计，预算再宽也不放行。
+        # 归属单元，按未知层计，任何预算都不为它背书。
         self.tools()
         log = self.root / "journal.log"
         log.write_text("amuser.service: Failed to start\n", encoding="utf-8")
-        res = self.run_smoke(FAKE_JOURNAL_FILE=str(log), AIRYMAX_SMOKE_BUDGET="9")
+        res = self.run_smoke(FAKE_JOURNAL_FILE=str(log))
         self.assert_fail(res, 23)
         self.assertIn("unknown=1", res.stdout)
 
@@ -1508,44 +1529,85 @@ class RunSmokeTest(unittest.TestCase):
             json.dumps(rec) + "\n" for rec in records), encoding="utf-8")
         return {"FAKE_JOURNAL_FILE": str(log)}
 
-    def test_inventory_foreign_within_budget(self):
-        # 基底自己刷的 err 在棘轮预算内：判据仍为通过，但计数必须如实打印，
-        # 否则预算永远降不下来
+    def budget(self, *entries, cls="real"):
+        """写一份分组预算文件；条目原样给出，便于逐条构造归因证据。"""
+        path = self.root / "err-budget"
+        path.write_text("\n".join((f"class={cls}", *entries)) + "\n",
+                        encoding="utf-8")
+        return {"AIRYMAX_SMOKE_BUDGET_FILE": str(path)}
+
+    def test_inventory_base_within_budget(self):
+        # 基底自己刷的 err 在棘轮预算内：判定仍为通过，但两层计数必须分开
+        # 如实打印，否则收掉一条基底缺陷腾出的额度会被平台噪音吃掉
         self.tools()
         res = self.run_smoke(
-            AIRYMAX_SMOKE_BUDGET="1",
+            **self.budget("base 2026-11-10 cups card busy"),
             **self.journal({"MESSAGE": "card busy",
                             "_SYSTEMD_UNIT": "cups.service"}))
         self.assertIn("ok 23 - T23 system inventory", res.stdout)
-        self.assertIn("foreign=1 firmware=0 unknown=0 budget=1", res.stdout)
+        self.assertIn("platform=0 base=1 unknown=0 class=real"
+                      " budget=platform:0/base:1", res.stdout)
 
-    def test_inventory_firmware_layer_free(self):
-        # 主板 ACPI 表缺陷逐字重现、发行版改不了：单列固件层，不吃预算
+    def test_inventory_platform_within_budget(self):
+        # 主板 ACPI 表缺陷逐字重现、发行版改不了：单列平台层并按机器指纹记账
         self.tools()
         res = self.run_smoke(
-            AIRYMAX_SMOKE_BUDGET="0",
+            **self.budget(f"platform {FP} 2026-11-10 ACPI BIOS Error (bug)"),
             **self.journal({"MESSAGE": "ACPI BIOS Error (bug): Failure "
                                        "creating named object",
                             "SYSLOG_IDENTIFIER": "kernel",
                             "_TRANSPORT": "kernel"}))
         self.assertIn("ok 23 - T23 system inventory", res.stdout)
-        self.assertIn("firmware=1", res.stdout)
+        self.assertIn("platform=1 base=0 unknown=0", res.stdout)
 
-    def test_inventory_foreign_over_budget(self):
-        # 同一条日志，预算收紧到 0 即失败：判定确实由预算驱动
+    def test_inventory_platform_other_machine(self):
+        # 同一块盘换到另一块主板：旧主板的平台额度不继承，判据当场变红
         self.tools()
         res = self.run_smoke(
-            AIRYMAX_SMOKE_BUDGET="0",
+            **self.budget("platform ffffffffffff 2026-11-10 另一块主板的同名噪音"),
+            **self.journal({"MESSAGE": "ACPI BIOS Error (bug): Failure "
+                                       "creating named object",
+                            "SYSLOG_IDENTIFIER": "kernel",
+                            "_TRANSPORT": "kernel"}))
+        self.assert_fail(res, 23)
+        self.assertIn("platform=1", res.stdout)
+
+    def test_inventory_base_over_budget(self):
+        # 同一条日志，基底额度为零即失败：判定确实由预算驱动
+        self.tools()
+        res = self.run_smoke(
+            **self.budget("# 基底额度为零"),
             **self.journal({"MESSAGE": "card busy",
                             "_SYSTEMD_UNIT": "cups.service"}))
         self.assert_fail(res, 23)
-        self.assertIn("foreign=1", res.stdout)
+        self.assertIn("base=1", res.stdout)
+
+    def test_inventory_missing_group(self):
+        # 文件里没有本机所属的组：判负而不是当作 0 放行
+        self.tools()
+        res = self.run_smoke(
+            **self.budget("base 2026-11-10 cups card busy", cls="qemu"))
+        self.assert_fail(res, 23)
+        self.assertIn("budget=missing:real", res.stdout)
+
+    def test_inventory_core_dump(self):
+        # 崩溃归自有层：给预算也不能过，否则等于承认「可以崩」
+        self.tools()
+        res = self.run_smoke(
+            **self.budget(f"platform {FP} 2026-11-10 ACPI BIOS Error (bug)"),
+            **self.journal({"MESSAGE": "Process 2306 (kscreen_backend) of "
+                                       "user 1000 dumped core.",
+                            "_SYSTEMD_UNIT":
+                                "systemd-coredump@0-22095-0.service"}))
+        self.assert_fail(res, 23)
+        self.assertIn("owned=1", res.stdout)
+        self.assertIn("[owned]", res.stdout)
 
     def test_inventory_owned_err(self):
         # 自有单元的 err 是本产品缺陷，预算再宽也不放过
         self.tools()
         res = self.run_smoke(
-            AIRYMAX_SMOKE_BUDGET="9",
+            **self.budget("base 2026-11-10 cups card busy"),
             **self.journal({"MESSAGE": "cannot bind socket",
                             "_SYSTEMD_UNIT": "airymax-desktop.service"}))
         self.assert_fail(res, 23)
