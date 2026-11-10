@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Install Package
+Name[zh_CN]=安装软件包
+Comment=Install a local .deb or .rpm package
+Comment[zh_CN]=安装本地的 .deb 或 .rpm 软件包
+Exec=/usr/bin/airy-pkg install --ask %f
+Icon=system-software-install
+Terminal=true
+NoDisplay=true
+Categories=System;PackageManager;
+MimeType=application/vnd.debian.binary-package;application/x-deb;application/x-rpm;

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  AirymaxOS 本地包类型声明
+
+  只补 glob，不改基线的 magic 判定：文件内容识别仍归 shared-mime-info，
+ 这里只保证 .deb/.rpm 在没有 magic 命中时也能按后缀落到同一类型，
+ 从而命中 /etc/xdg/mimeapps.list 里指向 airy-pkg-install.desktop 的默认项。
+-->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/vnd.debian.binary-package">
+    <comment>Debian package</comment>
+    <comment xml:lang="zh_CN">Debian 软件包</comment>
+    <glob pattern="*.deb" weight="80"/>
+    <alias type="application/x-deb"/>
+  </mime-type>
+  <mime-type type="application/x-rpm">
+    <comment>RPM package</comment>
+    <comment xml:lang="zh_CN">RPM 软件包</comment>
+    <glob pattern="*.rpm" weight="80"/>
+  </mime-type>
+</mime-info>

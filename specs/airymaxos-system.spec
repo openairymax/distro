@@ -35,7 +35,10 @@
 #  14. 部署 /usr/bin/airy-deb 与 airydeb Python 包：把 deb 现场转成 RPM 后
 #      交给 dnf 安装，不依赖 dpkg 与 alien；维护者脚本默认拒绝执行，data
 #      成员的绝对路径与越界链接在落盘前判死；
-#  15. 在 %%post/%%postun 内刷新 systemd 单元缓存，在 %%posttrans 内按
+#  15. 部署 /usr/bin/airy-pkg 与 airypkg Python 包：本地包按后缀分派，
+#      .deb 转发 airy-deb，.rpm 交 dnf；回显、确认与提权复用 airydeb.interact，
+#      桌面双击与终端命令只走这一条入口；
+#  16. 在 %%post/%%postun 内刷新 systemd 单元缓存，在 %%posttrans 内按
 #      该清单启用并启动单元。
 #
 # 单元启用（systemctl enable）只有一条实现：读 /usr/lib/airymaxos/boot-set。
@@ -71,9 +74,10 @@
 # spec-lint: source-bundle ../../system/services/airymax_observe
 # spec-lint: source-bundle ../../system/services/airybright
 # spec-lint: source-bundle ../../system/services/airydeb
+# spec-lint: source-bundle ../../system/services/airypkg
 
 %global airy_version 0.0.4
-%global airy_release 51
+%global airy_release 52
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -154,6 +158,8 @@ Source66:       airydeb-%{version}.tar.gz
 Source67:       50-console-ascii.conf
 Source68:       10-airymax-listen-reset.conf
 Source69:       20-airymax-listen-run.conf
+Source70:       airy-pkg
+Source71:       airypkg-%{version}.tar.gz
 
 BuildRequires:  gcc
 BuildRequires:  python3-devel
@@ -259,6 +265,7 @@ install -m 0755 %{SOURCE36} %{buildroot}%{_bindir}/airy-power
 install -m 0755 %{SOURCE40} %{buildroot}%{_bindir}/airy-probe
 install -m 0755 %{SOURCE57} %{buildroot}%{_bindir}/airy-bright
 install -m 0755 %{SOURCE65} %{buildroot}%{_bindir}/airy-deb
+install -m 0755 %{SOURCE70} %{buildroot}%{_bindir}/airy-pkg
 install -m 0755 airy-rt-lat %{buildroot}%{_bindir}/airy-rt-lat
 install -d -m 0755 %{buildroot}%{python3_sitelib}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE25}
@@ -270,6 +277,7 @@ tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE41}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE48}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE58}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE66}
+tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE71}
 
 %check
 test -x %{buildroot}/usr/lib/airymaxos/scripts/firstboot.sh
@@ -300,6 +308,7 @@ test -x %{buildroot}%{_bindir}/airy-power
 test -x %{buildroot}%{_bindir}/airy-probe
 test -x %{buildroot}%{_bindir}/airy-bright
 test -x %{buildroot}%{_bindir}/airy-deb
+test -x %{buildroot}%{_bindir}/airy-pkg
 test -x %{buildroot}%{_bindir}/airy-rt-lat
 PYTHONPATH=%{buildroot}%{python3_sitelib} python3 -B -c '
 import airydisk.cli
@@ -310,7 +319,8 @@ import airymax_power.cli
 import airymax_probe.cli
 import airymax_observe.cli
 import airybright.cli
-import airydeb.cli'
+import airydeb.cli
+import airypkg.cli'
 PYTHONPATH=%{buildroot}%{python3_sitelib} python3 -B -m airymax_observe --help >/dev/null
 test -f %{buildroot}%{_unitdir}/agentrt.target
 test -f %{buildroot}%{_unitdir}/agentrt-firstboot.service
@@ -542,6 +552,7 @@ fi
 %{_bindir}/airy-probe
 %{_bindir}/airy-bright
 %{_bindir}/airy-deb
+%{_bindir}/airy-pkg
 %{_bindir}/airy-rt-lat
 %{python3_sitelib}/airydisk
 %{python3_sitelib}/airyllm
@@ -552,8 +563,13 @@ fi
 %{python3_sitelib}/airymax_observe
 %{python3_sitelib}/airybright
 %{python3_sitelib}/airydeb
+%{python3_sitelib}/airypkg
 
 %changelog
+* Tue Nov 10 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-52
+- 新增 /usr/bin/airy-pkg 与 airypkg 包：本地 .deb/.rpm 按后缀分派，
+  .deb 转发 airy-deb 的 convert+dnf 路径，.rpm 直接交 dnf；回显、确认与
+  pkexec 提权复用 airydeb.interact，桌面双击与终端命令因此只有一份行为
 * Sun Nov 08 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-51
 - 把 dbus.socket 的 ListenStream 从 legacy 路径 /var/run 改到 /run。发行版
   单元写的是 /var/run/dbus/system_bus_socket，systemd 解析时自动改写并打印
