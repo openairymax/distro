@@ -48,7 +48,7 @@
 # local 等非 POSIX 扩展。函数与全局变量统一带 ff_/fw_flat_ 前缀，嵌入到
 # 装机的脚本段后不会与 install-lib.sh、disk-select.sh 互相覆盖。
 #
-# 退出码：0 成功；1 复核失败或读写失败；2 用法错误。
+# 退出码：0 成功；1 请求集为空、复核失败或读写失败；2 用法错误。
 # ===========================================================================
 set -eu
 
@@ -126,6 +126,14 @@ fw_flat_apply()
 
     : >"${ff_tmp}"
     if ! fw_flat_requests >"${ff_reqs}"; then
+        rm -f "${ff_tmp}" "${ff_reqs}"
+        printf 'fail=no-requests modules=%s\n' "${ff_modules}" >&2
+        return "${FWFLAT_FAIL}"
+    fi
+    # 空请求集不是「无需补齐」，而是输入坏了：模块树没解出来、modinfo 缺席
+    # 或请求名清单是空文件。此时继续走会得到 flat=0 miss=0，判定假绿——
+    # 这正是构建期预演最需要拦的那一种形态，所以在此如实判负。
+    if [ ! -s "${ff_reqs}" ]; then
         rm -f "${ff_tmp}" "${ff_reqs}"
         printf 'fail=no-requests modules=%s\n' "${ff_modules}" >&2
         return "${FWFLAT_FAIL}"
