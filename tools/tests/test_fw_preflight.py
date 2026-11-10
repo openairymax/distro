@@ -112,5 +112,63 @@ class PreTest(unittest.TestCase):
         self.assertIn("fail=no-tree", res.stdout)
 
 
+class RpmModeTest(unittest.TestCase):
+    """构建期的取件形式：名字集与模块树从 RPM 就地生成。
+
+    这一层只能验取件失败时的判定，取件成功的那半边要真 RPM 与真 kmod，
+    由 image-build 的四架构作业覆盖。失败侧仍必须验：缺件若退化成「零个
+    固件、全部命中」，预演就变成了恒绿的装饰。
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.fw = self.root / "names.txt"
+        self.fw.write_text("intel/iwlwifi/x.ucode\n", encoding="utf-8")
+        self.mods = self.root / "modules"
+        self.mods.mkdir()
+        self.reqs = self.root / "reqs.txt"
+        self.reqs.write_text("x.ucode\n", encoding="utf-8")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def run_pre(self, *args):
+        return subprocess.run(["sh", str(PRE), *args],
+                              capture_output=True, text=True)
+
+    def test_firmware_forms_are_exclusive(self):
+        """两种固件取件形式同时给出时无法确定读哪一份，按用法错误退 2。"""
+        res = self.run_pre("--firmware", str(self.fw),
+                           "--firmware-rpm", str(self.root / "a.rpm"),
+                           "--modules", str(self.mods), "--arch", "x86_64")
+        self.assertEqual(res.returncode, 2)
+
+    def test_modules_forms_are_exclusive(self):
+        res = self.run_pre("--firmware", str(self.fw),
+                           "--modules", str(self.mods),
+                           "--modules-rpm", str(self.root / "a.rpm"),
+                           "--arch", "x86_64")
+        self.assertEqual(res.returncode, 2)
+
+    def test_firmware_rpm_unreadable(self):
+        """固件包读不出名字集时判负，而不是当成空固件树。"""
+        res = self.run_pre("--firmware-rpm", str(self.root / "absent.rpm"),
+                           "--modules", str(self.mods),
+                           "--requests", str(self.reqs), "--arch", "x86_64")
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("AIRYMAX-FW-PREFLIGHT arch=x86_64 fail=no-firmware",
+                      res.stdout)
+
+    def test_modules_rpm_unreadable(self):
+        """模块包解不开时判负：没有请求名就没有判据。"""
+        res = self.run_pre("--firmware", str(self.fw),
+                           "--modules-rpm", str(self.root / "absent.rpm"),
+                           "--arch", "aarch64")
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("AIRYMAX-FW-PREFLIGHT arch=aarch64 fail=no-modules",
+                      res.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

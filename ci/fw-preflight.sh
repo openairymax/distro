@@ -14,6 +14,11 @@
 #   ② 模块请求名：该架构 kernel-modules 解出的 *.ko* 里 MODULE_FIRMWARE()
 #      自报的名字，取法与安装期同一条（modinfo -F firmware）。
 #
+# 构建期这两个名字集都不是现成的：目标架构的 .ko 不在宿主上，固件树也还
+# 没解包。因此本脚本另收两种取件形式——--firmware-rpm 与 --modules-rpm，
+# 由它自己在临时目录里从 RPM 生成名字集、解出模块树。取件与判定留在同一
+# 个脚本里，是为了让「预演的是哪份固件、哪份模块」与结论落在同一条日志。
+#
 # 预演树是空文件骨架：按固件名字集建目录、建同名空文件。判据只看名字与
 # 相对路径——后缀决定入口名，相对路径长度决定最短优先——不读内容，所以
 # 空文件与真文件的判定完全等价，代价从「复制数 GB 固件」降到「建数千个
@@ -35,38 +40,59 @@ FP_USE=2
 fp_usage()
 {
     printf '%s\n' \
-        '用法: fw-preflight.sh --firmware FILE --modules DIR --arch NAME' \
+        '用法: fw-preflight.sh (--firmware FILE | --firmware-rpm RPM)' \
+        '                     (--modules DIR | --modules-rpm RPM)' \
+        '                     --arch NAME [--requests FILE]' \
         '' \
-        '  --firmware  固件名字集，一行一个 /usr/lib/firmware 下的相对路径' \
-        '  --modules   该架构模块树根（含 */kernel/.../*.ko*）' \
-        '  --arch      报告用的架构名' \
-        '  --requests  请求名清单；缺省由 modinfo 从模块树读取'
+        '  --firmware      固件名字集，一行一个 /usr/lib/firmware 下相对路径' \
+        '  --firmware-rpm  linux-firmware 的 RPM，名字集由文件清单生成' \
+        '  --modules       该架构模块树根（含 */kernel/.../*.ko*）' \
+        '  --modules-rpm   该架构 kernel-modules 的 RPM，就地解到临时目录' \
+        '  --arch          报告用的架构名' \
+        '  --requests      请求名清单；缺省由 modinfo 从模块树读取'
 }
 
-# fp_parse —— 解析参数。三个都必填：缺一个就无法构成判据，按用法错误退 2，
-# 不拿缺省值猜，否则 --firmware 缺失会被读成「没有固件请求」而假绿。
+# fp_one A B —— 两个取件形式恰好给一个。都给时无法确定判据读的是哪一份，
+# 都不给时判据没有输入，两种都按用法错误处理，不替调用方挑一个。
+fp_one()
+{
+    [ -n "$1" ] && [ -z "$2" ] && return 0
+    [ -z "$1" ] && [ -n "$2" ] && return 0
+    return 1
+}
+
+# fp_parse —— 解析参数。--arch 必填，两对取件形式各恰好给一个：缺一个就
+# 无法构成判据，按用法错误退 2，不拿缺省值猜，否则固件缺失会被读成
+# 「没有固件请求」而假绿。
 fp_parse()
 {
     fp_fw=
+    fp_fwrpm=
     fp_mods=
+    fp_modrpm=
     fp_arch=
     fp_reqs=
     while [ "$#" -gt 0 ]; do
         case "$1" in
         -h | --help) fp_usage; exit 0 ;;
-        --firmware | --modules | --arch | --requests) ;;
+        --firmware | --firmware-rpm | --modules | --modules-rpm | \
+            --arch | --requests) ;;
         *) fp_usage >&2; exit "${FP_USE}" ;;
         esac
         [ "$#" -ge 2 ] || { fp_usage >&2; exit "${FP_USE}"; }
         case "$1" in
         --firmware) fp_fw=$2 ;;
+        --firmware-rpm) fp_fwrpm=$2 ;;
         --modules) fp_mods=$2 ;;
+        --modules-rpm) fp_modrpm=$2 ;;
         --arch) fp_arch=$2 ;;
         --requests) fp_reqs=$2 ;;
         esac
         shift 2
     done
-    if [ -z "${fp_fw}" ] || [ -z "${fp_mods}" ] || [ -z "${fp_arch}" ]
+    if [ -z "${fp_arch}" ] ||
+        ! fp_one "${fp_fw}" "${fp_fwrpm}" ||
+        ! fp_one "${fp_mods}" "${fp_modrpm}"
     then
         fp_usage >&2
         exit "${FP_USE}"
@@ -110,6 +136,27 @@ fp_report()
     exit "${FP_FAIL}"
 }
 
+# fp_fw_list RPM LIST —— 固件名字集从 RPM 的文件清单生成。只取
+# /usr/lib/firmware 之下的条目并去掉该前缀：骨架按相对路径建，前缀留着会
+# 让每个名字都变成绝对路径而被 fp_tree 整批跳过。
+fp_fw_list()
+{
+    rpm -qlp "$1" 2>/dev/null | sed -n 's|^/usr/lib/firmware/||p' >"$2" ||
+        return 1
+    [ -s "$2" ] || return 1
+}
+
+# fp_mod_tree RPM OUT —— 把模块包解到 OUT，返回模块根。用 cpio 直接解而
+# 不装包：预演只要 *.ko* 里的 MODULE_FIRMWARE()，装进宿主反而会覆盖正在
+# 运行的内核模块。
+fp_mod_tree()
+{
+    install -d "$2" || return 1
+    rpm2cpio "$1" 2>/dev/null | (cd "$2" && cpio -idm --quiet 2>/dev/null) ||
+        return 1
+    [ -d "$2/usr/lib/modules" ] || return 1
+}
+
 # fp_main —— 建骨架、跑补齐、按计数判定。骨架在临时目录里，退出即删：
 # 预演留下的是结论，不是一份可以和真树混淆的固件树。
 fp_main()
@@ -122,6 +169,22 @@ fp_main()
     fi
     fp_tmp=$(mktemp -d)
     trap 'rm -rf "${fp_tmp}"' EXIT INT TERM
+    if [ -n "${fp_fwrpm}" ]; then
+        fp_fw="${fp_tmp}/firmware.list"
+        if ! fp_fw_list "${fp_fwrpm}" "${fp_fw}"; then
+            printf 'AIRYMAX-FW-PREFLIGHT arch=%s fail=no-firmware rpm=%s\n' \
+                "${fp_arch}" "${fp_fwrpm}"
+            exit "${FP_FAIL}"
+        fi
+    fi
+    if [ -n "${fp_modrpm}" ]; then
+        if ! fp_mod_tree "${fp_modrpm}" "${fp_tmp}/mods"; then
+            printf 'AIRYMAX-FW-PREFLIGHT arch=%s fail=no-modules rpm=%s\n' \
+                "${fp_arch}" "${fp_modrpm}"
+            exit "${FP_FAIL}"
+        fi
+        fp_mods="${fp_tmp}/mods/usr/lib/modules"
+    fi
     if ! fp_tree "${fp_fw}" "${fp_tmp}/root"; then
         printf 'AIRYMAX-FW-PREFLIGHT arch=%s fail=no-tree firmware=%s\n' \
             "${fp_arch}" "${fp_fw}"
