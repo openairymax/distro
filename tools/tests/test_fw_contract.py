@@ -27,6 +27,7 @@ KERNEL_SPEC = DISTRO / "specs" / "kernel" / "airymaxos-kernel.spec"
 MANIFEST = DISTRO / "firmware" / "fw-manifest.txt"
 FLAT = DISTRO / "firmware" / "fw-flat.sh"
 CLOSURE = DISTRO / "scripts" / "lib" / "closure.sh"
+WORKFLOW = DISTRO.parent / ".github" / "workflows" / "image-build.yml"
 KS_DIR = DISTRO / "kickstart"
 PACKAGE = "airymaxos-firmware"
 # 非固件提供包的功能依赖：对账时剔除，避免清单被迫写进工具包名。
@@ -163,6 +164,22 @@ class FirmwareContractTest(unittest.TestCase):
             self.assertNotIn(vendor, text)
         self.assertIn("AIRYMAX-FW-PREFLIGHT arch=", text,
                       "预演必须留一行带架构名的自证行")
+
+    def test_preflight_is_wired_before_iso(self):
+        """预演必须真的接在镜像组装之前，否则脚本只是仓库里的死件。
+
+        时机不是风格问题：固件名字集在闭包池里、四架构模块树在内核包目录
+        里，两者只在播种之后、组装之前同时在场。放在组装之后等于对已经装好
+        的镜像补一次追溯，缺件照样会出介质。
+        """
+        flow = read(WORKFLOW)
+        pre = flow.find("ci/ci.sh fw-preflight")
+        self.assertGreater(pre, 0, "image-build.yml 没有调用固件预演")
+        self.assertGreaterEqual(flow.find("ci/ci.sh pool-seed"), 0)
+        self.assertLess(flow.find("ci/ci.sh pool-seed"), pre,
+                        "预演要在闭包池播种之后：固件名字集出自该池")
+        self.assertGreater(flow.find("ci/ci.sh assemble"), pre,
+                           "预演要在镜像组装之前")
 
     def test_ks_installs_package(self):
         """两个剖面都显式列出固件包，镜像里缺它在事务阶段就失败。"""
