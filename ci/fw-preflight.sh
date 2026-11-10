@@ -36,6 +36,12 @@ set -eu
 
 FP_FAIL=1
 FP_USE=2
+# 取件用的三个外部命令做成可替换入口：与 fw-flat.sh 的 AIRY_MODINFO 同一
+# 做法。用例要覆盖「工具缺席」这条分支，而缺席是环境属性，不钉住就只能
+# 依赖跑用例那台机器恰好没装，判定随环境漂移。
+FP_RPM=${AIRY_RPM:-rpm}
+FP_RPM2CPIO=${AIRY_RPM2CPIO:-rpm2cpio}
+FP_CPIO=${AIRY_CPIO:-cpio}
 
 fp_usage()
 {
@@ -141,8 +147,9 @@ fp_report()
 # 让每个名字都变成绝对路径而被 fp_tree 整批跳过。
 fp_fw_list()
 {
-    rpm -qlp "$1" 2>/dev/null | sed -n 's|^/usr/lib/firmware/||p' >"$2" ||
-        return 1
+    command -v "${FP_RPM}" >/dev/null 2>&1 || return 3
+    "${FP_RPM}" -qlp "$1" 2>/dev/null |
+        sed -n 's|^/usr/lib/firmware/||p' >"$2" || return 1
     [ -s "$2" ] || return 1
 }
 
@@ -152,9 +159,11 @@ fp_fw_list()
 fp_mod_tree()
 {
     install -d "$2" || return 1
-    rpm2cpio "$1" 2>/dev/null | (cd "$2" && cpio -idm --quiet 2>/dev/null) ||
-        return 1
-    [ -d "$2/usr/lib/modules" ] || return 1
+    command -v "${FP_RPM2CPIO}" >/dev/null 2>&1 || return 3
+    command -v "${FP_CPIO}" >/dev/null 2>&1 || return 4
+    "${FP_RPM2CPIO}" "$1" 2>/dev/null |
+        (cd "$2" && "${FP_CPIO}" -idm --quiet 2>/dev/null) || return 1
+    [ -d "$2/usr/lib/modules" ] || return 5
 }
 
 # fp_main —— 建骨架、跑补齐、按计数判定。骨架在临时目录里，退出即删：
@@ -169,18 +178,31 @@ fp_main()
     fi
     fp_tmp=$(mktemp -d)
     trap 'rm -rf "${fp_tmp}"' EXIT INT TERM
+    fp_rc=0
     if [ -n "${fp_fwrpm}" ]; then
         fp_fw="${fp_tmp}/firmware.list"
-        if ! fp_fw_list "${fp_fwrpm}" "${fp_fw}"; then
-            printf 'AIRYMAX-FW-PREFLIGHT arch=%s fail=no-firmware rpm=%s\n' \
-                "${fp_arch}" "${fp_fwrpm}"
+        fp_fw_list "${fp_fwrpm}" "${fp_fw}" || fp_rc=$?
+        if [ "${fp_rc}" -ne 0 ]; then
+            case "${fp_rc}" in
+            3) fp_rc=no-rpm ;;
+            *) fp_rc=no-firmware ;;
+            esac
+            printf 'AIRYMAX-FW-PREFLIGHT arch=%s fail=%s rpm=%s\n' \
+                "${fp_arch}" "${fp_rc}" "${fp_fwrpm}"
             exit "${FP_FAIL}"
         fi
     fi
     if [ -n "${fp_modrpm}" ]; then
-        if ! fp_mod_tree "${fp_modrpm}" "${fp_tmp}/mods"; then
-            printf 'AIRYMAX-FW-PREFLIGHT arch=%s fail=no-modules rpm=%s\n' \
-                "${fp_arch}" "${fp_modrpm}"
+        fp_mod_tree "${fp_modrpm}" "${fp_tmp}/mods" || fp_rc=$?
+        if [ "${fp_rc}" -ne 0 ]; then
+            case "${fp_rc}" in
+            3) fp_rc=no-rpm2cpio ;;
+            4) fp_rc=no-cpio ;;
+            5) fp_rc=no-modroot ;;
+            *) fp_rc=no-modules ;;
+            esac
+            printf 'AIRYMAX-FW-PREFLIGHT arch=%s fail=%s rpm=%s\n' \
+                "${fp_arch}" "${fp_rc}" "${fp_modrpm}"
             exit "${FP_FAIL}"
         fi
         fp_mods="${fp_tmp}/mods/usr/lib/modules"

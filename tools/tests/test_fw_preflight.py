@@ -15,6 +15,7 @@
 # Version: 0.0.5
 # ===========================================================================
 
+import os
 import subprocess
 import tempfile
 import unittest
@@ -133,9 +134,12 @@ class RpmModeTest(unittest.TestCase):
     def tearDown(self):
         self._tmp.cleanup()
 
-    def run_pre(self, *args):
+    def run_pre(self, *args, env=None):
         return subprocess.run(["sh", str(PRE), *args],
-                              capture_output=True, text=True)
+                              capture_output=True, text=True, env=env)
+
+    def env(self, **over):
+        return {**os.environ, **over}
 
     def test_firmware_forms_are_exclusive(self):
         """两种固件取件形式同时给出时无法确定读哪一份，按用法错误退 2。"""
@@ -155,18 +159,51 @@ class RpmModeTest(unittest.TestCase):
         """固件包读不出名字集时判负，而不是当成空固件树。"""
         res = self.run_pre("--firmware-rpm", str(self.root / "absent.rpm"),
                            "--modules", str(self.mods),
-                           "--requests", str(self.reqs), "--arch", "x86_64")
+                           "--requests", str(self.reqs), "--arch", "x86_64",
+                           env=self.env(AIRY_RPM="/bin/false"))
         self.assertEqual(res.returncode, 1)
         self.assertIn("AIRYMAX-FW-PREFLIGHT arch=x86_64 fail=no-firmware",
+                      res.stdout)
+
+    def test_firmware_rpm_no_rpm(self):
+        """缺 rpm 与包坏是两回事：前者报工具缺席，别让人去查 RPM。"""
+        res = self.run_pre("--firmware-rpm", str(self.root / "absent.rpm"),
+                           "--modules", str(self.mods), "--arch", "x86_64",
+                           env=self.env(AIRY_RPM="/nonexistent/rpm"))
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("AIRYMAX-FW-PREFLIGHT arch=x86_64 fail=no-rpm",
                       res.stdout)
 
     def test_modules_rpm_unreadable(self):
         """模块包解不开时判负：没有请求名就没有判据。"""
         res = self.run_pre("--firmware", str(self.fw),
                            "--modules-rpm", str(self.root / "absent.rpm"),
-                           "--arch", "aarch64")
+                           "--arch", "aarch64",
+                           env=self.env(AIRY_RPM2CPIO="/bin/false",
+                                        AIRY_CPIO="/bin/false"))
         self.assertEqual(res.returncode, 1)
         self.assertIn("AIRYMAX-FW-PREFLIGHT arch=aarch64 fail=no-modules",
+                      res.stdout)
+
+    def test_modules_rpm_no_rpm2cpio(self):
+        """解包工具缺席时单独成案，和模块包坏掉分得开。"""
+        res = self.run_pre("--firmware", str(self.fw),
+                           "--modules-rpm", str(self.root / "absent.rpm"),
+                           "--arch", "riscv64",
+                           env=self.env(AIRY_RPM2CPIO="/nonexistent/rpm2cpio"))
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("AIRYMAX-FW-PREFLIGHT arch=riscv64 fail=no-rpm2cpio",
+                      res.stdout)
+
+    def test_modules_rpm_no_cpio(self):
+        """解包器缺席时同样单独成案。"""
+        res = self.run_pre("--firmware", str(self.fw),
+                           "--modules-rpm", str(self.root / "absent.rpm"),
+                           "--arch", "loongarch64",
+                           env=self.env(AIRY_RPM2CPIO="/bin/true",
+                                        AIRY_CPIO="/nonexistent/cpio"))
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("AIRYMAX-FW-PREFLIGHT arch=loongarch64 fail=no-cpio",
                       res.stdout)
 
 
