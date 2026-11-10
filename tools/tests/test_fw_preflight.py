@@ -134,6 +134,77 @@ class PreTest(unittest.TestCase):
         self.assertIn("fail=no-tree", res.stdout)
 
 
+class ExemptTest(unittest.TestCase):
+    """豁免表：不支持类器件记账，表外缺件照旧判负。
+
+    豁免不是「把 miss 改写成 0」的口令，它是「这一类器件本版不支持」的账。
+    用例要同时钉住两半：命中的不计入、未命中的仍判负。只钉前半边的话，一
+    张写错通配的表就能把全部缺件静音，而日志里只剩一个 miss=0。
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.fw = self.root / "names.txt"
+        self.mods = self.root / "modules"
+        self.mods.mkdir()
+        self.reqs = self.root / "reqs.txt"
+        self.exempt = self.root / "exempt.txt"
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def have(self, *rels):
+        self.fw.write_text("".join(f"{r}\n" for r in rels), encoding="utf-8")
+
+    def want(self, *names):
+        self.reqs.write_text("".join(f"{n}\n" for n in names), encoding="utf-8")
+
+    def table(self, *rows):
+        self.exempt.write_text("".join(f"{r}\n" for r in rows), encoding="utf-8")
+
+    def run_pre(self, *extra):
+        return subprocess.run(
+            ["sh", str(PRE), "--firmware", str(self.fw),
+             "--modules", str(self.mods), "--arch", "x86_64",
+             "--requests", str(self.reqs), "--exempt", str(self.exempt),
+             *extra],
+            capture_output=True, text=True)
+
+    def test_hit_is_excluded_with_reason(self):
+        """命中豁免的缺件不进 miss，且日志留下名字与原因。"""
+        self.have("intel/keep.bin")
+        self.want("keep.bin", "iwlwifi-6000-6.ucode")
+        self.table("# 注释与空行都要跳过", "",
+                   "iwlwifi-bz-*    Wi-Fi 7 BZ 族，矩阵内无此类网卡",
+                   "iwlwifi-6000-*  Centrino 6000 旧卡")
+        res = self.run_pre()
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("flat=1 miss=0", res.stdout)
+        self.assertIn("exempt name=iwlwifi-6000-6.ucode", res.stderr)
+        self.assertIn("Centrino 6000", res.stderr)
+
+    def test_miss_outside_table_still_fails(self):
+        """表里没有的缺件照旧判负，逐条报出名字。"""
+        self.have("intel/keep.bin")
+        self.want("keep.bin", "iwlwifi-bz-a0-gf-a0-83.ucode",
+                  "iwlwifi-ma-a0-gf-a0-83.ucode")
+        self.table("iwlwifi-bz-*  Wi-Fi 7 BZ 族")
+        res = self.run_pre()
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("miss=1", res.stdout)
+        self.assertIn("miss name=iwlwifi-ma-a0-gf-a0-83.ucode", res.stderr)
+        self.assertNotIn("exempt name=iwlwifi-ma", res.stderr)
+
+    def test_unreadable_table_is_usage_error(self):
+        """豁免表读不到时按用法错误退 2，不把「读不到」当成「没有豁免」。"""
+        self.have("intel/keep.bin")
+        self.want("keep.bin")
+        self.exempt.unlink(missing_ok=True)
+        res = self.run_pre()
+        self.assertEqual(res.returncode, 2)
+
+
 class RpmModeTest(unittest.TestCase):
     """构建期的取件形式：名字集与模块树从 RPM 就地生成。
 
@@ -185,6 +256,30 @@ class RpmModeTest(unittest.TestCase):
         self.assertEqual(res.returncode, 1)
         self.assertIn("AIRYMAX-FW-PREFLIGHT arch=x86_64 fail=no-firmware",
                       res.stdout)
+
+    def test_two_firmware_rpms_are_unioned(self):
+        """清单里每个提供包都要读：只读一个会把另一个包的条目报成缺件。
+
+        镜像的固件树是几个包的并集（linux-firmware + wireless-regdb），
+        run 42797570216 的 regulatory.db 假缺件就是只读了前者。
+        """
+        rpm = self.root / "fakerpm"
+        rpm.write_text(
+            "#!/bin/sh\n"
+            "case \"$2\" in\n"
+            "*one.rpm) printf '/usr/lib/firmware/intel/x.ucode\\n' ;;\n"
+            "*two.rpm) printf '/usr/lib/firmware/brcm/y.bin\\n' ;;\n"
+            "esac\n", encoding="utf-8")
+        rpm.chmod(0o755)
+        reqs = self.root / "reqs2.txt"
+        reqs.write_text("x.ucode\ny.bin\n", encoding="utf-8")
+        res = self.run_pre("--firmware-rpm", str(self.root / "one.rpm"),
+                           "--firmware-rpm", str(self.root / "two.rpm"),
+                           "--modules", str(self.mods),
+                           "--requests", str(reqs), "--arch", "x86_64",
+                           env=self.env(AIRY_RPM=str(rpm)))
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("flat=2 miss=0", res.stdout)
 
     def test_firmware_rpm_no_rpm(self):
         """缺 rpm 与包坏是两回事：前者报工具缺席，别让人去查 RPM。"""

@@ -1,0 +1,60 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
+# ===========================================================================
+# fw-exempt.txt —— 构建期固件预演（distro/ci/fw-preflight.sh）的豁免表
+#
+# 一行一条：<名字通配> <原因>。命中的缺件不计入 miss（该架构判为通过），
+# 但每一条都会以 `exempt name=... reason=...` 打在日志里，并在后面的
+# AIRYMAX-FW-PREFLIGHT 行给出重算后的 miss 计数——豁免不是静音，是记账。
+#
+# 收录规则只有三条，缺一不可：
+#   ① 器件类别不在 0.0.4 硬件矩阵内（285H 实测硬件 + §8.18 的驱动清单）；
+#   ② 固件包确实没有携带该文件，且原因不是本仓库的打包失误；
+#   ③ 只缺同一驱动的型号变体时，矩阵内型号的固件必须已在包内、可核对。
+#
+# 表外的新缺件一律判负。加行前先问：这是「本版不支持这类器件」，还是
+# 「我们漏装了」？后者必须修安装清单，不能写进这里。
+#
+# 台账来源：image-build run 42797570216 第 19 步四架构预演（x86_64 110 条、
+# aarch64 36 条、riscv64 0 条、loongarch64 55 条缺件）与 285H 实机硬件矩阵
+# （无线 Intel BE200 + Realtek RTL8852BE、蓝牙 Intel btintel、显卡 i915/xe、
+# 音频 SOF、摄像头 IPU6）。
+# ===========================================================================
+
+# --- Intel 无线：矩阵内 BE200 属 gl-c0，其余族是别的型号 -------------------
+iwlwifi-6000-*   Centrino 6000 是 802.11n 旧卡，不在 0.0.4 硬件矩阵
+iwlwifi-bz-*     Wi-Fi 7 BZ 族 API-83，固件包未携带；矩阵内无此类网卡
+iwlwifi-ma-*     Wi-Fi 7 MA 族 API-83，同上
+iwlwifi-sc-*     Wi-Fi 7 SC 族 API-83，同上
+iwlwifi-so-*     Wi-Fi 7 SO 族 API-83，同上
+iwlwifi-gl-b0-*  Wi-Fi 7 GL 的 b0 变体；矩阵内 BE200 用 gl-c0 且已在包内
+
+# --- 其它无线 -----------------------------------------------------------------
+mt76*            MediaTek 无线；矩阵内无线为 BE200 与 RTL8852BE
+
+# --- 蓝牙：矩阵内为 Intel btintel ---------------------------------------------
+ath3k-*          Atheros USB 蓝牙
+BCM2033-*        Broadcom 早期 USB 蓝牙（bcm203x）
+BT3CPCC.bin      Broadcom USB 蓝牙配置载荷
+bfubase.frm      Broadcom BFUSB 蓝牙基带
+
+# --- 显卡 / 摄像头 / 采集 -------------------------------------------------------
+ast_dp501_fw.bin ASPEED 服务器显卡 DisplayPort 固件
+isight.fw        Apple iSight 摄像头
+v4l-*            V4L 视频采集卡
+dvb-*            DVB 电视卡（demod/fe/tuner/usb 四类同属）
+dvb_*            DVB 电视卡（厂商打包的 demod 固件）
+dvbh_rio.inp     DVB-H 电视卡载荷
+atsc_denver.inp  ATSC 电视卡载荷
+cmmb_ming_app.inp  CMMB 电视卡载荷
+fm_radio*.inp    FM 收音载荷
+isdbt_pele.inp   ISDB-T 电视卡载荷
+tdmb_*.inp       T-DMB 电视卡载荷
+xc3028*          DVB 调谐器
+
+# --- 专业音频与数据采集 ---------------------------------------------------------
+ctefx-*          Creative X-Fi 声卡 DSP 固件
+digiface_*       RME Hammerfall DSP 音频接口
+multiface_*      RME Hammerfall DSP 音频接口
+rpm_firmware.bin RME Hammerfall DSP 音频接口
+ni6534a.bin      National Instruments 数据采集卡
+niscrb0*.bin     National Instruments 数据采集卡

@@ -46,16 +46,17 @@ FP_CPIO=${AIRY_CPIO:-cpio}
 fp_usage()
 {
     printf '%s\n' \
-        '用法: fw-preflight.sh (--firmware FILE | --firmware-rpm RPM)' \
+        '用法: fw-preflight.sh (--firmware FILE | --firmware-rpm RPM ...)' \
         '                     (--modules DIR | --modules-rpm RPM)' \
-        '                     --arch NAME [--requests FILE]' \
+        '                     --arch NAME [--requests FILE] [--exempt FILE]' \
         '' \
         '  --firmware      固件名字集，一行一个 /usr/lib/firmware 下相对路径' \
-        '  --firmware-rpm  linux-firmware 的 RPM，名字集由文件清单生成' \
+        '  --firmware-rpm  固件包的 RPM，可重复；名字集取各包文件清单的并集' \
         '  --modules       该架构模块树根（含 */kernel/.../*.ko*）' \
         '  --modules-rpm   该架构 kernel-modules 的 RPM，就地解到临时目录' \
         '  --arch          报告用的架构名' \
-        '  --requests      请求名清单；缺省由 modinfo 从模块树读取'
+        '  --requests      请求名清单；缺省由 modinfo 从模块树读取' \
+        '  --exempt        豁免表：每行 <名字通配> <原因>，命中的缺件不计入 miss'
 }
 
 # fp_one A B —— 两个取件形式恰好给一个。都给时无法确定判据读的是哪一份，
@@ -67,35 +68,44 @@ fp_one()
     return 1
 }
 
-# fp_parse —— 解析参数。--arch 必填，两对取件形式各恰好给一个：缺一个就
-# 无法构成判据，按用法错误退 2，不拿缺省值猜，否则固件缺失会被读成
-# 「没有固件请求」而假绿。
+# 解析参数。--arch 必填，两对取件形式各恰好给一个：缺一个就无法构成判据，
+# 按用法错误退 2，不拿缺省值猜，否则固件缺失会被读成「没有固件请求」而假绿。
+#
+# 可重复的选项（--firmware-rpm）先落到临时目录里的清单文件，再以文件是否
+# 存在判断「给没给」：POSIX sh 没有数组，用字符串拼接会在路径含空白时断词，
+# 而这份清单每行恰好一个值，读回来还能保持原样。
 fp_parse()
 {
     fp_fw=
-    fp_fwrpm=
     fp_mods=
     fp_modrpm=
     fp_arch=
     fp_reqs=
+    fp_exempts=
+    fp_tmp=$(mktemp -d) || exit "${FP_FAIL}"
+    trap 'rm -rf "${fp_tmp}"' EXIT INT TERM
+    : >"${fp_tmp}/fwrpm.list"
     while [ "$#" -gt 0 ]; do
         case "$1" in
         -h | --help) fp_usage; exit 0 ;;
         --firmware | --firmware-rpm | --modules | --modules-rpm | \
-            --arch | --requests) ;;
+            --arch | --requests | --exempt) ;;
         *) fp_usage >&2; exit "${FP_USE}" ;;
         esac
         [ "$#" -ge 2 ] || { fp_usage >&2; exit "${FP_USE}"; }
         case "$1" in
         --firmware) fp_fw=$2 ;;
-        --firmware-rpm) fp_fwrpm=$2 ;;
+        --firmware-rpm) printf '%s\n' "$2" >>"${fp_tmp}/fwrpm.list" ;;
         --modules) fp_mods=$2 ;;
         --modules-rpm) fp_modrpm=$2 ;;
         --arch) fp_arch=$2 ;;
         --requests) fp_reqs=$2 ;;
+        --exempt) fp_exempts=$2 ;;
         esac
         shift 2
     done
+    fp_fwrpm="${fp_tmp}/fwrpm.list"
+    [ -s "${fp_fwrpm}" ] || fp_fwrpm=
     if [ -z "${fp_arch}" ] ||
         ! fp_one "${fp_fw}" "${fp_fwrpm}" ||
         ! fp_one "${fp_mods}" "${fp_modrpm}"
@@ -103,6 +113,8 @@ fp_parse()
         fp_usage >&2
         exit "${FP_USE}"
     fi
+    [ -z "${fp_exempts}" ] || [ -r "${fp_exempts}" ] ||
+        { fp_usage >&2; exit "${FP_USE}"; }
 }
 
 # fp_tree LIST ROOT —— 按名字集建空文件骨架。目录条目（以 / 结尾）与绝对
@@ -148,8 +160,44 @@ fp_tree()
     [ "${ft_bad}" -eq 0 ]
 }
 
+# fp_exempt NAME —— 缺件是否在豁免表里，命中时把原因写进 fe_why。
+#
+# 表里一行是 <名字通配> <原因>。豁免只对「驱动会请求、但本发行版不支持那类
+# 器件」成立：iwlwifi 一个模块声明了 BZ/MA/SC/SO 各族 Wi-Fi 7 网卡的固件名，
+# 而 0.0.4 的硬件矩阵只有 BE200（gl 族）与 RTL8852BE，其余各族的 API-83
+# 固件在本轮固件包里没有。把它们当作「缺件」会让门禁永远红，把它们静默
+# 跳过又等于假绿——所以落成一张有原因的清单，逐条打在日志里。
+fp_exempt()
+{
+    fe_why=
+    [ -n "${fp_exempts}" ] || return 1
+    while IFS= read -r fe_line; do
+        case "${fe_line}" in
+        '' | '#'*) continue ;;
+        esac
+        fe_pat=${fe_line%%[[:space:]]*}
+        fe_why=${fe_line#"${fe_pat}"}
+        # 表里为了让通配对齐写了连续空格，reason= 不该带这串空白。
+        fe_why=${fe_why#"${fe_why%%[! ]*}"}
+        # fe_pat 不引号展开：表里写的是通配，要按通配匹配。
+        # shellcheck disable=SC2254
+        case "$1" in
+        ${fe_pat}) return 0 ;;
+        esac
+    done <"${fp_exempts}"
+    fe_why=
+    return 1
+}
+
 # fp_report TEXT —— 从 fw-flat 的输出里取 flat/miss 两个计数与逐条缺件。
+#
 # 只认最后一条 flat= 行：重复调用时早期故障行不代表本轮结论。
+#
+# miss 在这里重算，不照搬 fw-flat 的计数：豁免表里的名字仍是「固件包没带
+# 这个文件」，只是本版硬件矩阵不支持那类器件。判据要的是「除已登记的
+# 不支持类之外是否还有缺件」，所以逐条过一遍豁免表，命中打 exempt 行、
+# 未命中才计入 miss。逐条打印而不仅打计数，是因为下一轮看日志的人得能
+# 分辨「这 0 是都补齐了」还是「都豁免掉了」。
 fp_report()
 {
     fr_sum=$(printf '%s\n' "$1" | awk '/^flat=[0-9]+ miss=[0-9]+/ { s = $0 } END { print s }')
@@ -168,24 +216,45 @@ fp_report()
         exit "${FP_FAIL}"
     fi
     fr_flat=$(printf '%s\n' "${fr_sum}" | sed 's/^flat=\([0-9]*\) .*/\1/')
-    fr_miss=$(printf '%s\n' "${fr_sum}" | sed 's/.* miss=\([0-9]*\) .*/\1/')
+    # 只取名字本身：fw-flat 在补链失败时会写 `miss name=X rel=Y`，整行拿去
+    # 匹配豁免表会因尾部的 rel= 字段全部落空。
+    printf '%s\n' "$1" |
+        sed -n 's/^miss name=\([^ ]*\).*/\1/p' >"${fp_tmp}/miss.list"
+    fr_miss=0
+    while IFS= read -r fr_name; do
+        [ -n "${fr_name}" ] || continue
+        if fp_exempt "${fr_name}"; then
+            printf 'exempt name=%s reason=%s\n' "${fr_name}" "${fe_why}" >&2
+            continue
+        fi
+        fr_miss=$(( fr_miss + 1 ))
+        printf 'miss name=%s\n' "${fr_name}" >&2
+    done <"${fp_tmp}/miss.list"
     printf 'AIRYMAX-FW-PREFLIGHT arch=%s flat=%s miss=%s\n' \
         "${fp_arch}" "${fr_flat}" "${fr_miss}"
-    if [ "${fr_miss}" -eq 0 ]; then
-        return 0
-    fi
-    printf '%s\n' "$1" | awk '/^miss name=/ { print }' >&2
-    exit "${FP_FAIL}"
+    [ "${fr_miss}" -eq 0 ] || exit "${FP_FAIL}"
 }
 
-# fp_fw_list RPM LIST —— 固件名字集从 RPM 的文件清单生成。只取
+# fp_fw_list RPMS OUT —— 固件名字集从 RPM 的文件清单生成。只取
 # /usr/lib/firmware 之下的条目并去掉该前缀：骨架按相对路径建，前缀留着会
 # 让每个名字都变成绝对路径而被 fp_tree 整批跳过。
+#
+# RPMS 是清单文件而不是单个包：镜像里的固件树是几个包的并集，linux-firmware
+# 之外还有 wireless-regdb 这类小包。只读其中一个包，另一个包的条目就会在
+# 判定里显示为「缺件」——run 42797570216 的 regulatory.db/regulatory.db.p7s
+# 正是这么来的，而镜像里它们由 wireless-regdb 提供。
 fp_fw_list()
 {
     command -v "${FP_RPM}" >/dev/null 2>&1 || return 3
-    "${FP_RPM}" -qlp "$1" 2>/dev/null |
-        sed -n 's|^/usr/lib/firmware/||p' >"$2" || return 1
+    : >"$2"
+    while IFS= read -r ffl_rpm; do
+        [ -n "${ffl_rpm}" ] || continue
+        # 管道放进条件里：set -e 下直接失败会终止脚本，调用方拿不到返回码。
+        if ! "${FP_RPM}" -qlp "${ffl_rpm}" 2>/dev/null |
+            sed -n 's|^/usr/lib/firmware/||p' >>"$2"; then
+            return 1
+        fi
+    done <"$1"
     [ -s "$2" ] || return 1
 }
 
@@ -268,8 +337,6 @@ fp_main()
         printf 'AIRYMAX-FW-PREFLIGHT arch=%s fail=no-flat\n' "${fp_arch}"
         exit "${FP_FAIL}"
     fi
-    fp_tmp=$(mktemp -d)
-    trap 'rm -rf "${fp_tmp}"' EXIT INT TERM
     fp_rc=0
     if [ -n "${fp_fwrpm}" ]; then
         fp_fw="${fp_tmp}/firmware.list"
