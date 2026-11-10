@@ -286,6 +286,13 @@ tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE66}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE71}
 
 %check
+# 单元的 SuccessExitStatus 一行可以列多个码，断言的是「码集包含 N」而不是
+# 「整行相等」。整行相等等于把单元内容抄进配方，单元增删一个码断言就假红
+# （run 42817932668：单元已写成 `=10 2`，配方仍在找 `=10`）。
+uc_ok()
+{
+    sed -n 's/^SuccessExitStatus=//p' "$1" | tr ' ' '\n' | grep -qx "$2"
+}
 test -x %{buildroot}/usr/lib/airymaxos/scripts/firstboot.sh
 test -x %{buildroot}/usr/lib/airymaxos/scripts/health_check.sh
 test -x %{buildroot}/usr/lib/airymaxos/scripts/boot_set.sh
@@ -359,8 +366,7 @@ grep -qxF 'ConditionPathExists=/usr/sbin/airyctl' \
 test -f %{buildroot}%{_unitdir}/airymax-update-check.timer
 grep -qxF 'OnCalendar=daily' \
     %{buildroot}%{_unitdir}/airymax-update-check.timer
-grep -qxF 'SuccessExitStatus=10' \
-    %{buildroot}%{_unitdir}/airymax-update-check.service
+uc_ok %{buildroot}%{_unitdir}/airymax-update-check.service 10
 test -f %{buildroot}%{_unitdir}/airy-llm.service
 grep -qxF 'ExecStart=/usr/bin/airy-model serve' \
     %{buildroot}%{_unitdir}/airy-llm.service
@@ -395,8 +401,7 @@ grep -qxF 'ExecStart=/usr/lib/airymaxos/scripts/stage_run.sh 基础挂载 3 root
     %{buildroot}%{_unitdir}/airy-boot-mount.service
 grep -qxF 'Before=airy-disk-mount.service agentrt.target multi-user.target' \
     %{buildroot}%{_unitdir}/airy-boot-mount.service
-grep -qxF 'SuccessExitStatus=3' \
-    %{buildroot}%{_unitdir}/airy-boot-mount.service
+uc_ok %{buildroot}%{_unitdir}/airy-boot-mount.service 3
 grep -qxF 'disable airy-boot-mount.service' \
     %{buildroot}%{_presetdir}/90-airymax.preset
 test -f %{buildroot}%{_unitdir}/airy-boot-watch.service
@@ -439,8 +444,7 @@ grep -qxF 'OnCalendar=daily' \
 test -f %{buildroot}%{_unitdir}/airy-rt-bandwidth.service
 grep -qxF 'ExecStart=/usr/lib/airymaxos/scripts/stage_run.sh 运行时带宽 3 state,applied /usr/bin/airy-rt-cap apply' \
     %{buildroot}%{_unitdir}/airy-rt-bandwidth.service
-grep -qxF 'SuccessExitStatus=3' \
-    %{buildroot}%{_unitdir}/airy-rt-bandwidth.service
+uc_ok %{buildroot}%{_unitdir}/airy-rt-bandwidth.service 3
 ! grep -q '^ExecStartPost=' \
     %{buildroot}%{_unitdir}/airy-rt-bandwidth.service
 grep -qxF 'Before=agentrt.target rtkit-daemon.service user@.service display-manager.service' \
@@ -448,8 +452,7 @@ grep -qxF 'Before=agentrt.target rtkit-daemon.service user@.service display-mana
 test -f %{buildroot}%{_unitdir}/airy-rt-memcap.service
 grep -qxF 'ExecStart=/usr/lib/airymaxos/scripts/stage_run.sh 换页上限 3 layout,steps /usr/bin/airy-rt-cap memcap --apply' \
     %{buildroot}%{_unitdir}/airy-rt-memcap.service
-grep -qxF 'SuccessExitStatus=3' \
-    %{buildroot}%{_unitdir}/airy-rt-memcap.service
+uc_ok %{buildroot}%{_unitdir}/airy-rt-memcap.service 3
 grep -qxF 'disable airy-rt-memcap.service' \
     %{buildroot}%{_presetdir}/90-airymax.preset
 test -f %{buildroot}%{_unitdir}/airy-rt-memcap.timer
@@ -478,8 +481,7 @@ grep -qxF 'disable airy-rt-coexist.timer' \
 test -f %{buildroot}%{_unitdir}/airy-power.service
 grep -qxF 'ExecStart=/usr/lib/airymaxos/scripts/stage_run.sh 电源与热治理 3 landed,cap,severity,charge /usr/bin/airy-power apply' \
     %{buildroot}%{_unitdir}/airy-power.service
-grep -qxF 'SuccessExitStatus=3' \
-    %{buildroot}%{_unitdir}/airy-power.service
+uc_ok %{buildroot}%{_unitdir}/airy-power.service 3
 grep -qxF 'Before=agentrt.target display-manager.service' \
     %{buildroot}%{_unitdir}/airy-power.service
 grep -qE '^RuntimeDirectory=([^ ]+ +)*airy-power( |$)' \
