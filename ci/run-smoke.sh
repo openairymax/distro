@@ -390,7 +390,7 @@ t5_wallpaper() {
 
 # T6: 内核归属（运行内核、/boot 三件套、配置与模块签名）
 t6_kernel_identity() {
-    local rel f ko total=0 bad=0 taint
+    local rel f ko total=0 bad=0 taint sig tailhex
     rel="$(uname -r)"
     # 发行版内核带 -alk 本地版本后缀，这是「跑的是不是自己的内核」最便宜的
     # 判别。上游 openEuler 内核为 6.6.0-*.oe*，不会被误判为通过。
@@ -424,9 +424,15 @@ t6_kernel_identity() {
     # 字节魔数，不是 ELF 段；0.0.3-6 及更早按 .module_sig 段判签，对真实模块
     # 恒为假。全量比对尾部魔数：漏签的模块一被加载，内核就带上 8192
     # （TAINT_UNSIGNED_MODULE），打开 SIG_FORCE 后则直接被拒载。
+    # 魔数按字节比对：命令替换会剥掉魔数之前的 NUL 填充并静默改判，
+    # 且每个未签模块都会往 TAP 诊断里刷一行 shell 警告。
+    # 魔数含结尾换行共 28 字节；按字节比对时不能丢那一字节，否则一次
+    # 换行差异就被判成漏签。
+    sig="$(printf '%s\n' '~Module signature appended~' | od -An -tx1 | tr -d ' \n')"
     while IFS= read -r -d '' ko; do
         total=$((total + 1))
-        if [ "$(tail -c 28 "${ko}")" != '~Module signature appended~' ]; then
+        tailhex="$(tail -c 28 "${ko}" 2>/dev/null | od -An -tx1 | tr -d ' \n')"
+        if [ "${tailhex}" != "${sig}" ]; then
             printf 'unsigned module: %s\n' "${ko}"
             bad=$((bad + 1))
         fi
