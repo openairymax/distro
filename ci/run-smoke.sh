@@ -58,7 +58,8 @@
 #   T25 桌面字体与图标：有字体声明 lang=zh-cn，当前图标主题与 hicolor 兜底
 #       主题都能解析到 index.theme
 #   T26 无线固件路径：内核按扁平名取固件，intel/iwlwifi/ 下每个文件在固件根
-#       上都有同名条目；基底回到扁平布局时判据同样成立
+#       上都有同名条目；安装期日志记录的缺项（drivers 请求了、树里没有）必须
+#       为 0；基底回到扁平布局时判据同样成立
 #   T27 现场诊断工具：lsusb/lsof/pactl/airy-bright 随镜像交付
 #   T28 网络前端闭包：kylin-nm 与控制中心三个网络模块同属一次安装，缺任一件
 #       时面板网络图标与控制中心网络入口同时消失，而无线本身可用
@@ -1375,6 +1376,42 @@ t25_desktop_assets() {
     printf 'zh font: %s\nicon theme: %s\n' "${fam}" "${theme}"
 }
 
+# T26 的第二半：安装期补齐的缺项必须为 0。fw-flat.sh 只把「驱动请求了、
+# 树里也有」的那些补成入口名，请求了而树里没有的会以
+# miss name=<名> rel=<路径> 落进日志；check 复核的是清单本身与产物的关系，
+# 「驱动要的东西不存在」对它永远成立，于是这条缺陷此前一路全绿到真机才发作
+# （285H 首装：卡枚举正常、固件取不到，NetworkManager 报未发现设备）。
+#
+# 日志按段追加：每轮安装先写一行 <ISO8601> fw-flat apply，其后是本轮输出。
+# 只认最后一段——旧段里记的缺项可能已被后续轮次补齐，拿它判据会让已经修好
+# 的机器永远红；反过来，最后一段缺失说明这一轮没跑完，同样不能放行。
+t26_fw_miss() { # t26_fw_miss <日志> — 打 flat=/miss= 与缺项原文，缺项非零即失败
+    local log="$1" seg line miss names
+
+    [ -r "${log}" ] || {
+        printf 'firmware-flat log missing: %s\n' "${log}"
+        return 1
+    }
+    seg=$(sed -n '/^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z fw-flat apply$/,$p' \
+        "${log}")
+    [ -n "${seg}" ] || seg=$(cat "${log}")
+    line=$(printf '%s\n' "${seg}" |
+        sed -n 's/^\(flat=[0-9][0-9]* miss=[0-9][0-9]*\).*/\1/p' | tail -n 1)
+    [ -n "${line}" ] || {
+        printf 'firmware-flat log has no flat= line: %s\n' "${log}"
+        printf '%s\n' "${seg}" | sed -n 's/^\(fail=.*\)/\1/p'
+        return 1
+    }
+    miss=${line##*miss=}
+    [ "${miss}" = 0 ] || {
+        printf 'T26 FAIL %s log=%s\n' "${line}" "${log}"
+        names=$(printf '%s\n' "${seg}" | sed -n 's/^\(miss name=.*\)/\1/p')
+        [ -n "${names}" ] && printf '%s\n' "${names}"
+        return 1
+    }
+    printf '%s\n' "${line}"
+}
+
 # T26 无线固件路径：内核的 iwlwifi 只按扁平文件名取固件（modinfo -F
 # firmware 列出的都是 iwlwifi-<家族>-<版本>.ucode），而 SP3 的 linux-firmware
 # 已按上游新布局把 Intel Wi-Fi 固件移入 intel/iwlwifi/，顶层不留兼容链接。
@@ -1408,6 +1445,7 @@ t26_wifi_fw_layout() {
         return 1
     fi
     printf '%s\n' "${out}"
+    t26_fw_miss "${fwlog}" || return 1
     case "${out}" in
     rows=0*)
         for f in "${root}"/iwlwifi-*.ucode; do
