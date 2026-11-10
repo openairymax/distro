@@ -132,6 +132,19 @@ class FlatTest(unittest.TestCase):
         self.assertIn("fail=no-requests", res.stderr)
         self.assertFalse(self.list.exists())
 
+    def test_apply_fails_on_empty_requests(self):
+        """请求集为空必须判负：否则 flat=0 miss=0 会把坏输入判成通过。
+
+        长成这一形态的路径有三条：模块树解出零个 .ko、构建机没有 modinfo、
+        请求名清单是空文件。三条都不是「无需补齐」。
+        """
+        self.make("intel/iwlwifi/x.ucode")
+        self.reqs.write_text("", encoding="utf-8")
+        res = self.run_flat("apply")
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("fail=no-requests", res.stderr)
+        self.assertFalse(self.list.exists())
+
     def test_check_passes_after_apply(self):
         """补完立刻能复核：门禁回读的是同一套判据。"""
         self.make("brcm/x.bin")
