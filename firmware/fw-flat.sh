@@ -71,19 +71,56 @@ fw_flat_usage()
 # fw_flat_requests —— 驱动声明的固件名，一行一个，去重保序。
 # modinfo 一次可读多个模块，按批传参避免命令行超限；只读 .modinfo 段，
 # 不执行模块。读不到模块树时返回 2，由调用方决定是报错还是静默。
+#
+# 失败原因留在 fwfr_why，并由 fwfr_diag 逐条写进 stderr：模块树没解出来、
+# 构建机没有 modinfo、模块全是没认出的压缩后缀，这三种在日志里原本都是
+# 同一个 fail=no-requests，构建期预演每轮只能靠猜（run 42786640102 四架构
+# 同形，15 秒一个）。
+fwfr_diag()
+{
+    printf 'diag %s\n' "$*" >&2
+}
+
 fw_flat_requests()
 {
+    fwfr_why=
     if [ -n "${ff_reqfile}" ]; then
-        [ -r "${ff_reqfile}" ] || return 2
+        [ -r "${ff_reqfile}" ] || { fwfr_why=no-reqfile; return 2; }
         awk 'NF' "${ff_reqfile}"
         return 0
     fi
-    [ -d "${ff_modules}" ] || return 2
-    command -v modinfo >/dev/null 2>&1 || return 2
+    [ -d "${ff_modules}" ] || { fwfr_why=no-dir; return 2; }
+    # modinfo 在部分镜像里只落在 sbin，而调用方的 PATH 未必含它：先按
+    # 名字找，找不到再按固定路径找，两条都不通才算「没有 modinfo」。
+    fwfr_mi=modinfo
+    if ! command -v "${fwfr_mi}" >/dev/null 2>&1; then
+        for fwfr_mi in /usr/sbin/modinfo /sbin/modinfo; do
+            [ -x "${fwfr_mi}" ] && break
+        done
+        [ -x "${fwfr_mi}" ] || { fwfr_why=no-modinfo; return 2; }
+    fi
+    fwfr_tmp="${TMPDIR:-/tmp}/fw-flat.$$"
     find "${ff_modules}" -type f \( -name '*.ko' -o -name '*.ko.xz' \
-        -o -name '*.ko.zst' -o -name '*.ko.gz' \) -print0 2>/dev/null |
-        xargs -0 -r -n 64 modinfo -F firmware 2>/dev/null |
-        awk 'NF' | sort -u
+        -o -name '*.ko.zst' -o -name '*.ko.gz' \) -print0 2>/dev/null \
+        >"${fwfr_tmp}.mods"
+    fwfr_n=$(tr -cd '\0' <"${fwfr_tmp}.mods" | wc -c)
+    if [ "${fwfr_n}" -eq 0 ]; then
+        fwfr_why=no-modfiles
+        fwfr_diag "no-modfiles dir=${ff_modules} sample=$(find "${ff_modules}" \
+            -type f 2>/dev/null | sed -n '1p;2p;3p' | tr '\n' ' ')"
+        rm -f "${fwfr_tmp}.mods"
+        return 2
+    fi
+    xargs -0 -r -n 64 "${fwfr_mi}" -F firmware <"${fwfr_tmp}.mods" \
+        >"${fwfr_tmp}.out" 2>"${fwfr_tmp}.err"
+    if [ ! -s "${fwfr_tmp}.out" ]; then
+        fwfr_diag "modinfo-empty mods=${fwfr_n} ver=$("${fwfr_mi}" -V 2>&1 |
+            head -1) err=$(head -1 "${fwfr_tmp}.err" 2>/dev/null)"
+        fwfr_diag "sample=$(tr '\0' '\n' <"${fwfr_tmp}.mods" |
+            sed -n '1p;2p;3p' | tr '\n' ' ')"
+    fi
+    awk 'NF' "${fwfr_tmp}.out" | sort -u
+    rm -f "${fwfr_tmp}.mods" "${fwfr_tmp}.out" "${fwfr_tmp}.err"
 }
 
 # fw_flat_index ORIGIN DEST —— 建立「逻辑名 → 树内相对路径」索引。
@@ -127,7 +164,8 @@ fw_flat_apply()
     : >"${ff_tmp}"
     if ! fw_flat_requests >"${ff_reqs}"; then
         rm -f "${ff_tmp}" "${ff_reqs}"
-        printf 'fail=no-requests modules=%s\n' "${ff_modules}" >&2
+        printf 'fail=no-requests modules=%s reason=%s\n' \
+            "${ff_modules}" "${fwfr_why:-unknown}" >&2
         return "${FWFLAT_FAIL}"
     fi
     # 空请求集不是「无需补齐」，而是输入坏了：模块树没解出来、modinfo 缺席
@@ -135,7 +173,7 @@ fw_flat_apply()
     # 这正是构建期预演最需要拦的那一种形态，所以在此如实判负。
     if [ ! -s "${ff_reqs}" ]; then
         rm -f "${ff_tmp}" "${ff_reqs}"
-        printf 'fail=no-requests modules=%s\n' "${ff_modules}" >&2
+        printf 'fail=no-requests modules=%s reason=empty\n' "${ff_modules}" >&2
         return "${FWFLAT_FAIL}"
     fi
     if ! fw_flat_index "${ff_origin}" "${ff_idx}"; then

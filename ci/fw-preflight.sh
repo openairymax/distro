@@ -154,9 +154,17 @@ fp_report()
 {
     fr_sum=$(printf '%s\n' "$1" | awk '/^flat=[0-9]+ miss=[0-9]+/ { s = $0 } END { print s }')
     if [ -z "${fr_sum}" ]; then
-        fr_fail=$(printf '%s\n' "$1" | awk -F= '/^fail=/ { print $2; exit }')
+        # 按第一个空格切出 fail= 的值，不用 -F=：fw-flat 的失败行后面还跟
+        # 字段，-F= 会在第二个等号处截断，把 `fail=no-requests reason=no-dir`
+        # 读成「no-requests reason」这种半截话（run 42786640102 的
+        # fail=no-requests modules 就是这么来的）。
+        fr_fail=$(printf '%s\n' "$1" | sed -n 's/^fail=\([^ ]*\).*/\1/p' |
+            head -1)
         printf 'AIRYMAX-FW-PREFLIGHT arch=%s fail=%s modules=%s\n' \
             "${fp_arch}" "${fr_fail:-unknown}" "${fp_mods}"
+        # fw-flat 的失败行与 diag 行原样留下：预演的结论要能被下一轮直接
+        # 用来定位，而不是只留一个分类名。
+        printf '%s\n' "$1" | awk '/^(fail=|diag )/ { print }' >&2
         exit "${FP_FAIL}"
     fi
     fr_flat=$(printf '%s\n' "${fr_sum}" | sed 's/^flat=\([0-9]*\) .*/\1/')
