@@ -337,6 +337,8 @@ multi-user.target，不会触发该单元；workstation kickstart 显式 enable�
 - `xinitrc.d/70-airymax-im.sh` → `/etc/X11/xinit/xinitrc.d/`
 - `xinitrc.d/60-airymax-display.sh` → `/etc/X11/xinit/xinitrc.d/`
   （会话启动时应用分辨率策略）
+- `xinitrc.d/65-airymax-audio.sh` → `/etc/X11/xinit/xinitrc.d/`
+  （面板启动前拉起 PulseAudio 并等套接字可连）
 - `autostart/airymax-input-method.desktop` → `/etc/xdg/autostart/`
 - `user@.service.d/50-airymax-desktop.conf` →
   `/etc/systemd/system/user@.service.d/`

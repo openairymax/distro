@@ -84,7 +84,7 @@ distro/
 │   ├── boot_state.sh              # 失败单元记账与有界取证（共享库）
 │   ├── 70-airymax-ukui-policy.sh  # 安装后策略脚本（mask + 默认 target）
 │   ├── lightdm/                   # lightdm 座位策略
-│   ├── xinitrc.d/                 # X11 会话输入法环境
+│   ├── xinitrc.d/                 # X11 会话输入法、分辨率与音频就绪
 │   ├── autostart/                 # XDG 输入法自启项
 │   ├── user@.service.d/           # 会话挂接到 airymax-desktop.slice
 │   ├── wallpaper/                 # 默认壁纸与 UKUI 壁纸注册表

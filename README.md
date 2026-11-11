@@ -94,7 +94,7 @@ distro/
 │   ├── boot_state.sh              # Failed-unit accounting shared library
 │   ├── 70-airymax-ukui-policy.sh  # Post-install policy script
 │   ├── lightdm/                   # lightdm seat policy
-│   ├── xinitrc.d/                 # X11 session input method environment
+│   ├── xinitrc.d/                 # X11 session IM, display and audio readiness
 │   ├── autostart/                 # XDG input method autostart entry
 │   ├── user@.service.d/           # Bind the session to airymax-desktop.slice
 │   ├── wallpaper/                 # Default wallpaper and UKUI registry
