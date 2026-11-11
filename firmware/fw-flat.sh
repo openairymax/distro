@@ -27,6 +27,14 @@
 # 必须带真实后缀（x.ucode.zst -> intel/iwlwifi/x.ucode.zst）；补成无后缀
 # 的链会让内核第一次尝试就读取压缩流并按裸文件解析，等于没补。
 #
+# 豁免表：驱动声明的请求名里，有一部分属于本发行版硬件矩阵不支持的器件
+# （iwlwifi 一个模块就声明了 BZ/MA/SC/SO 各族 Wi-Fi 7 网卡的固件名）。它们
+# 在固件树里确实没有，但不是打包失误，判据要能把「不支持」与「缺失」分开。
+# 表由 distro/firmware/fw-exempt.txt 出，构建期预演与装机补链读同一份：
+# 0.0.4 验收（run 42960420278）里预演按表放行、目标机 %%posttrans 却把 107
+# 条不支持器件计成缺件，T26 因此必红——一处事实两套判据，修法只能是收敛到
+# 一个实现，不是给计数放宽阈值。未给 --exempt 时全部请求名按缺失处理。
+#
 # 两种使用形态：
 #   ① 命令行：fw-flat.sh apply|check ORIGIN --list FILE [选项]
 #   ② 被安装配方嵌入：正文由构建期的嵌入标记展开进 kickstart 脚本段后
@@ -65,7 +73,8 @@ fw_flat_usage()
         '  ORIGIN         固件根（如 /usr/lib/firmware）' \
         '  --list FILE    清单路径（apply 写、check 读，必填）' \
         '  --modules DIR  模块树根，缺省 /usr/lib/modules' \
-        '  --requests F   请求名清单，缺省用 modinfo 从模块树读取'
+        '  --requests F   请求名清单，缺省用 modinfo 从模块树读取' \
+        '  --exempt FILE  豁免表：每行 <名字通配> <原因>，命中的缺件不计入 miss'
 }
 
 # fw_flat_requests —— 驱动声明的固件名，一行一个，去重保序。
@@ -153,6 +162,33 @@ fw_flat_lookup()
     awk -v key="$2" '$1 == key { print $2; exit }' "$1"
 }
 
+# fw_flat_exempt NAME —— 缺件是否在豁免表里，命中时把原因写进 fwe_why。
+#
+# 表里一行是 <名字通配> <原因>。豁免只对「驱动会请求、但本发行版不支持那类
+# 器件」成立；名字本身写错、或链建不起来，仍然计 miss——豁免的是硬件矩阵的
+# 边界，不是实现故障。
+fw_flat_exempt()
+{
+    fwe_why=
+    [ -n "${ff_exempt}" ] || return 1
+    while IFS= read -r fwe_line; do
+        case "${fwe_line}" in
+        '' | '#'*) continue ;;
+        esac
+        fwe_pat=${fwe_line%%[[:space:]]*}
+        fwe_why=${fwe_line#"${fwe_pat}"}
+        # 表里为了让通配对齐写了连续空格，reason= 不该带这串空白。
+        fwe_why=${fwe_why#"${fwe_why%%[! ]*}"}
+        # fwe_pat 不引号展开：表里写的是通配，要按通配匹配。
+        # shellcheck disable=SC2254
+        case "$1" in
+        ${fwe_pat}) return 0 ;;
+        esac
+    done <"${ff_exempt}"
+    fwe_why=
+    return 1
+}
+
 fw_flat_apply()
 {
     ff_tmp="${ff_list}.tmp.$$"
@@ -160,6 +196,7 @@ fw_flat_apply()
     ff_idx="${ff_tmp}.idx"
     ff_links=0
     ff_miss=0
+    ff_exm=0
 
     : >"${ff_tmp}"
     if ! fw_flat_requests >"${ff_reqs}"; then
@@ -192,7 +229,14 @@ fw_flat_apply()
         fi
         ff_rel=$(fw_flat_lookup "${ff_idx}" "${ff_name}") || ff_rel=
         if [ -z "${ff_rel}" ]; then
-            # 请求名在树内也没有同名文件：不是布局问题而是固件缺失。这里
+            # 请求名在树内也没有同名文件。先过豁免表：命中的是本版硬件矩阵
+            # 之外的器件，逐条留证据但不计入 miss；未命中才是真的缺件。
+            if fw_flat_exempt "${ff_name}"; then
+                printf 'exempt name=%s reason=%s\n' \
+                    "${ff_name}" "${fwe_why}" >&2
+                ff_exm=$(( ff_exm + 1 ))
+                continue
+            fi
             # 不失败（脚本节不能阻断安装），但必须在安装日志里留一行判据，
             # 否则现场只会看到驱动 "no suitable firmware found"。
             printf 'miss name=%s\n' "${ff_name}" >&2
@@ -217,7 +261,8 @@ fw_flat_apply()
         printf 'fail=write-list list=%s\n' "${ff_list}" >&2
         return "${FWFLAT_FAIL}"
     fi
-    printf 'flat=%d miss=%d list=%s\n' "${ff_links}" "${ff_miss}" "${ff_list}"
+    printf 'flat=%d miss=%d exempt=%d list=%s\n' \
+        "${ff_links}" "${ff_miss}" "${ff_exm}" "${ff_list}"
 }
 
 fw_flat_check()
@@ -267,6 +312,7 @@ fw_flat_main()
     ff_list=
     ff_modules=/usr/lib/modules
     ff_reqfile=
+    ff_exempt=
 
     while [ "$#" -gt 0 ]; do
         case "$1" in
@@ -274,7 +320,7 @@ fw_flat_main()
             fw_flat_usage
             return 0
             ;;
-        --list | --modules | --requests) ;;
+        --list | --modules | --requests | --exempt) ;;
         *)
             fw_flat_usage >&2
             return "${FWFLAT_USE}"
@@ -288,6 +334,7 @@ fw_flat_main()
         --list) ff_list=$2 ;;
         --modules) ff_modules=$2 ;;
         --requests) ff_reqfile=$2 ;;
+        --exempt) ff_exempt=$2 ;;
         esac
         shift 2
     done
@@ -303,6 +350,12 @@ fw_flat_main()
         [ ! -d "${ff_origin}" ]; then
         fw_flat_usage >&2
         return "${FWFLAT_USE}"
+    fi
+    # 豁免表缺席不阻断补链：缺的只是分类依据，链接本身照做。但要在日志里
+    # 明说——没有表时每条请求名都会落成 miss，看起来像固件树塌了。
+    if [ -n "${ff_exempt}" ] && [ ! -r "${ff_exempt}" ]; then
+        printf 'diag exempt-unreadable path=%s\n' "${ff_exempt}" >&2
+        ff_exempt=
     fi
 
     if [ "${ff_verb}" = apply ]; then

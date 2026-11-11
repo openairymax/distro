@@ -44,6 +44,11 @@ class FlatTest(unittest.TestCase):
     def want(self, *names):
         self.reqs.write_text("".join(f"{n}\n" for n in names), encoding="utf-8")
 
+    def exempt_write(self, text):
+        self.exempt = self.root / "exempt.txt"
+        self.exempt.write_text(text, encoding="utf-8")
+        return self.exempt
+
     def run_flat(self, verb, *extra):
         return subprocess.run(
             ["sh", str(FLAT), verb, str(self.fw), "--list", str(self.list),
@@ -233,6 +238,41 @@ class FlatTest(unittest.TestCase):
         res = self.run_flat("check")
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertIn("rows=1 bad=0", res.stdout)
+
+    def test_apply_exempts_unsupported_hardware(self):
+        """豁免表命中的缺件不计 miss：不支持与缺失是两件事，不能混成一个数。
+
+        0.0.4 验收（run 42960420278）里目标机把 107 条 Wi-Fi 7 请求名计成
+        缺件，T26 必红。判据只在这里实现一次，构建期预演读同一个计数。
+        """
+        self.make("intel/iwlwifi/iwlwifi-gl-c0-fm-c0-83.ucode")
+        self.want("iwlwifi-gl-c0-fm-c0-83.ucode", "iwlwifi-ma-x.ucode",
+                  "absent.bin")
+        self.exempt_write("iwlwifi-ma-* 本版硬件矩阵不支持\n")
+        res = self.run_flat("apply", "--exempt", str(self.exempt))
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("flat=1 miss=1 exempt=1", res.stdout)
+        self.assertIn("exempt name=iwlwifi-ma-x.ucode", res.stderr)
+        self.assertIn("reason=本版硬件矩阵不支持", res.stderr)
+        self.assertIn("miss name=absent.bin", res.stderr)
+
+    def test_apply_exempt_skips_comments(self):
+        """表里的注释与空行不参与匹配：否则一条 # 开头的行能吞掉全部缺件。"""
+        self.want("absent.bin")
+        self.exempt_write("# 注释不匹配任何名字\n\n")
+        res = self.run_flat("apply", "--exempt", str(self.exempt))
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("flat=0 miss=1 exempt=0", res.stdout)
+
+    def test_apply_diag_unreadable_exempt(self):
+        """豁免表读不到时照常补链，并在日志里点明分类依据缺失。"""
+        self.make("intel/iwlwifi/x.ucode")
+        self.want("x.ucode", "absent.bin")
+        res = self.run_flat("apply", "--exempt",
+                            str(self.root / "nope.txt"))
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("diag exempt-unreadable", res.stderr)
+        self.assertIn("flat=1 miss=1 exempt=0", res.stdout)
 
     def test_source_leaves_script_inert(self):
         """被 kickstart 段展开时正文只定义函数：不解析位置参数、不早退。

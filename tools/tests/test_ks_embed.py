@@ -43,7 +43,10 @@ reboot
 class EmbedTest(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
-        self.base = Path(self._tmp.name)
+        # base 模拟 distro/kickstart：ALT_DIR 解析的是它的兄弟目录，因此这里
+        # 必须先有一层父目录，否则「同目录兜底」与「兄弟目录」无从区分。
+        self.base = Path(self._tmp.name) / "kickstart"
+        self.base.mkdir()
         self.write("disk-select.sh", SHARED)
         self.write("install-lib.sh", CORE)
 
@@ -136,6 +139,36 @@ class EmbedTest(unittest.TestCase):
             self.base)
         self.assertIn(SHARED, out)
         self.assertIn("airy_rtc_sync\n", out)
+
+    # 数据文件不执行：裸表正文落进脚本段会被 sh 当命令，展开必须折成
+    # here-doc。判据有两条——产物能被 sh 解析，且正文逐字落进文件。
+    def test_expand_data_heredoc(self):
+        table = "# 注释行\niwlwifi-bz-* 本版不支持\n"
+        self.write("fw-exempt.txt", table)
+        out = ks_embed.expand(
+            "%pre\n# %airy-embed: fw-exempt.txt\n%end\n", self.base)
+        self.assertIn('airy_fw_exempt="${TMPDIR:-/tmp}/airymax-fw-exempt.txt"',
+                      out)
+        self.assertIn("<<'AIRYMAX_DATA_EOF'\n" + table, out)
+        res = subprocess.run(["sh", "-n"], input=out, capture_output=True,
+                             text=True)
+        self.assertEqual(res.returncode, 0, res.stderr)
+
+    def test_expand_data_alt_dir(self):
+        # 台账与 fw-flat.sh 同在 distro/firmware，不在 kickstart 目录里：
+        # 嵌入器要按 ALT_DIR 找到它，而不是要求复制一份到 kickstart。
+        (self.base.parent / "firmware").mkdir()
+        (self.base.parent / "firmware" / "fw-exempt.txt").write_text(
+            "iwlwifi-ma-* 本版不支持\n", encoding="utf-8")
+        out = ks_embed.expand(
+            "%pre\n# %airy-embed: fw-exempt.txt\n%end\n", self.base)
+        self.assertIn("iwlwifi-ma-* 本版不支持\n", out)
+
+    def test_expand_data_rejects_terminator(self):
+        self.write("fw-exempt.txt", "airymax_data_eof\nAIRYMAX_DATA_EOF\n")
+        with self.assertRaises(ks_embed.EmbedError):
+            ks_embed.expand(
+                "%pre\n# %airy-embed: fw-exempt.txt\n%end\n", self.base)
 
     def test_cli_ok(self):
         src = self.base / "in.ks"

@@ -150,6 +150,22 @@ class FirmwareContractTest(unittest.TestCase):
         self.assertIn("kmod", requires_of(read(FW_SPEC)),
                       "生成器依赖 modinfo，缺 kmod 时静默不补入口")
 
+    def test_fw_ships_exempt_table(self):
+        """豁免台账随包落盘，且被 %posttrans 交给生成器。
+
+        台账只留在源码树时，构建期预演按表放行、装机期却没有分类依据，
+        本版硬件矩阵之外的 Wi-Fi 7 请求名全被计成缺件（run 42960420278
+        的 T26）。三处必须同源：Source、落盘路径、调用参数。
+        """
+        text = read(FW_SPEC)
+        self.assertRegex(text, re.compile(
+            r"^Source2:[ \t]+fw-exempt\.txt[ \t]*$", re.M))
+        self.assertIn("%{_datadir}/airymaxos/firmware/fw-exempt.txt", text)
+        self.assertIn("--exempt %{_datadir}/airymaxos/firmware/fw-exempt.txt",
+                      posttrans_body())
+        self.assertTrue((DISTRO / "firmware" / "fw-exempt.txt").is_file(),
+                        "缺少 distro/firmware/fw-exempt.txt")
+
     def test_preflight_shares_flat_rules(self):
         """构建期预演复用同一份补齐实现，且不写死厂商目录。
 

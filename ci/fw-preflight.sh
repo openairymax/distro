@@ -160,44 +160,16 @@ fp_tree()
     [ "${ft_bad}" -eq 0 ]
 }
 
-# fp_exempt NAME —— 缺件是否在豁免表里，命中时把原因写进 fe_why。
+# fp_report TEXT —— 取 fw-flat 的结论行，并把逐条证据原样转出。
 #
-# 表里一行是 <名字通配> <原因>。豁免只对「驱动会请求、但本发行版不支持那类
-# 器件」成立：iwlwifi 一个模块声明了 BZ/MA/SC/SO 各族 Wi-Fi 7 网卡的固件名，
-# 而 0.0.4 的硬件矩阵只有 BE200（gl 族）与 RTL8852BE，其余各族的 API-83
-# 固件在本轮固件包里没有。把它们当作「缺件」会让门禁永远红，把它们静默
-# 跳过又等于假绿——所以落成一张有原因的清单，逐条打在日志里。
-fp_exempt()
-{
-    fe_why=
-    [ -n "${fp_exempts}" ] || return 1
-    while IFS= read -r fe_line; do
-        case "${fe_line}" in
-        '' | '#'*) continue ;;
-        esac
-        fe_pat=${fe_line%%[[:space:]]*}
-        fe_why=${fe_line#"${fe_pat}"}
-        # 表里为了让通配对齐写了连续空格，reason= 不该带这串空白。
-        fe_why=${fe_why#"${fe_why%%[! ]*}"}
-        # fe_pat 不引号展开：表里写的是通配，要按通配匹配。
-        # shellcheck disable=SC2254
-        case "$1" in
-        ${fe_pat}) return 0 ;;
-        esac
-    done <"${fp_exempts}"
-    fe_why=
-    return 1
-}
-
-# fp_report TEXT —— 从 fw-flat 的输出里取 flat/miss 两个计数与逐条缺件。
+# 判定只读 fw-flat 的 miss 计数，不在这里重算：豁免表已由 fw-flat 自己
+# 消费（同一个 --exempt、同一份表，与装机期 %posttrans 是同一条路径）。
+# 此前预演在本地再把 miss 过一遍豁免表，等于同一份台账养了两套判据——run
+# 42960420278 里预演按表放行，目标机却把 107 条不支持器件计成缺件，T26
+# 必红。判据留在实现里一处，才谈得上「预演绿了装机也绿」。
 #
-# 只认最后一条 flat= 行：重复调用时早期故障行不代表本轮结论。
-#
-# miss 在这里重算，不照搬 fw-flat 的计数：豁免表里的名字仍是「固件包没带
-# 这个文件」，只是本版硬件矩阵不支持那类器件。判据要的是「除已登记的
-# 不支持类之外是否还有缺件」，所以逐条过一遍豁免表，命中打 exempt 行、
-# 未命中才计入 miss。逐条打印而不仅打计数，是因为下一轮看日志的人得能
-# 分辨「这 0 是都补齐了」还是「都豁免掉了」。
+# 只认最后一条 flat= 行：重复调用时早期故障行不代表本轮结论。exempt 计数
+# 照样打进结论行，因为它决定「miss=0」是「都补齐了」还是「都豁免掉了」。
 fp_report()
 {
     fr_sum=$(printf '%s\n' "$1" | awk '/^flat=[0-9]+ miss=[0-9]+/ { s = $0 } END { print s }')
@@ -216,22 +188,14 @@ fp_report()
         exit "${FP_FAIL}"
     fi
     fr_flat=$(printf '%s\n' "${fr_sum}" | sed 's/^flat=\([0-9]*\) .*/\1/')
-    # 只取名字本身：fw-flat 在补链失败时会写 `miss name=X rel=Y`，整行拿去
-    # 匹配豁免表会因尾部的 rel= 字段全部落空。
-    printf '%s\n' "$1" |
-        sed -n 's/^miss name=\([^ ]*\).*/\1/p' >"${fp_tmp}/miss.list"
-    fr_miss=0
-    while IFS= read -r fr_name; do
-        [ -n "${fr_name}" ] || continue
-        if fp_exempt "${fr_name}"; then
-            printf 'exempt name=%s reason=%s\n' "${fr_name}" "${fe_why}" >&2
-            continue
-        fi
-        fr_miss=$(( fr_miss + 1 ))
-        printf 'miss name=%s\n' "${fr_name}" >&2
-    done <"${fp_tmp}/miss.list"
-    printf 'AIRYMAX-FW-PREFLIGHT arch=%s flat=%s miss=%s\n' \
-        "${fp_arch}" "${fr_flat}" "${fr_miss}"
+    fr_miss=$(printf '%s\n' "${fr_sum}" | sed 's/^.* miss=\([0-9]*\).*/\1/')
+    fr_exm=$(printf '%s\n' "${fr_sum}" |
+        sed -n 's/^.* exempt=\([0-9]*\).*/\1/p')
+    # 逐条证据原样转出：下一轮看日志的人要能分辨「这 0 是都补齐了」还是
+    # 「都豁免掉了」，只有计数说不清。
+    printf '%s\n' "$1" | awk '/^(miss|exempt) / { print }' >&2
+    printf 'AIRYMAX-FW-PREFLIGHT arch=%s flat=%s miss=%s exempt=%s\n' \
+        "${fp_arch}" "${fr_flat}" "${fr_miss}" "${fr_exm:-0}"
     [ "${fr_miss}" -eq 0 ] || exit "${FP_FAIL}"
 }
 
@@ -377,6 +341,9 @@ fp_main()
     set -- apply "${fp_tmp}/root" --list "${fp_tmp}/flat.list" \
         --modules "${fp_mods}"
     [ -z "${fp_reqs}" ] || set -- "$@" --requests "${fp_reqs}"
+    # 豁免表交给补链实现去消费，预演不另判一套：装机期 %posttrans 与这里
+    # 读的是同一份表，判据才可能一致。
+    [ -z "${fp_exempts}" ] || set -- "$@" --exempt "${fp_exempts}"
     fp_out=$(sh "${fp_conf}" "$@" 2>&1) || :
     fp_report "${fp_out}"
 }

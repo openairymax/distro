@@ -14,6 +14,9 @@
 # 了位置，anaconda 会把它当注释静默忽略，识别行为要到装机现场才暴露，
 # 因此在展开与校验两条路径上都拒绝段外标记。
 #
+# 除脚本之外还嵌一类数据文件（如固件豁免台账）：它们不执行，展开成一段
+# 写文件的 here-doc，路径由本工具定义的变量给出，配方只引用变量。
+#
 # 展开与校验读同一份段解析：lint 用 audit 报 K019，构建用 expand 出产物，
 # 两者对「什么算脚本段」「哪些标记算数」只有一个口径。
 #
@@ -34,13 +37,19 @@ MARK = "# %airy-embed: "
 SCRIPTS = frozenset({"pre", "post", "onerror", "traceback"})
 SHARED = frozenset({"install-lib.sh", "disk-select.sh", "rtc-sync.sh",
                     "fw-flat.sh"})
+# 数据文件：不执行的静态清单，嵌入时折成 here-doc 落盘，正文不展开。
+# fw-exempt.txt 是固件豁免台账，装机期 %pre 的补链与目标机 %posttrans 必须
+# 读同一份内容；它的值是一个变量名，由本工具在展开处定义，配方只消费变量
+# ——路径若在配方里再写一遍，早晚一处改一处没改。
+DATA = {"fw-exempt.txt": "airy_fw_exempt"}
 PRELUDE = "install-lib.sh"
 # 依赖 airy_out/airy_fail 的脚本：展开顺序是语义，lib 必须在它们之前。
 USES_LIB = ("disk-select.sh", "rtc-sync.sh")
 # 不在 kickstart 目录里的共享脚本：fw-flat.sh 同时是 airymaxos-firmware
 # 的 Source（%%posttrans 与安装期 %pre 必须跑同一份实现），因此物理位置
-# 在 distro/firmware，不能为嵌入再复制一份——复制即两处漂移。
-ALT_DIR = {"fw-flat.sh": "firmware"}
+# 在 distro/firmware，不能为嵌入再复制一份——复制即两处漂移。豁免台账与
+# 它同目录，同一条理由。
+ALT_DIR = {"fw-flat.sh": "firmware", "fw-exempt.txt": "firmware"}
 
 
 class EmbedError(ValueError):
@@ -77,8 +86,26 @@ def seg_kinds(lines: list[str]) -> dict[int, str]:
             for num in range(first, last)}
 
 
+def data_body(name: str, text: str, line: int) -> str:
+    """把数据文件折成「写文件」的一段 sh。
+
+    裸表正文落进脚本段会被 sh 当命令执行，所以必须包在 here-doc 里，落到
+    TMPDIR 下再由调用方按变量读取。终止符出现在正文里会让后续整段被吃进
+    文件，症状要到装机现场才看得见，因此在展开时就拒绝。
+    """
+    var = DATA[name]
+    end = "AIRYMAX_DATA_EOF"
+    if any(row.strip() == end for row in text.splitlines()):
+        raise EmbedError(line, f"数据文件含 here-doc 终止符: {name}")
+    if not text.endswith("\n"):
+        text += "\n"
+    return (var + '="${TMPDIR:-/tmp}/airymax-' + name + '"\n'
+            + 'cat >"${' + var + '}" <<\'' + end + "'\n"
+            + text + end + "\n")
+
+
 def body(name: str, base: Path, line: int) -> str:
-    if name not in SHARED:
+    if name not in SHARED and name not in DATA:
         raise EmbedError(line, f"未知的共享脚本: {name or '(空)'}")
     path = base / name
     if not path.is_file() and name in ALT_DIR:
@@ -91,6 +118,8 @@ def body(name: str, base: Path, line: int) -> str:
         raise EmbedError(line, f"共享脚本读取失败: {err}") from err
     if MARK in text:
         raise EmbedError(line, f"共享脚本不得再嵌入: {name}")
+    if name in DATA:
+        return data_body(name, text, line)
     return text if text.endswith("\n") else text + "\n"
 
 
