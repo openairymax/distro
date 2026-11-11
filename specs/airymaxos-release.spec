@@ -36,7 +36,9 @@
 #      形态的 DNS 管理与连通性探测口径，与镜像的包闭包成对断言。
 #  11. 把控制台字体切到 16x32：8x16 在 2880x1800 的面板上把一屏铺成
 #      360x112 个字形，开机阶段行事实上无法辨读（285H 实机）。字体文件由
-#      kbd 提供，本包只改 /etc/vconsole.conf 的 FONT 一行；该路径归
+#      kbd 提供，判据与写入在 desktop/console-font.sh 里只定义一次，由本包
+#      %%post（升级）与 kickstart %%post（新装，在 anaconda 写完配置之后）
+#      各调用一次；该脚本只改 /etc/vconsole.conf 的 FONT 一行，路径本身归
 #      systemd-udev，本包不能持有，理由见 %%post 注释。
 #
 # 静态资产一律由 %%install 直接落到最终路径，%%post 不复制文件，同一路径只有
@@ -65,7 +67,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 18
+%global airy_release 19
 # 桌面版本随冻结点滚动，写在 /etc/airymaxos/desktop-version，供控制中心
 # 「关于」页读取。控制中心自己不猜版本：缺文件即只显示桌面名。此宏与
 # lockfile/ukui-components.yaml 的 ukui-control-center 版本由
@@ -139,6 +141,7 @@ Source46:       airymaxos-deb.xml
 Source47:       airy-pkg-install.desktop
 Source48:       mimeapps.list
 Source49:       65-airymax-audio.sh
+Source50:       console-font.sh
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -435,6 +438,8 @@ install -m 0644 %{SOURCE36} \
 install -d -m 0755 %{buildroot}%{_datadir}/airymaxos/distro/desktop
 install -m 0755 %{SOURCE4} \
     %{buildroot}%{_datadir}/airymaxos/distro/desktop/70-airymax-ukui-policy.sh
+install -m 0755 %{SOURCE50} \
+    %{buildroot}%{_datadir}/airymaxos/distro/desktop/console-font.sh
 
 install -d -m 0755 %{buildroot}%{_datadir}/licenses/airymaxos-release
 install -m 0644 %{SOURCE6} \
@@ -603,6 +608,7 @@ test -L %{buildroot}%{_bindir}/airy-os
 grep -qxF 'SESS_CLASSES="greeter user"' \
     %{buildroot}/usr/lib/airymaxos/desktop/desktop_ready.sh
 bash -n %{buildroot}%{_datadir}/airymaxos/distro/desktop/70-airymax-ukui-policy.sh
+sh -n %{buildroot}%{_datadir}/airymaxos/distro/desktop/console-font.sh
 grep -qxF 'user-session=ukui' \
     %{buildroot}%{_sysconfdir}/lightdm/lightdm.conf.d/50-airymax.conf
 grep -qxF 'autologin-user=amuser' \
@@ -851,25 +857,19 @@ fi
 
 # 控制台字体。默认的 latarcyrheb-sun16 是 8x16；在 285H 的 2880x1800 面板上
 # 一屏是 360x112 个约 0.8x1.7 mm 的字形，九行阶段行即使全是 ASCII 也读不出
-# 来（2026-11-09 实机）。同一 kbd 字体集里的 latarcyrheb-sun32 是 16x32，
-# 切过去得到 180x56，不需要改内核配置，也不影响桌面：X 跑在 fbdev 上用自己的
-# 分辨率与 Xft 字号。
+# 来（2026-11-09 实机）。切到同一字体集里的 latarcyrheb-sun32（16x32）得到
+# 180x56，不需要改内核配置，也不影响桌面：X 跑在 fbdev 上用自己的分辨率与
+# Xft 字号。
 #
-# 只能在这里改。%%{_sysconfdir}/vconsole.conf 归 systemd-udev 包，本包再持有
-# 同一路径会让安装事务整体失败（与 /etc/motd、plymouthd.conf 同一条约束）；
-# vconsole.conf.d 的 drop-in 要 systemd 256，基线是 255。因此按行替换 FONT，
-# 其余键（KEYMAP 等本包并不拥有的口径）原样保留。字体文件缺席时一个字节都不
-# 写：指向不存在的字体只会让控制台黑屏，比小字更糟。
-airy_font=latarcyrheb-sun32
-airy_fonts=%{_prefix}/lib/kbd/consolefonts
-if [ -f "${airy_fonts}/${airy_font}.psfu.gz" ]; then
-    if grep -q '^[[:space:]]*FONT=' %{_sysconfdir}/vconsole.conf 2>/dev/null; then
-        sed -i "s|^[[:space:]]*FONT=.*|FONT=\"${airy_font}\"|" \
-            %{_sysconfdir}/vconsole.conf || :
-    else
-        printf 'FONT="%s"\n' "${airy_font}" >>%{_sysconfdir}/vconsole.conf || :
-    fi
-fi
+# 判据与写入口径只在 desktop/console-font.sh 里定义：新装机时包事务跑完之后
+# anaconda 才按 kickstart 的 keyboard 指令重写 /etc/vconsole.conf，本包
+# %%post 写下的 FONT 会被覆盖回默认值；同一条链在 kickstart %%post 里有第二
+# 个调用点。
+# 两处各写一遍必然在某一侧漂移（验收 run 42960420278 的 T22），故只留一个
+# 实现，这里只负责调用。本包不能持有 %%{_sysconfdir}/vconsole.conf：该路径
+# 归 systemd-udev，同名文件被两个包同时持有会让安装事务整体失败；脚本因此
+# 只按行替换 FONT，其余键原样保留，并在字体缺席时一个字节都不写。
+%{_datadir}/airymaxos/distro/desktop/console-font.sh || :
 
 if [ -d /run/systemd/system ]; then
     systemctl daemon-reload >/dev/null 2>&1 || :
@@ -946,9 +946,17 @@ fi
 %{_datadir}/icons/hicolor/scalable/status/network-wireless-signal-excellent-error-symbolic.svg
 %{_datadir}/icons/hicolor/scalable/status/network-wireless-signal-low-secure-symbolic.svg
 %{_datadir}/airymaxos/distro/desktop/70-airymax-ukui-policy.sh
+%{_datadir}/airymaxos/distro/desktop/console-font.sh
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Wed Nov 11 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-19
+- 把控制台字体的判据与写入口径收敛到 desktop/console-font.sh 一处。新装机
+  时包事务跑完之后 anaconda 才按 kickstart 的 keyboard 指令重写
+  /etc/vconsole.conf，本包 %%post 写下的 FONT 被覆盖回默认 sun16；验收 run
+  42960420278 的 T22 因此在三腿上都读到 sun16。同一路径另由 kickstart
+  %%post（anaconda 写完之后）调用，两处只调用不各写一份，并各留一行
+  AIRYMAX-CONSOLE-FONT 证据
 * Wed Nov 11 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-18
 - 在会话序列里先拉起 PulseAudio 并等套接字可连：本基线的 pulseaudio 没有
   systemd 用户单元，只靠首个客户端 autospawn。285H 首启时面板早于该次拉起

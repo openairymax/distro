@@ -370,6 +370,18 @@ rpm -q airymaxos-release >/dev/null 2>&1 || airy_fail INSTALL release-pkg
 #    最终值——不依赖 inst.lang 与 ks lang 的优先级实现细节。
 printf 'LANG=zh_CN.UTF-8\n' >/etc/locale.conf
 airy_out "AIRYMAX-LOCALE-OK lang=zh_CN.UTF-8"
+#    控制台字体：判据与写入在 airymaxos-release 提供的 console-font.sh 一处，
+#    包 %post 也调用它。但新装机时那次跑在包事务里，之后 anaconda 才按
+#    kickstart 的 keyboard 指令重写 /etc/vconsole.conf，FONT 被覆盖回默认
+#    sun16——验收 run 42960420278 的 T22 在三腿上都读到 sun16 就是这个顺序。
+#    %post 是安装的最后一步，这里写下的值不再有人覆盖；两条路径只共用同一
+#    实现，不各写一份判据。
+cf_rc=0
+/usr/share/airymaxos/distro/desktop/console-font.sh || cf_rc=$?
+cf_log=/var/log/airymaxos/console-font.log
+cf_last=$(sed -n '$p' "${cf_log}" 2>/dev/null) || cf_last=
+airy_out "AIRYMAX-CONSOLE-FONT rc=${cf_rc} ${cf_last}"
+[ "${cf_rc}" -eq 0 ] || airy_fail INSTALL console-font
 
 # 2) 系统编排单元必须随镜像落盘（OS-OPS-010 的包级前提）
 airy_step 2 10 system
