@@ -11,7 +11,7 @@
 # 五种结论路径的退出码。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.3
+# Version: 0.0.4
 # ===========================================================================
 
 import shutil

@@ -17,7 +17,7 @@
 # 退出码: 0 全部通过；1 有用例失败；5 参数或用例目录不满足。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.3
+# Version: 0.0.4
 # ===========================================================================
 
 from __future__ import annotations

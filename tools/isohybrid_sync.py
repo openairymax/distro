@@ -32,7 +32,7 @@
 # 退出码：0 一致；1 不一致；2 用法或读取错误；77 非 El Torito 镜像（不适用）。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.3
+# Version: 0.0.4
 # ===========================================================================
 
 from __future__ import annotations

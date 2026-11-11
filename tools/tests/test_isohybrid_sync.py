@@ -11,7 +11,7 @@
 # 按「不适用」退出 77，使 build-iso 的伪 ISO 沙箱用例不受本门禁影响。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.3
+# Version: 0.0.4
 # ===========================================================================
 
 import struct

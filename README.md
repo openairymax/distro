@@ -122,7 +122,7 @@ distro/
 └── ci/
     ├── README.md                  # Smoke matrix (T1-T4 + X1)
     ├── run-image-ci.sh            # Image gate: five-stage orchestration (minimal/desktop)
-    ├── run-lint.sh                # Static gate: shell syntax + spec lint + tests
+    ├── run-lint.sh                # Static gate: syntax + header + spec/comps/ks + tests
     └── run-smoke.sh               # Smoke runner (TAP)
 ```
 

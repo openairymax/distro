@@ -10,7 +10,7 @@
 # 入口再经伪 xrandr 验证退出码与调用面。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.3
+# Version: 0.0.4
 # ===========================================================================
 
 import shutil

@@ -8,7 +8,7 @@
 # 退出码或产物，避免失败被上层逻辑掩盖。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.3
+# Version: 0.0.4
 # ===========================================================================
 
 import hashlib
