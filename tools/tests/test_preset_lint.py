@@ -9,7 +9,7 @@
 # unittest 编写，可被 pytest 直接收集。
 #
 # Author: Decheng Li <lidecheng@spharx.cn>
-# Version: 0.0.3
+# Version: 0.0.4
 # ===========================================================================
 
 import contextlib

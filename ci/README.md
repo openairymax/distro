@@ -58,8 +58,9 @@ lockfile 冻结点（滚动触发） × 内核 RPM（6.6-airymax.n）
   任一段失败整体返回 1；参数不满足返回 5；
   缺 QEMU 工具链时装机段跳过并返回 77。各段清单留在其产物子目录，
   编排层只写 `image-ci-manifest.txt`，不复制子驱动清单（SSoT）。
-- `run-lint.sh` 是提交前静态门禁：shell 语法、配方/comps/kickstart 三类
-  语义校验与工具回归测试（Python 标准库，无 `rpmbuild`/`mock` 依赖）；
+- `run-lint.sh` 是提交前静态门禁：shell 语法、源文件横幅版本一致性、配方/
+  comps/kickstart 三类语义校验、systemd 启用边界与工具回归测试（Python
+  标准库，无 `rpmbuild`/`mock` 依赖）；
 - `gates/rt-accept.sh` 是实时性验收门禁，必须在目标内核上执行：先跑
   `airy-rt-cap matrix --json` 取等级，`none` 直接拒收且不做测量，
   `ready`/`soft` 分别以 100µs/1000µs 为上限（`--hard-us`/`--soft-us`

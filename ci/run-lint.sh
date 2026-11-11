@@ -5,35 +5,37 @@
 #
 # 用法: ci/run-lint.sh [--no-tests]
 #
-# 职责（六段，每段单独计时）：
+# 职责（七段，每段单独计时）：
 #   1. syntax — bash -n 解析 ci/、lockfile/、scripts/、desktop/、tools/、boot/
 #      与 kickstart/ 下的 shell 入口，以及 scripts/lib 下被 source 的 *.env
 #      （判负证据集等共用数据）；kickstart/ 的共享脚本会被嵌入配方，
 #      语法错误在构建期才暴露，故与入口同级校验；desktop/xinitrc.d 与
 #      boot/ 额外用 sh -n 校验 POSIX 兼容（前者被 Xsession 以 /bin/sh
 #      source，后者在 chroot 与 initramfs 内以 /bin/sh 执行）；
-#   2. spec — 校验 specs/ 下所有 RPM 配方（tools/spec_lint.py，E001~E016）；
-#   3. comps — 校验 comps/ 下包组定义（tools/comps_lint.py，C001~C011），
+#   2. head — 校验源文件横幅的版本号与 release/os-release 的 VERSION_ID 一致
+#      （tools/head_lint.py，H001~H003）；
+#   3. spec — 校验 specs/ 下所有 RPM 配方（tools/spec_lint.py，E001~E016）；
+#   4. comps — 校验 comps/ 下包组定义（tools/comps_lint.py，C001~C011），
 #      并在具备 xmllint 时按 comps/comps.dtd 做 DTD 校验；
-#   4. ks — 校验 kickstart/ 下安装配方（tools/ks_lint.py，K001~K021），共享
+#   5. ks — 校验 kickstart/ 下安装配方（tools/ks_lint.py，K001~K021），共享
 #      脚本先展开再判定；
-#   5. preset — 校验 presets/ 下 systemd 启用边界（tools/preset_lint.py，
+#   6. preset — 校验 presets/ 下 systemd 启用边界（tools/preset_lint.py，
 #      P001~P008，含目录级「唯一 blanket 且字典序最后」约束）；
-#   6. tests — 运行 tools/tests 下的规则回归测试。
+#   7. tests — 运行 tools/tests 下的规则回归测试。
 #
 # 分段计时不是装饰：这条门禁排在每一轮镜像组装之前，它的墙钟直接加在
 # 流水线上。没有分段时只知道「静态门禁四分钟」，无法判断该优化八百余条
-# 工具用例还是该优化配方校验，于是谁都不敢动（W-2）。实测六段里只有 tests
-# 有量级（111 秒），其余五段合计不足两秒。
+# 工具用例还是该优化配方校验，于是谁都不敢动（W-2）。实测七段里只有 tests
+# 有量级（百秒级，随机器负载浮动），其余六段合计不足三秒。
 #
 # 只依赖 python3 标准库，可在无 rpmbuild/mock 的机器上执行。CI 与本地提交
 # 前共用同一入口，避免两套口径。
 #
-# --no-tests 跳过第六段。这段只做规则回归，判定对象是仓库内容本身，与
+# --no-tests 跳过第七段。这段只做规则回归，判定对象是仓库内容本身，与
 # 组装环境无关：同一个提交在 push 门禁（os-chk-verify）里已经全量跑过，
 # 组装再跑一遍不增加任何判据，只让每轮固定开销多出一分半到两分钟——
 # 而这一分半直接加在「assemble 稳态 ≤360 秒」的预算上（CI-16）。跳过时
-# 仍打印 ``[timing] tests=skipped``，六行表的形状不变，读数不会被误当成 0。
+# 仍打印 ``[timing] tests=skipped``，七行表的形状不变，读数不会被误当成 0。
 #
 # 退出码: 0 全部通过；2 参数错误；其他为对应检查器的失败码。
 # ===========================================================================
@@ -89,6 +91,12 @@ check_syntax()
     done
 }
 
+check_head()
+{
+    echo "== head lint =="
+    python3 tools/head_lint.py
+}
+
 check_spec()
 {
     echo "== spec lint =="
@@ -135,6 +143,7 @@ check_tests()
 
 t_start="$(now)"
 seg syntax check_syntax
+seg head check_head
 seg spec check_spec
 seg comps check_comps
 seg ks check_ks

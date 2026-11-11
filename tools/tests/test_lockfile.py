@@ -9,7 +9,7 @@
 # 组嵌套通过 grouplist 递归展开。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.3
+# Version: 0.0.4
 # ===========================================================================
 
 import io

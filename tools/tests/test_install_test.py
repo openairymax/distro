@@ -10,7 +10,7 @@
 # 前提，避免多重故障互相掩盖。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.3
+# Version: 0.0.4
 # ===========================================================================
 
 import shutil

@@ -112,7 +112,7 @@ distro/
 └── ci/
     ├── README.md                  # 组合冒烟矩阵（T1-T4 + X1）
     ├── run-image-ci.sh            # 镜像主门禁：五段编排（minimal/desktop）
-    ├── run-lint.sh                # 静态门禁：shell 语法 + 配方校验 + 测试
+    ├── run-lint.sh                # 静态门禁：语法 + 横幅版本 + 配方校验 + 测试
     └── run-smoke.sh               # 冒烟执行脚本（TAP 输出）
 ```
 
@@ -122,6 +122,10 @@ distro/
 （无需 `rpmbuild`/`mock`）：
 
 - `bash -n` 解析 `ci/`、`lockfile/`、`scripts/` 下全部 shell 入口；
+- `tools/head_lint.py` 校验源文件横幅的 `# Version:` 与
+  `release/os-release` 的 `VERSION_ID` 一致（H001 有作者横幅却缺版本行、
+  H002 版本陈旧）；配方包版本不在此重复判定，`spec_lint` 的 E012 已把
+  展开后的 `Version` 绑到同一个值；
 - `tools/spec_lint.py` 校验 `specs/` 下全部配方（标签集合、
   `airymaxos-` 前缀、`%{?dist}` Release、SPDX 许可证、section 集合、
   源文件存在性、changelog 格式、版本与 `release/os-release` 一致）；

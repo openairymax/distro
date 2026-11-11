@@ -12,7 +12,7 @@
 # 退出码：0 成功；5 参数、内容或落点不满足。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.3
+# Version: 0.0.4
 # ===========================================================================
 
 from __future__ import annotations

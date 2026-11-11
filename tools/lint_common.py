@@ -7,7 +7,7 @@
 # path:line: CODE message 输出格式，使 CI 日志可被同一套解析器消费。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.3
+# Version: 0.0.4
 # ===========================================================================
 
 from __future__ import annotations

@@ -12,7 +12,7 @@
 # （modinfo 那条路径由 image-build 在装了 kernel-modules 的容器里走）。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.5
+# Version: 0.0.4
 # ===========================================================================
 
 import os
