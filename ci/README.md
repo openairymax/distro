@@ -12,7 +12,7 @@
 | T3 | PulseAudio 音频栈 | `pactl info` 握手成功（套接字激活的端到端路径） | 冻结点音频基线（无 PipeWire） |
 | T4 | 桌面隔离 slice | `user@UID.service` 落入 `airymax-desktop.slice`；slice active；CPUWeight=50、IOWeight=50、TasksMax 有限 | R1-04 桌面低干扰 |
 | T5 | 内置壁纸 | `org.mate.background picture-filename` 的**系统默认值**（memory 后端，绕开用户 dconf）指向内置路径；图像 sha256 与发行资产一致（图像缺失或 schema 缺失均判失败） | 0.0.3 品牌桌面基线 |
-| T6 | 内核归属 | `uname -r` 带 `-alk` 后缀；`/boot` 的 vmlinuz/config/System.map 齐全；`CONFIG_LOCALVERSION` 与 `CONFIG_SECURITY_AIRY` 一致 | 产品内核不可被上游内核顶替 |
+| T6 | 内核归属 | `uname -r` 带 `-alk` 后缀；`/boot` 的 vmlinuz/config/System.map 齐全；`CONFIG_LOCALVERSION` 与 `CONFIG_SECURITY_AIRY` 一致；`/usr/lib/modules/<rel>` 下每个 `.ko` 尾部带模块签名魔数；`tainted` 的 8192 位（未签模块）为 0 | 产品内核不可被上游内核顶替 |
 | T7 | LSM 注册表 | `airy` 在 `/sys/kernel/security/lsm` 中只登记一次；`airy_lockdown` 在位 | 补充钩子不得重复注册 |
 | T8 | 主机名 | `/etc/hostname`、`hostname` 与 `hostnamectl --static` 三处均为 `airymax-pc`（合法 RFC 1123 标签，安装器直接落盘，无内核层回写） | 品牌身份随装机落地 |
 | T9 | 发行版品牌 | `/etc/os-release` 的 `NAME=AirymaxOS`、`ID=airymaxos`、`PRETTY_NAME` 前缀与语义化 `VERSION_ID` 同时成立 | 发行版标识 SSoT 生效 |
