@@ -365,11 +365,16 @@ t5_wallpaper() {
         return 1
     }
     local path sum have
-    path="$(gsettings get org.mate.background picture-filename 2>&1)" || {
+    # 判的是「发行物给的默认背景」，不是「这台机器当前用的背景」。用户改
+    # 壁纸会写进自己的 dconf 库，用默认后端读出来的是他的选择——那是合法
+    # 行为，拿它判失败等于把门禁挂在用户偏好上。memory 后端跳过用户库，
+    # 只取 gschemas.compiled 里的默认值，也就是 override 编译后的结果；
+    # override 没生效时这里读到的仍是 schema 原值，门禁照样红。
+    path="$(GSETTINGS_BACKEND=memory gsettings get org.mate.background picture-filename 2>&1)" || {
         echo "org.mate.background picture-filename: ${path:-unavailable}"
         return 1
     }
-    expect "${path//\'/}" "${WALLPAPER}" "picture-filename" || return 1
+    expect "${path//\'/}" "${WALLPAPER}" "default picture-filename" || return 1
     # 集合多一件说明上游壁纸包漏进镜像，少一件说明注册表指向了不存在的
     # 文件；两种情况都只在桌面会话里表现为空背景，故按目录事实计数。
     # 目录与图像按 SYSROOT 取根：schema 里记的是安装路径，单测的沙箱视图
