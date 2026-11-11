@@ -10,8 +10,9 @@
 #   2. 提供 /etc/yum.repos.d/airymaxos.repo（仓库列表 SSoT）；
 #   3. 提供 /etc/rpm/macros.airymax（文件系统布局宏 SSoT）；
 #   4. 部署桌面会话静态资产：lightdm 座位策略、座位 X server 启动封装、X11
-#      会话输入法环境与分辨率自适应、输入法自启项、UKUI 壁纸注册表与背景
-#      默认值、三张品牌默认壁纸、桌面调度 slice、user@.service 挂接及登录链就绪探针；
+#      会话输入法环境、分辨率自适应与 PulseAudio 就绪等待、输入法自启项、
+#      UKUI 壁纸注册表与背景默认值、三张品牌默认壁纸、桌面调度 slice、
+#      user@.service 挂接及登录链就绪探针；
 #   5. 部署登录与提权策略：sshd 允许交付账户的空口令登录，sudo 以
 #      NOPASSWD 放开同一账户的非交互提权，桌面侧关闭空闲锁屏（空口令账户
 #      被锁屏拦住只会制造口令框）；
@@ -64,7 +65,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 17
+%global airy_release 18
 # 桌面版本随冻结点滚动，写在 /etc/airymaxos/desktop-version，供控制中心
 # 「关于」页读取。控制中心自己不猜版本：缺文件即只显示桌面名。此宏与
 # lockfile/ukui-components.yaml 的 ukui-control-center 版本由
@@ -137,6 +138,7 @@ Source45:       audio_init.sh
 Source46:       airymaxos-deb.xml
 Source47:       airy-pkg-install.desktop
 Source48:       mimeapps.list
+Source49:       65-airymax-audio.sh
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -306,6 +308,8 @@ install -m 0755 %{SOURCE8} \
     %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/70-airymax-im.sh
 install -m 0755 %{SOURCE18} \
     %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/60-airymax-display.sh
+install -m 0755 %{SOURCE49} \
+    %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/65-airymax-audio.sh
 
 # 触控板驱动归属与按下语义：70-synaptics.conf 随 ukui-settings-daemon 的硬依赖
 # 进入闭包，且排在 40-libinput.conf 之后，会把每块触控板都交给不再维护的遗留
@@ -652,6 +656,7 @@ grep -qxF 'sleep-activation-enabled=false' "${airy_saver}"
 sh -n %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/70-airymax-im.sh
 sh -n %{buildroot}/usr/lib/airymaxos/desktop/display_mode.sh
 sh -n %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/60-airymax-display.sh
+sh -n %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/65-airymax-audio.sh
 # 触控板改派只有「先匹配 synaptics、再改派 libinput」同时成立才生效：少了
 # MatchDriver 会连带把 evdev 触控板一起夺走，少了 Driver 则文件毫无作用，
 # 两种错法都不会让构建失败，只在装机后表现为「触控板不能用」。逐行断言。
@@ -895,6 +900,7 @@ fi
 %config(noreplace) %{_sysconfdir}/skel/.config/ukui/panel.conf
 %config(noreplace) %{_sysconfdir}/X11/xinit/xinitrc.d/70-airymax-im.sh
 %config(noreplace) %{_sysconfdir}/X11/xinit/xinitrc.d/60-airymax-display.sh
+%config(noreplace) %{_sysconfdir}/X11/xinit/xinitrc.d/65-airymax-audio.sh
 %config(noreplace) %{_sysconfdir}/X11/xorg.conf.d/90-airymax-touchpad.conf
 %config(noreplace) %{_sysconfdir}/grub.d/01_airymax_display
 %config(noreplace) %{_sysconfdir}/xdg/autostart/airymax-input-method.desktop
@@ -943,6 +949,12 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Wed Nov 11 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-18
+- 在会话序列里先拉起 PulseAudio 并等套接字可连：本基线的 pulseaudio 没有
+  systemd 用户单元，只靠首个客户端 autospawn。285H 首启时面板早于该次拉起
+  启动音量小程序，pa_context 连接失败即解引用，7 秒内崩了 12 次。以不可达
+  PULSE_SERVER 可复现同一 SIGABRT；健康路径多做约 0.2 秒，无声卡时最多等
+  2 秒并打一行归因，登录流程不因音频不可用而阻塞
 * Tue Nov 10 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-17
 - 注册本地包的双击入口：/usr/share/mime/packages/airymaxos-deb.xml 声明
   .deb/.rpm 的 glob，/usr/share/applications/airy-pkg-install.desktop 提供
