@@ -103,12 +103,23 @@ airy_pre /tmp/airymax-disk.ks /tmp/airymax-disk.json
 # %posttrans 跑的是同一实现（构建期由 tools/ks_embed.py 展开，不复制）。
 # 判据是驱动声明的请求名，不写厂商目录，ARM/RISC-V 的无线同路径受益。
 #
+# 豁免台账同样嵌进来：生成器要知道哪些请求名属于本版硬件矩阵之外，否则
+# 一百多条 Wi-Fi 7 家族的名字会被打成一串 miss，真正要看的那两三条反而
+# 被淹掉。数据文件先落盘、脚本后展开，变量才有定义。
+#
+# %airy-embed: fw-exempt.txt
 # %airy-embed: fw-flat.sh
 fw_rc=0
 fw_flat_main apply /usr/lib/firmware --list /tmp/airymax-fw.list \
-    --modules "/usr/lib/modules/$(uname -r)" \
+    --modules "/usr/lib/modules/$(uname -r)" --exempt "${airy_fw_exempt}" \
     >/tmp/airymax-fw.log 2>&1 || fw_rc=$?
+# 逐条 exempt 行不进安装日志：本版不支持的器件每台机器都会命中上百条，
+# 打出来只会挤走真正要看的证据；汇总行的 exempt= 已说明规模，逐条原文
+# 留在目标机 /var/log/airymaxos/firmware-flat.log。
 while IFS= read -r fw_line; do
+    case "${fw_line}" in
+    'exempt name='*) continue ;;
+    esac
     airy_out "AIRYMAX-FW ${fw_line}"
 done </tmp/airymax-fw.log
 [ "${fw_rc}" -eq 0 ] || airy_out "AIRYMAX-FW-FAIL rc=${fw_rc}"

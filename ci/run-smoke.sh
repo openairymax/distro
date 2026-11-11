@@ -1397,14 +1397,17 @@ t26_fw_miss() { # t26_fw_miss <日志> — 打 flat=/miss= 与缺项原文，缺
     seg=$(sed -n '/^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z fw-flat apply$/,$p' \
         "${log}")
     [ -n "${seg}" ] || seg=$(cat "${log}")
+    # 整行留着：exempt= 是判据的一部分，它说明 miss=0 是「都补齐了」还是
+    # 「都落在本版硬件矩阵之外」。截成 flat=/miss= 两项会把这两种混成一条
+    # 证据，下一轮翻 TAP 的人看不出差别。
     line=$(printf '%s\n' "${seg}" |
-        sed -n 's/^\(flat=[0-9][0-9]* miss=[0-9][0-9]*\).*/\1/p' | tail -n 1)
+        sed -n '/^flat=[0-9][0-9]* miss=[0-9][0-9]*/p' | tail -n 1)
     [ -n "${line}" ] || {
         printf 'firmware-flat log has no flat= line: %s\n' "${log}"
         printf '%s\n' "${seg}" | sed -n 's/^\(fail=.*\)/\1/p'
         return 1
     }
-    miss=${line##*miss=}
+    miss=$(printf '%s\n' "${line}" | sed 's/^.* miss=\([0-9][0-9]*\).*/\1/')
     [ "${miss}" = 0 ] || {
         printf 'T26 FAIL %s log=%s\n' "${line}" "${log}"
         names=$(printf '%s\n' "${seg}" | sed -n 's/^\(miss name=.*\)/\1/p')

@@ -31,7 +31,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 3
+%global airy_release 4
 # 内核 ABI。抬基线时只改这里与内核配方的 %%(kernel_version) 两处，同源断言
 # 保证两者不会各自漂移（tools/tests/test_fw_contract.py 的 abi 用例）。
 %global kernel_abi 6.6.161
@@ -47,6 +47,11 @@ Source0:        fw-manifest.txt
 # 按驱动实际请求名补齐入口，两者是同一件事的声明面与执行面，分开装会让
 # 判定与修复各用一份口径。
 Source1:        fw-flat.sh
+# 豁免台账：驱动会请求、但本版硬件矩阵不支持的器件。生成器在补入口时读它，
+# 构建期预演（distro/ci/fw-preflight.sh）透传同一份文件。若只把它留在源码
+# 树里，装机期就没有「不支持」与「缺件」的分界，107 条 Wi-Fi 7 家族的请求名
+# 会被计成缺件——0.0.4 验收 run 42960420278 的 T26 就是这么红的。
+Source2:        fw-exempt.txt
 BuildArch:      noarch
 # 清单第一列的包逐条显式声明；集合对账在构建前的 spec 门禁里做，而不是在
 # 解析期读文件——解析期读源文件会让 spec-lint 与 rpmlint 在缺 _sourcedir
@@ -76,6 +81,9 @@ install -m 0644 %{SOURCE0} \
     %{buildroot}%{_datadir}/airymaxos/firmware/fw-manifest.txt
 install -d -m 0755 %{buildroot}%{_libexecdir}/airymaxos
 install -m 0755 %{SOURCE1} %{buildroot}%{_libexecdir}/airymaxos/fw-flat.sh
+# 豁免台账与生成器同目录层：%%posttrans 按固定路径读它，路径不随 release 漂移。
+install -m 0644 %{SOURCE2} \
+    %{buildroot}%{_datadir}/airymaxos/firmware/fw-exempt.txt
 # ABI 标记与 Provides 同源：装机后不必解包 rpm 就能读出「这台机器的固件
 # 闭包对应哪个内核」。fw-closure.sh --root 用它核对镜像与清单是否同代。
 printf '%s\n' '%{kernel_abi}' \
@@ -128,6 +136,27 @@ test "$(cat %{buildroot}%{_datadir}/airymaxos/firmware/kernel-abi)" = \
 flat='%{buildroot}%{_libexecdir}/airymaxos/fw-flat.sh'
 test -x "${flat}"
 sh -n "${flat}"
+# 豁免表是判据的分类依据，空格或半张表会让本版不支持的器件重新计成缺件。
+# 只验形：非空、每行数据行两段式、通配非空。行为用例在
+# tools/tests/test_fw_flat.py 的 exempt 组里跑。
+exempt='%{buildroot}%{_datadir}/airymaxos/firmware/fw-exempt.txt'
+test -s "${exempt}"
+exempt_rows=0
+while IFS= read -r line; do
+    case "${line}" in
+    ''|'#'*) continue ;;
+    esac
+    set -- ${line}
+    [ "$#" -ge 2 ] || {
+        echo "豁免行缺原因: ${line}" >&2
+        exit 1
+    }
+    exempt_rows=$(( exempt_rows + 1 ))
+done <"${exempt}"
+[ "${exempt_rows}" -gt 0 ] || {
+    echo "豁免表没有数据行" >&2
+    exit 1
+}
 
 %posttrans
 # 扁平入口。本内核（6.6.161-alk）的 iwlwifi 只按裸文件名取固件——
@@ -158,7 +187,8 @@ mkdir -p %{_localstatedir}/log/airymaxos
     printf '%s fw-flat apply\n' "$(date -u '+%%Y-%%m-%%dT%%H:%%M:%%SZ')"
     sh %{_libexecdir}/airymaxos/fw-flat.sh apply %{_prefix}/lib/firmware \
         --list %{_datadir}/airymaxos/firmware/firmware-flat.list \
-        --modules %{_prefix}/lib/modules
+        --modules %{_prefix}/lib/modules \
+        --exempt %{_datadir}/airymaxos/firmware/fw-exempt.txt
 } >>%{_localstatedir}/log/airymaxos/firmware-flat.log 2>&1 || :
 exit 0
 
@@ -166,6 +196,7 @@ exit 0
 %defattr(-, root, root, -)
 %dir %{_datadir}/airymaxos/firmware
 %{_datadir}/airymaxos/firmware/fw-manifest.txt
+%{_datadir}/airymaxos/firmware/fw-exempt.txt
 %{_datadir}/airymaxos/firmware/kernel-abi
 # 运行时生成：由 %%posttrans 按本机模块与实际固件树写出，不入包体。
 %ghost %{_datadir}/airymaxos/firmware/firmware-flat.list
@@ -176,6 +207,11 @@ exit 0
 %ghost %{_localstatedir}/log/airymaxos/firmware-flat.log
 
 %changelog
+* Wed Nov 11 2026 SPHARX <dev@spharx.com> - 0.0.4-4
+- firmware：豁免台账随包落盘，%%posttrans 的补链调用带 --exempt。构建期
+  预演早就按 distro/firmware/fw-exempt.txt 放行，装机期却没有这份表，把
+  107 条本版硬件矩阵之外的 Wi-Fi 7 请求名计成缺件，T26 于 run 42960420278
+  判负；补链实现与预演改为读同一份表、同一套判据
 * Mon Nov 09 2026 SPHARX <dev@spharx.com> - 0.0.4-3
 - firmware：%%posttrans 的自证行落盘 /var/log/airymaxos/firmware-flat.log。
   0.0.4-2 的验收（run 42527984078）里目标系统固件根没有扁平入口，但

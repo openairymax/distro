@@ -1820,6 +1820,22 @@ class RunSmokeTest(unittest.TestCase):
         self.assertTrue(self.tap(res, 26).startswith("ok"), res.stdout)
         self.assertIn("flat=1 miss=0", res.stdout)
 
+    def test_wifi_fw_exempt_evidence_kept(self):
+        # 豁免掉的请求名不是缺件，但判据必须把 exempt= 带进 TAP：只留
+        # flat=/miss= 时，「都补齐了」与「都落在本版硬件矩阵之外」在证据
+        # 上完全同形，下一轮无从分辨（run 42960420278 的 T26 就是在这种
+        # 形态下被读成缺件 107 条）。
+        self.tools()
+        self.write_wifi_firmware()
+        fwlog = (self.sysroot / "var" / "log" / "airymaxos"
+                 / "firmware-flat.log")
+        fwlog.write_text(
+            "2026-11-11T00:00:00Z fw-flat apply\n"
+            "flat=0 miss=0 exempt=107 list=/tmp/x\n", encoding="utf-8")
+        res = self.run_smoke()
+        self.assertTrue(self.tap(res, 26).startswith("ok"), res.stdout)
+        self.assertIn("flat=0 miss=0 exempt=107", res.stdout)
+
     def test_wifi_fw_miss_names_fail(self):
         # 驱动请求了、树里没有：补不齐的那部分必须让 T26 红，并打出名字。
         # 这类缺项 check 永远判绿——它复核的是清单与产物的关系，而清单里
