@@ -42,6 +42,7 @@ CHUNK = 1 << 16
 # primary.xml.zst，仍按 .gz 匹配会让每个根都取不到样本、全部记为 0 KiB/s，
 # 排序退回书写顺序——探测静默失效，日志里只看到「速率低于下限」。
 HREF = re.compile(r'href="([^"]*primary\.xml\.(?:gz|zst))"')
+USAGE = "usage: mirror_probe.py [--timeout S] [--floor KIB] ROOT..."
 
 
 def meta_of(root, timeout):
@@ -88,51 +89,76 @@ def rank(rows):
     return sorted(rows, key=lambda row: row[0], reverse=True)
 
 
-def main(argv):
-    timeout, floor, span, roots = 6.0, 256, SPAN, []
+class BadArg(Exception):
+    """用法错误：由 main 折成退出码 2，消息原样写 stderr。"""
+
+
+class BadHelp(Exception):
+    """请求帮助：打印用法并正常退出。"""
+
+
+def take_opt(argv, i):
+    """取一个带值选项 → (名字, 数值, 下一个下标)；缺值或非数字抛 BadArg。"""
+    name = argv[i]
+    if i + 1 >= len(argv):
+        raise BadArg("缺少参数值: %s" % name)
+    raw = argv[i + 1]
+    try:
+        value = float(raw) if name == "--timeout" else int(raw)
+    except ValueError:
+        raise BadArg("参数不是数字: %s" % name) from None
+    return name, value, i + 2
+
+
+def parse(argv):
+    """解析命令行 → ({选项名: 数值}, [根...])。"""
+    opts = {"--timeout": 6.0, "--floor": 256, "--span": SPAN}
+    roots = []
     i = 0
     while i < len(argv):
         arg = argv[i]
         if arg in ("-h", "--help"):
-            print(__doc__ or "usage: mirror_probe.py [--timeout S] [--floor KIB] ROOT...")
-            return 0
+            raise BadHelp()
         if arg in ("--timeout", "--floor", "--span"):
-            if i + 1 >= len(argv):
-                print("缺少参数值: %s" % arg, file=sys.stderr)
-                return 2
-            try:
-                value = float(argv[i + 1]) if arg == "--timeout" else int(argv[i + 1])
-            except ValueError:
-                print("参数不是数字: %s" % arg, file=sys.stderr)
-                return 2
-            if arg == "--timeout":
-                timeout = value
-            elif arg == "--floor":
-                floor = value
-            else:
-                span = value
-            i += 2
+            name, value, i = take_opt(argv, i)
+            opts[name] = value
             continue
         if arg.startswith("-"):
-            print("未知选项: %s" % arg, file=sys.stderr)
-            return 2
+            raise BadArg("未知选项: %s" % arg)
         roots.append(arg)
         i += 1
     if not roots:
-        print("至少需要一个镜像根", file=sys.stderr)
-        return 2
+        raise BadArg("至少需要一个镜像根")
+    return opts, roots
+
+
+def probe(roots, timeout, span):
+    """逐根取样，测速表写 stderr，返回待排序的 (速率, 根) 行。"""
     rows = []
     for root in roots:
         rate, got, why = sample(root, timeout, span)
         rows.append((rate, root))
         print("%6d KiB/s  %8d B  %s%s"
-              % (rate, got, root, "  (%s)" % why if why else ""), file=sys.stderr)
-    picked = rank(rows)
+              % (rate, got, root, "  (%s)" % why if why else ""),
+              file=sys.stderr)
+    return rows
+
+
+def main(argv):
+    try:
+        opts, roots = parse(argv)
+    except BadHelp:
+        print(__doc__ or USAGE)
+        return 0
+    except BadArg as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    picked = rank(probe(roots, opts["--timeout"], opts["--span"]))
     for _, root in picked:
         print(root)
-    if picked[0][0] < floor:
-        print("没有镜像根达到 %d KiB/s，按实测速率降序全部保留" % floor,
-              file=sys.stderr)
+    if picked[0][0] < opts["--floor"]:
+        print("没有镜像根达到 %d KiB/s，按实测速率降序全部保留"
+              % opts["--floor"], file=sys.stderr)
         return 3
     return 0
 
