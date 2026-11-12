@@ -64,35 +64,45 @@ airy_medium()
     esac
 }
 
-# airy_scan <skip> — 按容量降序打印候选整盘：<name> <bytes> <bus>。
+# lsblk_kv — 把 lsblk --pairs 输出规范成固定列。
 #
-# 只收 TYPE=disk、RM=0、TRAN≠usb 且非介质盘的整盘，取容量最大者。lsblk 的
+# 列序：NAME TYPE RM TRAN SIZE FSTYPE MOUNTPOINT，缺列即为空。lsblk 的
 # 位置参数输出在 TRAN 为空（virtio、loop）时会错位，导致容量落到总线列、
-# 容量列变空；--pairs 按键名取值，缺列即空，不受字段顺序影响。
-airy_scan()
+# 容量列变空；--pairs 按键名取值，缺列即空，不受字段顺序影响。字段拆分
+# 只在这里写一次，各判定按列取用，不再各抄一段解析循环。
+lsblk_kv()
 {
-    local skip="${1:-}"
-
-    lsblk -dnpo NAME,TYPE,RM,TRAN,SIZE --bytes --pairs 2>/dev/null |
-        awk -v skip="/dev/${skip}" '
+    awk '
         {
             split("", kv)
             for (i = 1; i <= NF; i++) {
                 eq = index($i, "=")
                 if (eq == 0)
                     continue
-                key = substr($i, 1, eq - 1)
                 val = substr($i, eq + 1)
                 gsub(/"/, "", val)
-                kv[key] = val
+                kv[substr($i, 1, eq - 1)] = val
             }
-            if (kv["TYPE"] != "disk" || kv["RM"] != "0" ||
-                kv["TRAN"] == "usb" || kv["SIZE"] + 0 <= 0 ||
-                kv["NAME"] == skip)
-                next
-            bus = kv["TRAN"] == "" ? "-" : kv["TRAN"]
-            print kv["NAME"], kv["SIZE"], bus
-        }' | sort -k2,2nr -k1,1
+            printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", kv["NAME"], kv["TYPE"],
+                kv["RM"], kv["TRAN"], kv["SIZE"], kv["FSTYPE"],
+                kv["MOUNTPOINT"]
+        }'
+}
+
+# airy_scan <skip> — 按容量降序打印候选整盘：<name> <bytes> <bus>。
+#
+# 只收 TYPE=disk、RM=0、TRAN≠usb 且非介质盘的整盘，取容量最大者。
+airy_scan()
+{
+    local skip="${1:-}"
+
+    lsblk -dnpo NAME,TYPE,RM,TRAN,SIZE --bytes --pairs 2>/dev/null |
+        lsblk_kv |
+        awk -F '\t' -v skip="/dev/${skip}" '
+        $2 != "disk" || $3 != "0" || $4 == "usb" || $5 + 0 <= 0 ||
+            $1 == skip { next }
+        { print $1, $5, ($4 == "" ? "-" : $4) }' |
+        sort -k2,2nr -k1,1
 }
 
 # airy_busy <disk> — 该整盘是否已被占用（有分区、有文件系统或已挂载）。
@@ -100,40 +110,20 @@ airy_scan()
 # 数据分区不得落在已被占用的盘上：双系统现场的第二块盘就是 Windows 的
 # NTFS 分区，清掉它等于毁掉用户既有系统。归属按盘名前缀还原（sda1、
 # nvme0n1p1），不认控制器与盘符，新设备只要 lsblk 报出父子关系就落在
-# 同一条判定里。
+# 同一条判定里。判定按 lsblk_kv 的列序取字段，与 airy_scan 共用同一份
+# 解析，两个判定不会因为各自抄一遍解析而漂移。
 airy_busy()
 {
     lsblk -npo NAME,TYPE,FSTYPE,MOUNTPOINT --pairs 2>/dev/null |
-        awk -v disk="/dev/$1" '
-        {
-            name = ""; type = ""; fs = ""; mount = ""
-            for (i = 1; i <= NF; i++) {
-                eq = index($i, "=")
-                if (eq == 0)
-                    continue
-                key = substr($i, 1, eq - 1)
-                val = substr($i, eq + 1)
-                gsub(/"/, "", val)
-                if (key == "NAME")
-                    name = val
-                else if (key == "TYPE")
-                    type = val
-                else if (key == "FSTYPE")
-                    fs = val
-                else if (key == "MOUNTPOINT")
-                    mount = val
-            }
-            if (name == disk) {
-                if (type == "disk" && fs != "")
-                    busy = 1
-                next
-            }
-            if (index(name, disk) != 1)
-                next
-            rest = substr(name, length(disk) + 1)
-            if (rest ~ /^p?[0-9]+$/ || mount != "")
+        lsblk_kv |
+        awk -F '\t' -v disk="/dev/$1" '
+        $1 == disk {
+            if ($2 == "disk" && $6 != "")
                 busy = 1
+            next
         }
+        index($1, disk) != 1 { next }
+        substr($1, length(disk) + 1) ~ /^p?[0-9]+$/ || $7 != "" { busy = 1 }
         END { exit(busy ? 0 : 1) }'
 }
 
