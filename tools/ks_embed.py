@@ -139,6 +139,56 @@ def expand(text: str, base: Path) -> str:
     return "".join(out)
 
 
+def seg_marks(lines: list[str], first: int, last: int) -> list[tuple[int, str]]:
+    """段内嵌入标记 → [(行号, 脚本名)]，行号从 1 起。"""
+    return [(num + 1, lines[num].strip()[len(MARK):].strip())
+            for num in range(first, last)
+            if lines[num].strip().startswith(MARK)]
+
+
+def stray_issues(lines: list[str],
+                 kinds: dict[int, str]) -> list[tuple[int, str]]:
+    """段外标记：anaconda 会当注释静默忽略，只有静态检查能发现。"""
+    return [(num + 1, "嵌入标记不在脚本段内")
+            for num, raw in enumerate(lines)
+            if raw.strip().startswith(MARK) and num not in kinds]
+
+
+def includes(lines: list[str]) -> list[str]:
+    """%include 的路径表，供 %pre 判据判断该段是否在生成存储片段。"""
+    out: list[str] = []
+    for row in lines:
+        word = row.split(None, 1)
+        if row.strip().startswith("%include ") and len(word) > 1:
+            out.append(word[1].strip())
+    return out
+
+
+def order_issues(kind: str, marks: list[tuple[int, str]]) -> list[tuple[int, str]]:
+    """先展开 install-lib.sh，再展开依赖它的脚本：顺序即语义。"""
+    names = [name for _, name in marks]
+    issues: list[tuple[int, str]] = []
+    for dep in USES_LIB:
+        if dep not in names:
+            continue
+        at = names.index(dep)
+        if PRELUDE not in names[:at]:
+            issues.append((marks[at][0], f"%{kind} 段展开 {dep} "
+                           "但此前未展开 install-lib.sh"))
+    return issues
+
+
+def pre_issues(lines: list[str], first: int, last: int,
+               names: list[str], incs: list[str]) -> list[tuple[int, str]]:
+    """%pre 生成存储片段却未嵌入选盘器：选盘规则分叉的形态。"""
+    joined = "\n".join(lines[first:last])
+    if not any(path in joined for path in incs):
+        return []
+    if "disk-select.sh" in names:
+        return []
+    return [(first + 1, "%pre 生成存储片段但未嵌入选盘器")]
+
+
 def audit(text: str) -> list[tuple[int, str]]:
     """静态检查嵌入标记，返回 (行号, 说明)。
 
@@ -148,32 +198,15 @@ def audit(text: str) -> list[tuple[int, str]]:
     """
     lines = text.splitlines()
     kinds = seg_kinds(lines)
-    issues: list[tuple[int, str]] = []
-    for num, raw in enumerate(lines):
-        if raw.strip().startswith(MARK) and num not in kinds:
-            issues.append((num + 1, "嵌入标记不在脚本段内"))
-    includes = [row.split(None, 1)[1].strip() for row in lines
-                if row.strip().startswith("%include ")
-                and len(row.split(None, 1)) > 1]
+    issues = stray_issues(lines, kinds)
+    incs = includes(lines)
     for kind, first, last in segments(lines):
-        marks = [(num + 1, lines[num].strip()[len(MARK):].strip())
-                 for num in range(first, last)
-                 if lines[num].strip().startswith(MARK)]
-        names = [name for _, name in marks]
-        for dep in USES_LIB:
-            if dep not in names:
-                continue
-            at = names.index(dep)
-            if PRELUDE not in names[:at]:
-                issues.append((marks[at][0], f"%{kind} 段展开 {dep} "
-                               "但此前未展开 install-lib.sh"))
-        if kind != "pre":
-            continue
-        joined = "\n".join(lines[first:last])
-        if not any(path in joined for path in includes):
-            continue
-        if "disk-select.sh" not in names:
-            issues.append((first + 1, "%pre 生成存储片段但未嵌入选盘器"))
+        marks = seg_marks(lines, first, last)
+        issues.extend(order_issues(kind, marks))
+        if kind == "pre":
+            issues.extend(
+                pre_issues(lines, first, last, [name for _, name in marks],
+                           incs))
     return sorted(issues)
 
 
