@@ -391,29 +391,45 @@ t5_wallpaper() {
 
 # T6: 内核归属（运行内核、/boot 三件套、配置与模块签名）
 t6_kernel_id() {
-    local rel f ko total=0 bad=0 taint sig tailhex
+    local rel
+
     rel="$(uname -r)"
-    # 发行版内核带 -alk 本地版本后缀，这是「跑的是不是自己的内核」最便宜的
-    # 判别。上游 openEuler 内核为 6.6.0-*.oe*，不会被误判为通过。
+    t6_rel "${rel}" || return 1
+    t6_boot "${rel}" || return 1
+    t6_sig "${rel}" || return 1
+    t6_taint
+}
+
+# 发行版内核带 -alk 本地版本后缀，这是「跑的是不是自己的内核」最便宜的
+# 判别。上游 openEuler 内核为 6.6.0-*.oe*，不会被误判为通过。
+t6_rel() {
+    local rel="$1"
+
     case "${rel}" in
-    *-alk) : ;;
-    *)
-        echo "uname -r: ${rel} (want *-alk)"
-        return 1
-        ;;
+    *-alk) return 0 ;;
     esac
-    for f in "${SYSROOT}/boot/vmlinuz-${rel}" "${SYSROOT}/boot/config-${rel}" \
+    echo "uname -r: ${rel} (want *-alk)"
+    return 1
+}
+
+# 三件套缺一不可：镜像里的内核与配置必须成对出现，配置里两处声明决定
+# 这个内核是不是产品内核，System.map 则证明符号表也跟着来了。
+t6_boot() {
+    local rel="$1" f
+    local cfg="${SYSROOT}/boot/config-${rel}"
+
+    for f in "${SYSROOT}/boot/vmlinuz-${rel}" "${cfg}" \
         "${SYSROOT}/boot/System.map-${rel}"; do
         [ -s "${f}" ] || {
             echo "${f} missing"
             return 1
         }
     done
-    grep -qx 'CONFIG_LOCALVERSION="-alk"' "${SYSROOT}/boot/config-${rel}" || {
+    grep -qx 'CONFIG_LOCALVERSION="-alk"' "${cfg}" || {
         echo "config-${rel}: LOCALVERSION mismatch"
         return 1
     }
-    grep -qx 'CONFIG_SECURITY_AIRY=y' "${SYSROOT}/boot/config-${rel}" || {
+    grep -qx 'CONFIG_SECURITY_AIRY=y' "${cfg}" || {
         echo "config-${rel}: CONFIG_SECURITY_AIRY not set"
         return 1
     }
@@ -421,14 +437,19 @@ t6_kernel_id() {
         echo "System.map-${rel}: start_kernel absent"
         return 1
     }
-    # 模块签名是追加在 .ko 尾部的 PKCS#7 + 12 字节 module_signature + 28
-    # 字节魔数，不是 ELF 段；0.0.3-6 及更早按 .module_sig 段判签，对真实模块
-    # 恒为假。全量比对尾部魔数：漏签的模块一被加载，内核就带上 8192
-    # （TAINT_UNSIGNED_MODULE），打开 SIG_FORCE 后则直接被拒载。
-    # 魔数按字节比对：命令替换会剥掉魔数之前的 NUL 填充并静默改判，
-    # 且每个未签模块都会往 TAP 诊断里刷一行 shell 警告。
-    # 魔数含结尾换行共 28 字节；按字节比对时不能丢那一字节，否则一次
-    # 换行差异就被判成漏签。
+}
+
+# 模块签名是追加在 .ko 尾部的 PKCS#7 + 12 字节 module_signature + 28
+# 字节魔数，不是 ELF 段；0.0.3-6 及更早按 .module_sig 段判签，对真实模块
+# 恒为假。全量比对尾部魔数：漏签的模块一被加载，内核就带上 8192
+# （TAINT_UNSIGNED_MODULE），打开 SIG_FORCE 后则直接被拒载。
+# 魔数按字节比对：命令替换会剥掉魔数之前的 NUL 填充并静默改判，
+# 且每个未签模块都会往 TAP 诊断里刷一行 shell 警告。
+# 魔数含结尾换行共 28 字节；按字节比对时不能丢那一字节，否则一次
+# 换行差异就被判成漏签。
+t6_sig() {
+    local rel="$1" ko total=0 bad=0 sig tailhex
+
     sig="$(printf '%s\n' '~Module signature appended~' | od -An -tx1 | tr -d ' \n')"
     while IFS= read -r -d '' ko; do
         total=$((total + 1))
@@ -447,6 +468,13 @@ t6_kernel_id() {
         echo "${bad}/${total} modules unsigned"
         return 1
     }
+}
+
+# 污点位 8192 只有「加载过未签名模块」会置起来，因此它是签名判据的旁证：
+# 模块文件齐签但位已置，说明这台机器上跑的内核被别处的模块污染过。
+t6_taint() {
+    local taint
+
     taint="$(cat "${SYSROOT}/proc/sys/kernel/tainted" 2>/dev/null)" || {
         echo "tainted unreadable: ${SYSROOT}/proc/sys/kernel/tainted"
         return 1
