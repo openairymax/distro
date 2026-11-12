@@ -98,22 +98,42 @@ def check_cands(dat, out):
     return cands
 
 
+def pick_day(text):
+    """日期原文；缺失或不可解析按最小日期算，必然落在任何合格线之外。"""
+    return day(text) or datetime.date.min
+
+
+def pick_ok(rec, dl):
+    """合格候选：大 SP，且 EOL 严格越过收口日。"""
+    return rec.get("kind") == "large" and pick_day(rec.get("eol", "")) > dl
+
+
+def pick_newest(cands, dl):
+    """合格候选里 GA 最晚的名字；一个合格候选都没有时为空串。"""
+    good = [n for n, r in cands.items() if pick_ok(r, dl)]
+    if not good:
+        return ""
+    return max(good, key=lambda n: pick_day(cands[n].get("ga", "")))
+
+
+def pick_own(sel, rec, dl, raw, out):
+    """选定项自身的判据：大 SP、EOL 覆盖收口日；raw 只用于回显原文。"""
+    if rec.get("kind") != "large":
+        bad(out, "base/small-sp", "%s 是小 SP" % sel)
+    if pick_day(rec.get("eol", "")) <= dl:
+        bad(out, "base/eol", "%s EOL %s 不覆盖 %s"
+            % (sel, rec.get("eol", ""), raw))
+
+
 def check_pick(sel, cands, deadline, out):
     """复算选型：大 SP、覆盖收口日、合格候选里 GA 最晚。"""
     rec = cands.get(sel)
     if rec is None:
         bad(out, "base/unknown", "%s 不在候选表" % sel)
         return
-    dl = day(deadline) or datetime.date.min
-    if rec.get("kind") != "large":
-        bad(out, "base/small-sp", "%s 是小 SP" % sel)
-    if (day(rec.get("eol", "")) or datetime.date.min) <= dl:
-        bad(out, "base/eol", "%s EOL %s 不覆盖 %s"
-            % (sel, rec.get("eol", ""), deadline))
-    good = [n for n, r in cands.items() if r.get("kind") == "large"
-            and (day(r.get("eol", "")) or datetime.date.min) > dl]
-    newest = max(good, key=lambda n: day(cands[n].get("ga", ""))
-                 or datetime.date.min) if good else ""
+    dl = pick_day(deadline)
+    pick_own(sel, rec, dl, deadline, out)
+    newest = pick_newest(cands, dl)
     if newest and sel != newest:
         bad(out, "base/not-newest", "%s 不是合格候选里 GA 最晚的 %s"
             % (sel, newest))
