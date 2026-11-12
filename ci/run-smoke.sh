@@ -731,48 +731,51 @@ t12_nopw() {
 # 不住任何人，只把「开机即桌面」变成「每五分钟输一次口令」。策略以 dconf
 # 系统库交付，键文件在位但未 dconf update 时不会生效，所以这里必须读实际
 # 键值，而不是看文件是否存在）
-t13_nopw_desk() {
-    local f="${SYSROOT}/etc/dconf/db/local.d/00-airymax-screensaver"
-    if [ -n "${SYSROOT}" ]; then
-        [ -f "${f}" ] || {
-            echo "${f} missing"
+#
+# 空闲激活与睡眠锁定是另外两个独立入口：285H 实测只关前两个键时，空闲 5
+# 分钟仍会拉起 ukui-screensaver-dialog 盖住桌面，合盖唤醒则停在锁屏问句。
+# 四个键必须在镜像上同时为 false，缺一即复发。键名只在此登记一次，离线与
+# 在线两条腿都从这里取，避免一处加键、另一处漏检。
+T13_KEYS=(idle-lock-enabled lock-enabled idle-activation-enabled \
+    sleep-activation-enabled)
+
+# t13_file <键文件> — 离线腿：镜像上的 dconf 键文件必须逐键为 false。
+t13_file() {
+    local f="$1" key
+    [ -f "${f}" ] || {
+        echo "${f} missing"
+        return 1
+    }
+    for key in "${T13_KEYS[@]}"; do
+        grep -qxF "${key}=false" "${f}" || {
+            echo "${key} not disabled in ${f}"
             return 1
         }
-        grep -qxF 'idle-lock-enabled=false' "${f}" || {
-            echo "idle-lock-enabled not disabled in ${f}"
-            return 1
-        }
-        grep -qxF 'lock-enabled=false' "${f}" || {
-            echo "lock-enabled not disabled in ${f}"
-            return 1
-        }
-        # 空闲激活与睡眠锁定是另外两个独立入口：285H 实测只关前两个键时，
-        # 空闲 5 分钟仍会拉起 ukui-screensaver-dialog 盖住桌面，合盖唤醒则
-        # 停在锁屏问句。四个键必须在镜像上同时为 false，缺一即复发。
-        grep -qxF 'idle-activation-enabled=false' "${f}" || {
-            echo "idle-activation-enabled not disabled in ${f}"
-            return 1
-        }
-        grep -qxF 'sleep-activation-enabled=false' "${f}" || {
-            echo "sleep-activation-enabled not disabled in ${f}"
-            return 1
-        }
-        echo "screensaver policy ok (offline check)"
-        return 0
-    fi
+    done
+}
+
+# t13_live — 在线腿：读运行中 dconf 的实际键值，再核对免密登录组。
+t13_live() {
+    local key
     need dconf || return $?
-    expect "$(dconf read /org/ukui/screensaver/lock-enabled 2>&1)" false \
-        "lock-enabled" || return 1
-    expect "$(dconf read /org/ukui/screensaver/idle-lock-enabled 2>&1)" false \
-        "idle-lock-enabled" || return 1
-    expect "$(dconf read /org/ukui/screensaver/idle-activation-enabled 2>&1)" false \
-        "idle-activation-enabled" || return 1
-    expect "$(dconf read /org/ukui/screensaver/sleep-activation-enabled 2>&1)" false \
-        "sleep-activation-enabled" || return 1
+    for key in "${T13_KEYS[@]}"; do
+        expect "$(dconf read "/org/ukui/screensaver/${key}" 2>&1)" false \
+            "${key}" || return 1
+    done
     id -nG amuser 2>/dev/null | tr ' ' '\n' | grep -qxF nopasswdlogin || {
         echo "amuser not in nopasswdlogin"
         return 1
     }
+}
+
+t13_nopw_desk() {
+    if [ -n "${SYSROOT}" ]; then
+        t13_file "${SYSROOT}/etc/dconf/db/local.d/00-airymax-screensaver" ||
+            return 1
+        echo "screensaver policy ok (offline check)"
+        return 0
+    fi
+    t13_live
 }
 
 # T14: 运行期软件源（安装期的仓库闭包写在 kickstart 里，装完之后 dnf 只认
