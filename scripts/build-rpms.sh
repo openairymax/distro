@@ -413,9 +413,65 @@ make_bundle()
     fi
 }
 
+# fill_bundle MAP TEXT —— 归档声明两列（目录 名字）进关联数组，键是名字。
+fill_bundle()
+{
+    local -n fb_map="$1"
+    local fb_dir fb_name
+
+    while read -r fb_dir fb_name; do
+        [ -n "$fb_name" ] || continue
+        # shellcheck disable=SC2034  # nameref 写入，shellcheck 不跟名字
+        fb_map["$fb_name"]="$fb_dir"
+    done <<< "$2"
+}
+
+# fill_map MAP TEXT —— 取件声明三列（名字 URL 摘要）进关联数组，值保留原文。
+fill_map()
+{
+    local -n fm_map="$1"
+    local fm_name fm_url fm_sum
+
+    while read -r fm_name fm_url fm_sum; do
+        [ -n "$fm_sum" ] || continue
+        # shellcheck disable=SC2034  # nameref 写入，shellcheck 不跟名字
+        fm_map["$fm_name"]="$fm_url $fm_sum"
+    done <<< "$2"
+}
+
+# stage_one NAME —— 按声明优先级取件：本地归档、源码 URL、二进制 RPM、源码树。
+# 三个映射与 base/spec 取自调用方的局部变量：它们由 stage_spec 构造，与这里
+# 的判据同源；另立一层参数只会多出一处需要同步改的地方。
+stage_one()
+{
+    local src="$1" name url sum file
+
+    name="$(basename "$src")"
+    if [ -n "${bundles[$name]:-}" ]; then
+        make_bundle "${bundles[$name]}" "$name"
+        return
+    fi
+    if [ -n "${urls[$name]:-}" ]; then
+        read -r url sum <<< "${urls[$name]}"
+        FETCHED+=("$sum $name")
+        fetch_src "$name" "$url" "$sum"
+        return
+    fi
+    if [ -n "${rpms[$name]:-}" ]; then
+        read -r url sum <<< "${rpms[$name]}"
+        FETCHED+=("$sum $name")
+        fetch_rpm "$name" "$url" "$sum"
+        return
+    fi
+    if ! file="$(find_src "$name" "$base" "${SRC_DIRS[@]}" "$DISTRO_ROOT")"; then
+        die "${E_IO}" "找不到 Source: $name（$spec），用 --src-dir 指定"
+    fi
+    stage_src "$file"
+}
+
 stage_spec()
 {
-    local spec="$1" base name file stem log cfg dir bname url sum
+    local spec="$1" base stem log cfg name
     local -A bundles=()
     local -A urls=()
     local -A rpms=()
@@ -429,41 +485,11 @@ stage_spec()
     if ! cfg="$(bundle_cfg "$spec" "$WORK/expanded/${stem}.spec")"; then
         die "${E_INVAL}" "源归档声明无效: $spec"
     fi
-    while read -r dir bname; do
-        [ -n "$bname" ] || continue
-        bundles["$bname"]="$dir"
-    done <<< "$cfg"
-    while read -r bname url sum; do
-        [ -n "$sum" ] || continue
-        urls["$bname"]="$url $sum"
-    done <<< "$(url_cfg "$spec")"
-    while read -r bname url sum; do
-        [ -n "$sum" ] || continue
-        rpms["$bname"]="$url $sum"
-    done <<< "$(rpm_cfg "$spec")"
+    fill_bundle bundles "$cfg"
+    fill_map urls "$(url_cfg "$spec")"
+    fill_map rpms "$(rpm_cfg "$spec")"
     while IFS= read -r name; do
-        name="$(basename "$name")"
-        if [ -n "${bundles[$name]:-}" ]; then
-            make_bundle "${bundles[$name]}" "$name"
-            continue
-        fi
-        if [ -n "${urls[$name]:-}" ]; then
-            read -r url sum <<< "${urls[$name]}"
-            FETCHED+=("$sum $name")
-            fetch_src "$name" "$url" "$sum"
-            continue
-        fi
-        if [ -n "${rpms[$name]:-}" ]; then
-            read -r url sum <<< "${rpms[$name]}"
-            FETCHED+=("$sum $name")
-            fetch_rpm "$name" "$url" "$sum"
-            continue
-        fi
-        if ! file="$(find_src "$name" "$base" "${SRC_DIRS[@]}" \
-            "$DISTRO_ROOT")"; then
-            die "${E_IO}" "找不到 Source: $name（$spec），用 --src-dir 指定"
-        fi
-        stage_src "$file"
+        stage_one "$name"
     done < <(source_names "$WORK/expanded/${stem}.spec")
 }
 
