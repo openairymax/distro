@@ -157,6 +157,8 @@ readonly -a CL_DNF_OPTS=(
 
 CL_SPECS=()
 CL_EXCL=()
+CL_EXCLS=()
+CL_EXCL_ARG=""
 CL_ARGS=()
 CL_XOPTS=()
 CL_BOOT=()
@@ -337,32 +339,43 @@ cl_scope()
     } | sort -u
 }
 
-cl_args()
+# cl_skip SPEC —— 该规格是否命中播种模式的跳过项（CLOSURE_SKIP，空格分隔）。
+cl_skip()
 {
-    local arch="$1" list spec glob keep scope
-    local -a excl=()
-    local -a scope_pkgs=()
-    # 引导链按架构点名（GRUB2.packages）：comps 刻意不列 grub2/shim 的二进制
-    # 包名——它们在 x86_64 与 aarch64 上不同名，写进组里必然有一侧落空。
-    # 但 anaconda 只在装机阶段隐式请求这几个包，不在任何 %packages 里；载荷
-    # 事务不含它们时，装机现场停在「缺少软件包 shim-x64、grub2-efi-x64」的
-    # 交互确认上，无人值守安装就此挂住，而 ISO 构建本身全绿。
-    cl_boot "$arch" || return 1
-    # 排除项之下的包不在事务里。显式点名的规格光靠 --exclude 不够：dnf 的
-    # exclude 过滤的是可选项，对点名要装的包仍报「Unable to find a match」，
-    # 正是播种机首次收割的失败行。因此先用 glob 把规格摘掉，再让排除项参与
-    # 求解，防止依赖把同一批包拉回来。
+    local spec="$1" glob
+    # shellcheck disable=SC2086  # 跳过项按空白切分，glob 由 case 展开
+    for glob in ${CLOSURE_SKIP:-}; do
+        case "$spec" in
+        $glob) return 0 ;;
+        esac
+    done
+    return 1
+}
+
+# cl_keep_specs —— 包规格表摘掉跳过项后进 CL_ARGS。
+#
+# 排除项之下的包不在事务里。显式点名的规格光靠 --exclude 不够：dnf 的
+# exclude 过滤的是可选项，对点名要装的包仍报「Unable to find a match」，
+# 正是播种机首次收割的失败行。因此先用 glob 把规格摘掉，再让排除项参与
+# 求解，防止依赖把同一批包拉回来。
+cl_keep_specs()
+{
+    local spec
+
     CL_ARGS=()
     for spec in "${CL_SPECS[@]}" "${CL_BOOT[@]}"; do
-        keep=1
-        # shellcheck disable=SC2086  # 跳过项按空白切分，glob 由 case 展开
-        for glob in ${CLOSURE_SKIP:-}; do
-            case "$spec" in
-            $glob) keep=0 ;;
-            esac
-        done
-        [ "$keep" -eq 1 ] && CL_ARGS+=("$spec")
+        cl_skip "$spec" && continue
+        CL_ARGS+=("$spec")
     done
+}
+
+# cl_excl —— 排除项汇总：结果进 CL_EXCLS（供固件作用域核验）与
+# CL_EXCL_ARG（合并后的单条 --exclude 参数，空表示无）。
+cl_excl()
+{
+    local spec glob list
+    local -a excl=()
+
     for spec in "${CL_EXCL[@]}"; do
         # 配方的 release 排除项是为了避免与自建的 airymaxos-release 争用
         # system-release；播种模式下自建包整体缺席，这条排除反而让 setup
@@ -381,41 +394,74 @@ cl_args()
     for glob in ${CLOSURE_SKIP:-}; do
         excl+=("$glob")
     done
+    CL_EXCLS=("${excl[@]}")
+    CL_EXCL_ARG=""
     list="$(IFS=,; printf '%s' "${excl[*]}")"
     if [ -n "$list" ]; then
-        CL_ARGS+=("--exclude=${list}")
+        CL_EXCL_ARG="--exclude=${list}"
     fi
-    # 固件作用域补齐（FW-02）。播种模式下自建包尚未产出，点名会直接无解，
-    # 故跳过项仍然生效；产品模式下则相反——作用域包必须留在事务里，被
-    # 排除项命中按契约违约处理，不静默放行。
+}
+
+# cl_veto SCOPE —— 作用域包是否被排除项裁掉；被裁即契约违约，返回 1。
+cl_veto()
+{
+    local scope="$1" glob
+
+    for glob in "${CL_EXCLS[@]}"; do
+        case "$scope" in
+        $glob)
+            printf 'closure: 固件作用域包 %s 被排除项 %s 裁掉\n' \
+                "$scope" "$glob" >&2
+            return 1
+            ;;
+        esac
+    done
+    return 0
+}
+
+# cl_have SPEC —— 规格是否已在 CL_ARGS 里（按词精确匹配）。
+cl_have()
+{
+    case " ${CL_ARGS[*]} " in
+    *" $1 "*) return 0 ;;
+    esac
+    return 1
+}
+
+# cl_scope_add —— 固件作用域补齐（FW-02）。播种模式下自建包尚未产出，点名
+# 会直接无解，故跳过项仍然生效；产品模式下则相反——作用域包必须留在事务
+# 里，被排除项命中按契约违约处理，不静默放行。
+cl_scope_add()
+{
+    local scope
+    local -a scope_pkgs=()
+
     mapfile -t scope_pkgs < <(cl_scope "${CL_FW}/fw-manifest.txt")
     if [ "${#scope_pkgs[@]}" -eq 0 ]; then
         printf 'closure: 读不到固件清单 %s\n' "${CL_FW}/fw-manifest.txt" >&2
         return 1
     fi
     for scope in "${scope_pkgs[@]}"; do
-        keep=1
-        # shellcheck disable=SC2086  # 跳过项按空白切分，glob 由 case 展开
-        for glob in ${CLOSURE_SKIP:-}; do
-            case "$scope" in
-            $glob) keep=0 ;;
-            esac
-        done
-        [ "$keep" -eq 1 ] || continue
-        for glob in "${excl[@]}"; do
-            case "$scope" in
-            $glob)
-                printf 'closure: 固件作用域包 %s 被排除项 %s 裁掉\n' \
-                    "$scope" "$glob" >&2
-                return 1
-                ;;
-            esac
-        done
-        case " ${CL_ARGS[*]} " in
-        *" $scope "*) ;;
-        *) CL_ARGS+=("$scope") ;;
-        esac
+        cl_skip "$scope" && continue
+        cl_veto "$scope" || return 1
+        cl_have "$scope" || CL_ARGS+=("$scope")
     done
+}
+
+cl_args()
+{
+    # 引导链按架构点名（GRUB2.packages）：comps 刻意不列 grub2/shim 的二进制
+    # 包名——它们在 x86_64 与 aarch64 上不同名，写进组里必然有一侧落空。
+    # 但 anaconda 只在装机阶段隐式请求这几个包，不在任何 %packages 里；载荷
+    # 事务不含它们时，装机现场停在「缺少软件包 shim-x64、grub2-efi-x64」的
+    # 交互确认上，无人值守安装就此挂住，而 ISO 构建本身全绿。
+    cl_boot "$1" || return 1
+    cl_keep_specs
+    cl_excl
+    if [ -n "${CL_EXCL_ARG}" ]; then
+        CL_ARGS+=("${CL_EXCL_ARG}")
+    fi
+    cl_scope_add
 }
 
 cl_arch()
