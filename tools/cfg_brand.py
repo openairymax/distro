@@ -358,6 +358,42 @@ def i_help(lines, product):
     return out, changes
 
 
+def is_label(line, name):
+    """该行是否为 label 名为 name 的菜单项。"""
+    hit = LABEL_RE.match(line)
+    return bool(hit) and hit.group(1) == name
+
+
+def label_row(lines, name):
+    """label 名为 name 的行号；配方里缺该行时由 next 抛 StopIteration。"""
+    return next(pos for pos, line in enumerate(lines) if is_label(line, name))
+
+
+def mark_split(lines, blk):
+    """menu default 标记的行号，按块内与块外分两组返回。
+
+    块为 (起始行, 结束行, label 名)，两端都不含：起始行是 label 行，
+    结束行属于下一个菜单项。两组的用途不同——块内决定「缺省项已经对
+    了」，块外是底座把标记放错位置、必须删掉的那些。
+    """
+    lo, hi = blk[0], blk[1]
+    inside, stray = [], []
+    for pos, line in enumerate(lines):
+        if not MDEF_RE.match(line):
+            continue
+        if lo < pos < hi:
+            inside.append(pos)
+        else:
+            stray.append(pos)
+    return inside, stray
+
+
+def drop_rows(lines, rows):
+    """按行号删除，其余行原样保留。"""
+    gone = set(rows)
+    return [line for pos, line in enumerate(lines) if pos not in gone]
+
+
 def i_defmark(lines, blk):
     """把 menu default 标记挪到安装项块；无变化返回 (lines, None)。
 
@@ -366,20 +402,19 @@ def i_defmark(lines, blk):
     把该标记放在 check 上，BIOS 缺省就停在 "Test this media & install"：
     装机前先把整份 3.7 GB 介质校验一遍，CD-ROM 腿上这一遍把装机推到
     小时级。缺省项必须是含 inst.ks 且不含 rd.live.check 的安装项。
+
+    底座只在块外放了标记、块内还没加，这时不能早返回：先删块外的，再
+    往块内插一行，两件事都做完才算合规。
     """
     name = blk[2]
-    inside = any(MDEF_RE.match(lines[pos])
-                 for pos in range(blk[0] + 1, blk[1]))
-    stray = [pos for pos, line in enumerate(lines)
-             if MDEF_RE.match(line) and not blk[0] < pos < blk[1]]
+    inside, stray = mark_split(lines, blk)
     if inside and not stray:
         return lines, None
-    out = [line for pos, line in enumerate(lines) if pos not in stray]
-    if not inside:
-        idx = next(pos for pos, line in enumerate(out)
-                   if LABEL_RE.match(line)
-                   and LABEL_RE.match(line).group(1) == name)
-        out.insert(idx + 1, "  menu default" + eol(out[idx]))
+    out = drop_rows(lines, stray)
+    if inside:
+        return out, f"{name} (menu default)"
+    idx = label_row(out, name)
+    out.insert(idx + 1, "  menu default" + eol(out[idx]))
     return out, f"{name} (menu default)"
 
 
