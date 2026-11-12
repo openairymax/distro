@@ -316,42 +316,71 @@ rpm2cpio=$(command -v "${FP_RPM2CPIO}" || echo none)"
 fp_main()
 {
     fp_parse "$@"
+    fp_flat
+    fp_fw_fill
+    fp_mod_fill
+    fp_apply
+}
+
+# 补齐脚本是判据本体：预演与装机期 %posttrans 读同一份实现。缺了它只能
+# 报 no-flat，不在这里另判一套。
+fp_flat()
+{
     fp_conf=$(dirname "$0")/../firmware/fw-flat.sh
     if [ ! -r "${fp_conf}" ]; then
         printf 'AIRYMAX-FW-PREFLIGHT arch=%s fail=no-flat\n' "${fp_arch}"
         exit "${FP_FAIL}"
     fi
+}
+
+# 固件包清单：三条失败理由分开报（取不出 RPM / 包里没有固件），现场据此
+# 判断是仓库缺包还是包本身是空的。
+fp_fw_fill()
+{
+    [ -n "${fp_fwrpm}" ] || return 0
+    fp_fw="${fp_tmp}/firmware.list"
     fp_rc=0
-    if [ -n "${fp_fwrpm}" ]; then
-        fp_fw="${fp_tmp}/firmware.list"
-        fp_fw_list "${fp_fwrpm}" "${fp_fw}" || fp_rc=$?
-        if [ "${fp_rc}" -ne 0 ]; then
-            case "${fp_rc}" in
-            3) fp_rc=no-rpm ;;
-            *) fp_rc=no-firmware ;;
-            esac
-            printf 'AIRYMAX-FW-PREFLIGHT arch=%s fail=%s rpm=%s\n' \
-                "${fp_arch}" "${fp_rc}" "${fp_fwrpm}"
-            exit "${FP_FAIL}"
-        fi
+    fp_fw_list "${fp_fwrpm}" "${fp_fw}" || fp_rc=$?
+    if [ "${fp_rc}" -eq 0 ]; then
+        return 0
     fi
-    if [ -n "${fp_modrpm}" ]; then
-        fp_mod_tree "${fp_modrpm}" "${fp_tmp}/mods" || fp_rc=$?
-        if [ "${fp_rc}" -ne 0 ]; then
-            case "${fp_rc}" in
-            3) fp_rc=no-rpm2cpio ;;
-            4) fp_rc=no-cpio ;;
-            5) fp_rc=no-modroot ;;
-            6) fp_rc=no-modfiles ;;
-            7) fp_rc=no-find ;;
-            *) fp_rc=no-modules ;;
-            esac
-            printf 'AIRYMAX-FW-PREFLIGHT arch=%s fail=%s rpm=%s\n' \
-                "${fp_arch}" "${fp_rc}" "${fp_modrpm}"
-            exit "${FP_FAIL}"
-        fi
+    case "${fp_rc}" in
+    3) fp_rc=no-rpm ;;
+    *) fp_rc=no-firmware ;;
+    esac
+    printf 'AIRYMAX-FW-PREFLIGHT arch=%s fail=%s rpm=%s\n' \
+        "${fp_arch}" "${fp_rc}" "${fp_fwrpm}"
+    exit "${FP_FAIL}"
+}
+
+# 模块包先在临时目录就地解开再取树：装机时的模块树来自同一个包，预演读
+# 的必须也是包里的内容，而不是本机已经装好的那一份。
+fp_mod_fill()
+{
+    [ -n "${fp_modrpm}" ] || return 0
+    fp_rc=0
+    fp_mod_tree "${fp_modrpm}" "${fp_tmp}/mods" || fp_rc=$?
+    if [ "${fp_rc}" -eq 0 ]; then
         fp_mods="${fp_tmp}/mods/usr/lib/modules"
+        return 0
     fi
+    case "${fp_rc}" in
+    3) fp_rc=no-rpm2cpio ;;
+    4) fp_rc=no-cpio ;;
+    5) fp_rc=no-modroot ;;
+    6) fp_rc=no-modfiles ;;
+    7) fp_rc=no-find ;;
+    *) fp_rc=no-modules ;;
+    esac
+    printf 'AIRYMAX-FW-PREFLIGHT arch=%s fail=%s rpm=%s\n' \
+        "${fp_arch}" "${fp_rc}" "${fp_modrpm}"
+    exit "${FP_FAIL}"
+}
+
+# 骨架建不起来时把名字数与坏条目一起打出来：失败是「名单有问题」还是
+# 「磁盘写不下」，这两行就能分开。最后一步交给补齐实现，预演不重判。
+fp_apply()
+{
     if ! fp_tree "${fp_fw}" "${fp_tmp}/root"; then
         printf 'AIRYMAX-FW-PREFLIGHT arch=%s fail=no-tree names=%s bad=%s firmware=%s\n' \
             "${fp_arch}" "${ft_names:-0}" "${ft_bad:-0}" "${fp_fw}"
