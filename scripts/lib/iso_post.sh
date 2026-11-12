@@ -299,22 +299,23 @@ iso_post_md5()
     return 0
 }
 
-# iso_post <iso> <ks> <volid> <work> [--no-md5] [--product NAME]
-iso_post()
+# iso_post_opts [--no-md5] [--product NAME]
+# 选项解析到 ISO_POST_MD5 / ISO_POST_PRODUCT；未知选项与缺参在此报错。
+iso_post_opts()
 {
-    local iso="$1" ks="$2" volid="$3" work="$4"
-    shift 4
-    local opt got md5=1 product="" rc=0
+    local opt
+    ISO_POST_MD5=1
+    ISO_POST_PRODUCT=""
     while [ $# -gt 0 ]; do
         opt="$1"
         case "${opt}" in
-        --no-md5) md5=0; shift ;;
+        --no-md5) ISO_POST_MD5=0; shift ;;
         --product)
             if [ $# -lt 2 ]; then
                 iso_post_log "--product 缺少参数"
                 return 1
             fi
-            product="$2"
+            ISO_POST_PRODUCT="$2"
             shift 2
             ;;
         '') shift ;;
@@ -324,26 +325,51 @@ iso_post()
             ;;
         esac
     done
-    mkdir -p "${work}/logs" "${work}/post"
-    got="$(iso_volid "${iso}")" || {
-        iso_post_log "无法读取卷标: ${iso}"
+}
+
+# iso_post_id <iso> <volid>
+# 卷标在打包后必须与调用方声明的一致：写错的卷标会让现场按标签找介质失败。
+iso_post_id()
+{
+    local got
+    got="$(iso_volid "$1")" || {
+        iso_post_log "无法读取卷标: $1"
         return 1
     }
-    if [ "${got}" != "${volid}" ]; then
-        iso_post_log "卷标不符：期望 ${volid}，实际 ${got}"
+    if [ "${got}" != "$2" ]; then
+        iso_post_log "卷标不符：期望 $2，实际 ${got}"
         return 1
     fi
+}
+
+# iso_post_brand <iso> <work>
+# 品牌化可跳过（77）：底座不含品牌位时不阻断发布。
+iso_post_brand()
+{
+    local rc=0
+    iso_cfg_brand "$1" "$ISO_POST_PRODUCT" "$2" || rc=$?
+    if [ "${rc}" -ne 0 ] && [ "${rc}" -ne 77 ]; then
+        return 1
+    fi
+    return 0
+}
+
+# iso_post <iso> <ks> <volid> <work> [--no-md5] [--product NAME]
+iso_post()
+{
+    local iso="$1" ks="$2" volid="$3" work="$4"
+    shift 4
+    iso_post_opts "$@" || return 1
+    mkdir -p "${work}/logs" "${work}/post"
+    iso_post_id "${iso}" "${volid}" || return 1
     iso_post_ks "${iso}" "${ks}" "${work}" || return 1
     iso_post_cfg "${iso}" "${volid}" "${work}" || return 1
-    if [ -n "${product}" ]; then
-        iso_cfg_brand "${iso}" "${product}" "${work}" || rc=$?
-        if [ "${rc}" -ne 0 ] && [ "${rc}" -ne 77 ]; then
-            return 1
-        fi
+    if [ -n "${ISO_POST_PRODUCT}" ]; then
+        iso_post_brand "${iso}" "${work}" || return 1
     fi
     iso_post_fix "${iso}" "${work}" || return 1
     iso_post_hybrid "${iso}" "${work}" || return 1
-    if [ "${md5}" -eq 1 ]; then
+    if [ "${ISO_POST_MD5}" -eq 1 ]; then
         iso_post_md5 "${iso}" "${work}" || return 1
     fi
     return 0
