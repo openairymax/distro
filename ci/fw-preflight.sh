@@ -240,38 +240,59 @@ fp_mod_diag()
 fp_mod_tree()
 {
     install -d "$2" || return 1
+    fp_mod_tools || return $?
+    fp_mod_extract "$1" "$2" || return 1
+    [ -d "$2/usr/lib/modules" ] || return 5
+    fm_files=$(find "$2/usr/lib/modules" -type f 2>/dev/null | wc -l)
+    [ "${fm_files}" -eq 0 ] || return 0
+    fp_mod_empty "$1" "$2"
+    return 6
+}
+
+# fp_mod_tools —— 解包所需的三个工具都在：rpm2cpio(3)、cpio(4)、find(7)。
+#
+# find 缺席时上面的计数会读成 0 个文件，看起来就像「包里只有目录」。工具缺
+# 与包缺必须各有名字，否则每轮都得从头猜一遍。
+fp_mod_tools()
+{
     command -v "${FP_RPM2CPIO}" >/dev/null 2>&1 || return 3
     command -v "${FP_CPIO}" >/dev/null 2>&1 || return 4
-    # find 缺席时下面的计数会读成 0 个文件，看起来就像「包里只有目录」。
-    # 工具缺与包缺必须各有名字，否则每轮都得从头猜一遍。
     command -v find >/dev/null 2>&1 || {
         fp_mod_diag "no-find path=${PATH}"
         return 7
     }
+}
+
+# fp_mod_extract RPM OUT —— rpm2cpio | cpio 直接解到 OUT，失败时留下证据。
+#
+# 管道放进 if 条件里：set -e 下普通管道失败会直接终止脚本，下面的 fm_rc=$?
+# 永远拿不到非零值，cpio 的错误原文也随 stderr 重定向一起丢掉。这就是
+# run 42790132617 只留下一个分类名的原因之一。
+fp_mod_extract()
+{
     fm_err="$2.err"
-    # 管道放进 if 条件里：set -e 下普通管道失败会直接终止脚本，下面的
-    # fm_rc=$? 永远拿不到非零值，cpio 的错误原文也随 stderr 重定向一起丢掉。
-    # 这就是 run 42790132617 只留下一个分类名的原因之一。
     if "${FP_RPM2CPIO}" "$1" 2>"${fm_err}.rpm" |
         (cd "$2" && "${FP_CPIO}" -idm --quiet 2>"${fm_err}.cpio")
     then
-        fm_rc=0
+        return 0
     else
         fm_rc=$?
-        fp_mod_diag "extract rc=${fm_rc} cpio=$("${FP_CPIO}" --version 2>&1 |
-            sed -n '1p')"
-        fp_mod_diag "rpm2cpio-err=$(sed -n '1,2p' "${fm_err}.rpm" 2>/dev/null |
-            tr '\n' ' ')"
-        fp_mod_diag "cpio-err=$(sed -n '1,2p' "${fm_err}.cpio" 2>/dev/null |
-            tr '\n' ' ')"
-        return 1
     fi
-    [ -d "$2/usr/lib/modules" ] || return 5
-    fm_files=$(find "$2/usr/lib/modules" -type f 2>/dev/null | wc -l)
-    [ "${fm_files}" -eq 0 ] || return 0
-    # 目录建起来了、文件却一个都没有：包自己怎么说、树里剩下什么、哪件工具
-    # 不在，三样一起留下。此前只报 no-modfiles，包空、工具缺、还是 find
-    # 不在，读日志的人无从分辨（run 42790132617 四架构同形）。
+    fp_mod_diag "extract rc=${fm_rc} cpio=$("${FP_CPIO}" --version 2>&1 |
+        sed -n '1p')"
+    fp_mod_diag "rpm2cpio-err=$(sed -n '1,2p' "${fm_err}.rpm" 2>/dev/null |
+        tr '\n' ' ')"
+    fp_mod_diag "cpio-err=$(sed -n '1,2p' "${fm_err}.cpio" 2>/dev/null |
+        tr '\n' ' ')"
+    return 1
+}
+
+# fp_mod_empty RPM OUT —— 目录建起来了、文件却一个都没有：包自己怎么说、
+# 树里剩下什么、哪件工具不在，三样一起留下。此前只报 no-modfiles，包空、
+# 工具缺、还是 find 不在，读日志的人无从分辨（run 42790132617 四架构同形）。
+fp_mod_empty()
+{
+    fm_err="$2.err"
     fp_mod_diag "no-files files=${fm_files} dirs=$(find "$2/usr/lib/modules" \
         -type d 2>/dev/null | wc -l) top=$(find "$2/usr/lib/modules" \
         -mindepth 1 2>/dev/null | sed -n '1p;2p;3p' | tr '\n' ' ')"
@@ -288,7 +309,6 @@ rpm2cpio=$(command -v "${FP_RPM2CPIO}" || echo none)"
         fp_mod_diag "rpm=${fm_id} files=${fm_n}"
     fi
     rm -f "${fm_err}.rpm" "${fm_err}.cpio"
-    return 6
 }
 
 # fp_main —— 建骨架、跑补齐、按计数判定。骨架在临时目录里，退出即删：
