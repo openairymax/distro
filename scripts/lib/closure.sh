@@ -537,7 +537,7 @@ cl_watch()
     local work="$1" pid="$2" t0="$3"
     local dl="${work}/dl" cache="${work}/root/var/cache/dnf"
     local next=0 el n=0 s=0 mark prev="" quiet=0
-    local sbase=0 tbase=0 rate=0 floor bmark=0 bt=0 phase
+    local sbase=0 tbase=0 rate=0 floor bmark=0 bt=0
     floor=$(( CL_FLOOR / 1024 ))
     while kill -0 "$pid" 2>/dev/null; do
         sleep 1
@@ -545,28 +545,15 @@ cl_watch()
         mark="$(cl_bytes "$dl" "$cache")"
         if [ "$el" -ge "$next" ]; then
             read -r n s <<<"$(cl_dlstat "$dl")"
-            # 求解阶段没有包落盘，速率必然是 0；把阶段写出来，免得把求解
-            # 等待读成链路卡死（B50 实测心跳全是 rate=0KiB/s，实际 6MB/s，
-            # 因为速率只在窗口采样时才更新，心跳一直打印初值）。
-            phase="求解中"
-            if [ "$n" -gt 0 ]; then
-                phase="下载中"
-            fi
-            if [ "$bt" -gt 0 ] && [ "$el" -gt "$bt" ]; then
-                rate=$(( (mark - bmark) / 1024 / (el - bt) ))
-            fi
+            rate="$(cl_rate "$el" "$mark" "$bt" "$bmark" "$rate")"
             printf 'closure: %s files=%s size=%sMiB elapsed=%ss rate=%sKiB/s\n' \
-                "$phase" "$n" "$s" "$el" "$rate"
+                "$(cl_phase "$n")" "$n" "$s" "$el" "$rate"
             bmark=$mark
             bt=$el
             next=$(( el + CL_BEAT ))
         fi
-        if [ "$mark" = "$prev" ]; then
-            quiet=$(( quiet + 1 ))
-        else
-            prev="$mark"
-            quiet=0
-        fi
+        quiet="$(cl_quiet "$mark" "$prev" "$quiet")"
+        prev="$mark"
         if [ "$tbase" -eq 0 ] && [ "$el" -ge "$CL_WARM" ]; then
             tbase=$el
             sbase=$mark
@@ -592,6 +579,40 @@ cl_watch()
         return 0
     done
     return 0
+}
+
+# 心跳窗口速率：上一拍至今的 KiB/s。基点未立时沿用旧值，因此首次心跳打印
+# 的是初值而非实测；速率只在窗口采样时刷新，阶段字段才是此刻的真相。
+cl_rate()
+{
+    local el="$1" mark="$2" bt="$3" bmark="$4" rate="$5"
+
+    if [ "$bt" -gt 0 ] && [ "$el" -gt "$bt" ]; then
+        printf '%s' "$(( (mark - bmark) / 1024 / (el - bt) ))"
+        return 0
+    fi
+    printf '%s' "$rate"
+}
+
+# 求解阶段没有包落盘，速率必然是 0；把阶段写出来，免得把求解等待读成
+# 链路卡死（B50 实测心跳全是 rate=0KiB/s，实际 6MB/s）。
+cl_phase()
+{
+    if [ "$1" -gt 0 ]; then
+        printf '%s' '下载中'
+        return 0
+    fi
+    printf '%s' '求解中'
+}
+
+# 静默秒数：落盘量未变即累加，一变即清零。
+cl_quiet()
+{
+    if [ "$1" = "$2" ]; then
+        printf '%s' "$(( $3 + 1 ))"
+        return 0
+    fi
+    printf '%s' 0
 }
 
 # 确定性故障——非 root 跑 dnf --installroot、本地仓库缺 repodata——在数秒内
