@@ -82,7 +82,7 @@
 # spec-lint: source-bundle ../../system/services/airypkg
 
 %global airy_version 0.0.4
-%global airy_release 53
+%global airy_release 54
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -603,6 +603,14 @@ fi
 %{python3_sitelib}/airypkg
 
 %changelog
+* Thu Nov 12 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-54
+- 给 oneshot 单元补上启动超时，并让卡点报告自带最后一句日志。
+  agentrt-config 与 airy-incident@ 此前没有 TimeoutStartSec，按 systemd
+  对 oneshot 的缺省即 infinity，ExecStart 一阻塞启动事务就无界等待，
+  屏幕停在最后一行且无从归因；现分别给 30s/15s 与 20s/10s，并由
+  units_lint 强制每个 oneshot 显式声明正整数超时，新单元无法再留同一个洞。
+  boot_watch 的卡点报告追加 journal 末尾 8 行（journalctl 限时 5s，读不到
+  即跳过），卡住时不必登录即可看到阻塞单元写下的最后一句
 * Tue Nov 10 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-53
 - 补齐 ukui 服务声明与二进制落点之间的差。ukui-interface 的 12 个
   cn.kylinos.* D-Bus 服务文件写 Exec=/usr/libexec/ukui-*server，同一批 RPM
