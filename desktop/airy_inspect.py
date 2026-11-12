@@ -184,31 +184,48 @@ def mods(root, rel):
     return sum(1 for line in body.splitlines() if line.strip())
 
 
-def kernel(root, live):
-    """airy-kernel：身份、镜像、归属、自有配置与符号。"""
-    rep = Report(MARKS["airy-kernel"])
-    rel = krel(root, live)
-    ver = kver(root, live)
-    rep.put("kernel.release", rel)
-    rep.put("kernel.version", ver)
-    rep.put("kernel.machine", os.uname().machine if live else None)
-    rep.put("kernel.build", first_of(txt(root / "proc/version")))
-    rep.put("kernel.cmdline", (txt(root / "proc/cmdline") or "").strip())
+def kimg(rep, root, rel, live):
+    """内核镜像：路径、字节、摘要与归属；缺 release 或缺文件时四项一并留空。
+
+    四项同生同灭：镜像读不到时，单独给出路径或零字节都会让现场误以为
+    「镜像在但摘要取不到」，故由一个出口统一写成 absent。
+    """
     img = root / ("boot/vmlinuz-%s" % rel) if rel else None
-    if img is not None and img.is_file():
-        rep.put("image.path", img)
-        rep.put("image.bytes", img.stat().st_size)
-        rep.put("image.sha256", sha_of(img))
-        rep.put("image.owner", rpm_f(img) if live else None)
-    else:
+    if img is None or not img.is_file():
         for key in ("image.path", "image.bytes", "image.sha256", "image.owner"):
             rep.put(key, None)
+        return
+    rep.put("image.path", img)
+    rep.put("image.bytes", img.stat().st_size)
+    rep.put("image.sha256", sha_of(img))
+    rep.put("image.owner", rpm_f(img) if live else None)
+
+
+def kboot(rep, root, rel):
+    """启动产物与自有配置：System.map、config 路径、逐项 CONFIG。
+
+    配置项逐项打印而不是打整张表：现场核对的是「Airymax 那七项是否都在」，
+    缺哪一项要能直接看出，而不是在一千行里找。
+    """
     smap = root / ("boot/System.map-%s" % rel) if rel else None
     rep.put("map.path", smap if smap is not None and smap.is_file() else None)
     path, cfg = cfg_map(root, rel)
     rep.put("config.path", path if cfg else None)
     for sym in AIRY_CFG:
         rep.put("config." + sym[len("CONFIG_"):].lower(), cfg.get(sym))
+
+
+def kernel(root, live):
+    """airy-kernel：身份、镜像、归属、自有配置与符号。"""
+    rep = Report(MARKS["airy-kernel"])
+    rel = krel(root, live)
+    rep.put("kernel.release", rel)
+    rep.put("kernel.version", kver(root, live))
+    rep.put("kernel.machine", os.uname().machine if live else None)
+    rep.put("kernel.build", first_of(txt(root / "proc/version")))
+    rep.put("kernel.cmdline", (txt(root / "proc/cmdline") or "").strip())
+    kimg(rep, root, rel, live)
+    kboot(rep, root, rel)
     rep.put("ksym.airy", ksym(root))
     rep.put("module.count", mods(root, rel))
     return 0
