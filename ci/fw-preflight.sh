@@ -68,31 +68,27 @@ fp_one()
     return 1
 }
 
-# 解析参数。--arch 必填，两对取件形式各恰好给一个：缺一个就无法构成判据，
-# 按用法错误退 2，不拿缺省值猜，否则固件缺失会被读成「没有固件请求」而假绿。
-#
-# 可重复的选项（--firmware-rpm）先落到临时目录里的清单文件，再以文件是否
-# 存在判断「给没给」：POSIX sh 没有数组，用字符串拼接会在路径含空白时断词，
-# 而这份清单每行恰好一个值，读回来还能保持原样。
-fp_parse()
+# 用法错误一律退 2：参数拼错与固件缺失必须分得开，现场才不会把一次
+# 敲错的命令当成镜像有问题。
+fp_bad()
 {
-    fp_fw=
-    fp_mods=
-    fp_modrpm=
-    fp_arch=
-    fp_reqs=
-    fp_exempts=
-    fp_tmp=$(mktemp -d) || exit "${FP_FAIL}"
-    trap 'rm -rf "${fp_tmp}"' EXIT INT TERM
-    : >"${fp_tmp}/fwrpm.list"
+    fp_usage >&2
+    exit "${FP_USE}"
+}
+
+# 逐项取值循环。可重复的选项（--firmware-rpm）按出现顺序落进临时目录的
+# 清单文件：POSIX sh 没有数组，字符串拼接会在路径含空白时断词，而每行
+# 一个值读回来还能保持原样。
+fp_scan()
+{
     while [ "$#" -gt 0 ]; do
         case "$1" in
         -h | --help) fp_usage; exit 0 ;;
         --firmware | --firmware-rpm | --modules | --modules-rpm | \
             --arch | --requests | --exempt) ;;
-        *) fp_usage >&2; exit "${FP_USE}" ;;
+        *) fp_bad ;;
         esac
-        [ "$#" -ge 2 ] || { fp_usage >&2; exit "${FP_USE}"; }
+        [ "$#" -ge 2 ] || fp_bad
         case "$1" in
         --firmware) fp_fw=$2 ;;
         --firmware-rpm) printf '%s\n' "$2" >>"${fp_tmp}/fwrpm.list" ;;
@@ -104,17 +100,40 @@ fp_parse()
         esac
         shift 2
     done
+}
+
+# --arch 必填，两对取件形式各恰好给一个：缺一个就无法构成判据，不拿缺省值
+# 猜，否则固件缺失会被读成「没有固件请求」而假绿。
+fp_pick()
+{
+    [ -n "${fp_arch}" ] || return 1
+    fp_one "${fp_fw}" "${fp_fwrpm}" || return 1
+    fp_one "${fp_mods}" "${fp_modrpm}"
+}
+
+# 豁免表可选，但给了就必须可读：读不到时静默跳过等于把「按表放行」变成
+# 「照单全报」，与装机期 %posttrans 用的那份判据不再等价。
+fp_exempt()
+{
+    [ -z "$1" ] || [ -r "$1" ]
+}
+
+fp_parse()
+{
+    fp_fw=
+    fp_mods=
+    fp_modrpm=
+    fp_arch=
+    fp_reqs=
+    fp_exempts=
+    fp_tmp=$(mktemp -d) || exit "${FP_FAIL}"
+    trap 'rm -rf "${fp_tmp}"' EXIT INT TERM
+    : >"${fp_tmp}/fwrpm.list"
+    fp_scan "$@"
     fp_fwrpm="${fp_tmp}/fwrpm.list"
     [ -s "${fp_fwrpm}" ] || fp_fwrpm=
-    if [ -z "${fp_arch}" ] ||
-        ! fp_one "${fp_fw}" "${fp_fwrpm}" ||
-        ! fp_one "${fp_mods}" "${fp_modrpm}"
-    then
-        fp_usage >&2
-        exit "${FP_USE}"
-    fi
-    [ -z "${fp_exempts}" ] || [ -r "${fp_exempts}" ] ||
-        { fp_usage >&2; exit "${FP_USE}"; }
+    fp_pick || fp_bad
+    fp_exempt "${fp_exempts}" || fp_bad
 }
 
 # fp_tree LIST ROOT —— 按名字集建空文件骨架。目录条目（以 / 结尾）与绝对
