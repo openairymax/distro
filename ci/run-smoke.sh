@@ -1003,32 +1003,52 @@ t16_obs_tools() {
 # （lsblk），不读安装期写的计划文件：计划与落地不一致正是要抓的回归。
 # btrfs 子卷在 findmnt 里表现为 `/dev/sda2[/@data]`，与系统同一分区，不能
 # 当作独立数据分区，因此还要求挂载源本身是 part。
-t17_disk_layout() {
-    local root data rtype dtype parts
+t17_tools() { # 两个块层探测工具都随镜像交付，缺一件就无法判定
     need findmnt || return $?
-    need lsblk || return $?
-    root="$(findmnt -n -o SOURCE / 2>&1)" || {
-        echo "findmnt /: ${root:-no source}"
+    need lsblk
+}
+
+t17_src() { # t17_src <变量> <挂载点> <失败说明> — findmnt 的实际挂载源
+    local -n out="$1"
+
+    out="$(findmnt -n -o SOURCE "$2" 2>&1)" || {
+        printf '%s: %s\n' "$3" "${out:-no source}"
         return 1
     }
-    data="$(findmnt -n -o SOURCE /data 2>&1)" || {
-        echo "/data not mounted: ${data:-no source}"
+}
+
+t17_mounts() { # t17_mounts <root 变量> <data 变量> — 两个挂载点的源一起取
+    t17_src "$1" / 'findmnt /' || return 1
+    t17_src "$2" /data '/data not mounted'
+}
+
+t17_type() { # t17_type <变量> <设备> — lsblk 报告的设备类型
+    local -n out="$1"
+
+    out="$(lsblk -n -o TYPE "$2" 2>&1)" || {
+        printf 'lsblk %s: %s\n' "$2" "${out:-no type}"
         return 1
     }
+}
+
+t17_parts() { # t17_parts <root 设备> <data 设备> — 两者都必须是分区
+    local rtype dtype
+
+    t17_type rtype "$1" || return 1
+    t17_type dtype "$2" || return 1
+    expect "${rtype}" part "TYPE $1" || return 1
+    expect "${dtype}" part "TYPE $2"
+}
+
+t17_disk_layout() {
+    local root data parts
+    t17_tools || return 1
+    t17_mounts root data || return 1
     [ "${root}" != "${data}" ] || {
         printf '/ and /data share %s\n' "${root}"
         return 1
     }
-    rtype="$(lsblk -n -o TYPE "${root}" 2>&1)" || {
-        printf 'lsblk %s: %s\n' "${root}" "${rtype:-no type}"
-        return 1
-    }
-    dtype="$(lsblk -n -o TYPE "${data}" 2>&1)" || {
-        printf 'lsblk %s: %s\n' "${data}" "${dtype:-no type}"
-        return 1
-    }
-    expect "${rtype}" part "TYPE ${root}" || return 1
-    expect "${dtype}" part "TYPE ${data}" || return 1
+    t17_parts "${root}" "${data}" || return 1
     parts="$(lsblk -n -o TYPE 2>/dev/null | grep -cx part)" || parts=0
     [ "${parts}" -ge 2 ] || {
         echo "lsblk partitions: ${parts} (want >=2)"
