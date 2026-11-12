@@ -136,6 +136,39 @@ fp_parse()
     fp_exempt "${fp_exempts}" || fp_bad
 }
 
+# 单个名字按步骤落一次地：dir 步建父目录，file 步落空文件。返回 0 表示
+# 按预期建成或按规则跳过，返回 1 时 ft_err 保留原始错误文本，由调用方
+# 计入 ft_bad。
+ft_one()
+{
+    if [ "$3" = dir ]; then
+        ft_err=$( { mkdir -p "$1/$(dirname "$2")"; } 2>&1 ) && return 0
+        return 1
+    fi
+    ft_err=$( { : >"$1/$2"; } 2>&1 ) && return 0
+    # 目录已经占了同名位置：真树里这是指向目录的符号链接，它不进
+    # find -type f 的索引，骨架也不该留下同名空文件。
+    [ -d "$1/$2" ] && return 0
+    return 1
+}
+
+# 一遍名字集。ft_names 只数目录步的条目，与实现侧统计口径一致；跳过规则
+# 也在这里落地，被跳过的名字不计数——它既没建成也不该算进「名单有几个」。
+ft_pass()
+{
+    ft_rel=
+    while IFS= read -r ft_rel; do
+        [ -n "${ft_rel}" ] || continue
+        case "${ft_rel}" in
+        /* | */) continue ;;
+        esac
+        [ "$2" = dir ] && ft_names=$(( ft_names + 1 ))
+        ft_one "$1" "${ft_rel}" "$2" && continue
+        ft_bad=$(( ft_bad + 1 ))
+        [ -n "${ft_why}" ] || ft_why="$2:${ft_rel}:${ft_err}"
+    done <"$3"
+}
+
 # fp_tree LIST ROOT —— 按名字集建空文件骨架。目录条目（以 / 结尾）与绝对
 # 路径跳过：前者不是可请求的固件，后者不落在固件根之下，建了也索引不到。
 #
@@ -156,26 +189,8 @@ fp_tree()
     ft_names=0
     ft_bad=0
     ft_why=
-    for ft_step in dir file; do
-        while IFS= read -r ft_rel; do
-            [ -n "${ft_rel}" ] || continue
-            case "${ft_rel}" in
-            /* | */) continue ;;
-            esac
-            if [ "${ft_step}" = dir ]; then
-                ft_names=$(( ft_names + 1 ))
-                ft_err=$( { mkdir -p "$2/$(dirname "${ft_rel}")"; } 2>&1 ) &&
-                    continue
-            else
-                ft_err=$( { : >"$2/${ft_rel}"; } 2>&1 ) && continue
-                # 目录已经占了同名位置：真树里这是指向目录的符号链接，
-                # 它不进 find -type f 的索引，骨架也不该留下同名空文件。
-                [ -d "$2/${ft_rel}" ] && continue
-            fi
-            ft_bad=$(( ft_bad + 1 ))
-            [ -n "${ft_why}" ] || ft_why="${ft_step}:${ft_rel}:${ft_err}"
-        done <"$1"
-    done
+    ft_pass "$2" dir "$1"
+    ft_pass "$2" file "$1"
     [ "${ft_bad}" -eq 0 ]
 }
 
