@@ -191,7 +191,23 @@ parse_args()
     done
 }
 
+# 校验按「取值域 → 互斥 → 输入文件 → 依赖开关 → 路径派生」五段各自成函数，
+# 判定顺序与原单函数逐条一致：调用方仍然只会看到第一个错误。
 check_args()
+{
+    chk_base
+    chk_acc
+    chk_ker
+    chk_iso
+    chk_need
+    chk_inst
+    chk_fw
+    chk_rpms
+    chk_ks
+}
+
+# 三个封闭集合的取值域：架构、固件、剖面各一个 case。
+chk_base()
 {
     [ -n "${OUT}" ] || die "--out 必填"
     case "${ARCH}" in
@@ -206,6 +222,11 @@ check_args()
     minimal|desktop) ;;
     *) die "不支持的镜像剖面: ${PROFILE}" ;;
     esac
+}
+
+# 验收夹具只能叠在 desktop 剖面上，且必须由 --iso-base 重新组装。
+chk_acc()
+{
     if [ "${ACCEPTANCE}" -eq 1 ]; then
         [ "${PROFILE}" = desktop ] || die "--acceptance 仅支持 desktop 剖面"
         [ -z "${KS}" ] || die "--acceptance 与 --ks 互斥"
@@ -213,34 +234,65 @@ check_args()
             die "--acceptance 需要 --iso-base 重新组装镜像"
     fi
     [ "${RUNS}" -ge 1 ] || die "--runs 必须大于 0"
-    if [ -n "${KER_RPMS}" ]; then
-        [ -d "${KER_RPMS}" ] || die "内核 RPM 目录不存在: ${KER_RPMS}"
-        [ "${SKIP_KERNEL}" -eq 0 ] || die "--kernel-rpms 与 --skip-kernel 互斥"
-        [ -z "${KERNEL}" ] || die "--kernel-rpms 与 --kernel 互斥"
-    fi
-    if [ -n "${ISO}" ]; then
-        [ -f "${ISO}" ] || die "ISO 不存在: ${ISO}"
-    fi
-    if [ -n "${ISO_BASE}" ]; then
-        [ -f "${ISO_BASE}" ] || die "基础 ISO 不存在: ${ISO_BASE}"
-    fi
+}
+
+# 复用已发布内核 RPM 时目录必须存在，且与两条内核来源互斥。
+chk_ker()
+{
+    [ -n "${KER_RPMS}" ] || return 0
+    [ -d "${KER_RPMS}" ] || die "内核 RPM 目录不存在: ${KER_RPMS}"
+    [ "${SKIP_KERNEL}" -eq 0 ] || die "--kernel-rpms 与 --skip-kernel 互斥"
+    [ -z "${KERNEL}" ] || die "--kernel-rpms 与 --kernel 互斥"
+}
+
+# 显式给出的 ISO 路径必须指向真实文件：拼写错误不该拖到组装段才暴露。
+chk_iso()
+{
+    [ -z "${ISO}" ] || [ -f "${ISO}" ] || die "ISO 不存在: ${ISO}"
+    [ -z "${ISO_BASE}" ] || [ -f "${ISO_BASE}" ] ||
+        die "基础 ISO 不存在: ${ISO_BASE}"
+}
+
+# 组装与装机两条腿各自需要 ISO；跳过组装只能靠显式 --iso 补位。
+chk_need()
+{
     if [ "${SKIP_ISO}" -eq 0 ] && [ -z "${ISO}" ] && [ -z "${ISO_BASE}" ]; then
         die "需要 --iso 或 --iso-base（或显式 --skip-iso）"
     fi
     if [ "${SKIP_INSTALL}" -eq 0 ] && [ -z "${ISO}" ] && [ -z "${ISO_BASE}" ]; then
         die "装机段需要可用 ISO"
     fi
-    if [ "${SKIP_INSTALL}" -eq 0 ] && [ "${SKIP_ISO}" -eq 1 ] && [ -z "${ISO}" ]; then
-        die "--skip-iso 且未给出 --iso 时无法执行装机段"
-    fi
+}
+
+chk_inst()
+{
+    [ "${SKIP_INSTALL}" -eq 0 ] || return 0
+    [ "${SKIP_ISO}" -eq 1 ] || return 0
+    [ -n "${ISO}" ] || die "--skip-iso 且未给出 --iso 时无法执行装机段"
+}
+
+# aarch64 没有 BIOS 固件路径，只能走 uefi。
+chk_fw()
+{
     if [ "${ARCH}" = aarch64 ] && [ "${FIRMWARE}" != uefi ]; then
         die "aarch64 仅支持 uefi 固件"
     fi
-    if [ "${SKIP_ISO}" -eq 0 ] && [ -z "${ISO}" ] &&
-        [ "${SKIP_RPMS}" -eq 1 ] && [ "${SKIP_KERNEL}" -eq 1 ] &&
-        [ "${#RPMS_DIRS[@]}" -eq 0 ]; then
+}
+
+# 组装段要现成 RPM：要么由本脚本构建，要么显式给 --rpms。
+chk_rpms()
+{
+    [ "${SKIP_ISO}" -eq 0 ] || return 0
+    [ -z "${ISO}" ] || return 0
+    [ "${SKIP_RPMS}" -eq 1 ] || return 0
+    [ "${SKIP_KERNEL}" -eq 1 ] || return 0
+    if [ "${#RPMS_DIRS[@]}" -eq 0 ]; then
         die "组装 ISO 需 --rpms 目录，或启用 RPM/内核构建段"
     fi
+}
+
+chk_ks()
+{
     if [ -z "${KS}" ]; then
         if [ "${PROFILE}" = desktop ]; then
             KS="${DISTRO_ROOT}/kickstart/airymaxos-workstation.ks"
