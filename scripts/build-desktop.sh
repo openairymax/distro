@@ -183,15 +183,30 @@ check_arch()
     esac
 }
 
+# 校验按「输入基线 → RPM 目录 → 列表项 → 闭包依赖 → 附加件」分段，
+# 判定顺序与每条 die 文案保持原样，调用方仍只看到第一个错误。
 check_args()
 {
-    local dir add pkg skip
+    chk_base
+    chk_rpm
+    chk_list
+    chk_lock
+    chk_add
+}
+
+chk_base()
+{
     if [ "$CLOSURE_ONLY" -eq 0 ]; then
         [ -n "$BASE" ] || die "${E_INVAL}" "--iso 必填"
         [ -f "$BASE" ] || die "${E_INVAL}" "基础 ISO 不存在: ${BASE}"
     fi
     [ -n "$KS" ] || die "${E_INVAL}" "--ks 必填"
     [ -f "$KS" ] || die "${E_INVAL}" "kickstart 不存在: ${KS}"
+}
+
+chk_rpm()
+{
+    local dir
     if [ "$CLOSURE_ONLY" -eq 0 ]; then
         [ "${#RPMS[@]}" -gt 0 ] ||
             die "${E_INVAL}" "--rpms 至少给出一个目录"
@@ -199,22 +214,37 @@ check_args()
     for dir in "${RPMS[@]}"; do
         [ -d "$dir" ] || die "${E_INVAL}" "--rpms 目录不存在: ${dir}"
     done
-    for pkg in "${REQUIRE[@]}"; do
-        [ -n "$pkg" ] || die "${E_INVAL}" "--require 包名不得为空"
+}
+
+# 空串会被下游当成"一个包"或"一个跳过项"去解析，报错点远离命令行。
+chk_list()
+{
+    local item
+    for item in "${REQUIRE[@]}"; do
+        [ -n "$item" ] || die "${E_INVAL}" "--require 包名不得为空"
     done
-    for skip in "${SKIPS[@]}"; do
-        [ -n "$skip" ] || die "${E_INVAL}" "--closure-skip 不得为空"
+    for item in "${SKIPS[@]}"; do
+        [ -n "$item" ] || die "${E_INVAL}" "--closure-skip 不得为空"
     done
     if [ "${#SKIPS[@]}" -gt 0 ] && [ "$CLOSURE" -eq 0 ]; then
         die "${E_INVAL}" "--closure-skip 需与 --closure 同时使用"
     fi
+}
+
+# 收割闭包依赖 comps 与规格提取器；锁定文件只在给出时校验。
+chk_lock()
+{
     [ -f "$CL_COMPS" ] || die "${E_INVAL}" "comps 定义缺失: ${CL_COMPS}"
     [ -f "$CL_SPEC" ] || die "${E_INVAL}" "规格提取器缺失: ${CL_SPEC}"
-    if [ -n "$LOCK" ]; then
-        [ "$CLOSURE" -eq 1 ] ||
-            die "${E_INVAL}" "--closure-lock 需与 --closure 同时使用"
-        [ -f "$LOCK" ] || die "${E_INVAL}" "闭包清单不存在: ${LOCK}"
-    fi
+    [ -n "$LOCK" ] || return 0
+    [ "$CLOSURE" -eq 1 ] ||
+        die "${E_INVAL}" "--closure-lock 需与 --closure 同时使用"
+    [ -f "$LOCK" ] || die "${E_INVAL}" "闭包清单不存在: ${LOCK}"
+}
+
+chk_add()
+{
+    local add
     for add in "${ADDS[@]}"; do
         [ -e "$add" ] || die "${E_INVAL}" "--add 路径不存在: ${add}"
     done
