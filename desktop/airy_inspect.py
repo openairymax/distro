@@ -268,9 +268,12 @@ def mem_total(root):
     return head if head.isdigit() else None
 
 
-def os_of(root, live):
-    """airy-os：发行版身份、包归属、仓库段、硬件与默认会话。"""
-    rep = Report(MARKS["airy-os"])
+def os_ident(rep, root):
+    """发行版身份：os-release 的六项与 hostname。
+
+    os-release 先看 /usr/lib 再看 /etc：前者是发行版自带值，后者是装机后
+    的覆盖值，与 systemd 的查找顺序一致。
+    """
     fields = kv_of(txt(root / "usr/lib/os-release")
                    or txt(root / "etc/os-release"))
     for key, name in (("os.id", "ID"), ("os.name", "NAME"),
@@ -280,20 +283,34 @@ def os_of(root, live):
                       ("os.variant", "VARIANT_ID")):
         rep.put(key, fields.get(name))
     rep.put("host.name", (txt(root / "etc/hostname") or "").strip() or None)
-    if live:
-        for key, name in (("pkg.release", "airymaxos-release"),
-                          ("pkg.system", "airymaxos-system"),
-                          ("pkg.kernel", "airymaxos-kernel")):
-            rep.put(key, rpm_q([name]))
-    else:
-        for key in ("pkg.release", "pkg.system", "pkg.kernel"):
-            rep.put(key, None)
-    repo = root / "etc/yum.repos.d/airymaxos.repo"
-    body = txt(repo)
-    rep.put("repo.path", repo if body else None)
-    rep.put("repo.sections",
-            None if body is None else sum(1 for line in body.splitlines()
-                                          if line.startswith("[")))
+
+
+def os_pkg(rep, live):
+    """自有包归属：活体查 rpm 库，静态一律 absent（库回答的是本机）。"""
+    for key, name in (("pkg.release", "airymaxos-release"),
+                      ("pkg.system", "airymaxos-system"),
+                      ("pkg.kernel", "airymaxos-kernel")):
+        rep.put(key, rpm_q([name]) if live else None)
+
+
+def os_repo(rep, root):
+    """仓库配置：文件在时给出路径与段数，缺文件时两项一并留空。
+
+    段数按 `[...]` 头计：anaconda 装机后可能只留下一个空文件，那时路径仍
+    存在而段数为 0，与「没有仓库配置」是两件事。
+    """
+    path = root / "etc/yum.repos.d/airymaxos.repo"
+    body = txt(path)
+    rep.put("repo.path", path if body else None)
+    if body is None:
+        rep.put("repo.sections", None)
+        return
+    rep.put("repo.sections", sum(1 for line in body.splitlines()
+                                 if line.startswith("[")))
+
+
+def os_hw(rep, root):
+    """硬件五项：CPU 型号与核数、内存总量、根盘设备与文件系统。"""
     model, cores = cpu_info(root)
     rep.put("cpu.model", model)
     rep.put("cpu.count", cores)
@@ -301,8 +318,22 @@ def os_of(root, live):
     device, fstype = root_disk(root)
     rep.put("disk.root.source", device)
     rep.put("disk.root.fstype", fstype)
-    lconf = kv_of(txt(root / "etc/lightdm/lightdm.conf.d/50-airymax.conf"))
-    rep.put("session.autologin", lconf.get("autologin-user"))
+
+
+def os_sess(rep, root):
+    """默认会话：lightdm 片段里的 autologin-user。"""
+    conf = kv_of(txt(root / "etc/lightdm/lightdm.conf.d/50-airymax.conf"))
+    rep.put("session.autologin", conf.get("autologin-user"))
+
+
+def os_of(root, live):
+    """airy-os：发行版身份、包归属、仓库段、硬件与默认会话。"""
+    rep = Report(MARKS["airy-os"])
+    os_ident(rep, root)
+    os_pkg(rep, live)
+    os_repo(rep, root)
+    os_hw(rep, root)
+    os_sess(rep, root)
     return 0
 
 
