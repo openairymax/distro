@@ -244,6 +244,28 @@ def dynamic_storage(cmds: list[Cmd], sects: list[Sect]) -> list[Cmd]:
             if cmd.name == "include" and cmd.args and cmd.args in text]
 
 
+def storage_sets(cmds: list[Cmd], sects: list[Sect]
+                 ) -> tuple[list[Cmd], list[Cmd], list[Cmd], list[Cmd]]:
+    """取顶层布局指令与 %pre 动态布局，按来源分组。"""
+    auto = [cmd for cmd in cmds if cmd.name == "autopart"]
+    part = [cmd for cmd in cmds if cmd.name in STORAGE]
+    fixed = [cmd for cmd in cmds if cmd.name in STORAGE or
+             cmd.name in ("clearpart", "autopart")]
+    return auto, part, fixed, dynamic_storage(cmds, sects)
+
+
+def layout_conflict(auto: list[Cmd], part: list[Cmd],
+                    fixed: list[Cmd], dyn: list[Cmd]) -> Issue | None:
+    """两份布局来源同存时给出冲突判据；只有一个来源返回 None。"""
+    if dyn and fixed:
+        return Issue("K004", fixed[0].num,
+                     f"{fixed[0].name} conflicts with {dyn[0].args}")
+    if auto and part:
+        return Issue("K004", part[0].num,
+                     f"autopart conflicts with {part[0].name}")
+    return None
+
+
 def check_storage(cmds: list[Cmd], sects: list[Sect],
                   issues: list[Issue]) -> None:
     """布局只能有一个来源。
@@ -252,17 +274,10 @@ def check_storage(cmds: list[Cmd], sects: list[Sect],
     存储配置：clearpart --all 仍会清空全部接入磁盘，D-33 的分区跨盘即由此
     复发。冲突必须在解析前判负，而不是靠 anaconda 的指令顺序碰运气。
     """
-    auto = [cmd for cmd in cmds if cmd.name == "autopart"]
-    part = [cmd for cmd in cmds if cmd.name in STORAGE]
-    fixed = [cmd for cmd in cmds if cmd.name in STORAGE or
-             cmd.name in ("clearpart", "autopart")]
-    dyn = dynamic_storage(cmds, sects)
-    if dyn and fixed:
-        issues.append(Issue("K004", fixed[0].num,
-                            f"{fixed[0].name} conflicts with {dyn[0].args}"))
-    elif auto and part:
-        issues.append(Issue("K004", part[0].num,
-                            f"autopart conflicts with {part[0].name}"))
+    auto, part, fixed, dyn = storage_sets(cmds, sects)
+    hit = layout_conflict(auto, part, fixed, dyn)
+    if hit is not None:
+        issues.append(hit)
     if not auto and not fixed and not dyn:
         issues.append(Issue("K004", 1, "no storage layout"))
 
