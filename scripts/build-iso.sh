@@ -190,6 +190,13 @@ check_product()
 
 check_files()
 {
+    check_inputs
+    pick_version
+    pick_dest
+}
+
+check_inputs()
+{
     local add
     [ -n "$ISO" ] || die "${E_INVAL}" "--iso 必填"
     [ -f "$ISO" ] || die "${E_INVAL}" "基础 ISO 不存在: ${ISO}"
@@ -198,6 +205,12 @@ check_files()
     for add in "${ADDS[@]}"; do
         [ -e "$add" ] || die "${E_INVAL}" "--add 路径不存在: ${add}"
     done
+}
+
+# 版本号同时进文件名与 os-release 引用，故先定值、再验形态、最后对账：
+# 空值取 os-release 基线，形态非法或超长当场拒绝，不一致只告警不阻断。
+pick_version()
+{
     if [ -z "$VERSION" ]; then
         VERSION="$(base_ver)"
     fi
@@ -211,6 +224,12 @@ check_files()
         printf 'build-iso: 警告：版本 %s 与 os-release 不一致\n' \
             "$VERSION" >&2
     fi
+}
+
+# 产物名与落点在写入前定死：已存在的同名产物不覆盖，避免半成品
+# 与新构建混在一起。
+pick_dest()
+{
     NAME="airymaxos-${VERSION}-${ARCH}.iso"
     DEST="${OUT_ABS}/${NAME}"
     if [ -e "$DEST" ]; then
