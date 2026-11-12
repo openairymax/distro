@@ -60,6 +60,28 @@ class InstallLibTest(unittest.TestCase):
         self.assertEqual(self.console_lines(),
                          ["AIRYMAX-INSTALL-STEP 3/7 disk"])
 
+    def test_wait_beats_while_command_runs(self):
+        res = self.sh('airy_step 8 10 grub\n'
+                      'airy_wait grub2-mkconfig sleep 2', AIRY_BEAT=1)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("AIRYMAX-INSTALL-WAIT step=8/10 grub "
+                      "name=grub2-mkconfig t=1s", self.console_lines())
+        self.assertNotIn("AIRYMAX-INSTALL-WAIT", res.stdout)
+
+    def test_wait_passes_rc_and_quiet_output(self):
+        res = self.sh('rc=0\n'
+                      'airy_wait -q noisy sh -c "echo noise; exit 3" || rc=$?\n'
+                      'printf "rc=%s\\n" "${rc}"', AIRY_BEAT=5)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertNotIn("noise", res.stdout)
+        self.assertIn("rc=3", res.stdout)
+        self.assertNotIn("AIRYMAX-INSTALL-WAIT", "".join(self.console_lines()))
+
+    def test_wait_silent_for_fast_command(self):
+        res = self.sh('airy_step 1 8 release\nairy_wait rpm true', AIRY_BEAT=1)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertNotIn("AIRYMAX-INSTALL-WAIT", "".join(self.console_lines()))
+
     def test_fail_reports_step_and_note(self):
         res = self.sh('airy_step 2 7 system\n'
                       'airy_fail DISK too-small "bytes=1"')
