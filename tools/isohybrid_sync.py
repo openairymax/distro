@@ -265,34 +265,49 @@ def aligned(sig):
             == want_size)
 
 
+def _screen(fh):
+    """先出勘察报告；判不下去时直接给收场码，能修才把签名交回调用方。"""
+    sig = survey(fh)
+    if sig is None:
+        return None, SKIP
+    report(sig)
+    if aligned(sig):
+        print("status: ok")
+        return None, OK
+    if not sig["mbr"] or not sig["gpt"]:
+        print("status: mismatch")
+        return None, BAD
+    return sig, None
+
+
+def _patch(fh, sig, want):
+    """MBR、GPT、boot info 三处各判各的，只动对不上的那几处。"""
+    notes = []
+    if sig["mbr"][1] != want or sig["mbr"][2] != sig["size"]:
+        patch_mbr(fh, want, sig["size"])
+        notes.append("mbr")
+    if sig["gpt"][1] != want or sig["gpt"][2] != want + sig["size"] - 1:
+        patch_gpt(fh, want, sig["size"])
+        notes.append("gpt")
+    if sig["bios"] and sig["bip"] and not bip_ok(sig["bip"], sig["bios"][0]):
+        patch_bip(fh, sig["bios"][0], sig["bip"])
+        notes.append("bootinfo")
+    return notes
+
+
 def sync(path):
     with path.open("rb+") as fh:
-        sig = survey(fh)
-        if sig is None:
-            return SKIP
-        report(sig)
-        if aligned(sig):
-            print("status: ok")
-            return OK
-        if not sig["mbr"] or not sig["gpt"]:
-            print("status: mismatch")
-            return BAD
+        sig, early = _screen(fh)
+        if early is not None:
+            return early
         want = sig["lba"] * (BLK // SECT)
-        notes = []
-        if sig["mbr"][1] != want or sig["mbr"][2] != sig["size"]:
-            patch_mbr(fh, want, sig["size"])
-            notes.append("mbr")
-        if sig["gpt"][1] != want or sig["gpt"][2] != want + sig["size"] - 1:
-            patch_gpt(fh, want, sig["size"])
-            notes.append("gpt")
-        if sig["bios"] and sig["bip"] and not bip_ok(sig["bip"], sig["bios"][0]):
-            patch_bip(fh, sig["bios"][0], sig["bip"])
-            notes.append("bootinfo")
-        print(f"sync: {'+'.join(notes)} -> start={want} size={sig['size']}")
+        notes = "+".join(_patch(fh, sig, want))
+        print(f"sync: {notes} -> start={want} size={sig['size']}")
         done = survey(fh)
         report(done)
-        print(f"status: {'fixed' if aligned(done) else 'broken'}")
-        return OK if aligned(done) else BAD
+        fixed = aligned(done)
+        print(f"status: {'fixed' if fixed else 'broken'}")
+        return OK if fixed else BAD
 
 
 def check(path):
