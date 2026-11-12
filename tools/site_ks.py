@@ -107,6 +107,36 @@ def site_block(site: Site) -> str:
     ])
 
 
+def sk_head(raw: str) -> str | None:
+    """非空非注释行的首词；空行与整行注释返回 None。"""
+    text = raw.strip()
+    if not text or text.startswith("#"):
+        return None
+    return text.split(None, 1)[0]
+
+
+def end_before(lines: list[str], start: int, num: int) -> int | None:
+    """num 之前已见的最后一个 %end 行号；%pre 尚未收尾时返回 None。"""
+    found = None
+    for idx in range(start + 1, num):
+        if lines[idx].strip() == "%end":
+            found = idx
+    return found
+
+
+def writes(lines: list[str], start: int, num: int, path: str) -> bool:
+    """%pre 正文是否写出 path：已收尾的段看到 %end 为止，否则看到 include 行前。"""
+    end = end_before(lines, start, num)
+    return path in "\n".join(lines[start:end if end is not None else num])
+
+
+def lead_comment(lines: list[str], start: int) -> int:
+    """把紧贴 %pre 的注释行并入段首，返回新的起始行号。"""
+    while start > 0 and lines[start - 1].lstrip().startswith("#"):
+        start -= 1
+    return start
+
+
 def include_span(lines: list[str]) -> tuple[int, int]:
     """定位「%pre 选盘 + %include 片段」段，返回首末行号。
 
@@ -114,25 +144,22 @@ def include_span(lines: list[str]) -> tuple[int, int]:
     整段换掉：站点机的分区由 --onpart 显式绑定，不能再让脚本挑盘。只认
     %pre 正文确实写出该文件的情形，避免误删有别的用途的 %pre。
 
+    判定拆成两个独立问题：哪一段 %pre 在前（本函数的 start），以及那一段
+    正文有没有写出这个文件（writes）。原先三件事挤在一个循环里——顺扫时
+    要同时维护「当前段起点」与「本段是否已收尾」，两者在 %pre、%end、
+    %include 三种行上互相牵制，多认一种写法就要多压一层分支。
+
     紧贴 %pre 的注释属于该段：它们解释的是选盘规则，留在派生配方里会描述
     一段已经不存在的逻辑。
     """
-    start = end = None
+    start = None
     for num, raw in enumerate(lines):
-        text = raw.strip()
-        if not text or text.startswith("#"):
-            continue
-        word = text.split(None, 1)[0]
+        word = sk_head(raw)
         if word == "%pre":
-            start, end = num, None
-        elif text == "%end" and start is not None:
-            end = num
+            start = num
         elif word == "%include" and start is not None:
-            body = "\n".join(lines[start:end if end is not None else num])
-            if text.split(None, 1)[-1] in body:
-                while start > 0 and lines[start - 1].lstrip().startswith("#"):
-                    start -= 1
-                return start, num
+            if writes(lines, start, num, raw.strip().split(None, 1)[-1]):
+                return lead_comment(lines, start), num
     raise ValueError("产品配方缺少 %pre 选盘段与 %include 引用")
 
 
