@@ -189,6 +189,104 @@ fw_flat_exempt()
     return 1
 }
 
+# fw_flat_one ORIGIN INDEX NAME —— 单条请求名归类，结论写进 ff_kind。
+#
+# 四种形态各自返回一个词：skip（无需入口）、link（已建链）、exempt 与
+# miss（缺件，ff_rel 非空表示建链失败且带目标路径）。归类与记账分开，
+# 主循环就只剩「读一行、记一行」——原先四种判据共用一组计数器与
+# continue，多认一种形态就要再压一层分支。
+fw_flat_one()
+{
+    ff_kind=skip
+    ff_lname=
+    ff_rel=
+    case "$3" in
+    '' | */*) return 0 ;;
+    esac
+    # 已有入口（基线实体文件，或前一轮补的链）：不动，也不计入本轮。
+    [ -e "$1/$3" ] && return 0
+    ff_rel=$(fw_flat_lookup "$2" "$3") || ff_rel=
+    if [ -z "${ff_rel}" ]; then
+        # 请求名在树内也没有同名文件。先过豁免表：命中的是本版硬件矩阵
+        # 之外的器件，逐条留证据但不计入 miss；未命中才是真的缺件。
+        ff_kind=miss
+        fw_flat_exempt "$3" && ff_kind=exempt
+        return 0
+    fi
+    ff_lname=${ff_rel##*/}
+    [ -e "$1/${ff_lname}" ] && { ff_rel=; return 0; }
+    # 先按缺件定调，建链成功才改成 link：ln 的失败原因（权限、同名悬空链）
+    # 由 rel 带出，与「树里根本没有」分开记。
+    ff_kind=miss
+    if ln -s "${ff_rel}" "$1/${ff_lname}" 2>/dev/null; then
+        ff_kind='link'
+    fi
+    return 0
+}
+
+# fw_flat_note KIND NAME LINK REL —— 一条请求的结论落到日志与清单。
+#
+# 缺件不失败（脚本节不能阻断安装），但必须在安装日志里留一行判据，否则
+# 现场只会看到驱动 "no suitable firmware found"。
+fw_flat_note()
+{
+    case "$1" in
+    exempt)
+        printf 'exempt name=%s reason=%s\n' "$2" "${fwe_why}" >&2
+        ff_exm=$(( ff_exm + 1 ))
+        ;;
+    miss)
+        printf 'miss name=%s%s\n' "$2" "${4:+ rel=$4}" >&2
+        ff_miss=$(( ff_miss + 1 ))
+        ;;
+    link)
+        printf '%s %s\n' "$3" "$4" >>"${ff_tmp}"
+        ff_links=$(( ff_links + 1 ))
+        ;;
+    esac
+}
+
+# fw_flat_prep —— 生成请求集与索引；任一取不到就清掉半成品并判负。
+#
+# 空请求集不是「无需补齐」，而是输入坏了：模块树没解出来、modinfo 缺席
+# 或请求名清单是空文件。此时继续走会得到 flat=0 miss=0，判定假绿——
+# 这正是构建期预演最需要拦的那一种形态，所以在此如实判负。
+fw_flat_prep()
+{
+    if ! fw_requests >"${ff_reqs}"; then
+        rm -f "${ff_tmp}" "${ff_reqs}"
+        printf 'fail=no-requests modules=%s reason=%s\n' \
+            "${ff_modules}" "${fwfr_why:-unknown}" >&2
+        return 1
+    fi
+    if [ ! -s "${ff_reqs}" ]; then
+        rm -f "${ff_tmp}" "${ff_reqs}"
+        printf 'fail=no-requests modules=%s reason=empty\n' "${ff_modules}" >&2
+        return 1
+    fi
+    if ! fw_flat_index "${ff_origin}" "${ff_idx}"; then
+        rm -f "${ff_tmp}" "${ff_reqs}" "${ff_idx}"
+        printf 'fail=no-index origin=%s\n' "${ff_origin}" >&2
+        return 1
+    fi
+}
+
+# fw_flat_save —— 清单原子替换并打印本轮汇总。
+#
+# 清单是复核侧的唯一输入，半成品比旧清单更危险：先写临时文件，全部成功
+# 才一次 mv 到位。
+fw_flat_save()
+{
+    rm -f "${ff_reqs}" "${ff_idx}"
+    if ! mv "${ff_tmp}" "${ff_list}" 2>/dev/null; then
+        rm -f "${ff_tmp}"
+        printf 'fail=write-list list=%s\n' "${ff_list}" >&2
+        return 1
+    fi
+    printf 'flat=%d miss=%d exempt=%d list=%s\n' \
+        "${ff_links}" "${ff_miss}" "${ff_exm}" "${ff_list}"
+}
+
 fw_flat_apply()
 {
     ff_tmp="${ff_list}.tmp.$$"
@@ -199,70 +297,12 @@ fw_flat_apply()
     ff_exm=0
 
     : >"${ff_tmp}"
-    if ! fw_requests >"${ff_reqs}"; then
-        rm -f "${ff_tmp}" "${ff_reqs}"
-        printf 'fail=no-requests modules=%s reason=%s\n' \
-            "${ff_modules}" "${fwfr_why:-unknown}" >&2
-        return "${FWFLAT_FAIL}"
-    fi
-    # 空请求集不是「无需补齐」，而是输入坏了：模块树没解出来、modinfo 缺席
-    # 或请求名清单是空文件。此时继续走会得到 flat=0 miss=0，判定假绿——
-    # 这正是构建期预演最需要拦的那一种形态，所以在此如实判负。
-    if [ ! -s "${ff_reqs}" ]; then
-        rm -f "${ff_tmp}" "${ff_reqs}"
-        printf 'fail=no-requests modules=%s reason=empty\n' "${ff_modules}" >&2
-        return "${FWFLAT_FAIL}"
-    fi
-    if ! fw_flat_index "${ff_origin}" "${ff_idx}"; then
-        rm -f "${ff_tmp}" "${ff_reqs}" "${ff_idx}"
-        printf 'fail=no-index origin=%s\n' "${ff_origin}" >&2
-        return "${FWFLAT_FAIL}"
-    fi
-
+    fw_flat_prep || return "${FWFLAT_FAIL}"
     while IFS= read -r ff_name; do
-        case "${ff_name}" in
-        '' | */*) continue ;;
-        esac
-        # 已有入口（基线实体文件，或前一轮补的链）：不动，也不计入本轮。
-        if [ -e "${ff_origin}/${ff_name}" ]; then
-            continue
-        fi
-        ff_rel=$(fw_flat_lookup "${ff_idx}" "${ff_name}") || ff_rel=
-        if [ -z "${ff_rel}" ]; then
-            # 请求名在树内也没有同名文件。先过豁免表：命中的是本版硬件矩阵
-            # 之外的器件，逐条留证据但不计入 miss；未命中才是真的缺件。
-            if fw_flat_exempt "${ff_name}"; then
-                printf 'exempt name=%s reason=%s\n' \
-                    "${ff_name}" "${fwe_why}" >&2
-                ff_exm=$(( ff_exm + 1 ))
-                continue
-            fi
-            # 不失败（脚本节不能阻断安装），但必须在安装日志里留一行判据，
-            # 否则现场只会看到驱动 "no suitable firmware found"。
-            printf 'miss name=%s\n' "${ff_name}" >&2
-            ff_miss=$(( ff_miss + 1 ))
-            continue
-        fi
-        ff_link=${ff_rel##*/}
-        if [ -e "${ff_origin}/${ff_link}" ]; then
-            continue
-        fi
-        if ! ln -s "${ff_rel}" "${ff_origin}/${ff_link}" 2>/dev/null; then
-            printf 'miss name=%s rel=%s\n' "${ff_name}" "${ff_rel}" >&2
-            ff_miss=$(( ff_miss + 1 ))
-            continue
-        fi
-        printf '%s %s\n' "${ff_link}" "${ff_rel}" >>"${ff_tmp}"
-        ff_links=$(( ff_links + 1 ))
+        fw_flat_one "${ff_origin}" "${ff_idx}" "${ff_name}"
+        fw_flat_note "${ff_kind}" "${ff_name}" "${ff_lname}" "${ff_rel}"
     done <"${ff_reqs}"
-    rm -f "${ff_reqs}" "${ff_idx}"
-    if ! mv "${ff_tmp}" "${ff_list}" 2>/dev/null; then
-        rm -f "${ff_tmp}"
-        printf 'fail=write-list list=%s\n' "${ff_list}" >&2
-        return "${FWFLAT_FAIL}"
-    fi
-    printf 'flat=%d miss=%d exempt=%d list=%s\n' \
-        "${ff_links}" "${ff_miss}" "${ff_exm}" "${ff_list}"
+    fw_flat_save
 }
 
 fw_flat_check()
@@ -299,6 +339,64 @@ fw_flat_check()
     [ "${fk_bad}" -eq 0 ] || return "${FWFLAT_FAIL}"
 }
 
+# fw_flat_opt NAME VALUE —— 选项名与取值成对写入全局；未知选项返回 1。
+fw_flat_opt()
+{
+    case "$1" in
+    --list) ff_list=$2 ;;
+    --modules) ff_modules=$2 ;;
+    --requests) ff_reqfile=$2 ;;
+    --exempt) ff_exempt=$2 ;;
+    *) return 1 ;;
+    esac
+}
+
+# fw_flat_opts —— 解析剩余位置参数，用法问题就地报错并返回 1。
+#
+# -h/--help 打印用法后用 ff_help 标记，由调用方按「正常退出」处理，与
+# 用法错误分开。取值的成对校验在赋值之前：`set -u` 下先取 $2 再判会直接
+# 中止脚本，那正是「缺少取值」这条用法错误最该说清楚的时候。
+fw_flat_opts()
+{
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+        -h | --help)
+            fw_flat_usage
+            ff_help=1
+            return 0
+            ;;
+        esac
+        if [ "$#" -lt 2 ]; then
+            fw_flat_usage >&2
+            return 1
+        fi
+        fw_flat_opt "$1" "$2" || { fw_flat_usage >&2; return 1; }
+        shift 2
+    done
+}
+
+# fw_flat_valid —— 出口参数复核：动词、固件根与清单是补链/复核的必要
+# 输入，缺一项就只能是用法错误。
+fw_flat_valid()
+{
+    case "${ff_verb}" in
+    apply | check) ;;
+    *) return 1 ;;
+    esac
+    [ -n "${ff_origin}" ] || return 1
+    [ -n "${ff_list}" ] && [ -d "${ff_origin}" ]
+}
+
+# 豁免表缺席不阻断补链：缺的只是分类依据，链接本身照做。但要在日志里
+# 明说——没有表时每条请求名都会落成 miss，看起来像固件树塌了。
+fw_flat_exm()
+{
+    [ -n "${ff_exempt}" ] || return 0
+    [ -r "${ff_exempt}" ] && return 0
+    printf 'diag exempt-unreadable path=%s\n' "${ff_exempt}" >&2
+    ff_exempt=
+}
+
 fw_flat_main()
 {
     if [ "$#" -lt 2 ]; then
@@ -313,50 +411,15 @@ fw_flat_main()
     ff_modules=/usr/lib/modules
     ff_reqfile=
     ff_exempt=
+    ff_help=
 
-    while [ "$#" -gt 0 ]; do
-        case "$1" in
-        -h | --help)
-            fw_flat_usage
-            return 0
-            ;;
-        --list | --modules | --requests | --exempt) ;;
-        *)
-            fw_flat_usage >&2
-            return "${FWFLAT_USE}"
-            ;;
-        esac
-        if [ "$#" -lt 2 ]; then
-            fw_flat_usage >&2
-            return "${FWFLAT_USE}"
-        fi
-        case "$1" in
-        --list) ff_list=$2 ;;
-        --modules) ff_modules=$2 ;;
-        --requests) ff_reqfile=$2 ;;
-        --exempt) ff_exempt=$2 ;;
-        esac
-        shift 2
-    done
-
-    case "${ff_verb}" in
-    apply | check) ;;
-    *)
-        fw_flat_usage >&2
-        return "${FWFLAT_USE}"
-        ;;
-    esac
-    if [ -z "${ff_origin}" ] || [ -z "${ff_list}" ] ||
-        [ ! -d "${ff_origin}" ]; then
+    fw_flat_opts "$@" || return "${FWFLAT_USE}"
+    [ -z "${ff_help}" ] || return 0
+    if ! fw_flat_valid; then
         fw_flat_usage >&2
         return "${FWFLAT_USE}"
     fi
-    # 豁免表缺席不阻断补链：缺的只是分类依据，链接本身照做。但要在日志里
-    # 明说——没有表时每条请求名都会落成 miss，看起来像固件树塌了。
-    if [ -n "${ff_exempt}" ] && [ ! -r "${ff_exempt}" ]; then
-        printf 'diag exempt-unreadable path=%s\n' "${ff_exempt}" >&2
-        ff_exempt=
-    fi
+    fw_flat_exm
 
     if [ "${ff_verb}" = apply ]; then
         fw_flat_apply
