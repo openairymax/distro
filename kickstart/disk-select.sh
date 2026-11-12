@@ -74,9 +74,9 @@ airy_scan()
     local skip="${1:-}"
 
     lsblk -dnpo NAME,TYPE,RM,TRAN,SIZE --bytes --pairs 2>/dev/null |
-        awk -v skip="${skip}" '
+        awk -v skip="/dev/${skip}" '
         {
-            name = ""; type = ""; rm = ""; bus = ""; size = ""
+            split("", kv)
             for (i = 1; i <= NF; i++) {
                 eq = index($i, "=")
                 if (eq == 0)
@@ -84,24 +84,14 @@ airy_scan()
                 key = substr($i, 1, eq - 1)
                 val = substr($i, eq + 1)
                 gsub(/"/, "", val)
-                if (key == "NAME")
-                    name = val
-                else if (key == "TYPE")
-                    type = val
-                else if (key == "RM")
-                    rm = val
-                else if (key == "TRAN")
-                    bus = val
-                else if (key == "SIZE")
-                    size = val
+                kv[key] = val
             }
-            if (type != "disk" || rm != "0" || bus == "usb")
+            if (kv["TYPE"] != "disk" || kv["RM"] != "0" ||
+                kv["TRAN"] == "usb" || kv["SIZE"] + 0 <= 0 ||
+                kv["NAME"] == skip)
                 next
-            if (skip != "" && name == "/dev/" skip)
-                next
-            if (size == "" || size + 0 <= 0)
-                next
-            print name, size, (bus == "" ? "-" : bus)
+            bus = kv["TRAN"] == "" ? "-" : kv["TRAN"]
+            print kv["NAME"], kv["SIZE"], bus
         }' | sort -k2,2nr -k1,1
 }
 
