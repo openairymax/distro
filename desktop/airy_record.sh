@@ -238,6 +238,31 @@ record_tty() {
     [ "$rc" -eq 0 ] || fail "recorded-rc=${rc}"
 }
 
+# 音频源按 AUDIO 三态收敛：off 不取、auto 取不到就静音、forced 取不到即
+# 失败。三态写在同一个函数里，调用点不必再复述一遍优先级。
+pick_sink() {
+    sink=
+    if [ "$AUDIO" = off ]; then
+        return 0
+    fi
+    sink=$(audio_sink) || sink=
+    if [ "$AUDIO" = forced ] && [ -z "$sink" ]; then
+        fail no-audio-source
+    fi
+}
+
+# 画面录制的前置：会话、采集尺寸、音频源与默认输出名。任一项不成立即
+# 当场失败，不留一个半配置好的 ffmpeg 命令。
+setup_screen() {
+    need_ffmpeg
+    airy_sess_env || fail no-session
+    [ -n "$SIZE" ] || SIZE=$(screen_size) || fail no-size
+    pick_sink
+    if [ -z "$OUT" ]; then
+        OUT=${HOME}/airymaxos-record-$(date +%Y%m%d-%H%M%S).mkv
+    fi
+}
+
 main() {
     [ -r "$LIB" ] || fail no-session-lib
     # shellcheck source=session_env.sh
@@ -246,20 +271,12 @@ main() {
     # 在进入报告前就退出会让调用方拿不到任何一行证据。
     if [ "$CHECK" -eq 1 ]; then
         check_report
-        return
-    fi
-    if [ "$MODE" = tty ]; then
+    elif [ "$MODE" = tty ]; then
         record_tty
-        return
+    else
+        setup_screen
+        record
     fi
-    need_ffmpeg
-    airy_sess_env || fail no-session
-    [ -n "$SIZE" ] || SIZE=$(screen_size) || fail no-size
-    sink=
-    [ "$AUDIO" = off ] || sink=$(audio_sink) || sink=
-    [ "$AUDIO" = forced ] && [ -z "$sink" ] && fail no-audio-source
-    [ -n "$OUT" ] || OUT=${HOME}/airymaxos-record-$(date +%Y%m%d-%H%M%S).mkv
-    record
 }
 
 while [ $# -gt 0 ]; do
