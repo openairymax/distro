@@ -184,7 +184,8 @@ boot_tool=/usr/lib/airymaxos/scripts/boot_set.sh
 systemctl --root=/ preset-all >/dev/null 2>&1 ||
     airy_out "AIRYMAX-INSTALL-NOTE preset-all rc=$?"
 boot_rc=0
-"${boot_tool}" --root=/ >/tmp/airymax-boot-set.log 2>&1 || boot_rc=$?
+airy_wait boot-set "${boot_tool}" --root=/ \
+    >/tmp/airymax-boot-set.log 2>&1 || boot_rc=$?
 while IFS= read -r line; do
     airy_out "AIRYMAX-BOOT-SET ${line}"
 done </tmp/airymax-boot-set.log
@@ -201,7 +202,8 @@ airy_step 7 8 grub
 grub_args=/usr/lib/airymaxos/boot/grub_args.sh
 [ -x "${grub_args}" ] || airy_fail INSTALL grub-args-tool
 grub_rc=0
-"${grub_args}" --append '' >/tmp/airymax-grub.log 2>&1 || grub_rc=$?
+airy_wait grub-args "${grub_args}" --append '' \
+    >/tmp/airymax-grub.log 2>&1 || grub_rc=$?
 while IFS= read -r line; do
     airy_out "AIRYMAX-GRUB ${line}"
 done </tmp/airymax-grub.log

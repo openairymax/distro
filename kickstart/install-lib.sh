@@ -17,9 +17,19 @@
 # 的 airy_out 与 airy_fail。tools/ks_embed.py 的 audit 对同一脚本段强制
 # 这条顺序。
 #
+# 阶段行只说明「进了哪一段」，说明不了这一段是在跑还是已经死掉：dnf 移除、
+# grub2-mkconfig 与把它们的输出收进日志的两段回放，耗时都在十几秒以上，
+# 屏幕在这段时间里没有任何新行。卡在这里时，人无法区分「慢」与「死」。
+# 因此长命令一律经 airy_wait 执行：超过 BEAT 秒就在控制台补一行心跳，写明
+# 哪一段、在跑哪条命令、已经等了多久。心跳只报已等秒数，不编造上限——装
+# 机脚本段没有 TimeoutStartSec，写一个预期上限等于把别人的判据搬进一个不
+# 存在的机制。
+#
 # 调用约定：只定义函数，无顶层副作用，可同时嵌入 %pre 与 %post。
 #   airy_out   <text>                     写标准输出与可用控制台
+#   airy_beat  <text>                     只写可用控制台（心跳通道）
 #   airy_step  <idx> <total> <name>       记录并打印阶段行
+#   airy_wait  [-q] <name> <cmd...>       跑命令，慢于 AIRY_BEAT 秒就报心跳
 #   airy_fail  <family> <reason> [note]   发布失败标记并终止脚本段
 #   airy_trap  <family>                   置 EXIT 兜底失败标记
 #   set_default / acct_state / acct_req   目标根内断言（chroot %post）
@@ -28,12 +38,13 @@
 AIRY_STEP=
 AIRY_TAG=INSTALL
 
-# airy_out <text> — 同时写标准输出与可用控制台。
-airy_out()
+# airy_beat <text> — 只写可用控制台。心跳走这条通道：写进标准输出会被
+# %post 的 --log 收走，随后又被逐行回放抄一遍，同一行于是在串口上出现
+# 两次，第二次还带着回放前缀。
+airy_beat()
 {
     local dev
 
-    printf '%s\n' "$*"
     for dev in ${AIRY_CONSOLE:-/dev/console /dev/ttyS0 /dev/ttyAMA0}; do
         if [ -w "${dev}" ] && printf '%s\n' "$*" >"${dev}" 2>/dev/null
         then
@@ -43,11 +54,61 @@ airy_out()
     return 0
 }
 
+# airy_out <text> — 同时写标准输出与可用控制台。
+airy_out()
+{
+    printf '%s\n' "$*"
+    airy_beat "$@"
+}
+
 # airy_step <idx> <total> <name> — 记录当前流程段并打印阶段行。
 airy_step()
 {
     AIRY_STEP="$1/$2 $3"
     airy_out "AIRYMAX-INSTALL-STEP $1/$2 $3"
+}
+
+# wait_beat <name> — 心跳循环，每 AIRY_BEAT 秒一行。
+#
+# 计数从调用开始累计，报的是「已经等了多久」，不是墙钟时刻：装机现场没有
+# 对时保证，绝对时刻读不出意义。sleep 必须自己丢掉输出，否则它比命令活得
+# 久，继承到的管道要等下一次 tick 才关，采集端会连带挂住（与 stage_run.sh
+# 同一处理）。主脚本段已经不在时自行退出，不在装机介质上留一个每 15 秒往
+# 串口写一行的孤儿。
+wait_beat()
+{
+    local name="$1" used=0 beat="${AIRY_BEAT:-15}"
+
+    while sleep "${beat}" >/dev/null 2>&1; do
+        kill -0 "$$" 2>/dev/null || return 0
+        used=$((used + beat))
+        airy_beat "AIRYMAX-INSTALL-WAIT step=${AIRY_STEP:-unknown}" \
+            "name=${name} t=${used}s"
+    done
+}
+
+# airy_wait [-q] <name> <cmd...> — 前台跑命令，慢于 BEAT 秒就持续报心跳。
+# 退出码原样透传，调用方的 || 分支与 set -e 语义都不变。-q 只丢掉命令自身
+# 的输出，心跳仍走控制台。
+airy_wait()
+{
+    local quiet=0 name bpid= rc=0
+
+    case "${1:-}" in
+    -q) quiet=1; shift ;;
+    esac
+    name="${1:?airy_wait 缺少命令名}"
+    shift
+    wait_beat "${name}" &
+    bpid=$!
+    if [ "${quiet}" -eq 1 ]; then
+        "$@" >/dev/null 2>&1 || rc=$?
+    else
+        "$@" || rc=$?
+    fi
+    kill "${bpid}" 2>/dev/null || :
+    wait "${bpid}" 2>/dev/null || :
+    return "${rc}"
 }
 
 # airy_fail <family> <reason> [note] — 置失败标记并终止所在脚本段。

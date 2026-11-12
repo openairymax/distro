@@ -412,7 +412,7 @@ airy_out "AIRYMAX-DISK-OK ${persist}"
 #    --disablerepo 全关：移除只看本地 RPMDB，不需要任何仓库元数据。装机
 #    环境里的唯一仓库是载荷 file:// 目录，让 dnf 去读它既慢又引入「仓库
 #    不可读即整段失败」的额外失败面；285H 离线实测该形态 rc=0。
-dnf -y remove --disablerepo='*' cyrus-sasl \
+airy_wait sasl-prune dnf -y remove --disablerepo='*' cyrus-sasl \
     --setopt=clean_requirements_on_remove=false ||
     airy_fail INSTALL sasl-prune
 rpm -q cyrus-sasl >/dev/null 2>&1 && airy_fail INSTALL sasl-plugin-left
@@ -649,7 +649,7 @@ printf 'GRUB_TERMINAL="console serial gfxterm"\n' >>/etc/default/grub
 
 # chroot 内 os-prober 可能因缺 /dev 而告警；菜单本身由 10_linux 生成，
 # 因此 grub2-mkconfig 的非零退出只记录，判定交给下面的事实断言。
-grub2-mkconfig -o "${grub_cfg}" >/dev/null 2>&1 ||
+airy_wait -q grub2-mkconfig grub2-mkconfig -o "${grub_cfg}" ||
     airy_out "AIRYMAX-INSTALL-NOTE grub2-mkconfig rc=$?"
 # 断言我们那段确实进了 cfg，而不是「cfg 里存在某条 gfxmode」：后者可能
 # 只是 00_header 的条件分支，缺字体时整段消失，旧断言于是假绿。
