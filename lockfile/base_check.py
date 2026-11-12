@@ -134,27 +134,41 @@ def live(lines):
             if ln.strip() and not ln.lstrip().startswith("#")]
 
 
+def repo_secs(txt):
+    """仓库段名，按出现顺序。"""
+    return [ln.strip()[1:-1] for ln in txt if ln.startswith("[")]
+
+
+def repo_urls(txt):
+    """每行 baseurl 的右值，一行可能含多个地址。"""
+    return [ln.split("=", 1)[1] for ln in txt if ln.startswith("baseurl=")]
+
+
+def repo_row(base, row, out):
+    """核对一行 baseurl：每段地址指向同一基底，且三家镜像都得在。"""
+    for url in row.split():
+        if "/%s/" % base not in url:
+            bad(out, "repo/baseurl", url)
+        if not any(host in url for host in HOSTS):
+            bad(out, "repo/host", url)
+    for host in HOSTS:
+        if host not in row:
+            bad(out, "repo/host", "%s 缺 %s" % (row.split()[0], host))
+
+
 def check_repo(path, base, out):
     lines = read_lines(path, out)
     if lines is None:
         return
     txt = live(lines)
-    secs = [ln.strip()[1:-1] for ln in txt if ln.startswith("[")]
+    secs = repo_secs(txt)
     if secs != ["airymaxos-" + s for s in SECS]:
         bad(out, "repo/section", ",".join(secs))
-    urls = [ln.split("=", 1)[1] for ln in txt if ln.startswith("baseurl=")]
+    urls = repo_urls(txt)
     if len(urls) != len(SECS):
         bad(out, "repo/count", "%d != %d" % (len(urls), len(SECS)))
     for row in urls:
-        for url in row.split():
-            if "/%s/" % base not in url:
-                bad(out, "repo/baseurl", url)
-            if not any(host in url for host in HOSTS):
-                bad(out, "repo/host", url)
-        for host in HOSTS:
-            if host not in row:
-                bad(out, "repo/host", "%s 缺 %s"
-                    % (row.split()[0], host))
+        repo_row(base, row, out)
     if any("$releasever" in ln for ln in txt):
         bad(out, "repo/releasever", "baseurl 不得使用 $releasever")
 
