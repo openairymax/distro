@@ -77,7 +77,7 @@ fw_flat_usage()
         '  --exempt FILE  豁免表：每行 <名字通配> <原因>，命中的缺件不计入 miss'
 }
 
-# fw_flat_requests —— 驱动声明的固件名，一行一个，去重保序。
+# fw_requests —— 驱动声明的固件名，一行一个，去重保序。
 # modinfo 一次可读多个模块，按批传参避免命令行超限；只读 .modinfo 段，
 # 不执行模块。读不到模块树时返回 2，由调用方决定是报错还是静默。
 #
@@ -90,7 +90,7 @@ fwfr_diag()
     printf 'diag %s\n' "$*" >&2
 }
 
-fw_flat_requests()
+fw_requests()
 {
     fwfr_why=
     if [ -n "${ff_reqfile}" ]; then
@@ -199,7 +199,7 @@ fw_flat_apply()
     ff_exm=0
 
     : >"${ff_tmp}"
-    if ! fw_flat_requests >"${ff_reqs}"; then
+    if ! fw_requests >"${ff_reqs}"; then
         rm -f "${ff_tmp}" "${ff_reqs}"
         printf 'fail=no-requests modules=%s reason=%s\n' \
             "${ff_modules}" "${fwfr_why:-unknown}" >&2
