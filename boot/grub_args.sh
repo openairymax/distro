@@ -247,29 +247,34 @@ check_consoles()
     return "${rc}"
 }
 
-# 改写走 awk 单遍：保留文件其余内容与顺序，只重写参数行与探测开关。写回用
-# cat 覆盖而不是 rename，inode、属主与 SELinux 上下文因此都不变。
-edit()
+# 参数行先按语义算好，再交给结构改写：摘旧项、补缺项、重放控制台三件事只
+# 依赖常量与当前行内容，与文件里其余行无关，因此可以在单遍重排之前完成。
+#
+# 摘掉旧 console= 与 stale 参数：旧集合的顺序与内容属于上一次安装或现场手工
+# 改动，保留任何一个都可能抢走 /dev/console。
+drop_tokens()
 {
-    local tmp="${defaults}.airy-tmp"
-    awk -v add="${args}" -v cons="${consoles}" -v tout="${timeout}" \
-        -v prober=true -v drop="${stale}" '
-    # 旧 console= 全部摘掉：它们的顺序与集合都属于上一次安装或手工改动，
-    # 保留任何一个都可能抢走 /dev/console。stale 里的旧画面参数同理——它们
-    # 与新策略直接冲突，留着等于没改。
-    function nocons(v,   i, n, out, tok) {
-        n = split(v, tok, /[[:space:]]+/)
+    printf '%s\n' "$1" | awk -v drop="${stale}" '
+    {
+        n = split($0, tok, /[[:space:]]+/)
         out = ""
         for (i = 1; i <= n; i++) {
             if (tok[i] == "" || tok[i] ~ /^console=/) continue
             if (index(" " drop " ", " " tok[i] " ") > 0) continue
             out = (out == "" ? tok[i] : out " " tok[i])
         }
-        return out
-    }
-    function merge(v,   i, j, n, m, want, tok, have) {
+        print out
+    }'
+}
+
+# 只补不删：同名参数在命令行里没有语义，已有则跳过，缺的追加到末尾。
+merge_tokens()
+{
+    printf '%s\n' "$1" | awk -v add="${args}" '
+    {
         n = split(add, want, /[[:space:]]+/)
-        m = split(v, tok, /[[:space:]]+/)
+        m = split($0, tok, /[[:space:]]+/)
+        v = $0
         for (j = 1; j <= n; j++) {
             if (want[j] == "") continue
             have = 0
@@ -278,25 +283,33 @@ edit()
             if (have) continue
             v = (v == "" ? want[j] : v " " want[j])
         }
-        return v
-    }
-    # 控制台按常量重放到最前，末位固定是 tty0。
-    function lead(v,   i, n, tok, out) {
-        n = split(cons, tok, /[[:space:]]+/)
-        out = ""
-        for (i = 1; i <= n; i++) {
-            if (tok[i] == "") continue
-            out = (out == "" ? "console=" tok[i] : out " console=" tok[i])
-        }
-        return (v == "" ? out : out " " v)
-    }
+        print v
+    }'
+}
+
+# 控制台按常量重放到最前，末位固定是 tty0——kernel 取最后一个 console=，
+# 顺序即 /dev/console 的归属。
+cmd_line()
+{
+    local rest
+    rest=$(merge_tokens "$(drop_tokens "$(read_args)")")
+    if [ -n "${rest}" ]; then
+        printf '%s %s\n' "$(console_args)" "${rest}"
+    else
+        printf '%s\n' "$(console_args)"
+    fi
+}
+
+# 结构改写走 awk 单遍：保留文件其余内容与顺序，只重写参数行与探测开关。写回
+# 用 cat 覆盖而不是 rename，inode、属主与 SELinux 上下文因此都不变。
+edit()
+{
+    local tmp="${defaults}.airy-tmp" line
+    line=$(cmd_line)
+    awk -v cmd="${line}" -v tout="${timeout}" -v prober=true '
     BEGIN { seen = 0; pseen = 0; tseen = 0 }
     /^[[:space:]]*GRUB_CMDLINE_LINUX=/ {
-        v = substr($0, index($0, "=") + 1)
-        gsub(/"/, "", v)
-        sub(/^[[:space:]]+/, "", v)
-        sub(/[[:space:]]+$/, "", v)
-        printf "GRUB_CMDLINE_LINUX=\"%s\"\n", lead(merge(nocons(v)))
+        printf "GRUB_CMDLINE_LINUX=\"%s\"\n", cmd
         seen = 1
         next
     }
@@ -315,7 +328,7 @@ edit()
     { print }
     END {
         if (!tseen) print "GRUB_TIMEOUT=" tout
-        if (!seen) print "GRUB_CMDLINE_LINUX=\"" lead(merge("")) "\""
+        if (!seen) print "GRUB_CMDLINE_LINUX=\"" cmd "\""
         if (!pseen) print "GRUB_DISABLE_OS_PROBER=" prober
     }' "${defaults}" >"${tmp}" || fail "rewrite ${defaults} failed"
     if cmp -s "${tmp}" "${defaults}"; then
