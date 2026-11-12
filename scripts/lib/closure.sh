@@ -983,23 +983,27 @@ cl_audit()
     fi
 }
 
-closure_fetch()
+# cl_fetch_replay ARCH PKG WORK LOG —— 池与清单吻合就先离线重放：跨境链路对
+# 托管运行商限速到 10–20 KiB/s 时，在线求解在一段预算内根本走不完（见文件
+# 头）。命中返回 0（已收口，不碰任何远端），未命中返回 1。
+cl_fetch_replay()
 {
-    local ks="$1" arch="$2" pkg="$3" work="$4" log="$5"
-    rm -rf "$work"
-    mkdir -p "${work}/repos"
-    cl_arch "$arch" || return 1
-    # 池与清单吻合就先离线重放：跨境链路对托管运行商限速到 10–20 KiB/s 时，
-    # 在线求解在一段预算内根本走不完（见文件头）。命中即返回，不碰任何远端。
-    if cl_replay "$arch" "$pkg" "$work" "$log"; then
-        printf 'closure: 离线重放命中，未访问远端（%s）\n' "$CL_LOCK"
-        # 重放按清单点名、池已逐项校验，命中数即清单包数：这里不重复读盘。
-        printf 'payload cache: hit %d/%d\n' \
-            "${#CL_ARGS[@]}" "${#CL_ARGS[@]}"
-        rm -rf "${work}/root"
-        return 0
-    fi
-    printf 'closure: 未命中离线重放（%s），转在线求解\n' "$CL_STAGE" >&2
+    local arch="$1" pkg="$2" work="$3" log="$4"
+
+    cl_replay "$arch" "$pkg" "$work" "$log" || return 1
+    printf 'closure: 离线重放命中，未访问远端（%s）\n' "$CL_LOCK"
+    # 重放按清单点名、池已逐项校验，命中数即清单包数：这里不重复读盘。
+    printf 'payload cache: hit %d/%d\n' "${#CL_ARGS[@]}" "${#CL_ARGS[@]}"
+    rm -rf "${work}/root"
+    return 0
+}
+
+# cl_fetch_solve KS ARCH WORK —— 在线求解的仓库准备：镜像根探测与排序、包规格
+# 与排除项、池索引。任何一步不成立都中断构建。
+cl_fetch_solve()
+{
+    local ks="$1" arch="$2" work="$3"
+
     rm -rf "${work}/repos" "${work}/dl"
     mkdir -p "${work}/repos"
     cl_init_mirrors
@@ -1018,10 +1022,34 @@ closure_fetch()
     # pc_seed 已按固定格式打印了原因，这里不因它中断构建。
     pc_seed "$CL_POOL" "$CL_LOCK" || true
     cl_pool_init "${work}/repos/pool.repo"
-    cl_try "$ks" "$arch" "$pkg" "$work" "$log" || return 1
-    cl_harvest "${work}/dl" "$pkg" || return 1
-    cl_has_dl "$work" || return 1
-    cl_audit "${work}/dl" "$pkg" || return 1
+}
+
+# cl_lock_maybe DL —— 清单只在显式要求时写。构建端默认不开：源码树里那份是
+# 人工 review 过的输入，每轮用当轮求解结果覆盖它，等于把「钉住」退化成「跟着
+# 漂」。CI 把 CLOSURE_LOCK 指进可写的池目录时才会打开写，那一份随池缓存保存，
+# 下一轮据此离线重放。
+cl_lock_maybe()
+{
+    local dl="$1"
+
+    if [ "$CL_LOCK_W" != "1" ] || [ -z "$CL_LOCK" ]; then
+        return 0
+    fi
+    if [ -n "${CLOSURE_SKIP:-}" ]; then
+        printf 'closure: CLOSURE_SKIP 非空（%s），拒绝写闭包清单\n' \
+            "$CLOSURE_SKIP" >&2
+        printf 'closure: 排除项下的包不在事务里，写出的清单会让装机缺包\n' >&2
+        return 0
+    fi
+    cl_lock_write "$dl" "$CL_LOCK" || return 1
+}
+
+# cl_fetch_absorb WORK PKG —— 审计通过后回填：先判漂移、再结算命中率，最后把
+# 本轮下完的包写进池。
+cl_fetch_absorb()
+{
+    local work="$1" pkg="$2"
+
     # 漂移判定在回填之前：本轮取到的字节若与清单不符，那是上游或本仓不可
     # 复现，先失败再谈缓存，避免把不同字节写进可信集合。
     pc_drift "$CL_LOCK" "${work}/dl" "$pkg" || return 1
@@ -1031,18 +1059,25 @@ closure_fetch()
     # 本轮完整下完的包也入池：下一轮（换版本、换架构、重跑）不必再走
     # 公网。放在审计之后，只有通过审计的事务才扩大池的可信集合。
     pc_absorb "$CL_POOL" "${work}/dl" "$CL_OWN"
-    # 清单只在显式要求时写。构建端默认不开：源码树里那份是人工 review 过
-    # 的输入，每轮用当轮求解结果覆盖它，等于把「钉住」退化成「跟着漂」。
-    # CI 把 CLOSURE_LOCK 指进可写的池目录时才会打开写，那一份随池缓存
-    # 保存，下一轮据此离线重放。
-    if [ "$CL_LOCK_W" = "1" ] && [ -n "$CL_LOCK" ]; then
-        if [ -n "${CLOSURE_SKIP:-}" ]; then
-            printf 'closure: CLOSURE_SKIP 非空（%s），拒绝写闭包清单\n' \
-                "$CLOSURE_SKIP" >&2
-            printf 'closure: 排除项下的包不在事务里，写出的清单会让装机缺包\n' >&2
-        else
-            cl_lock_write "${work}/dl" "$CL_LOCK" || return 1
-        fi
-    fi
+    cl_lock_maybe "${work}/dl" || return 1
     rm -rf "${work}/root" "${work}/dl"
+}
+
+closure_fetch()
+{
+    local ks="$1" arch="$2" pkg="$3" work="$4" log="$5"
+
+    rm -rf "$work"
+    mkdir -p "${work}/repos"
+    cl_arch "$arch" || return 1
+    if cl_fetch_replay "$arch" "$pkg" "$work" "$log"; then
+        return 0
+    fi
+    printf 'closure: 未命中离线重放（%s），转在线求解\n' "$CL_STAGE" >&2
+    cl_fetch_solve "$ks" "$arch" "$work" || return 1
+    cl_try "$ks" "$arch" "$pkg" "$work" "$log" || return 1
+    cl_harvest "${work}/dl" "$pkg" || return 1
+    cl_has_dl "$work" || return 1
+    cl_audit "${work}/dl" "$pkg" || return 1
+    cl_fetch_absorb "$work" "$pkg"
 }
