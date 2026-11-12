@@ -131,7 +131,7 @@ check_report() {
         say 'check x11grab=absent'
         status=degraded
     fi
-    if airy_session_env; then
+    if airy_sess_env; then
         say "check session=${DISPLAY}"
         say "check xauthority=${XAUTHORITY}"
         size=$(screen_size) || size=absent
@@ -253,7 +253,7 @@ main() {
         return
     fi
     need_ffmpeg
-    airy_session_env || fail no-session
+    airy_sess_env || fail no-session
     [ -n "$SIZE" ] || SIZE=$(screen_size) || fail no-size
     sink=
     [ "$AUDIO" = off ] || sink=$(audio_sink) || sink=

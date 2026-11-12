@@ -390,7 +390,7 @@ t5_wallpaper() {
 }
 
 # T6: 内核归属（运行内核、/boot 三件套、配置与模块签名）
-t6_kernel_identity() {
+t6_kernel_id() {
     local rel f ko total=0 bad=0 taint sig tailhex
     rel="$(uname -r)"
     # 发行版内核带 -alk 本地版本后缀，这是「跑的是不是自己的内核」最便宜的
@@ -677,7 +677,7 @@ t11_efi_brand() {
 # T12: 免密提权（amuser 交付为空口令，而空口令在 sudo 的 PAM 栈里不是可用
 # 的交互凭据；缺了 NOPASSWD，装机后没有任何非交互提权路径，从桌面上却看不出
 # 异常。这里直接以交付账户身份试一次，不读配置文件）
-t12_passwordless() {
+t12_nopw() {
     local f="${SYSROOT}/etc/sudoers.d/90-airymax"
     if [ -n "${SYSROOT}" ]; then
         [ -f "${f}" ] || {
@@ -703,7 +703,7 @@ t12_passwordless() {
 # 不住任何人，只把「开机即桌面」变成「每五分钟输一次口令」。策略以 dconf
 # 系统库交付，键文件在位但未 dconf update 时不会生效，所以这里必须读实际
 # 键值，而不是看文件是否存在）
-t13_passwordless_desktop() {
+t13_nopw_desk() {
     local f="${SYSROOT}/etc/dconf/db/local.d/00-airymax-screensaver"
     if [ -n "${SYSROOT}" ]; then
         [ -f "${f}" ] || {
@@ -1059,7 +1059,7 @@ t19_fw_blob() {
     fw_clean 'no suitable firmware found' 'a driver without its blob'
 }
 
-t20_fw_microcode() {
+t20_fw_ucode() {
     fw_clean 'failed to run init ucode' 'stale CPU microcode'
 }
 
@@ -1162,7 +1162,7 @@ t22_font_geom() {
 # 「装完当天正常、重启后失声」会一直躲过冒烟。判据取本次启动的命令行与单元
 # 状态：前者证明默认文件真的被应用，后者证明 VT 拿到了 /dev/console，两者
 # 缺一都不能说明台面上的机器已经收敛。
-t22_console_state() {
+t22_console() {
     local file="${SYSROOT}/proc/cmdline" line state
     need systemctl || return 1
     [ -r "${file}" ] || {
@@ -1347,7 +1347,7 @@ t24_session() {
 # 主题名指向不存在的目录，都是同样的坏桌面；字体来自哪个包并不重要。
 # hicolor 必须单独断言：ukui 主题只覆盖自己命名的图标，第三方 .desktop 的
 # 图标全部落在 hicolor 上，缺它时开始菜单与任务栏照样是空白格。
-t25_desktop_assets() {
+t25_desk_assets() {
     local fam theme file
 
     need fc-list || return 1
@@ -1434,7 +1434,7 @@ t26_fw_miss() { # t26_fw_miss <日志> — 打 flat=/miss= 与缺项原文，缺
 # 清单缺失说明 %posttrans 没在目标系统跑过（0.0.4 首装即此形态），失败行同时
 # 带出安装期自证日志的最后一行；清单为空说明基底本身就是扁平布局，此时要求
 # 根上有 iwlwifi-*.ucode。
-t26_wifi_fw_layout() {
+t26_wifi_fw() {
     local root="${SYSROOT}/usr/lib/firmware" out f n=0
     local tool="${SYSROOT}/usr/libexec/airymaxos/fw-flat.sh"
     local list="${SYSROOT}/usr/share/airymaxos/firmware/firmware-flat.list"
@@ -1522,7 +1522,7 @@ cnt_of() {
 # 每块触控板接走；它面对 I2C-HID 触控板拿不到压力，点击与手势全失效，
 # 而 /proc/bus/input/devices 一切正常（285H 实测）。所以有 X 日志时再按
 # 「谁在驱动这块板」判一次：synaptics 命中即失败，libinput 命中才通过。
-t29_driver_owner() {
+t29_drv_owner() {
     local dev="$1" log="${SYSROOT}/var/log/Xorg.0.log" pad
 
     pad="$(sed -n 's/^N: Name="\(.*[Tt]ouchpad.*\)"$/\1/p' "${dev}" | head -1)"
@@ -1566,7 +1566,7 @@ t29_touchpad() {
         return 0
     fi
     if grep -qi touchpad "${dev}" 2>/dev/null; then
-        t29_driver_owner "${dev}"
+        t29_drv_owner "${dev}"
         return
     fi
     # 失败时把链路三段的数量一并给出：0 个适配器是控制器没绑上，有适配器
@@ -1619,27 +1619,27 @@ probe 2 "T2 ibus input method" t2_ime
 probe 3 "T3 pulseaudio stack" t3_audio
 probe 4 "T4 desktop slice" t4_slice
 probe 5 "T5 built-in wallpaper" t5_wallpaper
-probe 6 "T6 kernel identity" t6_kernel_identity
+probe 6 "T6 kernel identity" t6_kernel_id
 probe 7 "T7 lsm registry" t7_lsm_registry
 probe 8 "T8 product hostname" t8_hostname
 probe 9 "T9 release brand" t9_brand
 probe 10 "T10 display mode policy" t10_display
 probe 11 "T11 efi boot brand" t11_efi_brand
-probe 12 "T12 passwordless elevation" t12_passwordless
-probe 13 "T13 passwordless desktop" t13_passwordless_desktop
+probe 12 "T12 passwordless elevation" t12_nopw
+probe 13 "T13 passwordless desktop" t13_nopw_desk
 probe 14 "T14 installed dnf sources" t14_repos
 probe 15 "T15 durable boot arguments" t15_boot_args
 probe 16 "T16 observer tools selfcheck" t16_obs_tools
 probe 17 "T17 system disk layout" t17_disk_layout
 probe 18 "T18 build provenance" t18_build_id
 probe 19 "T19 firmware blob present" t19_fw_blob
-probe 20 "T20 cpu microcode loaded" t20_fw_microcode
+probe 20 "T20 cpu microcode loaded" t20_fw_ucode
 probe 21 "T21 firmware api match" t21_fw_api
-probe 22 "T22 runtime console state" t22_console_state
+probe 22 "T22 runtime console state" t22_console
 probe 23 "T23 system inventory" t23_inventory
 probe 24 "T24 desktop session steady" t24_session
-probe 25 "T25 desktop fonts and icons" t25_desktop_assets
-probe 26 "T26 wireless firmware layout" t26_wifi_fw_layout
+probe 25 "T25 desktop fonts and icons" t25_desk_assets
+probe 26 "T26 wireless firmware layout" t26_wifi_fw
 probe 27 "T27 field diagnostic tools" t27_field_tools
 probe 28 "T28 network front closure" t28_net_front
 probe 29 "T29 builtin touchpad" t29_touchpad

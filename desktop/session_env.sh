@@ -33,7 +33,7 @@ airy_proc_env() {
 
 # logind 里的 X11 会话：只认 Type=x11 且有 Display 的，wayland 会话没有
 # X socket 可供 x11grab 使用。
-airy_logind_session() {
+airy_sess_id() {
     for sid in $(loginctl list-sessions --no-legend 2>/dev/null |
         awk '$1 ~ /^[0-9]+$/ { print $1 }'); do
         [ "$(loginctl show-session "$sid" -p Type --value 2>/dev/null)" = x11 ] ||
@@ -66,12 +66,12 @@ airy_x_socket() {
 }
 
 # 对外入口：成功后导出 DISPLAY 与 XAUTHORITY，两者互为配套，不单独导出。
-airy_session_env() {
+airy_sess_env() {
     if [ -n "${DISPLAY:-}" ] && [ -n "${XAUTHORITY:-}" ] &&
         [ -r "${XAUTHORITY}" ]; then
         airy_display=$DISPLAY
         airy_xauthority=$XAUTHORITY
-    elif ! airy_logind_session; then
+    elif ! airy_sess_id; then
         airy_x_socket || return 1
     fi
     DISPLAY=$airy_display
