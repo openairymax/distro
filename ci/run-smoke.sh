@@ -1160,44 +1160,57 @@ t21_fw_api() {
 # ASCII，字号却还是 8x16。PSF2 头在偏移 24/28 给出真实 height/width；PSF1
 # 没有尺寸字段（固定 8 列），在任何 2880 宽容量的屏幕上都不足，因此这里要求
 # PSF2，指过去也判失败。
-t22_font_geom() {
-    local conf="$1" font file hdr h w
-    local -a head=()
+t22_font_name() { # t22_font_name <变量> <vconsole.conf> — FONT 的最后一次赋值
+    local -n out="$1"
+    local conf="$2"
 
     [ -r "${conf}" ] || {
         printf '%s unreadable\n' "${conf}"
         return 1
     }
-    font=$(sed -n 's/^[[:space:]]*FONT="\{0,1\}\([^"]*\)"\{0,1\}[[:space:]]*$/\1/p' \
+    out=$(sed -n 's/^[[:space:]]*FONT="\{0,1\}\([^"]*\)"\{0,1\}[[:space:]]*$/\1/p' \
         "${conf}" | tail -n 1)
-    [ -n "${font}" ] || {
+    [ -n "${out}" ] || {
         printf '%s carries no FONT\n' "${conf}"
         return 1
     }
-    for file in "${SYSROOT}/usr/lib/kbd/consolefonts/${font}.psfu.gz" \
-                "${SYSROOT}/usr/lib/kbd/consolefonts/${font}.psf.gz" \
-                "${SYSROOT}/usr/lib/kbd/consolefonts/${font}.psfu" \
-                "${SYSROOT}/usr/lib/kbd/consolefonts/${font}.psf"; do
-        [ -r "${file}" ] && break
-        file=
+}
+
+t22_font_file() { # t22_font_file <变量> <字体名> — 四种后缀里首个可读的文件
+    local -n out="$1"
+    local dir="${SYSROOT}/usr/lib/kbd/consolefonts" path
+
+    for path in "${dir}/$2.psfu.gz" "${dir}/$2.psf.gz" "${dir}/$2.psfu" \
+        "${dir}/$2.psf"; do
+        [ -r "${path}" ] || continue
+        out="${path}"
+        return 0
     done
-    [ -n "${file}" ] || {
-        printf 'font %s is absent from %s\n' "${font}" \
-            "${SYSROOT}/usr/lib/kbd/consolefonts"
-        return 1
-    }
-    # od 每 16 字节换一行，先用 tr 摊平再交给 read：read 只吃一行，分行时
-    # 数组会只有 16 个元素，几何字段永远读不到。
-    case "${file}" in
-    *.gz) hdr=$(zcat "${file}" 2>/dev/null | od -An -tu1 -N32 | tr -s ' \n' ' ') ;;
-    *) hdr=$(od -An -tu1 -N32 "${file}" 2>/dev/null | tr -s ' \n' ' ') ;;
+    printf 'font %s is absent from %s\n' "$2" "${dir}"
+    return 1
+}
+
+t22_font_head() { # t22_font_head <变量> <文件> — 头部 32 字节的十进制列
+    local -n out="$1"
+
+    case "$2" in
+    *.gz) out=$(zcat "$2" 2>/dev/null | od -An -tu1 -N32 | tr -s ' \n' ' ') ;;
+    *) out=$(od -An -tu1 -N32 "$2" 2>/dev/null | tr -s ' \n' ' ') ;;
     esac
-    read -r -a head <<<"${hdr}"
-    if [ "${#head[@]}" -ne 32 ] || [ "${head[0]}" -ne 114 ] ||
-        [ "${head[1]}" -ne 181 ]; then
+}
+
+# od 每 16 字节换一行，先用 tr 摊平再交给 read：read 只吃一行，分行时
+# 数组会只有 16 个元素，几何字段永远读不到。
+t22_psf2() { # t22_psf2 <字体名> <文件> <十进制头部> — PSF2 魔数与几何下限
+    local font="$1" file="$2" h w
+    local -a head=()
+
+    read -r -a head <<<"$3"
+    [ "${#head[@]}" -eq 32 ] && [ "${head[0]}" -eq 114 ] &&
+        [ "${head[1]}" -eq 181 ] || {
         printf '%s is not a PSF2 font\n' "${file}"
         return 1
-    fi
+    }
     h=$(( head[24] + head[25] * 256 + head[26] * 65536 + head[27] * 16777216 ))
     w=$(( head[28] + head[29] * 256 + head[30] * 65536 + head[31] * 16777216 ))
     [ "${w}" -ge 12 ] && [ "${h}" -ge 24 ] || {
@@ -1205,6 +1218,15 @@ t22_font_geom() {
         return 1
     }
     printf 'console font %s: %sx%s\n' "${font}" "${w}" "${h}"
+}
+
+t22_font_geom() { # t22_font_geom <vconsole.conf> — 控制台字体几何
+    local conf="$1" font file hdr
+
+    t22_font_name font "${conf}" || return 1
+    t22_font_file file "${font}" || return 1
+    t22_font_head hdr "${file}"
+    t22_psf2 "${font}" "${file}" "${hdr}"
 }
 
 # T22 运行期控制台：默认文件只说明「下一次 grub2-mkconfig 会写出什么」，而
