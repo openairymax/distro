@@ -82,7 +82,7 @@
 # spec-lint: source-bundle ../../system/services/airypkg
 
 %global airy_version 0.0.4
-%global airy_release 54
+%global airy_release 55
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 
@@ -603,6 +603,11 @@ fi
 %{python3_sitelib}/airypkg
 
 %changelog
+* Thu Nov 12 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-55
+- 阶段结论行带上实测耗时。stage_run 在结论行关键值之前打印 ms=<毫秒>，
+  取 EPOCHREALTIME 计算的开始到退出耗时；取不到时间源时不打印，避免把
+  「没有读数」写成 0。耗时每轮都变，因此不进结论指纹，timer 重跑三个单元
+  的重复抑制仍按关键值命中，不会把同一结论刷满 journal
 * Thu Nov 12 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-54
 - 给 oneshot 单元补上启动超时，并让卡点报告自带最后一句日志。
   agentrt-config 与 airy-incident@ 此前没有 TimeoutStartSec，按 systemd
