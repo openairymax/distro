@@ -660,7 +660,7 @@ cl_fatal()
 cl_try()
 {
     local ks="$1" arch="$2" pkg="$3" work="$4" log="$5"
-    local root label n rc t0 pid idx=0 total="${#CL_ROOTS[@]}"
+    local root label idx=0 total="${#CL_ROOTS[@]}"
     : >"$log"
     for root in "${CL_ROOTS[@]}"; do
         idx=$((idx + 1))
@@ -669,47 +669,64 @@ cl_try()
         cl_repos "$ks" "${work}/repos/closure.repo" "$root" || return 1
         printf '%s\n' "$label" >"${work}/mirror-root.txt"
         rm -rf "${work}/dl"
-        n=1
-        while :; do
-            printf '\n## 求解尝试 %d 镜像根=%s\n' "$n" "$label" >>"$log"
-            t0="$(date +%s)"
-            mkdir -p "${work}/dl"
-            cl_run "$work" "$arch" "$pkg" "$log" &
-            pid=$!
-            cl_watch "$work" "$pid" "$t0"
-            wait "$pid" && rc=0 || rc=$?
-            if [ "$rc" -ne 0 ]; then
-                # 未完成也把已校验的包收进缓存池：下一轮只在池外补缺，
-                # 失败的次数不再等价于从零重来。
-                pc_absorb "$CL_POOL" "${work}/dl" "$CL_OWN"
-            fi
-            [ "$rc" -eq 0 ] && return 0
-            if cl_fatal "${work}/dl" "$log" "$(( $(date +%s) - t0 ))"; then
-                break
-            fi
-            if [ "$CL_SLOW" -eq 1 ]; then
-                CL_SLOW=0
-                printf 'closure: 镜像根 %s 速率低于下限，跳过重试换下一个根\n' \
-                    "$label" >&2
-                break
-            fi
-            if [ "$CL_STALLED" -eq 1 ]; then
-                # 挂死是快照侧的确定性故障，同一根上重试只会再静默一轮，
-                # 把 3 次重试的等待压成一次，直接换快照。
-                CL_STALLED=0
-                printf 'closure: 镜像根 %s 求解挂死，跳过重试换下一个根\n' \
-                    "$label" >&2
-                break
-            fi
-            [ "$n" -lt "$CL_TRY" ] || break
-            printf 'closure: 镜像根 %s 第 %d 次求解未完成，%d 秒后重试\n' \
-                "$label" "$n" "$CL_WAIT" >&2
-            n=$((n + 1))
-            sleep "$CL_WAIT"
-        done
+        cl_root "$work" "$arch" "$pkg" "$log" "$label" && return 0
         printf 'closure: 镜像根 %s 求解失败（已试 %d/%d）\n' \
             "$label" "$idx" "$total" >&2
     done
+    return 1
+}
+
+# 单根内的事务级重试：成功即返回 0；确定性故障（致命失败、速率低于下限、
+# 求解挂死）只试一次，交给调用方换根，不在同一快照上空耗。
+cl_root()
+{
+    local work="$1" arch="$2" pkg="$3" log="$4" label="$5"
+    local n=1 rc t0 pid
+    while :; do
+        printf '\n## 求解尝试 %d 镜像根=%s\n' "$n" "$label" >>"$log"
+        t0="$(date +%s)"
+        mkdir -p "${work}/dl"
+        cl_run "$work" "$arch" "$pkg" "$log" &
+        pid=$!
+        cl_watch "$work" "$pid" "$t0"
+        wait "$pid" && rc=0 || rc=$?
+        [ "$rc" -eq 0 ] && return 0
+        # 未完成也把已校验的包收进缓存池：下一轮只在池外补缺，
+        # 失败的次数不再等价于从零重来。
+        pc_absorb "$CL_POOL" "${work}/dl" "$CL_OWN"
+        if cl_stop "${work}/dl" "$log" "$(( $(date +%s) - t0 ))" "$label"
+        then
+            return 1
+        fi
+        [ "$n" -lt "$CL_TRY" ] || return 1
+        printf 'closure: 镜像根 %s 第 %d 次求解未完成，%d 秒后重试\n' \
+            "$label" "$n" "$CL_WAIT" >&2
+        n=$((n + 1))
+        sleep "$CL_WAIT"
+    done
+}
+
+# 三类确定性故障只值得试一次；命中即打印原因并返回 0，让 cl_root 换根。
+cl_stop()
+{
+    local dl="$1" log="$2" el="$3" label="$4"
+    if cl_fatal "$dl" "$log" "$el"; then
+        return 0
+    fi
+    if [ "$CL_SLOW" -eq 1 ]; then
+        CL_SLOW=0
+        printf 'closure: 镜像根 %s 速率低于下限，跳过重试换下一个根\n' \
+            "$label" >&2
+        return 0
+    fi
+    if [ "$CL_STALLED" -eq 1 ]; then
+        # 挂死是快照侧的确定性故障，同一根上重试只会再静默一轮，
+        # 把 3 次重试的等待压成一次，直接换快照。
+        CL_STALLED=0
+        printf 'closure: 镜像根 %s 求解挂死，跳过重试换下一个根\n' \
+            "$label" >&2
+        return 0
+    fi
     return 1
 }
 
