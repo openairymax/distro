@@ -148,16 +148,39 @@ check_volid()
 
 check_files()
 {
+    check_src
+    check_layout
+    check_secrets
+    pick_dest
+}
+
+check_src()
+{
     [ -n "$SRC" ] || die "${E_INVAL}" "--iso 必填"
     [ -f "$SRC" ] || die "${E_INVAL}" "产品镜像不存在: ${SRC}"
+}
+
+# 分区参数只校验非空：具体形态要到 derive 阶段才随 ks 一起解释，
+# 此处过早判定会把合法写法（分区号 / 完整节点名）判成错误。
+check_layout()
+{
     [ -n "$DISK" ] || die "${E_INVAL}" "--disk 必填"
     [ -n "$ESP" ] || die "${E_INVAL}" "--esp 必填"
     [ -n "$BOOT" ] || die "${E_INVAL}" "--boot 必填"
     [ -n "$SWAP" ] || die "${E_INVAL}" "--swap 必填"
     [ -n "$ROOT" ] || die "${E_INVAL}" "--root 必填"
+}
+
+check_secrets()
+{
     [ -f "$KEY" ] || die "${E_INVAL}" "公钥文件不存在: ${KEY}"
     [ -f "$IFCFG" ] || die "${E_INVAL}" "无线配置不存在: ${IFCFG}"
     [ -f "$PSK" ] || die "${E_INVAL}" "预共享密钥不存在: ${PSK}"
+}
+
+# 产物名由源镜像名派生：同名产物不覆盖，避免半成品混进发布目录。
+pick_dest()
+{
     NAME="$(basename "$SRC" .iso)-site.iso"
     DEST="${OUT_ABS}/${NAME}"
     if [ -e "$DEST" ]; then
