@@ -34,6 +34,9 @@ USAGE = ("用法: airy-kernel [--root DIR] | airy-os [--root DIR]\n"
          "  airy-kernel  内核身份、镜像摘要、Airymax 自有配置项与符号数\n"
          "  airy-os      发行版身份、软件包归属、仓库段、CPU/内存/根盘\n")
 
+# 镜像四项同生同灭：缺镜像时一并写 absent，不留「路径在、摘要空」的半截。
+IMG_KEYS = ("image.path", "image.bytes", "image.sha256", "image.owner")
+
 # /boot/config-<release> 里必须为 y 的自有配置项（D-12 内核归属）。
 AIRY_CFG = (
     "CONFIG_SECURITY_AIRY",
@@ -192,7 +195,7 @@ def kimg(rep, root, rel, live):
     """
     img = root / ("boot/vmlinuz-%s" % rel) if rel else None
     if img is None or not img.is_file():
-        for key in ("image.path", "image.bytes", "image.sha256", "image.owner"):
+        for key in IMG_KEYS:
             rep.put(key, None)
         return
     rep.put("image.path", img)
