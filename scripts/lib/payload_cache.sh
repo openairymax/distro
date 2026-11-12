@@ -179,6 +179,32 @@ pc_stat()
     printf 'payload cache: hit %d/%d\n' "$hit" "$n"
 }
 
+# pc_take POOL RPM SKIP —— 吸收单个包，返回 0 表示计入本轮。已在池中、
+# 空文件、命中跳过清单、摘要不合格都按未吸收处理，不打印汇总。
+# 硬链接失败退回复制，并把 PC_MODE 置为 copy 供汇总行说明本次方式。
+pc_take()
+{
+    local pool="$1" rpm="$2" skip="$3" base
+
+    base="${rpm##*/}"
+    [ -f "${pool}/${base}" ] && return 1
+    [ -s "$rpm" ] || return 1
+    if [ -n "$skip" ]; then
+        # shellcheck disable=SC2254  # 跳过项是 glob，按 glob 匹配才是本意
+        case "$base" in
+        $skip) return 1 ;;
+        esac
+    fi
+    if ! pc_sane "$rpm"; then
+        printf 'payload cache: skip %s (digests bad)\n' "$base" >&2
+        return 1
+    fi
+    ln "$rpm" "${pool}/${base}" 2>/dev/null && return 0
+    cp -p "$rpm" "${pool}/${base}" || return 1
+    PC_MODE=copy
+    return 0
+}
+
 # 通过审计的事务才回填：池的可信集合只扩大，不引入未经校验的字节。
 #
 # 回填前逐包自校验，这是本文件曾经判断错误的地方。原先假定「dnf 只在整包
@@ -195,7 +221,8 @@ pc_stat()
 # （run 41792595223 的解算记录：airymaxos-release 0.0.4-7 取自 airymax-pool）。
 pc_absorb()
 {
-    local pool="$1" dl="$2" skip="${3:-}" rpm base kept=0 mode=link
+    local pool="$1" dl="$2" skip="${3:-}" rpm kept=0
+
     [ -n "$pool" ] && [ -d "$dl" ] || return 0
     mkdir -p "$pool" || {
         printf 'payload cache: 无法写入 %s，本轮不回填\n' "$pool" >&2
@@ -206,30 +233,13 @@ pc_absorb()
             "${CL_RPM:-rpm}" >&2
         return 0
     fi
+    PC_MODE='link'
     while IFS= read -r rpm; do
-        base="${rpm##*/}"
-        [ -f "${pool}/${base}" ] && continue
-        [ -s "$rpm" ] || continue
-        if [ -n "$skip" ]; then
-            # shellcheck disable=SC2254  # 跳过项是 glob，按 glob 匹配才是本意
-            case "$base" in
-            $skip) continue ;;
-            esac
-        fi
-        if ! pc_sane "$rpm"; then
-            printf 'payload cache: skip %s (digests bad)\n' "$base" >&2
-            continue
-        fi
-        if ln "$rpm" "${pool}/${base}" 2>/dev/null; then
-            kept=$((kept + 1))
-            continue
-        fi
-        cp -p "$rpm" "${pool}/${base}" || continue
-        mode=copy
+        pc_take "$pool" "$rpm" "$skip" || continue
         kept=$((kept + 1))
     done < <(find "$dl" -maxdepth 1 -type f -name '*.rpm' 2>/dev/null)
     [ "$kept" -gt 0 ] || return 0
-    printf 'payload cache: absorb %d (mode=%s)\n' "$kept" "$mode"
+    printf 'payload cache: absorb %d (mode=%s)\n' "$kept" "$PC_MODE"
 }
 
 # 本轮下载与清单逐包比对。自建包（载荷目录里已有同名文件）不参与：它们的
