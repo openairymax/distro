@@ -211,8 +211,41 @@ drm_cards() { # drm_cards — /sys/class/drm 下的显卡数，0 即没有 KMS �
     printf '%s' "${n}"
 }
 
+# seat_fbdev <line> <argv> — 显式 fbdev 分支：X 必须真的带 -config <conf>。
+# 标记写了 fbdev 而进程没带该参数，说明落点与自述不符，按失败处理。
+seat_fbdev() {
+    local line="$1" argv="$2" conf
+
+    conf=${line#*conf=}
+    conf=${conf%% *}
+    case " ${argv} " in
+    *" -config ${conf} "*) return 0 ;;
+    esac
+    echo "xserver is not using ${conf}: ${line}"
+    return 1
+}
+
+# seat_kms <drv> <line> <argv> — KMS 分支：不得强塞 -config，且至少一路
+# 连接器就绪。驱动名与标记都可能为真，而屏幕仍因缺 EDID 或模式求交失败
+# 而黑屏，所以回查 status/modes/edid 三项实况。
+seat_kms() {
+    local drv="$1" line="$2" argv="$3" out
+
+    case " ${argv} " in
+    *" -config "*) echo "kms ${drv} forced a config: ${line}"; return 1 ;;
+    esac
+    for out in "${SYSROOT}"/sys/class/drm/card*-*; do
+        [ "$(cat "${out}/status" 2>/dev/null)" = connected ] || continue
+        grep -q '[^[:space:]]' "${out}/modes" 2>/dev/null || continue
+        [ -s "${out}/edid" ] || continue
+        return 0
+    done
+    echo "marker claims kms ${drv} but no ready output: ${line}"
+    return 1
+}
+
 seat_marker() { # seat_marker — 校验 xserver.log 的标记与 X 实况一致
-    local log="${SYSROOT}/run/airymaxos/xserver.log" line drv conf argv out
+    local log="${SYSROOT}/run/airymaxos/xserver.log" line drv argv
 
     [ -r "${log}" ] || {
         echo "xserver marker missing: ${log}"
@@ -225,15 +258,7 @@ seat_marker() { # seat_marker — 校验 xserver.log 的标记与 X 实况一致
     # 会伪装成「已按 KMS 启动」，因此这里以运行中进程的命令行为准。
     argv=$(xorg_argv || :)
     case "${drv}" in
-    fbdev)
-        conf=${line#*conf=}
-        conf=${conf%% *}
-        case " ${argv} " in
-        *" -config ${conf} "*) return 0 ;;
-        esac
-        echo "xserver is not using ${conf}: ${line}"
-        return 1
-        ;;
+    fbdev) seat_fbdev "${line}" "${argv}" ;;
     none)
         echo "display reported as absent while X runs: ${line}"
         return 1
@@ -242,20 +267,8 @@ seat_marker() { # seat_marker — 校验 xserver.log 的标记与 X 实况一致
         echo "xserver marker has no driver: ${log}"
         return 1
         ;;
+    *) seat_kms "${drv}" "${line}" "${argv}" ;;
     esac
-    case " ${argv} " in
-    *" -config "*) echo "kms ${drv} forced a config: ${line}"; return 1 ;;
-    esac
-    # KMS 分支回查连接器实况：驱动名与标记都可能为真，而屏幕仍因缺 EDID
-    # 或模式求交失败而黑屏。
-    for out in "${SYSROOT}"/sys/class/drm/card*-*; do
-        [ "$(cat "${out}/status" 2>/dev/null)" = connected ] || continue
-        grep -q '[^[:space:]]' "${out}/modes" 2>/dev/null || continue
-        [ -s "${out}/edid" ] || continue
-        return 0
-    done
-    echo "marker claims kms ${drv} but no ready output: ${line}"
-    return 1
 }
 
 slice_prop() { # slice_prop <systemd 属性>
