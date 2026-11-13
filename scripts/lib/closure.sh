@@ -845,9 +845,43 @@ cl_lock_write()
 # 自建包（CL_OWN）的两处来源不同：清单里仍按当轮事务点名它们，字节却只
 # 取自载荷目录（--repofrompath 的 airymax-local），池里既没有也不该有。
 # 因此按 CL_OWN 分流核对：上游项查池并核摘要，自建项查载荷。
+#
+# 单项核对独立成 cl_pkg_ok：三种缺项各带一句可归因的说明，摊回循环里会
+# 让「跳过这一项」与「这一项为什么不合格」两件事叠在同一层判定上。
+cl_pkg_ok()
+{
+    local pkg="$1" base="$2" sum="$3"
+
+    # shellcheck disable=SC2254  # CL_OWN 是 glob，按 glob 匹配才是本意
+    case "$base" in
+    $CL_OWN)
+        [ -f "${pkg}/${base}" ] && return 0
+        printf 'closure: 载荷缺 %s\n' "$base" >&2
+        return 1
+        ;;
+    esac
+    if [ ! -f "${CL_POOL}/${base}" ]; then
+        printf 'closure: 池缺 %s\n' "$base" >&2
+        return 1
+    fi
+    if ! pc_verify "${CL_POOL}/${base}" "${sum}"; then
+        printf 'closure: 池内 %s 摘要不符\n' "$base" >&2
+        return 1
+    fi
+    # 摘要相符仍可能是清单被污染的那一轮钉下的坏字节；重放会把它原样
+    # 收进载荷，因此这里再验一次包自洽，并把坏文件删掉让在线路径重取。
+    if ! pc_sane "${CL_POOL}/${base}"; then
+        rm -f "${CL_POOL}/${base}"
+        printf 'closure: 池内 %s 自校验失败，已清除\n' "$base" >&2
+        return 1
+    fi
+    return 0
+}
+
 cl_lock_load()
 {
     local lock="$1" pkg="$2" base nev i miss=0
+
     [ -n "$CL_POOL" ] || return 1
     pc_read "$lock" || return 1
     CL_ARGS=()
@@ -855,39 +889,35 @@ cl_lock_load()
         base="${PC_BASE[$i]}"
         nev="${PC_NEV[$i]}"
         [ -n "$nev" ] || continue
-        # shellcheck disable=SC2254  # CL_OWN 是 glob，按 glob 匹配才是本意
-        case "$base" in
-        $CL_OWN)
-            if [ ! -f "${pkg}/${base}" ]; then
-                printf 'closure: 载荷缺 %s\n' "$base" >&2
-                miss=$((miss + 1))
-                continue
-            fi
-            CL_ARGS+=("$nev")
-            continue
-            ;;
-        esac
-        if [ ! -f "${CL_POOL}/${base}" ]; then
-            printf 'closure: 池缺 %s\n' "$base" >&2
+        cl_pkg_ok "$pkg" "$base" "${PC_SUM[$i]}" || {
             miss=$((miss + 1))
             continue
-        fi
-        if ! pc_verify "${CL_POOL}/${base}" "${PC_SUM[$i]}"; then
-            printf 'closure: 池内 %s 摘要不符\n' "$base" >&2
-            miss=$((miss + 1))
-            continue
-        fi
-        # 摘要相符仍可能是清单被污染的那一轮钉下的坏字节；重放会把它原样
-        # 收进载荷，因此这里再验一次包自洽，并把坏文件删掉让在线路径重取。
-        if ! pc_sane "${CL_POOL}/${base}"; then
-            rm -f "${CL_POOL}/${base}"
-            printf 'closure: 池内 %s 自校验失败，已清除\n' "$base" >&2
-            miss=$((miss + 1))
-            continue
-        fi
+        }
         CL_ARGS+=("$nev")
     done
     [ "$miss" -eq 0 ] && [ "${#CL_ARGS[@]}" -gt 0 ]
+}
+
+# 重放前置：清单必须存在且与池逐项吻合。「清单还没生成」与「清单与池不
+# 吻合」是两件事：前者是首轮的正常状态，后者意味着池被改过或缺项。混成
+# 一句，日志就无法回答「为什么这一轮还在线求解」，而这正是此前每轮都走
+# 公网却无从归因的原因。前置各自写下 CL_STAGE，重放段只按结果退出。
+cl_lock_pre()
+{
+    local pkg="$1"
+
+    if [ -z "$CL_LOCK" ]; then
+        CL_STAGE="未配置清单（CLOSURE_LOCK 为空）"
+        return 1
+    fi
+    if [ ! -s "$CL_LOCK" ]; then
+        CL_STAGE="清单尚未生成（${CL_LOCK}）"
+        return 1
+    fi
+    cl_lock_load "$CL_LOCK" "$pkg" || {
+        CL_STAGE="清单与池不吻合"
+        return 1
+    }
 }
 
 # 完全离线重放：reposdir 里只有池这一个 file:// 仓库，不取任何远端元数据。
@@ -897,25 +927,11 @@ cl_lock_load()
 cl_replay()
 {
     local arch="$1" pkg="$2" work="$3" log="$4"
+
     # 重放按清单 NEVRA 点名，不经 cl_args 构造事务；引导链仍要在此登记，
     # 否则审计无从判断载荷能否满足装机阶段的引导请求。
     cl_boot "$arch" || return 1
-    if [ -n "$CL_LOCK" ]; then
-        # 「清单还没生成」与「清单与池不吻合」是两件事：前者是首轮的正常
-        # 状态，后者意味着池被改过或缺项。混成一句，日志就无法回答「为什么
-        # 这一轮还在线求解」，而这正是此前每轮都走公网却无从归因的原因。
-        if [ ! -s "$CL_LOCK" ]; then
-            CL_STAGE="清单尚未生成（${CL_LOCK}）"
-            return 1
-        fi
-        cl_lock_load "$CL_LOCK" "$pkg" || {
-            CL_STAGE="清单与池不吻合"
-            return 1
-        }
-    else
-        CL_STAGE="未配置清单（CLOSURE_LOCK 为空）"
-        return 1
-    fi
+    cl_lock_pre "$pkg" || return 1
     rm -rf "${work}/repos" "${work}/dl"
     mkdir -p "${work}/repos"
     cl_pool_init "${work}/repos/pool.repo" || {
