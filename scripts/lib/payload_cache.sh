@@ -106,15 +106,11 @@ pc_fallback()
     printf 'payload cache: unavailable %s — falling back to full harvest\n' "$1"
 }
 
-# 求解前核对池：与清单不符的文件立即删除，使本轮从上游重取真实字节。
-#
-# 摘要相符的条目还要过一遍包自校验：相符只说明「与清单同字节」，而清单可能
-# 正是上一轮把坏字节钉成的锚点。证伪的条目同时从内存清单里剔除，否则本轮
-# 的漂移判定会继续拿它当基准，把重新下载的正确字节判成 AIRY-PAYLOAD-DRIFT。
-pc_seed()
+# pc_probe <lock> <pool> —— 池可用的三个前提：清单可解析、目录在、校验器
+# 在场。缺任何一项都回落全量收割；检查集中在此，pc_seed 只负责核对条目。
+pc_probe()
 {
-    local pool="$1" lock="$2" base sum i hit=0 total bad=0
-    local -a sum2=() base2=() nev2=()
+    local lock="$1" pool="$2"
     if ! pc_read "$lock"; then
         pc_fallback "清单缺失或为空（${lock:-未配置}）"
         return 1
@@ -127,27 +123,52 @@ pc_seed()
         pc_fallback "校验器缺失（${CL_RPM:-rpm}）"
         return 1
     fi
+}
+
+# pc_entry <pool> <base> <sum> —— 单条核对，返回 0 命中、1 不在池中、
+# 2 在池中但被证伪（文件已删除）。两种证伪分开报：digests bad 是字节被
+# 截断或损坏，sha256 mismatch 是与清单不同源，复盘时是两条不同的线索。
+pc_entry()
+{
+    local path="$1/$2" base="$2" sum="$3"
+    [ -f "$path" ] || return 1
+    if ! pc_sane "$path"; then
+        rm -f "$path"
+        printf 'payload cache: discard %s (digests bad)\n' "$base"
+        return 2
+    fi
+    if pc_verify "$path" "$sum"; then
+        return 0
+    fi
+    rm -f "$path"
+    printf 'payload cache: discard %s (sha256 mismatch)\n' "$base"
+    return 2
+}
+
+# 求解前核对池：与清单不符的文件立即删除，使本轮从上游重取真实字节。
+#
+# 摘要相符的条目还要过一遍包自校验：相符只说明「与清单同字节」，而清单可能
+# 正是上一轮把坏字节钉成的锚点。证伪的条目同时从内存清单里剔除，否则本轮
+# 的漂移判定会继续拿它当基准，把重新下载的正确字节判成 AIRY-PAYLOAD-DRIFT。
+pc_seed()
+{
+    local pool="$1" lock="$2" base sum i hit=0 total bad=0 rc=0
+    local -a sum2=() base2=() nev2=()
+    pc_probe "$lock" "$pool" || return 1
     total=${#PC_BASE[@]}
     for i in "${!PC_BASE[@]}"; do
         base="${PC_BASE[$i]}"
         sum="${PC_SUM[$i]}"
-        if [ -f "${pool}/${base}" ] && ! pc_sane "${pool}/${base}"; then
-            rm -f "${pool}/${base}"
+        rc=0
+        pc_entry "$pool" "$base" "$sum" || rc=$?
+        if [ "$rc" -eq 2 ]; then
             bad=$((bad + 1))
-            printf 'payload cache: discard %s (digests bad)\n' "$base"
             continue
         fi
         sum2+=("$sum")
         base2+=("$base")
         nev2+=("${PC_NEV[$i]}")
-        [ -f "${pool}/${base}" ] || continue
-        if pc_verify "${pool}/${base}" "$sum"; then
-            hit=$((hit + 1))
-            continue
-        fi
-        rm -f "${pool}/${base}"
-        bad=$((bad + 1))
-        printf 'payload cache: discard %s (sha256 mismatch)\n' "$base"
+        [ "$rc" -eq 0 ] && hit=$((hit + 1))
     done
     if [ "${#base2[@]}" -gt 0 ]; then
         PC_SUM=("${sum2[@]}")
