@@ -279,17 +279,18 @@ os_rel() { # os_rel <os-release 键> — 去掉赋值两侧的引号
     sed -n "s/^$1=//p" "${SYSROOT}/etc/os-release" | tr -d '"'
 }
 
-# T1: UKUI X11 会话（lightdm 会话 + 会话进程 + X server + 驱动标记）
-t1_x11() {
-    need loginctl || return $?
-    need pgrep || return $?
-    need xdpyinfo || return $?
+# seat_env — 会话环境变量与 systemd 会话属性必须落在 lightdm/X11/active。
+seat_env() {
     [ -n "${DISPLAY:-}" ] || { echo "DISPLAY unset"; return 1; }
     [ -n "${XDG_SESSION_ID:-}" ] || { echo "XDG_SESSION_ID unset"; return 1; }
     expect "$(session_prop Type)" x11 "session type" || return 1
     expect_prefix "$(session_prop Service)" lightdm "session service" ||
         return 1
     expect "$(session_prop Active)" yes "session active" || return 1
+}
+
+# seat_proc — 会话进程与 X 连接实况：两者缺一都无法证明桌面真的起来了。
+seat_proc() {
     pgrep -f ukui-session >/dev/null || {
         echo "ukui-session not running"
         return 1
@@ -298,6 +299,15 @@ t1_x11() {
         echo "X11 unreachable: ${DISPLAY}"
         return 1
     }
+}
+
+# T1: UKUI X11 会话（lightdm 会话 + 会话进程 + X server + 驱动标记）
+t1_x11() {
+    need loginctl || return $?
+    need pgrep || return $?
+    need xdpyinfo || return $?
+    seat_env || return 1
+    seat_proc || return 1
     seat_marker
 }
 
