@@ -80,6 +80,48 @@ airy_rtc_drift()
     airy_out "AIRYMAX-RTC-DRIFT sec=$((sys - sec))"
 }
 
+# airy_rtc_write <tool> <limit> <trace> — 执行写入，返回工具退出码。
+# 有 strace 时顺带记录调用耗时供 airy_rtc_trace 摊开；strace 缺失或注入
+# 失败都不影响写入本身，故外层只按工具退出码归因。
+airy_rtc_write()
+{
+    local tool="$1" limit="$2" trace="$3" rc=0
+    rm -f "${trace}" >/dev/null 2>&1 || true
+    if [ "${AIRY_RTC_TRACE:-auto}" != 0 ] &&
+        command -v strace >/dev/null 2>&1; then
+        timeout "${limit}" strace -f -T \
+            -e trace=clock_settime,settimeofday,ioctl -o "${trace}" \
+            "${tool}" --systohc --utc >/dev/null 2>&1 || rc=$?
+    else
+        timeout "${limit}" "${tool}" --systohc --utc >/dev/null 2>&1 || rc=$?
+    fi
+    return "${rc}"
+}
+
+# airy_rtc_note <rc> <ms> <limit-ms> <dir> — 按退出码给出归因行。
+# 124 是 timeout 自己的码，与「hwclock 报错」是两条不同的线索，不能并成
+# 一条 write-failed。
+airy_rtc_note()
+{
+    local rc="$1" ms="$2" lim_ms="$3" dir="$4"
+    case ${rc} in
+    0)
+        if [ "${ms}" -gt "${lim_ms}" ]; then
+            airy_out "AIRYMAX-RTC-SLOW ms=${ms} limit=${lim_ms}"
+        else
+            airy_out "AIRYMAX-RTC-OK ms=${ms}"
+        fi
+        airy_rtc_drift "${dir}"
+        ;;
+    124)
+        airy_out "AIRYMAX-RTC-SLOW ms=${ms} limit=${lim_ms} reason=timeout"
+        ;;
+    *)
+        airy_out "AIRYMAX-RTC-SKIP reason=write-failed rc=${rc}"
+        ;;
+    esac
+}
+
 # airy_rtc_sync — 把系统时钟写进 RTC，无论成败都返回 0。
 #
 # 测试注入点：AIRY_RTC_DIR（RTC 目录）、AIRY_RTC_TOOL（默认 hwclock）、
@@ -105,35 +147,12 @@ airy_rtc_sync()
         airy_out "AIRYMAX-RTC-SKIP reason=no-tool"
         return 0
     fi
-    rm -f "${trace}" >/dev/null 2>&1 || true
-    if [ "${AIRY_RTC_TRACE:-auto}" != 0 ] &&
-        command -v strace >/dev/null 2>&1; then
-        timeout "${limit}" strace -f -T \
-            -e trace=clock_settime,settimeofday,ioctl -o "${trace}" \
-            "${tool}" --systohc --utc >/dev/null 2>&1 || rc=$?
-    else
-        timeout "${limit}" "${tool}" --systohc --utc >/dev/null 2>&1 || rc=$?
-    fi
+    airy_rtc_write "${tool}" "${limit}" "${trace}" || rc=$?
     end=$(airy_ms)
     ms=$((end - begin))
     [ "${ms}" -ge 0 ] || ms=0
     airy_out "AIRYMAX-RTC-END ms=${ms}"
-    case ${rc} in
-    0)
-        if [ "${ms}" -gt "${lim_ms}" ]; then
-            airy_out "AIRYMAX-RTC-SLOW ms=${ms} limit=${lim_ms}"
-        else
-            airy_out "AIRYMAX-RTC-OK ms=${ms}"
-        fi
-        airy_rtc_drift "${dir}"
-        ;;
-    124)
-        airy_out "AIRYMAX-RTC-SLOW ms=${ms} limit=${lim_ms} reason=timeout"
-        ;;
-    *)
-        airy_out "AIRYMAX-RTC-SKIP reason=write-failed rc=${rc}"
-        ;;
-    esac
+    airy_rtc_note "${rc}" "${ms}" "${lim_ms}" "${dir}"
     airy_rtc_trace "${trace}"
     return 0
 }
