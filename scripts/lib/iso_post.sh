@@ -161,8 +161,8 @@ iso_xor_put()
 # 回读新镜像并逐字节比对，再对回读副本跑一次 cfg_brand 断言幂等（返回 3）。
 iso_cfg_verify()
 {
-    local iso="$1" src="$2" cfg="$3" product="$4" work="$5" rc=0
-    local got="${work}/post/verify.$(basename "${cfg}")"
+    local iso="$1" src="$2" cfg="$3" product="$4" work="$5" rc=0 got
+    got="${work}/post/verify.$(basename "${cfg}")"
     rm -f "${got}"
     if ! iso_xor "${iso}" "/${cfg}" "${got}" "${work}/logs/xorriso.log"; then
         iso_post_log "无法回读 ${cfg}"
@@ -234,7 +234,10 @@ iso_cfg_brand()
 # iso_post_hybrid <iso> <work>
 iso_post_hybrid()
 {
-    local iso="$1" work="$2" rc=0 log="${work}/logs/isohybrid.log"
+    local iso="$1" work="$2" rc=0
+    # log 必须另起一行：同一条 local 里 ${work} 还没有赋值，日志会落到
+    # /logs/isohybrid.log 而被重定向失败挡住，检查根本不会执行。
+    local log="${work}/logs/isohybrid.log"
     python3 "${ISO_POST_ROOT}/tools/isohybrid_sync.py" --check "${iso}" \
         >"${log}" 2>&1 || rc=$?
     case "${rc}" in
@@ -354,16 +357,24 @@ iso_post_brand()
     return 0
 }
 
-# iso_post <iso> <ks> <volid> <work> [--no-md5] [--product NAME]
-iso_post()
+# iso_post_scan <iso> <ks> <volid> <work>
+# 只读契约：介质自述、kickstart 与引导配置三者必须与调用方声明一致。
+# 这些检查不改字节，先做是为了让「打包错了」在第一次改写前就暴露，
+# 避免把时间花在重写一份注定不合格的镜像上。
+iso_post_scan()
 {
     local iso="$1" ks="$2" volid="$3" work="$4"
-    shift 4
-    iso_post_opts "$@" || return 1
-    mkdir -p "${work}/logs" "${work}/post"
     iso_post_id "${iso}" "${volid}" || return 1
     iso_post_ks "${iso}" "${ks}" "${work}" || return 1
     iso_post_cfg "${iso}" "${volid}" "${work}" || return 1
+}
+
+# iso_post_seal <iso> <work>
+# 改写阶段，顺序即语义：品牌化会重打包镜像，几何修复必须紧跟其后，
+# hybrid 只做复核，校验块最后写入（见文件头「处理顺序不可调换」）。
+iso_post_seal()
+{
+    local iso="$1" work="$2"
     if [ -n "${ISO_POST_PRODUCT}" ]; then
         iso_post_brand "${iso}" "${work}" || return 1
     fi
@@ -372,5 +383,15 @@ iso_post()
     if [ "${ISO_POST_MD5}" -eq 1 ]; then
         iso_post_md5 "${iso}" "${work}" || return 1
     fi
-    return 0
+}
+
+# iso_post <iso> <ks> <volid> <work> [--no-md5] [--product NAME]
+iso_post()
+{
+    local iso="$1" ks="$2" volid="$3" work="$4"
+    shift 4
+    iso_post_opts "$@" || return 1
+    mkdir -p "${work}/logs" "${work}/post"
+    iso_post_scan "${iso}" "${ks}" "${volid}" "${work}" || return 1
+    iso_post_seal "${iso}" "${work}"
 }
