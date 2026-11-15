@@ -226,6 +226,26 @@ def parse_fetch(lines: list[str],
     return out
 
 
+def bad_source(name: str, url: str) -> bool:
+    """Source 名不能带路径分隔符，地址必须是 https 且不带宏。"""
+    return "/" in name or not url.startswith("https://") or "%" in url
+
+
+def source_problems(kind: str, num: int, name: str, url: str, refs: set[str],
+                    index: dict[str, set[Path]], seen: set[str],
+                    issues: list[Issue]) -> None:
+    """按固定次序记下这一条 source 的问题：形态、重名、未引用、被提交。"""
+    if bad_source(name, url):
+        issues.append(Issue("E010", num, f"bad {kind}: {name} {url}"))
+    if name in seen:
+        issues.append(Issue("E010", num, f"duplicate {kind}: {name}"))
+    if name not in refs:
+        issues.append(Issue("E010", num, f"{kind} not referenced: {name}"))
+    if index.get(name):
+        issues.append(Issue("E010", num,
+                            f"{kind} must not be committed: {name}"))
+
+
 def check_fetch(kind: str, items: list[tuple[int, str, str, str]],
                 tags: dict, index: dict[str, set[Path]],
                 macros: dict[str, str], issues: list[Issue]) -> set[str]:
@@ -235,15 +255,7 @@ def check_fetch(kind: str, items: list[tuple[int, str, str, str]],
             refs.add(expand(tags[tag][1], macros))
     names: set[str] = set()
     for num, name, url, _sum in items:
-        if "/" in name or not url.startswith("https://") or "%" in url:
-            issues.append(Issue("E010", num, f"bad {kind}: {name} {url}"))
-        if name in names:
-            issues.append(Issue("E010", num, f"duplicate {kind}: {name}"))
-        if name not in refs:
-            issues.append(Issue("E010", num, f"{kind} not referenced: {name}"))
-        if index.get(name):
-            issues.append(Issue("E010", num,
-                                f"{kind} must not be committed: {name}"))
+        source_problems(kind, num, name, url, refs, index, names, issues)
         names.add(name)
     return names
 
