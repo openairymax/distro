@@ -1720,6 +1720,18 @@ class RunSmokeTest(unittest.TestCase):
         self.assertTrue(self.tap(res, 21).startswith("ok"), res.stdout)
         self.assertIn("wireless firmware loaded: 83.ec13314b.0", res.stdout)
 
+    def test_fw_api_load_line_early_in_big_log(self):
+        # 载入行在首屏、其后还有整屏日志：grep -q 命中即关管道，printf 收
+        # SIGPIPE，pipefail 把有命中判成缺项。285H 上一轮过一轮红即此形态，
+        # 日志越大越必现，故用超过管道缓冲（64 KiB）的填充复现。
+        self.tools()
+        filler = ["iwlwifi 0000:01:00.0: WRT: filler %d" % i
+                  for i in range(4000)]
+        res = self.run_smoke(**self.fw_log(
+            "iwlwifi 0000:01:00.0: loaded firmware version 83.ec13314b.0 "
+            "gl-c0-fm-c0-83.ucode op_mode iwlmvm", *filler))
+        self.assertTrue(self.tap(res, 21).startswith("ok"), res.stdout)
+
     def test_fw_api_device_without_load(self):
         # 设备枚举到了、告警也在，但始终没有 loaded firmware：无线不可用
         self.tools()
