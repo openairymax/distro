@@ -60,7 +60,7 @@ SPDX = frozenset({
 })
 SECTION = ("description", "package", "prep", "build", "install",
            "check", "files", "changelog", "pre", "post", "preun",
-           "postun", "clean", "conf", "triggerin", "triggerun",
+           "postun", "posttrans", "clean", "conf", "triggerin", "triggerun",
            "triggerpostun")
 TAG = re.compile(r"^(Name|Version|Release|Summary|License|URL|Epoch|"
                  r"BuildArch|ExclusiveArch|Source\d+|Patch\d+|"
