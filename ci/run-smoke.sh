@@ -1226,11 +1226,14 @@ t21_fw_api() {
         echo "no iwlwifi device"
         return 0
     }
+    # 匹配用 bash 自身，不经管道：set -o pipefail 下 printf | grep -q 会把
+    # 「命中即退出」读成失败——grep 关掉管道后 printf 收到 SIGPIPE，整条管道
+    # 的退出码取 141，于是有命中也被判成缺项。日志越大越容易撞上，285H 上
+    # 同一台干净机器前后两轮 T21 一次过、一次红即由此而来。
     for bdf in ${devs}; do
-        if printf '%s\n' "${log}" \
-            | grep -q "iwlwifi ${bdf}: loaded firmware version"; then
-            continue
-        fi
+        case "${log}" in
+        *"iwlwifi ${bdf}: loaded firmware version"*) continue ;;
+        esac
         miss="${miss} ${bdf}"
     done
     [ -z "${miss}" ] || {
