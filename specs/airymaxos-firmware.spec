@@ -96,6 +96,12 @@ install -d -m 0755 %{buildroot}%{_localstatedir}/log/airymaxos
 %check
 # 清单是判定面唯一的输入，格式错会让门禁静默少判，故在这里逐行验形：
 # 三段式、类别只允许小写与连字符、路径必须落在 /usr/lib/firmware 下。
+#
+# 关掉通配展开：清单第三段允许 glob（iwlwifi-*.ucode* 这类整族声明），而
+# set -- ${line} 会先做路径展开——一行 glob 被展开成上百个字段，三段式判定
+# 随即失败。展开还取决于构建机 /usr/lib/firmware 的当前内容，同一份清单在
+# 不同机器上结论不同。这里只按空白切分，路径形态由下面的 case 判定。
+set -f
 manifest=%{buildroot}%{_datadir}/airymaxos/firmware/fw-manifest.txt
 test -s "${manifest}"
 rows=0
