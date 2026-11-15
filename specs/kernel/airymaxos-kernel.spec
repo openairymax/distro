@@ -63,7 +63,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 10
+%global airy_release 11
 %global kernel_version 6.6.161
 # 本地版本里带上构建号。uname -r 是内核在 /boot、/usr/lib/modules 与
 # 引导项里的唯一身份：只写 -alk 时，补丁级升级前后 uname -r 完全相同，
@@ -498,17 +498,10 @@ assert_file %{ksrc}/tools/bpf/bpftool/bpftool
 %endif
 
 %post core
-# 引导项落地。本产品未启用 BLS，菜单由 grub2-mkconfig 扫描 /boot 现生成；
-# kernel-install 属 systemd 的可选组件，285H 上 `command -v kernel-install`
-# 为空，此前唯一那条分支被「when available」静默跳过：升级完成后菜单里没有
-# 任何本版本条目，而 rpm -U 已删掉旧包的 vmlinuz，第一条指向不存在的文件，
-# 重启即 "file not found"。注册职责因此不挂在 kernel-install 上——它在就照
-# 旧调用，随后的收敛对所有情况都生效：grub_args.sh 的 apply 模式重生成 cfg
-# 并同步品牌副本，后者才是被固件加载的活动配置（D-07）。
-airy_args=/usr/lib/airymaxos/boot/grub_args.sh
-if command -v kernel-install >/dev/null 2>&1; then
-    kernel-install add %{kernel_release} /boot/vmlinuz-%{kernel_release} || :
-fi
+# 引导项落地。本产品未启用 BLS，菜单由 grub2-mkconfig 扫描 /boot 现生成，
+# 收敛与断言在 %%posttrans core 里做（见该段注释：%%post 时旧包文件尚未删除）。
+# 本段只负责让 initramfs 先就位。
+#
 # 早期 udevd 在装载规则时就解析 GROUP=，组不在库里即丢弃整条赋值并留一行
 # "Unknown group"（50-udev-default.rules 的 sgx 即此，285H 与 run
 # 41951370779 都在 initramfs 阶段留下这两行）。dracut 的组库是目标根
@@ -530,11 +523,29 @@ if [ ! -s /boot/initramfs-%{kernel_release}.img ]; then
     echo "airymaxos-kernel: initramfs generation failed" >&2
     exit 1
 fi
-# initramfs 已就位，此时重生成才带上正确的 initrd 行。收敛成功而菜单里没有
+# initramfs 已就位。菜单收敛不在这里做，见下面的 %%posttrans core。
+
+%posttrans core
+# 引导菜单的收敛放在事务末尾，而不是 %%post：rpm 的顺序是「新包 %%post →
+# 删旧包文件 → %%posttrans」。在 %%post 里扫 /boot 时旧内核的 vmlinuz 还在，
+# 生成的菜单会写下一条随后被删掉的条目。0.0.4-9 升 0.0.4-10 的 285H 现场即
+# 如此：vmlinuz-6.6.161-alk.9 已随旧包删除，菜单第二项仍指向它，默认项之外
+# 那条回退路径是坏的。%%posttrans 看到的是本事务结束后的 /boot，扫描结果与
+# 盘上事实一致，同时旧条目随重生成自然消失。
+#
+# 此时本版本 initramfs 与模块树都已就位，断言才有意义。收敛成功而菜单里没有
 # 本版本，说明生成输入或 /boot 视图已不对，放行等于交付一台升级后不可引导
 # 的机器；收敛本身失败（无 /etc/default/grub、无 grub2-mkconfig、ESP 未挂）
 # 则只报告不中止——新装机器的引导项由安装器的 bootloader 阶段在包事务之后
 # 写入，在这里中断会让整台机器装不完。
+# 注册职责也不挂在 kernel-install 上：它在就照旧调用，但菜单能不能引导只由
+# 这里的收敛与断言说话。kernel-install 属 systemd 可选组件，285H 上
+# `command -v kernel-install` 为空，此前唯一那条注册分支被「when available」
+# 静默跳过，升级后菜单里没有任何本版本条目。
+airy_args=/usr/lib/airymaxos/boot/grub_args.sh
+if command -v kernel-install >/dev/null 2>&1; then
+    kernel-install add %{kernel_release} /boot/vmlinuz-%{kernel_release} || :
+fi
 if [ -x "${airy_args}" ]; then
     if "${airy_args}"; then
         "${airy_args}" --require-entry %{kernel_release}
@@ -594,6 +605,12 @@ depmod -a %{kernel_release}
 %endif
 
 %changelog
+* Sun Nov 15 2026 SPHARX <dev@spharx.com> - 0.0.4-11
+- kernel：菜单收敛与断言从 %%post core 移到 %%posttrans core。rpm 的顺序是
+  「新包 %%post → 删旧包文件」，0.0.4-9 升 0.0.4-10 的 285H 现场因此在菜单
+  里留下一条指向已删除 vmlinuz-6.6.161-alk.9 的条目：收敛时旧文件还在，扫描
+  结果与事务结束后的 /boot 不一致。移到 %%posttrans 后扫描看到的是最终视图，
+  过期条目随重生成消失，默认项之外的回退路径不再是坏的
 * Sun Nov 15 2026 SPHARX <dev@spharx.com> - 0.0.4-10
 - kernel：%%post core 不再把引导项注册押在 kernel-install 上。该工具属
   systemd 的可选组件，285H 上不存在（command -v 为空），唯一的注册分支被

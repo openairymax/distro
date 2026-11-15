@@ -174,16 +174,18 @@ class KernelSpecTest(unittest.TestCase):
     def test_boot_entry_converges(self):
         """升级后必须有引导项：kernel-install 缺失时不能只剩静默跳过。"""
         post = body(self.text, "post", "core")
-        self.assertIn("airy_args=/usr/lib/airymaxos/boot/grub_args.sh", post)
-        self.assertIn('"${airy_args}" --require-entry %{kernel_release}', post)
-        self.assertIn("no boot entry for %{kernel_release}", post)
-        self.assertIn("boot config not converged", post)
+        tail = body(self.text, "posttrans", "core")
+        self.assertIn("airy_args=/usr/lib/airymaxos/boot/grub_args.sh", tail)
+        self.assertIn('"${airy_args}" --require-entry %{kernel_release}', tail)
+        self.assertIn("no boot entry for %{kernel_release}", tail)
+        self.assertIn("boot config not converged", tail)
         # 旧 airymaxos-release 的脚本不认识该选项（用法错误退 2），同一事务里
         # 本包可能先装，此时只能报告不能中止
-        self.assertIn("grub_args.sh lacks --require-entry", post)
+        self.assertIn("grub_args.sh lacks --require-entry", tail)
+        # 收敛要在删掉旧包文件之后做，否则菜单会写下一条随后消失的条目
+        self.assertNotIn("grub_args.sh", post)
         # 断言在 initramfs 之后：此时重生成的菜单行才带正确的 initrd
-        self.assertLess(post.index("dracut --force"),
-                        post.index("--require-entry"))
+        self.assertIn("dracut --force", post)
 
     def test_initramfs_unowned(self):
         lines = self.text.splitlines()
