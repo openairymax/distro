@@ -63,7 +63,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 12
+%global airy_release 13
 %global kernel_version 6.6.161
 # 本地版本里带上构建号。uname -r 是内核在 /boot、/usr/lib/modules 与
 # 引导项里的唯一身份：只写 -alk 时，补丁级升级前后 uname -r 完全相同，
@@ -191,6 +191,13 @@ Requires(post): dracut
 Requires:       airymaxos-kernel-modules = %{version}-%{release}
 Provides:       kernel-core = %{kernel_version}
 Provides:       kernel-uname-r = %{kernel_release}
+# install-only 必须落在真正持有内核二进制的子包上。此前只由主包声明，dnf
+# 就只把主包当 install-only：升级时旧主包留在盘上、其精确依赖仍要求旧
+# core = 旧 NEVR，而 core 又不在 install-only 之列，于是 dnf 一边要换掉
+# 旧 core、一边要满足旧主包，两条同时成立即判冲突，0.0.4-12 的
+# `dnf upgrade` 因此在事务解析阶段就失败。core 与 modules 一并声明后，
+# 新旧两套并行存在，旧主包的依赖由旧 core 满足，升级才成立。
+Provides:       installonlypkg(kernel)
 Obsoletes:      kernel-core
 
 %description core
@@ -201,6 +208,9 @@ initramfs and converges the boot menu onto it.
 Summary:        AirymaxOS kernel modules
 Requires(post): kmod
 Provides:       kernel-modules = %{kernel_version}
+# 与 core 同批 install-only：模块树按 uname-r 分目录，旧内核要能回退，
+# 它那一套模块就必须同时在盘上。理由见 core 段对升级冲突的说明。
+Provides:       installonlypkg(kernel)
 Obsoletes:      kernel-modules
 
 %description modules
@@ -620,6 +630,14 @@ depmod -a %{kernel_release}
 %endif
 
 %changelog
+* Sun Nov 15 2026 SPHARX <dev@spharx.com> - 0.0.4-13
+- kernel：core 与 modules 子包补 installonlypkg(kernel) 身份。此前只有主包
+  带该身份，dnf 便只把主包当 install-only：285H 上 0.0.4-11 升 0.0.4-12 时
+  旧主包留在盘上、其精确依赖仍要求 core = 0.0.4-11，而 core 不在 install-only
+  之列，dnf 一边要换掉旧 core、一边要满足旧主包，事务解析直接判冲突
+  （cannot install both ... 与 problem with installed package），装不上去。
+  三包同批 install-only 后新旧两套并行存在，旧主包的依赖由旧 core 满足，
+  installonly_limit 负责回收超出份数的旧内核
 * Sun Nov 15 2026 SPHARX <dev@spharx.com> - 0.0.4-12
 - kernel：%%posttrans core 清掉旧 release 的 initramfs。该文件由 %%post 在
   安装期生成、不属于任何包，rpm 删旧包时不带走它；285H 升级到 0.0.4-11 后

@@ -251,6 +251,18 @@ class KernelSpecTest(unittest.TestCase):
         self.assertIn("Provides: kernel-modules = %{kernel_version}", modules)
         self.assertIn("Obsoletes: kernel-modules", modules)
 
+    def test_installonly_on_owner(self):
+        """install-only 必须同时落在 core 与 modules 上。
+
+        只在主包声明时，dnf 只把主包当 install-only：升级时旧主包留在盘上并
+        仍要求旧 core，而 core 可被替换，事务解析判冲突（0.0.4-12 的 285H
+        现场）。三者同批 install-only 才能让新旧内核并行、升级成立。
+        """
+        core = norm(body(self.text, "package", "core"))
+        modules = norm(body(self.text, "package", "modules"))
+        self.assertIn("Provides: installonlypkg(kernel)", core)
+        self.assertIn("Provides: installonlypkg(kernel)", modules)
+
     def test_no_debuginfo(self):
         self.assertIn("%global debug_package %{nil}", self.text)
 
