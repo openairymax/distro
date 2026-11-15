@@ -20,7 +20,8 @@
 #      （distro/kickstart/airymaxos-workstation.ks），把 bootloader --append
 #      的参数与菜单范围写进 /etc/default/grub 并重建 grub.cfg。--append 只
 #      作用于安装器本次生成的那一份，anaconda 不写 /etc/default/grub，此后
-#      每次 grub2-mkconfig 都会丢掉启动参数；
+#      每次 grub2-mkconfig 都会丢掉启动参数；同一段命令行另落
+#      /etc/kernel/cmdline，供 kernel-install 写 BLS 条目时取用；
 #   7. 部署 EFI 品牌化脚本 efi_brand.sh：同一安装段在 6 之后调用，把
 #      anaconda 留下的 openEuler 引导项替换为置顶的 AirymaxOS 条目，并清掉
 #      本机 ESP 上的同名残留条目，使固件菜单里不再出现上游名字；
@@ -333,6 +334,16 @@ install -m 0755 %{SOURCE25} \
     %{buildroot}/usr/lib/airymaxos/boot/grub_args.sh
 install -m 0755 %{SOURCE20} \
     %{buildroot}/usr/lib/airymaxos/boot/efi_brand.sh
+
+# kernel-install 写 BLS 条目时的命令行来源。缺这个文件时 kernel-install 退回
+# 读取当前 /proc/cmdline，于是为排障临时敲在引导菜单上的 nomodeset、rd.debug
+# 会被写进新内核的条目，成为永久参数。285H 上 0.0.4-8 的显示路径挂死排查正撞
+# 在这里：临时参数一旦固化，下一次启动用同一组参数复现同一个现场，而现场看
+# 起来像产物自身的行为。内容与 grub_args.sh 写进 /etc/default/grub 的命令行
+# 逐字同源，%%check 直接比对两份产物，真源只有 grub_args.sh 一处。
+install -d -m 0755 %{buildroot}%{_sysconfdir}/kernel
+printf 'console=ttyS0,115200 console=tty0 loglevel=5 plymouth.enable=0\n' \
+    >%{buildroot}%{_sysconfdir}/kernel/cmdline
 
 install -d -m 0755 %{buildroot}%{_sysconfdir}/xdg/autostart
 install -m 0644 %{SOURCE9} \
@@ -744,6 +755,13 @@ airy_sum=$(sha256sum <"${airy_tmp}/grub")
 "${airy_args}" --defaults "${airy_tmp}/grub" --no-regen >/dev/null
 test "$(sha256sum <"${airy_tmp}/grub")" = "${airy_sum}"
 "${airy_args}" --defaults "${airy_tmp}/grub" --check >/dev/null
+# BLS 与 grub 两条引导路径必须拿到同一组参数：kernel-install 读
+# /etc/kernel/cmdline，grub-mkconfig 读 /etc/default/grub。两份各写一次常量，
+# 迟早有一边被改漏，届时同机两个内核条目行为不同，而现象只在其中一个上出现。
+airy_bls=$(cat %{buildroot}%{_sysconfdir}/kernel/cmdline)
+airy_rel=$(sed -n 's/^GRUB_CMDLINE_LINUX="\(.*\)"$/\1/p' "${airy_tmp}/grub" |
+    head -n 1)
+test "${airy_bls}" = "${airy_rel}"
 # 字体落位：gfxmode 段落的前提是 $prefix/fonts/unicode.pf2，而 $prefix 由
 # grubx64.efi 内嵌、指向发行版目录，不是品牌副本目录。B50 上字体进了
 # never-loaded 的那份配置旁边，cfg 断言全绿、屏幕仍是 800x600（D-31）。
@@ -903,6 +921,8 @@ fi
 %config(noreplace) %{_sysconfdir}/X11/xinit/xinitrc.d/65-airymax-audio.sh
 %config(noreplace) %{_sysconfdir}/X11/xorg.conf.d/90-airymax-touchpad.conf
 %config(noreplace) %{_sysconfdir}/grub.d/01_airymax_display
+%dir %{_sysconfdir}/kernel
+%config(noreplace) %{_sysconfdir}/kernel/cmdline
 %config(noreplace) %{_sysconfdir}/xdg/autostart/airymax-input-method.desktop
 %config(noreplace) %{_sysconfdir}/xdg/autostart/airymax-display.desktop
 %config(noreplace) %{_sysconfdir}/xdg/autostart/airymax-update-notify.desktop
