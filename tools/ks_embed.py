@@ -104,14 +104,19 @@ def data_body(name: str, text: str, line: int) -> str:
             + text + end + "\n")
 
 
+def locate(name: str, base: Path) -> Path:
+    """共享文件的实际路径：kickstart 目录优先，缺省回落到 ALT_DIR 旁路目录。"""
+    path = base / name
+    if path.is_file() or name not in ALT_DIR:
+        return path
+    alt = base.parent / ALT_DIR[name] / name
+    return alt if alt.is_file() else path
+
+
 def body(name: str, base: Path, line: int) -> str:
     if name not in SHARED and name not in DATA:
         raise EmbedError(line, f"未知的共享脚本: {name or '(空)'}")
-    path = base / name
-    if not path.is_file() and name in ALT_DIR:
-        alt = base.parent / ALT_DIR[name] / name
-        if alt.is_file():
-            path = alt
+    path = locate(name, base)
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as err:
