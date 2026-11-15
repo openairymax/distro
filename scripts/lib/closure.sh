@@ -166,6 +166,7 @@ CL_HAVE=()
 CL_NEW=0
 CL_MIRRORS=()
 CL_ROOTS=()
+CL_HTTP_ROOTS=()
 CL_CANON=""
 # 重放未命中时留下断在哪个阶段。回落的代价是全流程再求一次解，而这段
 # 静默正是此前「池齐了却仍走公网」无从归因的原因；调用方把它拼进一行
@@ -247,6 +248,35 @@ cl_roots()
     [ "${#CL_ROOTS[@]}" -gt 0 ] || CL_ROOTS=("")
 }
 
+# 值得测速的根：只有 http(s) 才有链路可量，file:// 与空串没有意义；少于
+# 两根时排序没有意义，直接判「不必探测」。
+cl_http_roots()
+{
+    local root
+    CL_HTTP_ROOTS=()
+    for root in "${CL_MIRRORS[@]}"; do
+        case "$root" in
+        http://*|https://*) CL_HTTP_ROOTS+=("$root") ;;
+        esac
+    done
+    [ "${#CL_HTTP_ROOTS[@]}" -gt 1 ]
+}
+
+# 取样前提：开关打开、多根候选、工具在位、至少两个 http(s) 根。
+cl_probe_on()
+{
+    [ "$CL_PROBE" = "1" ] || return 1
+    [ "${#CL_MIRRORS[@]}" -gt 1 ] || return 1
+    [ -f "$CL_PROBE_TOOL" ] || return 1
+    cl_http_roots
+}
+
+cl_probe_out()
+{
+    python3 "$CL_PROBE_TOOL" --timeout "$CL_PTIME" \
+        --floor "$(( CL_FLOOR / 1024 ))" "${CL_HTTP_ROOTS[@]}"
+}
+
 # 按实测吞吐重排镜像根。行序是人工维护的，与此刻哪台主机快无关；按行序
 # 尝试等于把最慢的根放在第一位，而每一根都要花掉数分钟才轮到下一根
 # （run 41039410608：三根共耗 15 分钟，日志里没有一行数字说明谁快谁慢）。
@@ -254,21 +284,10 @@ cl_roots()
 # 保持原序继续，CLOSURE_PROBE=0 可整体关闭。测速表直接进构建日志。
 cl_probe()
 {
-    local roots=() root out
-    [ "$CL_PROBE" = "1" ] || return 0
-    [ "${#CL_MIRRORS[@]}" -gt 1 ] || return 0
-    [ -f "$CL_PROBE_TOOL" ] || return 0
-    for root in "${CL_MIRRORS[@]}"; do
-        case "$root" in
-        http://*|https://*) roots+=("$root") ;;
-        esac
-    done
-    [ "${#roots[@]}" -gt 1 ] || return 0
-    if ! out="$(python3 "$CL_PROBE_TOOL" --timeout "$CL_PTIME" \
-        --floor "$(( CL_FLOOR / 1024 ))" "${roots[@]}")"; then
-        # 探测只排序不删减；退出码 3 只声明「没有根达标」，排序结果照样可用。
-        [ -n "$out" ] || return 0
-    fi
+    local out
+    cl_probe_on || return 0
+    # 探测只排序不删减；退出码 3 只声明「没有根达标」，排序结果照样可用。
+    out="$(cl_probe_out)" || :
     [ -n "$out" ] || return 0
     # shellcheck disable=SC2206  # 每行一个根，不含空格
     CL_MIRRORS=(${out})
