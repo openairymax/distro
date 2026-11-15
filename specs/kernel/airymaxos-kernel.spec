@@ -661,9 +661,9 @@ depmod -a %{kernel_release}
   缺失即中断事务；收敛本身失败时只报告不阻断，新装机器的引导项由安装器
   的 bootloader 阶段在包事务之后写入
 * Sun Nov 15 2026 SPHARX <dev@spharx.com> - 0.0.4-8
-- kernel：i915 认领 Arrow Lake-H/U/S 的 PCI ID，并去掉 mtl_info 上的
+- kernel：i915 认领 Arrow Lake-H/U/S 的核显设备，并去掉 mtl_info 上的
   require_force_probe。Intel 把 ARL 的显示设备挂在 MTL 那一行设备表上，
-  该行带 force-probe 门禁，于是 285H 的 00:02.0 [8086:7d51] 从开机起没有
+  该行带 force-probe 门禁，于是 ARL 平台的 00:02.0 核显从开机起没有
   驱动：/dev/dri 不存在、firmware 内置面板只有 2880x1800 一种模式、
   背光与 kscreen 后端全部落到空实现。补丁本身此前已落在 ALK-6.6-dev
   （4eea4aa6141a），但子模块指针仍指向它的父提交，发行内核因此没带上；
