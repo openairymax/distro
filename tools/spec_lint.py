@@ -366,20 +366,34 @@ def check_files(lines: list[str], secs: list[tuple[str, str, int]],
         report_files(num, files_body(lines, secs, pos), issues)
 
 
-def check_log(lines: list[str], secs: list[tuple[str, str, int]],
-              issues: list[Issue]) -> None:
+def chg_body(lines: list[str], secs: list[tuple[str, str, int]]
+             ) -> tuple[int, list[str]] | None:
+    """最后一处 %changelog 的起始行与去空行正文；没有该段时返回 None。"""
     logs = [item for item in secs if item[0] == "changelog"]
     if not logs:
-        return
+        return None
     num = logs[-1][2]
-    body = [x for x in lines[num:] if x.strip()]
-    if not body:
-        issues.append(Issue("E011", num, "%changelog is empty"))
-        return
+    return num, [x for x in lines[num:] if x.strip()]
+
+
+def log_head(num: int, body: list[str], issues: list[Issue]) -> None:
+    """头部行与首条条目：rpm 要求两者格式合规且至少有一条记录。"""
     if not LOG.match(body[0].strip()):
         issues.append(Issue("E011", num + 1, "bad changelog header"))
     if len(body) < 2 or not body[1].lstrip().startswith("- "):
         issues.append(Issue("E011", num + 1, "missing changelog entry"))
+
+
+def check_log(lines: list[str], secs: list[tuple[str, str, int]],
+              issues: list[Issue]) -> None:
+    hit = chg_body(lines, secs)
+    if hit is None:
+        return
+    num, body = hit
+    if not body:
+        issues.append(Issue("E011", num, "%changelog is empty"))
+        return
+    log_head(num, body, issues)
     check_dow(lines, num, issues)
 
 
