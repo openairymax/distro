@@ -251,6 +251,46 @@ def check_docs(docs, pres, out):
             bad(out, "docs/feas", "可行性册缺少 %s" % mark)
 
 
+def locate(root):
+    """台账路径与选定基底；任一缺失返回 (None, None) 并写明原因。"""
+    path = root / "distro/lockfile/ukui-components.yaml"
+    if not path.is_file():
+        sys.stderr.write("ledger/missing: %s\n" % path)
+        return None, None
+    base = read_base(root)
+    if not base:
+        sys.stderr.write("schema/base-missing: %s\n"
+                         % (root / "distro/lockfile/base.yaml"))
+        return None, None
+    return path, base
+
+
+def present_of(led):
+    """台账中 state=present 的记录，顺序即台账顺序。"""
+    return [c for c in led.get("components", [])
+            if c.get("state") == "present"]
+
+
+def survey(root, path, base, out):
+    """除取证册外的全部静态判据；comps 不可读时返回 None。"""
+    led = parse_ledger(path)
+    check_schema(led, base, out)
+    check_items(led, base, out)
+    check_desktop(root, led, out)
+    pres = present_of(led)
+    names = {c.get("name") for c in pres}
+    try:
+        groups, xroot = read_comps(
+            root / "distro/comps/airymaxos-comps.xml")
+    except (OSError, ET.ParseError) as err:
+        sys.stderr.write("comps/unreadable: %s\n" % err)
+        return None
+    want = check_comps(groups, xroot, names, out)
+    check_seeds(read_seeds(root / "distro/lockfile/rpms.in.yaml"),
+                names, want, out)
+    return led, want
+
+
 def main():
     ap = argparse.ArgumentParser(description="UKUI 组件台账离线校验")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -260,41 +300,23 @@ def main():
     args = ap.parse_args()
 
     root = Path(args.root)
-    path = root / "distro/lockfile/ukui-components.yaml"
-    if not path.is_file():
-        sys.stderr.write("ledger/missing: %s\n" % path)
+    path, base = locate(root)
+    if path is None:
         return 1
-    base = read_base(root)
-    if not base:
-        sys.stderr.write("schema/base-missing: %s\n"
-                         % (root / "distro/lockfile/base.yaml"))
-        return 1
-    led = parse_ledger(path)
     out = []
-    check_schema(led, base, out)
-    check_items(led, base, out)
-    check_desktop(root, led, out)
-    pres = {c.get("name") for c in led.get("components", [])
-            if c.get("state") == "present"}
-    try:
-        groups, xroot = read_comps(
-            root / "distro/comps/airymaxos-comps.xml")
-    except (OSError, ET.ParseError) as err:
-        sys.stderr.write("comps/unreadable: %s\n" % err)
+    got = survey(root, path, base, out)
+    if got is None:
         return 1
-    want = check_comps(groups, xroot, pres, out)
-    check_seeds(read_seeds(root / "distro/lockfile/rpms.in.yaml"),
-                pres, want, out)
+    led, want = got
     if args.docs:
-        check_docs(args.docs, [c for c in led.get("components", [])
-                               if c.get("state") == "present"], out)
+        check_docs(args.docs, present_of(led), out)
     for line in out:
         sys.stderr.write("%s\n" % line)
     if out:
         sys.stderr.write("ukui-lock: %d 项失败\n" % len(out))
         return 1
     say("台账 %d 组件，默认安装集 %d 项与冻结输入同源"
-        % (len(pres), len(want)))
+        % (len(present_of(led)), len(want)))
     return 0
 
 
