@@ -154,6 +154,15 @@ def project(text: str) -> str:
     return flowed
 
 
+def pkg_row(word: str) -> tuple[str, str] | None:
+    """把一个 %packages 行归一成 (kind, spec)；空行与注释返回 None。"""
+    if not word or word.startswith("#"):
+        return None
+    if word.startswith("-"):
+        return ("exclude", word[1:])
+    return ("install", word)
+
+
 def pkgs(text: str) -> list[tuple[str, str]]:
     rows: list[tuple[str, str]] = []
     inside = False
@@ -163,13 +172,14 @@ def pkgs(text: str) -> list[tuple[str, str]]:
             if inside:
                 raise ValueError("嵌套 %packages")
             inside = True
-        elif inside and word == "%end":
+            continue
+        if not inside:
+            continue
+        if word == "%end":
             return rows
-        elif inside and word and not word.startswith("#"):
-            if word.startswith("-"):
-                rows.append(("exclude", word[1:]))
-            else:
-                rows.append(("install", word))
+        row = pkg_row(word)
+        if row is not None:
+            rows.append(row)
     if inside:
         raise ValueError("%packages 缺少 %end")
     return rows
