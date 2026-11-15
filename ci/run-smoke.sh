@@ -864,33 +864,34 @@ repo_rows() { # repo_rows <repo 文件> — 每个 baseurl 一行：段 <TAB> �
     ' "$1"
 }
 
-t14_repos() {
-    local file="${SYSROOT}/etc/yum.repos.d/airymaxos.repo" rows
-    local sec en url use=0 host0="" host
-    [ -r "${file}" ] || {
-        echo "${file} unreadable"
-        return 1
-    }
-    grep -qF '$releasever' "${file}" && {
-        echo "${file}: \$releasever does not name the base release"
-        return 1
-    }
-    rows="$(repo_rows "${file}")" || {
-        echo "${file}: unparsable"
-        return 1
-    }
+# 启用段的 baseurl 必须是 https 的 openEuler 镜像目录：别的写法要么指向
+# 安装时的版本目录，要么根本取不到包。
+repo_url_ok() {
+    case "$1" in
+    https://*/openEuler-[0-9]*/*) return 0 ;;
+    esac
+    return 1
+}
+
+repo_host() {
+    local host="${1#https://}"
+
+    printf '%s\n' "${host%%/*}"
+}
+
+# 逐段核对启用项：baseurl 合规、所有段同源，末行给出汇总。诊断直接写
+# stdout，与判定行同通道，TAP 里能就地看到是哪一段出的问题。
+t14_rows() {
+    local file="$1" rows="$2" sec en url use=0 host0="" host
+
     while IFS=$'\t' read -r sec en url; do
         [ "${en}" = 1 ] || continue
         use=$((use + 1))
-        case "${url}" in
-        https://*/openEuler-[0-9]*/*) : ;;
-        *)
+        if ! repo_url_ok "${url}"; then
             printf 'section %s baseurl: %s\n' "${sec}" "${url:--}"
             return 1
-            ;;
-        esac
-        host="${url#https://}"
-        host="${host%%/*}"
+        fi
+        host="$(repo_host "${url}")"
         if [ -z "${host0}" ]; then
             host0="${host}"
         elif [ "${host}" != "${host0}" ]; then
@@ -904,6 +905,23 @@ t14_repos() {
         return 1
     }
     printf '%s enabled section(s) on %s\n' "${use}" "${host0}"
+}
+
+t14_repos() {
+    local file="${SYSROOT}/etc/yum.repos.d/airymaxos.repo" rows
+    [ -r "${file}" ] || {
+        echo "${file} unreadable"
+        return 1
+    }
+    grep -qF '$releasever' "${file}" && {
+        echo "${file}: \$releasever does not name the base release"
+        return 1
+    }
+    rows="$(repo_rows "${file}")" || {
+        echo "${file}: unparsable"
+        return 1
+    }
+    t14_rows "${file}" "${rows}"
 }
 
 # T15 启动参数：bootloader --append 只进安装器写的那份 grub.cfg，
