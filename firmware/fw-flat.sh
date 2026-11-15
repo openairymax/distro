@@ -90,6 +90,47 @@ fwfr_diag()
     printf 'diag %s\n' "$*" >&2
 }
 
+# fwfr_modinfo — 定位 modinfo：先按名字，再按固定路径；两条都不通置 why。
+fwfr_modinfo()
+{
+    fwfr_mi=modinfo
+    if command -v "${fwfr_mi}" >/dev/null 2>&1; then
+        return 0
+    fi
+    for fwfr_mi in /usr/sbin/modinfo /sbin/modinfo; do
+        [ -x "${fwfr_mi}" ] && return 0
+    done
+    fwfr_why=no-modinfo
+    return 2
+}
+
+# fwfr_mods — 列出内核模块文件；一个都没有时记 no-modfiles 并附抽样。
+fwfr_mods()
+{
+    find "${ff_modules}" -type f \( -name '*.ko' -o -name '*.ko.xz' \
+        -o -name '*.ko.zst' -o -name '*.ko.gz' \) -print0 2>/dev/null \
+        >"${fwfr_tmp}.mods"
+    fwfr_n=$(tr -cd '\0' <"${fwfr_tmp}.mods" | wc -c)
+    [ "${fwfr_n}" -eq 0 ] || return 0
+    fwfr_why=no-modfiles
+    fwfr_diag "no-modfiles dir=${ff_modules} sample=$(find "${ff_modules}" \
+        -type f 2>/dev/null | sed -n '1p;2p;3p' | tr '\n' ' ')"
+    rm -f "${fwfr_tmp}.mods"
+    return 2
+}
+
+# fwfr_out — 一次 modinfo 取全部模块的 firmware 行；为空时留可定位的诊断。
+fwfr_out()
+{
+    xargs -0 -r -n 64 "${fwfr_mi}" -F firmware <"${fwfr_tmp}.mods" \
+        >"${fwfr_tmp}.out" 2>"${fwfr_tmp}.err"
+    [ -s "${fwfr_tmp}.out" ] && return 0
+    fwfr_diag "modinfo-empty mods=${fwfr_n} ver=$("${fwfr_mi}" -V 2>&1 |
+        head -1) err=$(head -1 "${fwfr_tmp}.err" 2>/dev/null)"
+    fwfr_diag "sample=$(tr '\0' '\n' <"${fwfr_tmp}.mods" |
+        sed -n '1p;2p;3p' | tr '\n' ' ')"
+}
+
 fw_requests()
 {
     fwfr_why=
@@ -99,35 +140,10 @@ fw_requests()
         return 0
     fi
     [ -d "${ff_modules}" ] || { fwfr_why=no-dir; return 2; }
-    # modinfo 在部分镜像里只落在 sbin，而调用方的 PATH 未必含它：先按
-    # 名字找，找不到再按固定路径找，两条都不通才算「没有 modinfo」。
-    fwfr_mi=modinfo
-    if ! command -v "${fwfr_mi}" >/dev/null 2>&1; then
-        for fwfr_mi in /usr/sbin/modinfo /sbin/modinfo; do
-            [ -x "${fwfr_mi}" ] && break
-        done
-        [ -x "${fwfr_mi}" ] || { fwfr_why=no-modinfo; return 2; }
-    fi
+    fwfr_modinfo || return 2
     fwfr_tmp="${TMPDIR:-/tmp}/fw-flat.$$"
-    find "${ff_modules}" -type f \( -name '*.ko' -o -name '*.ko.xz' \
-        -o -name '*.ko.zst' -o -name '*.ko.gz' \) -print0 2>/dev/null \
-        >"${fwfr_tmp}.mods"
-    fwfr_n=$(tr -cd '\0' <"${fwfr_tmp}.mods" | wc -c)
-    if [ "${fwfr_n}" -eq 0 ]; then
-        fwfr_why=no-modfiles
-        fwfr_diag "no-modfiles dir=${ff_modules} sample=$(find "${ff_modules}" \
-            -type f 2>/dev/null | sed -n '1p;2p;3p' | tr '\n' ' ')"
-        rm -f "${fwfr_tmp}.mods"
-        return 2
-    fi
-    xargs -0 -r -n 64 "${fwfr_mi}" -F firmware <"${fwfr_tmp}.mods" \
-        >"${fwfr_tmp}.out" 2>"${fwfr_tmp}.err"
-    if [ ! -s "${fwfr_tmp}.out" ]; then
-        fwfr_diag "modinfo-empty mods=${fwfr_n} ver=$("${fwfr_mi}" -V 2>&1 |
-            head -1) err=$(head -1 "${fwfr_tmp}.err" 2>/dev/null)"
-        fwfr_diag "sample=$(tr '\0' '\n' <"${fwfr_tmp}.mods" |
-            sed -n '1p;2p;3p' | tr '\n' ' ')"
-    fi
+    fwfr_mods || return 2
+    fwfr_out
     awk 'NF' "${fwfr_tmp}.out" | sort -u
     rm -f "${fwfr_tmp}.mods" "${fwfr_tmp}.out" "${fwfr_tmp}.err"
 }
