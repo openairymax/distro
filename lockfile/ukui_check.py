@@ -107,6 +107,17 @@ def check_pkg(name, rec, base, out):
         bad(out, "ledger/tag", "%s nvra 不属 %s" % (name, base))
 
 
+def check_state(seen, out):
+    """按三档核对登记状态：核心、刻意不选、基底不提供。"""
+    for where, names, want in (
+            ("ledger/core", CORE, "present"),
+            ("ledger/available", UNPICKED, "available"),
+            ("ledger/absent", GONE, "absent")):
+        for name in names:
+            if seen.get(name) != want:
+                bad(out, where, "%s 未登记为 %s" % (name, want))
+
+
 def check_items(led, base, out):
     seen = {}
     for rec in led.get("components", []):
@@ -116,15 +127,7 @@ def check_items(led, base, out):
             continue
         seen[name] = rec.get("state", "")
         check_pkg(name, rec, base, out)
-    for name in CORE:
-        if seen.get(name) != "present":
-            bad(out, "ledger/core", "%s 未登记为 present" % name)
-    for name in UNPICKED:
-        if seen.get(name) != "available":
-            bad(out, "ledger/available", "%s 未登记为 available" % name)
-    for name in GONE:
-        if seen.get(name) != "absent":
-            bad(out, "ledger/absent", "%s 未登记为 absent" % name)
+    check_state(seen, out)
     return seen
 
 

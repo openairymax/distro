@@ -218,6 +218,17 @@ def check_seeds(path, base, out):
             bad(out, "seeds/baseurl", url)
 
 
+def token_problems(lines, base, out):
+    """%changelog 之前的每个底座版本标记都必须指向选定基底。"""
+    for ln in lines:
+        if ln.startswith("%changelog"):
+            return
+        for hit in TOKEN.finditer(ln):
+            want = "openEuler-%s-LTS-SP%s" % (hit.group(1), hit.group(2))
+            if want != base:
+                bad(out, "spec/token", hit.group(0))
+
+
 def check_spec(path, base, out):
     lines = read_lines(path, out)
     if lines is None:
@@ -225,12 +236,7 @@ def check_spec(path, base, out):
     got = [ln.split()[2] for ln in lines if ln.startswith("%global oe_base ")]
     if got != [base]:
         bad(out, "spec/base", ",".join(got) or "missing")
-    for ln in lines:
-        if ln.startswith("%changelog"):
-            break
-        for hit in TOKEN.finditer(ln):
-            if "openEuler-%s-LTS-SP%s" % (hit.group(1), hit.group(2)) != base:
-                bad(out, "spec/token", hit.group(0))
+    token_problems(lines, base, out)
 
 
 def check_ukui(path, base, out):
