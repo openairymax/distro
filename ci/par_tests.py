@@ -56,37 +56,49 @@ def count(text: str) -> int:
     return int(found.group(1)) if found else 0
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--jobs", type=int, default=0)
-    args = parser.parse_args()
-
+def plan(jobs_arg: int) -> tuple[list[str], int] | None:
+    """校验用例目录并定下并行度；不满足时返回 None（调用方按 EINVAL 退出）。"""
     if not TESTS.is_dir():
         print(f"用例目录不存在: {TESTS}", file=sys.stderr)
-        return EINVAL
+        return None
     names = mods()
     if not names:
         print(f"用例目录为空: {TESTS}", file=sys.stderr)
-        return EINVAL
-    jobs = args.jobs or min(CAP, os.cpu_count() or 1)
+        return None
+    jobs = jobs_arg or min(CAP, os.cpu_count() or 1)
     if jobs < 1:
         print("--jobs 必须为正整数", file=sys.stderr)
-        return EINVAL
+        return None
 
     # 并行度不得超过模块数：空 worker 会让池白起解释器，也让「本轮几个
     # worker」这类观察值失去意义。
-    jobs = min(jobs, len(names))
-    with futures.ThreadPoolExecutor(max_workers=jobs) as pool:
-        results = list(pool.map(run_one, names))
+    return names, min(jobs, len(names))
 
+
+def report(results: list[tuple[str, int, str]], jobs: int) -> int:
+    """转出失败模块的输出与汇总行，返回进程退出码。"""
     failed = [(mod, out) for mod, code, out in results if code != 0]
     for mod, out in failed:
         print(f"== FAIL {mod} ==", file=sys.stderr)
         print(out, file=sys.stderr)
     total = sum(count(out) for _mod, _code, out in results)
-    print(f"Ran {total} tests across {len(names)} modules "
+    print(f"Ran {total} tests across {len(results)} modules "
           f"(jobs={jobs}), failures={len(failed)}")
     return 1 if failed else 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--jobs", type=int, default=0)
+    args = parser.parse_args()
+
+    planned = plan(args.jobs)
+    if planned is None:
+        return EINVAL
+    names, jobs = planned
+    with futures.ThreadPoolExecutor(max_workers=jobs) as pool:
+        results = list(pool.map(run_one, names))
+    return report(results, jobs)
 
 
 if __name__ == "__main__":
