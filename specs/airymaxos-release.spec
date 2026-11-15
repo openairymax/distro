@@ -68,7 +68,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 20
+%global airy_release 21
 # 桌面版本随冻结点滚动，写在 /etc/airymaxos/desktop-version，供控制中心
 # 「关于」页读取。控制中心自己不猜版本：缺文件即只显示桌面名。此宏与
 # lockfile/ukui-components.yaml 的 ukui-control-center 版本由
@@ -970,6 +970,12 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Mon Nov 16 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-21
+- grub_args.sh 收敛品牌副本的 grubenv：GRUB_DEFAULT=saved 的入口名只从
+  活动配置目录读取，而 grubby 与 grub2-editenv 写的是生成目录那一份，
+  saved_entry 在引导期因此恒不可见，默认项退回菜单第一项。285H 上把
+  默认内核设成 alk.13 后重启仍进 alk.14，手工镜像 grubenv 后立即生效；
+  现在与 grub.cfg 同段收敛，内容相同不重写
 * Sun Nov 15 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-20
 - grub_args.sh 增加 --require-entry <release>：只读断言活动配置里有该版本
   的 linux 行，缺失退 1。内核包 %%post 用它判定升级是否真的可引导——

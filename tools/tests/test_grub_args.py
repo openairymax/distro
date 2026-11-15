@@ -419,6 +419,45 @@ class GrubArgsTest(unittest.TestCase):
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
         self.assertNotIn("brand copy refreshed:", res.stdout)
 
+    def sync_env(self, body="saved_entry=alk.13\n", brand_body=None):
+        self.write()
+        cfg, _ = self.esp_pair()
+        (cfg.parent / "grubenv").write_text(body, encoding="utf-8")
+        brand = cfg.parent.parent / "airymaxos" / "grubenv"
+        if brand_body is not None:
+            brand.write_text(brand_body, encoding="utf-8")
+        res = self.run_args("--defaults", str(self.defaults),
+                            "--state", str(self.state), "--cfg", str(cfg),
+                            "--mkconfig", str(self.fake_mk()))
+        return res, brand
+
+    def test_brand_env_synced(self):
+        # 285H 取证：生成目录的 saved_entry 是 alk.13，品牌目录那份停在装机
+        # 时刻，GRUB_DEFAULT=saved 读不到，重启仍进菜单第一项。
+        res, brand = self.sync_env(brand_body="saved_entry=alk.7\n")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("brand env refreshed:", res.stdout)
+        self.assertEqual(brand.read_text(encoding="utf-8"),
+                         "saved_entry=alk.13\n")
+
+    def test_brand_env_not_rewritten(self):
+        res, _ = self.sync_env(brand_body="saved_entry=alk.13\n")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertNotIn("brand env refreshed:", res.stdout)
+
+    def test_brand_env_absent_degrades(self):
+        self.write()
+        cfg, _ = self.esp_pair()
+        brand = cfg.parent.parent / "airymaxos" / "grubenv"
+        brand.write_text("saved_entry=alk.7\n", encoding="utf-8")
+        res = self.run_args("--defaults", str(self.defaults),
+                            "--state", str(self.state), "--cfg", str(cfg),
+                            "--mkconfig", str(self.fake_mk()))
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("grubenv absent:", res.stdout)
+        self.assertEqual(brand.read_text(encoding="utf-8"),
+                         "saved_entry=alk.7\n")
+
     def require_entry(self, release, copy_body=None):
         """品牌副本里放一条 menuentry，按其 linux 行判定条目是否落地。"""
         self.write()
