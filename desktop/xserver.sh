@@ -67,12 +67,43 @@ has_mode()
     grep -q '[^[:space:]]' "$1" 2>/dev/null
 }
 
+# out_verdict <out> <drv> — 一个已连接输出的判定：模式表空为 no-mode，
+# EDID 为空为 no-edid，两项齐备才认 kms。
+out_verdict()
+{
+    local out="$1" drv="$2"
+
+    has_mode "${out}/modes" || {
+        printf 'gap no-mode\n'
+        return 0
+    }
+    [ -s "${out}/edid" ] || {
+        printf 'gap no-edid\n'
+        return 0
+    }
+    printf 'kms %s\n' "${drv}"
+}
+
+# card_out <card> <drv> — 该卡第一个已连接输出的判定；无已连接输出返回非零。
+card_out()
+{
+    local out
+
+    for out in "$1"-*; do
+        [ -d "${out}" ] || continue
+        [ "$(cat "${out}/status" 2>/dev/null)" = connected ] || continue
+        out_verdict "${out}" "$2"
+        return 0
+    done
+    return 1
+}
+
 # probe — 一次扫描给出判定：`kms <驱动名>` 或 `gap <缺口>`。
 # 缺口取值：no-kms（没有真实 KMS 卡）、no-output（有卡但无已连接输出）、
 # no-mode（已连接但模式表为空）、no-edid（有模式但 EDID 为空）。
 probe()
 {
-    local card out drv seen=""
+    local card drv seen=""
 
     for card in "${DRM}"/card[0-9]*; do
         [ -d "${card}" ] || continue
@@ -81,20 +112,7 @@ probe()
         esac
         drv=$(driver_of "${card}") || continue
         seen=no-output
-        for out in "${card}"-*; do
-            [ -d "${out}" ] || continue
-            [ "$(cat "${out}/status" 2>/dev/null)" = connected ] || continue
-            has_mode "${out}/modes" || {
-                printf 'gap no-mode\n'
-                return 0
-            }
-            [ -s "${out}/edid" ] || {
-                printf 'gap no-edid\n'
-                return 0
-            }
-            printf 'kms %s\n' "${drv}"
-            return 0
-        done
+        card_out "${card}" "${drv}" && return 0
     done
     printf 'gap %s\n' "${seen:-no-kms}"
 }
