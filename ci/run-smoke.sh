@@ -967,45 +967,65 @@ cons_check() {
     }
 }
 
+# t15_args_line <file> — GRUB_CMDLINE_LINUX 的值（去引号），多次赋值取首条。
+t15_args_line() {
+    sed -n 's/^GRUB_CMDLINE_LINUX="\(.*\)"$/\1/p' "$1" | head -n 1
+}
+
+# t15_has <line> <tok> — 命令行里是否有这个参数，前后以空格为界。
+t15_has() {
+    case " $1 " in
+    *" $2 "*) return 0 ;;
+    esac
+    return 1
+}
+
+# t15_rules <file> <line> — 逐行日志口径：两个剖面都要 loglevel=5 与
+# plymouth.enable=0，且旧画面参数 rhgb/quiet 必须摘掉。任何一处不合口径
+# 都说明安装末期的 grub_args.sh 没跑到。
+t15_rules() {
+    local file="$1" line="$2" tok
+
+    for tok in loglevel=5 plymouth.enable=0; do
+        t15_has "${line}" "${tok}" && continue
+        printf '%s: GRUB_CMDLINE_LINUX lacks %s\n' "${file}" "${tok}"
+        return 1
+    done
+    for tok in rhgb quiet; do
+        t15_has "${line}" "${tok}" || continue
+        printf '%s: GRUB_CMDLINE_LINUX still carries %s\n' "${file}" "${tok}"
+        return 1
+    done
+}
+
+# t15_cfg_lines <file> — 与剖面无关的两行配置：关掉 os-prober，菜单停留
+# 归一为 1 秒（285H 分段 3.78s 里 3s 在 loader 段，由 grub_args.sh 收敛）。
+t15_cfg_lines() {
+    local file="$1" want why
+
+    while IFS='|' read -r want why; do
+        grep -qxF "${want}" "${file}" || {
+            printf '%s: %s\n' "${file}" "${why}"
+            return 1
+        }
+    done <<'EOF'
+GRUB_DISABLE_OS_PROBER=true|os-prober not disabled
+GRUB_TIMEOUT=1|menu timeout not normalized
+EOF
+}
+
 t15_boot_args() {
-    local file="${SYSROOT}/etc/default/grub" line tok
+    local file="${SYSROOT}/etc/default/grub" line
+
     [ -r "${file}" ] || {
         echo "${file} unreadable"
         return 1
     }
-    line=$(sed -n 's/^GRUB_CMDLINE_LINUX="\(.*\)"$/\1/p' "${file}" |
-        head -n 1)
-    # 逐行日志是产品口径，不随剖面变化：两个剖面都要 plymouth.enable=0 与
-    # loglevel=5，任何一处缺失都说明安装末期的 grub_args.sh 没跑到。
-    for tok in loglevel=5 plymouth.enable=0; do
-        case " ${line} " in
-        *" ${tok} "*) continue ;;
-        esac
-        printf '%s: GRUB_CMDLINE_LINUX lacks %s\n' "${file}" "${tok}"
-        return 1
-    done
-    # 旧画面参数留在文件里等于没改：grub_args.sh 收敛时摘掉，这里兜住回归。
-    for tok in rhgb quiet; do
-        case " ${line} " in
-        *" ${tok} "*)
-            printf '%s: GRUB_CMDLINE_LINUX still carries %s\n' \
-                "${file}" "${tok}"
-            return 1
-            ;;
-        esac
-    done
+    line=$(t15_args_line "${file}")
+    t15_rules "${file}" "${line}" || return 1
     cons_check "${line}" GRUB_CMDLINE_LINUX || return 1
     t15_brand_cfg || return 1
-    grep -qxF 'GRUB_DISABLE_OS_PROBER=true' "${file}" || {
-        echo "${file}: os-prober not disabled"
-        return 1
-    }
-    # 停留时间是 loader 段的主要构成（285H 分段 3.78s 里 3s 在此），安装
-    # 末期由 grub_args.sh 归一化；未归一化说明那一步没跑到，按未收敛处理。
-    grep -qxF 'GRUB_TIMEOUT=1' "${file}" || {
-        echo "${file}: menu timeout not normalized"
-        return 1
-    }
+    t15_cfg_lines "${file}" || return 1
     printf 'args="%s"\n' "${line}"
 }
 
