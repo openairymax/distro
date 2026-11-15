@@ -181,6 +181,26 @@ iso_cfg_verify()
     fi
 }
 
+# cfg_brand_prep <iso> <product> <variant> <work> <cfg> <src>
+# 抽出一个引导配置并就地品牌化，返回 cfg_brand.py 的退出码；提取失败按
+# 「无需改写」返回 3（例如该配置不在镜像里）。
+cfg_brand_prep()
+{
+    local iso="$1" product="$2" variant="$3" work="$4" cfg="$5" src="$6"
+    local log="${work}/logs/cfg_brand.log" rc=0
+
+    rm -f "${src}" "${log}"
+    iso_xor "${iso}" "/${cfg}" "${src}" "${work}/logs/xorriso.log" \
+        || return 3
+    python3 "${ISO_POST_ROOT}/tools/cfg_brand.py" \
+        --product "${product}" --variant "${variant}" "${src}" \
+        >"${log}" 2>&1 || rc=$?
+    if [ -s "${log}" ]; then
+        sed 's/^/  /' "${log}" >&2
+    fi
+    return "${rc}"
+}
+
 # iso_cfg_brand <iso> <product> <variant> <work>
 # 先全部提取并改写，再一次性写回，最后逐个回读复核。写回必须合并成一次：
 # 每次写回都会重打包并让镜像缩短，旧 GPT 指向旧几何，第二次写回读中间态
@@ -192,25 +212,15 @@ iso_cfg_brand()
 {
     local iso="$1" product="$2" variant="$3" work="$4"
     local cfg name src rc=0 item
-    local log="${work}/logs/cfg_brand.log"
     local -a puts=() verifies=()
     mkdir -p "${work}/post" "${work}/logs"
     for cfg in EFI/BOOT/grub.cfg isolinux/isolinux.cfg .treeinfo \
         .discinfo isolinux/boot.msg; do
         name="$(basename "${cfg}")"
         src="${work}/post/${name}"
-        rm -f "${src}" "${log}"
-        if ! iso_xor "${iso}" "/${cfg}" "${src}" \
-            "${work}/logs/xorriso.log"; then
-            continue
-        fi
         rc=0
-        python3 "${ISO_POST_ROOT}/tools/cfg_brand.py" \
-            --product "${product}" --variant "${variant}" "${src}" \
-            >"${log}" 2>&1 || rc=$?
-        if [ -s "${log}" ]; then
-            sed 's/^/  /' "${log}" >&2
-        fi
+        cfg_brand_prep "${iso}" "${product}" "${variant}" "${work}" \
+            "${cfg}" "${src}" || rc=$?
         case "${rc}" in
         0)
             puts+=("${src}|/${cfg}")
