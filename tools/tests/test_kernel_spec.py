@@ -178,6 +178,9 @@ class KernelSpecTest(unittest.TestCase):
         self.assertIn('"${airy_args}" --require-entry %{kernel_release}', post)
         self.assertIn("no boot entry for %{kernel_release}", post)
         self.assertIn("boot config not converged", post)
+        # 旧 airymaxos-release 的脚本不认识该选项（用法错误退 2），同一事务里
+        # 本包可能先装，此时只能报告不能中止
+        self.assertIn("grub_args.sh lacks --require-entry", post)
         # 断言在 initramfs 之后：此时重生成的菜单行才带正确的 initrd
         self.assertLess(post.index("dracut --force"),
                         post.index("--require-entry"))

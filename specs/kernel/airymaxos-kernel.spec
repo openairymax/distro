@@ -536,11 +536,20 @@ fi
 # 则只报告不中止——新装机器的引导项由安装器的 bootloader 阶段在包事务之后
 # 写入，在这里中断会让整台机器装不完。
 if [ -x "${airy_args}" ]; then
-    if "${airy_args}" >/dev/null; then
-        if ! "${airy_args}" --require-entry %{kernel_release}; then
+    if "${airy_args}"; then
+        "${airy_args}" --require-entry %{kernel_release}
+        airy_rc=$?
+        case "${airy_rc}" in
+        0) ;;
+        # 2 是用法错误：脚本来自尚未升级的 airymaxos-release，还不认识这个
+        # 选项。同一事务里本包可能先于 release 包安装，此时断言无从谈起，
+        # 报告后放行——收敛那一步已生效，引导项是按本版本生成的。
+        2) echo "airymaxos-kernel: grub_args.sh lacks --require-entry" >&2 ;;
+        *)
             echo "airymaxos-kernel: no boot entry for %{kernel_release}" >&2
             exit 1
-        fi
+            ;;
+        esac
     else
         echo "airymaxos-kernel: boot config not converged" >&2
     fi
