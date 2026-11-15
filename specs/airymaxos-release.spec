@@ -68,7 +68,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 19
+%global airy_release 20
 # 桌面版本随冻结点滚动，写在 /etc/airymaxos/desktop-version，供控制中心
 # 「关于」页读取。控制中心自己不猜版本：缺文件即只显示桌面名。此宏与
 # lockfile/ukui-components.yaml 的 ukui-control-center 版本由
@@ -970,6 +970,14 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Sun Nov 15 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-20
+- grub_args.sh 增加 --require-entry <release>：只读断言活动配置里有该版本
+  的 linux 行，缺失退 1。内核包 %%post 用它判定升级是否真的可引导——
+  kernel-install 属 systemd 的可选组件，285H 上不存在，此前那一步被
+  「when available」静默跳过，升级后菜单里没有任何本版本条目，而 rpm 已
+  删掉旧包的 vmlinuz，重启即 file not found。按完整 token 匹配，-alk.9
+  不命中 -alk.99；品牌副本存在时只查品牌副本，把「生成了但没同步」也纳入
+  判定
 * Wed Nov 11 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-19
 - 把控制台字体的判据与写入口径收敛到 desktop/console-font.sh 一处。新装机
   时包事务跑完之后 anaconda 才按 kickstart 的 keyboard 指令重写
