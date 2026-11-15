@@ -698,25 +698,37 @@ manifest()
     } >"${OUT}/image-ci-manifest.txt"
 }
 
-main()
+# prep <参数...> — 解析参数并落定输出目录。out_guard 的退出码原样回传，
+# 调用方按它退出，使「拒绝覆盖旧产物」与「参数不合法」的码值不被吞掉。
+prep()
 {
-    local sde
     parse_args "$@"
     if [ -z "${ARCH}" ]; then
         ARCH="$(host_arch)"
     fi
     check_args
-    OUT="$(out_guard run-image-ci "${OUT}")" || exit $?
+    OUT="$(out_guard run-image-ci "${OUT}")" || return $?
     LOGS="${OUT}/logs"
     mkdir -p "${LOGS}" || die "无法创建日志目录: ${LOGS}"
     if [ "${ACCEPTANCE}" -eq 1 ]; then
         accept_ks
     fi
+}
+
+# sde_env — 把构建时间戳固定下来，同一输入才有可复现的字节。
+sde_env()
+{
+    local sde
+
     sde="$(sde_get)"
-    if [ -n "${sde}" ]; then
-        SOURCE_DATE_EPOCH="${sde}"
-        export SOURCE_DATE_EPOCH
-    fi
+    [ -n "${sde}" ] || return 0
+    SOURCE_DATE_EPOCH="${sde}"
+    export SOURCE_DATE_EPOCH
+}
+
+# banner — TAP 头与本次构建的口径注记。
+banner()
+{
     printf 'TAP version 14\n1..5\n'
     printf '# AirymaxOS image CI: arch=%s profile=%s firmware=%s\n' \
         "${ARCH}" "${PROFILE}" "${FIRMWARE}"
@@ -726,15 +738,15 @@ main()
         TIMES+=("toolchain=${AIRY_TOOLCHAIN_S}")
         printf '# timing: toolchain=%ss\n' "${AIRY_TOOLCHAIN_S}"
     fi
-    seg rpm stage_rpm
-    seg kern stage_kern
-    seg iso stage_iso
-    seg checksum stage_sum
+}
+
+# wrapup — 收尾：记录 ISO 摘要、写出清单与汇总行，并把判定落成退出码。
+wrapup()
+{
     ISO_SUM=""
     if [ -n "${ISO}" ] && [ -f "${ISO}" ]; then
         read -r ISO_SUM _ <<<"$(sha256sum "${ISO}")"
     fi
-    seg install stage_inst
     manifest
     printf '# summary: pass=%d fail=%d\n' "${PASS}" "${FAIL}"
     if [ "${FAIL}" -gt 0 ]; then
@@ -742,6 +754,19 @@ main()
     fi
     [ "${ENV_SKIP}" -eq 0 ] || return "${SKIP}"
     return 0
+}
+
+main()
+{
+    prep "$@" || return $?
+    sde_env
+    banner
+    seg rpm stage_rpm
+    seg kern stage_kern
+    seg iso stage_iso
+    seg checksum stage_sum
+    seg install stage_inst
+    wrapup
 }
 
 main "$@"
