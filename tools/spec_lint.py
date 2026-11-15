@@ -246,13 +246,19 @@ def source_problems(kind: str, num: int, name: str, url: str, refs: set[str],
                             f"{kind} must not be committed: {name}"))
 
 
-def check_fetch(kind: str, items: list[tuple[int, str, str, str]],
-                tags: dict, index: dict[str, set[Path]],
-                macros: dict[str, str], issues: list[Issue]) -> set[str]:
+def source_refs(tags: dict, macros: dict[str, str]) -> set[str]:
+    """%Source/%Patch 展开后的文件名，用作「这一条 source 是否被引用」的判据。"""
     refs: set[str] = set()
     for tag in tags:
         if SRC.match(tag):
             refs.add(expand(tags[tag][1], macros))
+    return refs
+
+
+def check_fetch(kind: str, items: list[tuple[int, str, str, str]],
+                tags: dict, index: dict[str, set[Path]],
+                macros: dict[str, str], issues: list[Issue]) -> set[str]:
+    refs = source_refs(tags, macros)
     names: set[str] = set()
     for num, name, url, _sum in items:
         source_problems(kind, num, name, url, refs, index, names, issues)
@@ -260,29 +266,33 @@ def check_fetch(kind: str, items: list[tuple[int, str, str, str]],
     return names
 
 
+def bundle_problems(num: int, src: Path, name: str, refs: set[str],
+                    index: dict[str, set[Path]], seen: set[str],
+                    issues: list[Issue]) -> bool:
+    """记下这一条 SourceN 目录的问题；目录缺失时后续判据无意义，返回 False。"""
+    if not src.is_dir():
+        issues.append(Issue("E010", num, f"missing source bundle: {src}"))
+        return False
+    if not any(item.is_file() for item in src.rglob("*")):
+        issues.append(Issue("E010", num, f"empty source bundle: {src}"))
+    if name in seen:
+        issues.append(Issue("E010", num, f"duplicate source bundle: {name}"))
+    if name not in refs:
+        issues.append(Issue("E010", num, f"bundle not referenced: {name}"))
+    if index.get(name):
+        issues.append(Issue("E010", num,
+                            f"bundle must not be committed: {name}"))
+    return True
+
+
 def check_bundles(bundles: list[tuple[int, Path, str]], tags: dict,
                   index: dict[str, set[Path]], macros: dict[str, str],
                   issues: list[Issue]) -> set[str]:
-    refs: set[str] = set()
-    for tag in tags:
-        if SRC.match(tag):
-            refs.add(expand(tags[tag][1], macros))
+    refs = source_refs(tags, macros)
     names: set[str] = set()
     for num, src, name in bundles:
-        if not src.is_dir():
-            issues.append(Issue("E010", num, f"missing source bundle: {src}"))
-            continue
-        if not any(item.is_file() for item in src.rglob("*")):
-            issues.append(Issue("E010", num, f"empty source bundle: {src}"))
-        if name in names:
-            issues.append(Issue("E010", num,
-                                f"duplicate source bundle: {name}"))
-        if name not in refs:
-            issues.append(Issue("E010", num, f"bundle not referenced: {name}"))
-        if index.get(name):
-            issues.append(Issue("E010", num,
-                                f"bundle must not be committed: {name}"))
-        names.add(name)
+        if bundle_problems(num, src, name, refs, index, names, issues):
+            names.add(name)
     return names
 
 
@@ -324,18 +334,36 @@ def check_secs(secs: list[tuple[str, str, int]],
         issues.append(Issue("E009", 1, "subpackage without %description"))
 
 
+def sec_end(lines: list[str], secs: list[tuple[str, str, int]],
+            pos: int) -> int:
+    """段区间右端：下一个段头前一行；末段取文件末尾。"""
+    if pos + 1 < len(secs):
+        return secs[pos + 1][2] - 1
+    return len(lines)
+
+
+def files_body(lines: list[str], secs: list[tuple[str, str, int]],
+               pos: int) -> list[str]:
+    """%files 段正文：去注释与空行后的行。"""
+    body = [strip_cmt(x) for x in lines[secs[pos][2]:sec_end(lines, secs, pos)]]
+    return [x for x in body if x]
+
+
+def report_files(num: int, body: list[str], issues: list[Issue]) -> None:
+    """%files 段既不能为空，也必须至少有一条 / 或 % 开头的条目。"""
+    if not body:
+        issues.append(Issue("E008", num, "%files section is empty"))
+        return
+    if not any(x.startswith(("/", "%")) for x in body):
+        issues.append(Issue("E008", num, "%files has no path"))
+
+
 def check_files(lines: list[str], secs: list[tuple[str, str, int]],
                 issues: list[Issue]) -> None:
     for pos, (name, _arg, num) in enumerate(secs):
         if name != "files":
             continue
-        end = secs[pos + 1][2] - 1 if pos + 1 < len(secs) else len(lines)
-        body = [strip_cmt(x) for x in lines[num:end]]
-        body = [x for x in body if x]
-        if not body:
-            issues.append(Issue("E008", num, "%files section is empty"))
-        elif not any(x.startswith(("/", "%")) for x in body):
-            issues.append(Issue("E008", num, "%files has no path"))
+        report_files(num, files_body(lines, secs, pos), issues)
 
 
 def check_log(lines: list[str], secs: list[tuple[str, str, int]],
