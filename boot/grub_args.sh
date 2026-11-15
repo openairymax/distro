@@ -483,6 +483,25 @@ sync_brand()
         note "brand copy not refreshed: ${copy}"
 }
 
+# GRUB_DEFAULT=saved 的入口名取自品牌目录里的 grubenv，而 grubby 与
+# grub2-editenv 只写生成目录那一份。两份不镜像时 saved_entry 在引导期读不到，
+# 默认项退回菜单第一项：285H 上把默认内核设成 alk.13、重启仍进 alk.14，
+# 直到手工把生成目录的 grubenv 拷进品牌目录才生效。cfg 与 grubenv 同属
+# 「生成后必须覆盖的活动配置」，故与 sync_brand 同段收敛。
+sync_env()
+{
+    local dir src dst
+    dir=$(brand_dir)
+    [ -d "${dir}" ] || return 0
+    src="${cfg%/*}/grubenv"
+    dst="${dir}/grubenv"
+    [ -f "${src}" ] || { note "grubenv absent: ${src}"; return 0; }
+    cmp -s "${src}" "${dst}" && return 0
+    install -m 0600 "${src}" "${dst}" &&
+        note "brand env refreshed: ${dst}" ||
+        note "brand env not refreshed: ${dst}"
+}
+
 if [ "${mode}" = check ]; then
     verify || exit 1
     exit 0
@@ -508,6 +527,7 @@ install -d -m 0755 "${state%/*}" || fail "create ${state%/*} failed"
 sync_font
 regen
 sync_brand
+sync_env
 verify || fail "args not present in ${defaults}"
 printf 'defaults=%s\ncfg=%s\nargs=%s\n' "${defaults}" "${cfg}" \
     "$(console_args) ${args}" >"${state}" || fail "write ${state} failed"
