@@ -254,21 +254,30 @@ def median(procs: int, argv: list) -> float:
     return sorted(got)[1]
 
 
-def sweep(cpu: str) -> None:
-    argv = peer("airy-bench")
-    if not argv:
-        return
+def levels_for(cpu: str) -> list[int]:
+    """取 1/2/4/8 中不超过可用核数的档位；再少也至少留一档。"""
     cores = int(cpu) if str(cpu).isdigit() else 8
-    levels = [p for p in (1, 2, 4, 8) if p <= cores] or [1]
-    title("并发缩放（同机递增进程数，逐级三次取中位）")
-    rows = [(procs, median(procs, argv)) for procs in levels]
-    top = max(row[1] for row in rows)
-    base = rows[0][1] or 1.0
+    return [p for p in (1, 2, 4, 8) if p <= cores] or [1]
+
+
+def print_rows(rows: list[tuple[int, float]], top: float,
+               base: float) -> None:
+    """逐档打印进程数、条形图、吞吐与相对首档的倍数。"""
     for procs, rate in rows:
         print(
             f"  {procs:>2} 进程  {bar(rate, top)}  {human(rate):>7} rt/s  "
             f"{rate / base:.2f}x"
         )
+
+
+def sweep(cpu: str) -> None:
+    argv = peer("airy-bench")
+    if not argv:
+        return
+    title("并发缩放（同机递增进程数，逐级三次取中位）")
+    rows = [(procs, median(procs, argv)) for procs in levels_for(cpu)]
+    top = max(row[1] for row in rows)
+    print_rows(rows, top, rows[0][1] or 1.0)
 
 
 def selfcheck() -> int:
