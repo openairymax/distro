@@ -29,7 +29,10 @@
 # 串、menu default 挪到含 inst.ks 且不含 rd.live.check 的安装项。
 #
 # 介质还有三处底座暴露，按文件名分派到同一入口：ISO 根目录的 .treeinfo
-# 是 anaconda 填写安装源产品名的来源（[general] 的 family/name/version），
+# 是 anaconda 填写安装源产品名的来源（[general] 的 family/name/version/
+# variant）。variant 是介质自述的产品变体，底座写的是 Server，与工作站的
+# 定位不符，故由调用方按剖面给出（build-desktop.sh 传 Workstation）；不给
+# 时保持底座原值，站点重建等不支持变体的调用方行为不变。
 # 同目录的 .discinfo 是介质自述（时间戳、发行版名、架构、变体），
 # isolinux/boot.msg 则是老式 BIOS 欢迎文本。.treeinfo 按 INI 只改品牌键
 # 的值，其余行与顺序逐字节保留；.discinfo 只改发行版名那一行，时间戳与
@@ -42,7 +45,7 @@
 # 白名单只收 GRUB 的主题样式类：它不是用户可见文本，改名会让主题按类匹配
 # 失效，属底座必须保留的部分。
 #
-# 用法：cfg_brand.py --product "OpenAirymax 0.0.4" FILE
+# 用法：cfg_brand.py --product "OpenAirymax 0.0.4" [--variant Workstation] FILE
 # 退出码：0 有改写；3 已合规（无变化）；1 无法解析、无法满足（缺 inst.ks
 #         安装项等）或改写后仍有白名单外的底座字样；2 用法错误。
 #
@@ -61,7 +64,8 @@ BAD = 1
 ERR = 2
 SAME = 3
 
-USAGE = '用法: cfg_brand.py --product "OpenAirymax 0.0.4" FILE'
+USAGE = ('用法: cfg_brand.py --product "OpenAirymax 0.0.4" '
+         '[--variant Workstation] FILE')
 
 GRUB_RE = re.compile(r"^(menuentry|submenu)\s+(['\"])(.*?)\2")
 GRUB_ANY = re.compile(r"^(\s*)(menuentry|submenu)\s+(['\"])(.*?)\3")
@@ -214,7 +218,7 @@ def eol(line):
     return line[len(line.rstrip("\r\n")):]
 
 
-def grub(lines, product):
+def grub(lines, product, _variant):
     """grub 改写计划；缺安装项返回 None。"""
     entries = g_entries(lines)
     idx = g_install(lines, entries)
@@ -418,7 +422,7 @@ def i_defmark(lines, blk):
     return out, f"{name} (menu default)"
 
 
-def isolinux(lines, product):
+def isolinux(lines, product, _variant):
     """isolinux 改写计划；缺安装项返回 None。"""
     blk = i_install(lines, i_blocks(lines))
     if blk is None:
@@ -456,9 +460,11 @@ def b_parts(product):
 
 def t_val(key, value, brand):
     """返回品牌键改写后的值；非品牌键或已合规时原样返回。"""
-    name, ver, slug = brand
+    name, ver, slug, variant = brand
     if key == "version":
         return ver or value
+    if key == "variant":
+        return variant or value
     if key in ("family", "short"):
         return name if BASE_NAME.search(value) else value
     if key == "name" and BASE_NAME.search(value):
@@ -482,9 +488,9 @@ def t_key(line, sec, brand):
     return body + eol(line), (f"{sec}.{key}={val.rstrip()}", new)
 
 
-def t_plan(lines, product):
+def t_plan(lines, product, variant):
     """只改 general/release/product 段的品牌键，段名与其余行原样保留。"""
-    brand = b_parts(product)
+    brand = (*b_parts(product), variant)
     sec = ""
     out = list(lines)
     changes = []
@@ -502,7 +508,7 @@ def t_plan(lines, product):
     return out, changes, None
 
 
-def bm_plan(lines, product):
+def bm_plan(lines, product, _variant):
     """只替换 boot.msg 里明确的底座品牌串，行序与版面不动。"""
     text = "".join(lines)
     hits = BASE_MSG.findall(text)
@@ -512,7 +518,7 @@ def bm_plan(lines, product):
     return out.splitlines(True), [(hit, product) for hit in hits], None
 
 
-def d_plan(lines, product):
+def d_plan(lines, product, _variant):
     """只改 .discinfo 的发行版名行（第二行），时间戳与架构行原样保留。
 
     该文件四行固定为「时间戳 / 发行版 / 架构 / 变体」，行序是 anaconda 的
@@ -565,14 +571,14 @@ def guard(path, text):
     return hits
 
 
-def apply(path, raw, product):
+def apply(path, raw, product, variant):
     """生成改写计划；确有变化才写回。"""
     plan = dialect(path, raw.splitlines(keepends=True))
     if plan is None:
         print(f"cfg_brand: {path}: 无法识别引导配置或缺少 inst.ks 安装项",
               file=sys.stderr)
         return BAD
-    result = plan(raw.splitlines(keepends=True), product)
+    result = plan(raw.splitlines(keepends=True), product, variant)
     if result is None:
         print(f"cfg_brand: {path}: 缺少含 inst.ks 且不含 rd.live.check 的"
               "安装项", file=sys.stderr)
@@ -591,34 +597,49 @@ def apply(path, raw, product):
     return OK
 
 
+def flag(arg, name, argv, pos):
+    """取 --name 的值：分隔与等号两种写法都接受，缺参按用法错误抛出。"""
+    if arg != name:
+        return arg.split("=", 1)[1]
+    if pos + 1 >= len(argv):
+        raise ValueError(f"{name} 缺少参数")
+    return argv[pos + 1]
+
+
+def opt_of(arg):
+    """返回匹配的长选项名；普通参数返回 None，未知短横参数抛用法错误。"""
+    for name in ("--product", "--variant"):
+        if arg == name or arg.startswith(name + "="):
+            return name
+    if arg.startswith("-"):
+        raise ValueError(f"未知参数: {arg}")
+    return None
+
+
 def parse(argv):
-    """解析 CLI；返回 (product, path)，--help 返回 (None, None)。"""
+    """解析 CLI；返回 (product, variant, path)，--help 返回 (None, None, None)。"""
     if any(arg in ("-h", "--help") for arg in argv):
-        return None, None
-    product = None
+        return None, None, None
+    got = {"--product": None, "--variant": ""}
     files = []
     pos = 0
     while pos < len(argv):
         arg = argv[pos]
-        if arg == "--product" and pos + 1 < len(argv):
-            product = argv[pos + 1]
-            pos += 2
-        elif arg.startswith("--product="):
-            product = arg.split("=", 1)[1]
-            pos += 1
-        elif arg.startswith("-"):
-            raise ValueError(f"未知参数: {arg}")
-        else:
+        name = opt_of(arg)
+        if name is None:
             files.append(arg)
             pos += 1
-    if not product or len(files) != 1:
+            continue
+        got[name] = flag(arg, name, argv, pos)
+        pos += 2 if arg == name else 1
+    if not got["--product"] or len(files) != 1:
         raise ValueError("需要 --product 与唯一 FILE")
-    return product, files[0]
+    return got["--product"], got["--variant"], files[0]
 
 
 def main(argv):
     try:
-        product, name = parse(argv)
+        product, variant, name = parse(argv)
     except ValueError as exc:
         print(f"cfg_brand: {exc}", file=sys.stderr)
         print(USAGE, file=sys.stderr)
@@ -632,7 +653,7 @@ def main(argv):
     except (OSError, UnicodeDecodeError) as exc:
         print(f"cfg_brand: {exc}", file=sys.stderr)
         return BAD
-    return apply(path, raw, product)
+    return apply(path, raw, product, variant)
 
 
 if __name__ == "__main__":

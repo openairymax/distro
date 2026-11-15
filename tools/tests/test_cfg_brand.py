@@ -287,6 +287,25 @@ class CfgBrandTest(unittest.TestCase):
         self.assertEqual(again.returncode, 3, again.stderr)
         self.assertEqual(again.stderr, "")
 
+    def test_treeinfo_variant(self):
+        path = self.make(TREEINFO, ".treeinfo")
+        res = self.run_tool("--product", PRODUCT, "--variant", "Workstation",
+                            str(path))
+        self.assertEqual(res.returncode, 0, res.stderr)
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("variant = Workstation", text)
+        self.assertNotIn("variant = Server", text)
+        self.assertIn("general.variant=Server -> Workstation", res.stderr)
+
+    def test_variant_idempotent(self):
+        path = self.make(TREEINFO, ".treeinfo")
+        self.assertEqual(
+            self.run_tool("--product", PRODUCT, "--variant=Workstation",
+                          str(path)).returncode, 0)
+        again = self.run_tool("--product", PRODUCT, "--variant=Workstation",
+                              str(path))
+        self.assertEqual(again.returncode, 3, again.stderr)
+
     def test_bootmsg_brand(self):
         path = self.make(BOOTMSG, "boot.msg")
         res = self.brand(path)

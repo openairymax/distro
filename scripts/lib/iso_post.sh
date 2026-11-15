@@ -157,11 +157,12 @@ iso_xor_put()
     mv -f "${tmp}" "${iso}"
 }
 
-# iso_cfg_verify <iso> <src> <cfg> <product> <work>
+# iso_cfg_verify <iso> <src> <cfg> <product> <variant> <work>
 # 回读新镜像并逐字节比对，再对回读副本跑一次 cfg_brand 断言幂等（返回 3）。
 iso_cfg_verify()
 {
-    local iso="$1" src="$2" cfg="$3" product="$4" work="$5" rc=0 got
+    local iso="$1" src="$2" cfg="$3" product="$4" variant="$5"
+    local work="$6" rc=0 got
     got="${work}/post/verify.$(basename "${cfg}")"
     rm -f "${got}"
     if ! iso_xor "${iso}" "/${cfg}" "${got}" "${work}/logs/xorriso.log"; then
@@ -173,22 +174,23 @@ iso_cfg_verify()
         return 1
     fi
     python3 "${ISO_POST_ROOT}/tools/cfg_brand.py" --product "${product}" \
-        "${got}" >/dev/null 2>&1 || rc=$?
+        --variant "${variant}" "${got}" >/dev/null 2>&1 || rc=$?
     if [ "${rc}" -ne 3 ]; then
         iso_post_log "回读的 ${cfg} 未达到幂等（退出码 ${rc}）"
         return 1
     fi
 }
 
-# iso_cfg_brand <iso> <product> <work>
+# iso_cfg_brand <iso> <product> <variant> <work>
 # 先全部提取并改写，再一次性写回，最后逐个回读复核。写回必须合并成一次：
 # 每次写回都会重打包并让镜像缩短，旧 GPT 指向旧几何，第二次写回读中间态
 # 镜像即失败（详见 iso_xor_put）。两个数组同序对应：puts 带前导斜杠用于
 # 写回定位，verifies 保留镜像内相对路径用于回读断言。
+# variant 为空时不改介质自述里的产品变体（站点派生等无剖面信息的调用方）。
 # 返回 0 至少改写一个引导配置；77 全部已合规无需重新打包；1 失败。
 iso_cfg_brand()
 {
-    local iso="$1" product="$2" work="$3"
+    local iso="$1" product="$2" variant="$3" work="$4"
     local cfg name src rc=0 item
     local log="${work}/logs/cfg_brand.log"
     local -a puts=() verifies=()
@@ -204,7 +206,8 @@ iso_cfg_brand()
         fi
         rc=0
         python3 "${ISO_POST_ROOT}/tools/cfg_brand.py" \
-            --product "${product}" "${src}" >"${log}" 2>&1 || rc=$?
+            --product "${product}" --variant "${variant}" "${src}" \
+            >"${log}" 2>&1 || rc=$?
         if [ -s "${log}" ]; then
             sed 's/^/  /' "${log}" >&2
         fi
@@ -226,7 +229,7 @@ iso_cfg_brand()
     iso_xor_put "${iso}" "${work}" "${puts[@]}" || return 1
     for item in "${verifies[@]}"; do
         iso_cfg_verify "${iso}" "${item%%|*}" "${item#*|}" \
-            "${product}" "${work}" || return 1
+            "${product}" "${variant}" "${work}" || return 1
     done
     return 0
 }
@@ -302,13 +305,15 @@ iso_post_md5()
     return 0
 }
 
-# iso_post_opts [--no-md5] [--product NAME]
-# 选项解析到 ISO_POST_MD5 / ISO_POST_PRODUCT；未知选项与缺参在此报错。
+# iso_post_opts [--no-md5] [--product NAME] [--variant NAME]
+# 选项解析到 ISO_POST_MD5 / ISO_POST_PRODUCT / ISO_POST_VARIANT；未知选项
+# 与缺参在此报错。
 iso_post_opts()
 {
     local opt
     ISO_POST_MD5=1
     ISO_POST_PRODUCT=""
+    ISO_POST_VARIANT=""
     while [ $# -gt 0 ]; do
         opt="$1"
         case "${opt}" in
@@ -319,6 +324,14 @@ iso_post_opts()
                 return 1
             fi
             ISO_POST_PRODUCT="$2"
+            shift 2
+            ;;
+        --variant)
+            if [ $# -lt 2 ]; then
+                iso_post_log "--variant 缺少参数"
+                return 1
+            fi
+            ISO_POST_VARIANT="$2"
             shift 2
             ;;
         '') shift ;;
@@ -350,7 +363,7 @@ iso_post_id()
 iso_post_brand()
 {
     local rc=0
-    iso_cfg_brand "$1" "$ISO_POST_PRODUCT" "$2" || rc=$?
+    iso_cfg_brand "$1" "$ISO_POST_PRODUCT" "$ISO_POST_VARIANT" "$2" || rc=$?
     if [ "${rc}" -ne 0 ] && [ "${rc}" -ne 77 ]; then
         return 1
     fi
@@ -385,7 +398,7 @@ iso_post_seal()
     fi
 }
 
-# iso_post <iso> <ks> <volid> <work> [--no-md5] [--product NAME]
+# iso_post <iso> <ks> <volid> <work> [--no-md5] [--product NAME] [--variant NAME]
 iso_post()
 {
     local iso="$1" ks="$2" volid="$3" work="$4"
