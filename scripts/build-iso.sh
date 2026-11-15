@@ -56,6 +56,7 @@ GPG_KEY=""
 KARGS="console=tty0 console=ttyS0,115200 inst.lang=en_US.UTF-8"
 MD5=1
 PRODUCT=""
+VARIANT=""
 ADDS=()
 OUT_ABS=""
 WORK=""
@@ -77,6 +78,8 @@ usage()
   --version VER      版本号，缺省取 release/os-release 的 VERSION_ID
   --product TEXT     引导菜单显示的产品名（ASCII），缺省取 release/os-release
                      的 PRETTY_NAME（"<短名> <版本号>"）
+  --variant NAME     介质自述的产品变体（.treeinfo 的 variant），缺省沿用
+                     底座原值；工作站剖面传 Workstation
   --kargs TEXT       追加到安装内核命令行的参数，缺省
                      "console=tty0 console=ttyS0,115200"；传空串则不追加
   --add PATH         额外加入 ISO 的文件或目录，可重复
@@ -124,6 +127,7 @@ parse_args()
         --arch) optarg "$1" "$#"; ARCH="$2"; shift 2 ;;
         --version) optarg "$1" "$#"; VERSION="$2"; shift 2 ;;
         --product) optarg "$1" "$#"; PRODUCT="$2"; shift 2 ;;
+        --variant) optarg "$1" "$#"; VARIANT="$2"; shift 2 ;;
         --kargs) optarg "$1" "$#"; KARGS="$2"; shift 2 ;;
         --add) optarg "$1" "$#"; ADDS+=("$2"); shift 2 ;;
         --gpg-key) optarg "$1" "$#"; GPG_KEY="$2"; shift 2 ;;
@@ -185,6 +189,20 @@ check_product()
     fi
     if [ "${#PRODUCT}" -gt 48 ]; then
         die "${E_INVAL}" "产品名长度超过 48 字节: ${PRODUCT}"
+    fi
+    check_variant
+}
+
+# 变体名要写进 .treeinfo 的一行值，换行或控制字符会把文件撑坏；与产品名
+# 同一套 ASCII 白名单，长度按 32 字节封顶（底座最长值 Server 只有 6 字节）。
+check_variant()
+{
+    [ -n "$VARIANT" ] || return 0
+    if [[ "$VARIANT" =~ [^A-Za-z0-9\ ._-] ]]; then
+        die "${E_INVAL}" "变体名含非法字符: ${VARIANT}"
+    fi
+    if [ "${#VARIANT}" -gt 32 ]; then
+        die "${E_INVAL}" "变体名长度超过 32 字节: ${VARIANT}"
     fi
 }
 
@@ -295,7 +313,7 @@ post_iso()
         flag="--no-md5"
     fi
     if ! iso_post "$DEST" "${WORK}/ks.cfg" "$VOLID" "$WORK" \
-        --product "$PRODUCT" "$flag"; then
+        --product "$PRODUCT" --variant "$VARIANT" "$flag"; then
         die "${E_IO}" "ISO 后处理失败（日志 ${WORK}/logs）"
     fi
 }

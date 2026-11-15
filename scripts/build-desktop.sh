@@ -433,8 +433,11 @@ run_closure()
 run_iso()
 {
     local add rc=0
+    # 本脚本组装的就是工作站剖面：底座 .treeinfo 的 variant=Server 会让
+    # anaconda 的安装源自述与产品定位不符，这里显式改写。
     local -a args=(--iso "$BASE" --ks "$KS" --out "${OUT_ABS}/iso"
-                   --arch "$ARCH" --volid "$VOLID" --add "$AIRY")
+                   --arch "$ARCH" --volid "$VOLID" --variant Workstation
+                   --add "$AIRY")
     for add in "${ADDS[@]}"; do
         args+=(--add "$add")
     done
