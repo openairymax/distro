@@ -558,6 +558,59 @@ t8_hostname() {
     expect "${stat}" "${HOSTNAME_WANT}" "static hostname" || return 1
 }
 
+# 品牌短名通道只接受可打印 ASCII：它同时是引导菜单条目名、ISO 卷标与
+# NVRAM 的通道，非 ASCII 会让 GRUB 的 unicode.pf2 整段不显示。
+t9_ascii_brand() {
+    case "$1" in
+    ''|*[!A-Za-z0-9._-]*) return 1 ;;
+    esac
+    return 0
+}
+
+# NAME 允许空格（「<brand> <flavor>」是常见写法），其余同短名。
+t9_ascii_name() {
+    case "$1" in
+    ''|*[!A-Za-z0-9._\ -]*) return 1 ;;
+    esac
+    return 0
+}
+
+# VERSION_ID 必须是 X.Y.Z。
+t9_ver() {
+    case "$1" in
+    [0-9]*.[0-9]*.[0-9]*) return 0 ;;
+    esac
+    echo "os-release VERSION_ID: ${1:-absent} (want X.Y.Z)"
+    return 1
+}
+
+# 两层展示名的可执行不变式：PRETTY_NAME 必须逐字等于「<ASCII 短名> <版本
+# 号>」。逐字断言品牌串会把某一版的命名写死在探针里，命名调整即整条判定
+# 失效；断言不变式既锁住格式又随 os-release 一起演进。
+t9_pretty() {
+    local pretty="$1" dist="$2" ver="$3"
+
+    if ! t9_ascii_brand "${dist}"; then
+        echo "os-release PRETTY_NAME: ${pretty:-absent} (want '<brand> <version>')"
+        return 1
+    fi
+    expect "${dist} ${ver}" "${pretty}" "os-release PRETTY_NAME"
+}
+
+# NAME 与 PRETTY_NAME 同一通道：openEuler 的 /etc/grub.d/10_linux 把 NAME
+# 原样写进引导菜单标题，而 GRUB 只加载不含 CJK 字形的 unicode.pf2，非
+# ASCII 会整段不显示。故 NAME 必须是 ASCII 且以同一短名起头——底座名
+# （openEuler）在此判失败。
+t9_name() {
+    local name="$1" dist="$2"
+
+    if ! t9_ascii_name "${name}"; then
+        echo "os-release NAME: ${name:-absent} (want ASCII '<brand>...')"
+        return 1
+    fi
+    expect_prefix "${name}" "${dist}" "os-release NAME"
+}
+
 # T9: 品牌（os-release 是发行版身份的唯一载体，桌面与会话代理都读它）
 t9_brand() {
     local file="${SYSROOT}/etc/os-release" ver pretty dist name
@@ -569,38 +622,12 @@ t9_brand() {
     expect "$(os_rel VERSION_CODENAME)" openairymax "os-release codename" ||
         return 1
     ver="$(os_rel VERSION_ID)"
-    case "${ver}" in
-    [0-9]*.[0-9]*.[0-9]*) : ;;
-    *)
-        echo "os-release VERSION_ID: ${ver:-absent} (want X.Y.Z)"
-        return 1
-        ;;
-    esac
-    # 两层展示名的可执行不变式：PRETTY_NAME 必须逐字等于「<ASCII 短名> <版本
-    # 号>」。逐字断言品牌串会把某一版的命名写死在探针里，命名调整即整条判定
-    # 失效；断言不变式既锁住格式又随 os-release 一起演进。短名必须 ASCII——
-    # 它同时是引导菜单条目名、ISO 卷标与 NVRAM 的通道。
+    t9_ver "${ver}" || return 1
     pretty="$(os_rel PRETTY_NAME)"
     dist="${pretty%% *}"
-    case "${dist}" in
-    ''|*[!A-Za-z0-9._-]*)
-        echo "os-release PRETTY_NAME: ${pretty:-absent} (want '<brand> <version>')"
-        return 1
-        ;;
-    esac
-    expect "${dist} ${ver}" "${pretty}" "os-release PRETTY_NAME" || return 1
-    # NAME 与 PRETTY_NAME 同一通道：openEuler 的 /etc/grub.d/10_linux 把
-    # NAME 原样写进引导菜单标题，而 GRUB 只加载不含 CJK 字形的 unicode.pf2，
-    # 非 ASCII 会整段不显示。故 NAME 必须是 ASCII 且以同一短名起头——底座名
-    # （openEuler）在此判失败。
+    t9_pretty "${pretty}" "${dist}" "${ver}" || return 1
     name="$(os_rel NAME)"
-    case "${name}" in
-    ''|*[!A-Za-z0-9._\ -]*)
-        echo "os-release NAME: ${name:-absent} (want ASCII '<brand>...')"
-        return 1
-        ;;
-    esac
-    expect_prefix "${name}" "${dist}" "os-release NAME" || return 1
+    t9_name "${name}" "${dist}" || return 1
     # 登录前的品牌面与 os-release 同一事实源：/etc/issue 首行逐字等于
     # PRETTY_NAME。文件缺失时 sed 给出空串，由 expect 报出差异。
     expect "$(sed -n 1p "${SYSROOT}/etc/issue")" "${pretty}" "issue 首行" ||
