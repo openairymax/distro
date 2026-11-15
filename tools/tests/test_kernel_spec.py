@@ -187,6 +187,18 @@ class KernelSpecTest(unittest.TestCase):
         # 断言在 initramfs 之后：此时重生成的菜单行才带正确的 initrd
         self.assertIn("dracut --force", post)
 
+    def test_orphan_initramfs_swept(self):
+        """旧内核的 initramfs 不随旧包删除，不清会在 /boot 里越积越多。"""
+        post = body(self.text, "post", "core")
+        tail = body(self.text, "posttrans", "core")
+        self.assertIn("for img in /boot/initramfs-*.img; do", tail)
+        self.assertIn("rel=${img##*/initramfs-}", tail)
+        # kdump 镜像与内核镜像同名前缀，去掉后缀才落在同一个判据上
+        self.assertIn("*kdump) rel=${rel%kdump} ;;", tail)
+        self.assertIn('[ -e "/boot/vmlinuz-${rel}" ] || rm -f "${img}"', tail)
+        # 判据是「同名 vmlinuz 是否还在」：这只有删完旧包文件才成立
+        self.assertNotIn("initramfs-*.img", post)
+
     def test_initramfs_unowned(self):
         lines = self.text.splitlines()
         secs = spec_lint.parse_secs(lines)

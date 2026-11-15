@@ -63,7 +63,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 11
+%global airy_release 12
 %global kernel_version 6.6.161
 # 本地版本里带上构建号。uname -r 是内核在 /boot、/usr/lib/modules 与
 # 引导项里的唯一身份：只写 -alk 时，补丁级升级前后 uname -r 完全相同，
@@ -526,6 +526,21 @@ fi
 # initramfs 已就位。菜单收敛不在这里做，见下面的 %%posttrans core。
 
 %posttrans core
+# 旧版本的 initramfs 不属于任何包（安装期生成，见 %%post），rpm 删旧包时
+# 不会带走它，每升一次内核就在 /boot 留一份 35 MiB 的孤儿。974 MiB 的
+# /boot 四五次升级即满，之后的包事务会因空间不足失败。%%posttrans 时本事务
+# 的文件已定稿：没有同名 vmlinuz 的 initramfs 不可能再被任何引导项用到。
+# kdump 镜像名为 initramfs-<release>kdump.img，去掉该后缀后按同一判据处理，
+# 仍在盘上的内核其 kdump 镜像因此不受影响。
+for img in /boot/initramfs-*.img; do
+    [ -e "${img}" ] || continue
+    rel=${img##*/initramfs-}
+    rel=${rel%.img}
+    case "${rel}" in
+    *kdump) rel=${rel%kdump} ;;
+    esac
+    [ -e "/boot/vmlinuz-${rel}" ] || rm -f "${img}"
+done
 # 引导菜单的收敛放在事务末尾，而不是 %%post：rpm 的顺序是「新包 %%post →
 # 删旧包文件 → %%posttrans」。在 %%post 里扫 /boot 时旧内核的 vmlinuz 还在，
 # 生成的菜单会写下一条随后被删掉的条目。0.0.4-9 升 0.0.4-10 的 285H 现场即
@@ -605,6 +620,13 @@ depmod -a %{kernel_release}
 %endif
 
 %changelog
+* Sun Nov 15 2026 SPHARX <dev@spharx.com> - 0.0.4-12
+- kernel：%%posttrans core 清掉旧 release 的 initramfs。该文件由 %%post 在
+  安装期生成、不属于任何包，rpm 删旧包时不带走它；285H 升级到 0.0.4-11 后
+  /boot 里同时留着 alk、alk.9、alk.10 三份 35 MiB 的孤儿与两份 41 MiB 的
+  kdump 镜像，974 MiB 的 /boot 四五次升级即满，之后的包事务会因空间不足
+  失败。判据是「没有同名 vmlinuz」，kdump 镜像去掉该后缀后同一判据，
+  仍在盘上的内核其镜像不受影响
 * Sun Nov 15 2026 SPHARX <dev@spharx.com> - 0.0.4-11
 - kernel：菜单收敛与断言从 %%post core 移到 %%posttrans core。rpm 的顺序是
   「新包 %%post → 删旧包文件」，0.0.4-9 升 0.0.4-10 的 285H 现场因此在菜单
