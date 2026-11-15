@@ -65,7 +65,12 @@
 %global airy_version 0.0.4
 %global airy_release 8
 %global kernel_version 6.6.161
-%global kernel_local -alk
+# 本地版本里带上构建号。uname -r 是内核在 /boot、/usr/lib/modules 与
+# 引导项里的唯一身份：只写 -alk 时，补丁级升级前后 uname -r 完全相同，
+# 新包会原地覆盖旧包的同名 vmlinuz 与模块树，旧内核实体不复存在，装机后
+# 没有可回退的第二个引导项。带上 %%{airy_release} 后每次构建是一个独立
+# 身份，install-only 语义才有意义（旧内核留在盘上，引导菜单可选）。
+%global kernel_local -alk.%{airy_release}
 %global kernel_release %{kernel_version}%{kernel_local}
 # 固件闭包的 ABI 名。派生自 %%(kernel_version)，与 airymaxos-firmware 的
 # %%(kernel_abi) 逐字一致，由 tools/tests/test_fw_contract.py 断言。
@@ -506,13 +511,12 @@ fi
 if command -v systemd-sysusers >/dev/null 2>&1; then
     systemd-sysusers --root=/ || :
 fi
-# 每次安装都重建。判据不能是「文件是否已存在」：内核 release 字符串由
-# 上游版本与 -alk 后缀拼成，补丁级升级里两者都不变，同一路径的旧
-# initramfs 于是被当成「已经有了」而整段跳过。285H 从 0.0.4-5 升到
-# 0.0.4-6 后 /boot/initramfs-6.6.161-alk.img 仍是上一构建的 11 MiB 旧
-# 文件，里面没有新内核才加入的 LPSS 模块链，触控板在内核已修好的情况下
-# 依旧不工作；手工 dracut 后同一路径变成 29 MiB 才恢复。initramfs 与
-# vmlinuz 必须同源，这个等价关系只能由本事务直接保证。
+# 每次安装都重建。判据不能是「文件是否已存在」：同一 NVR 的重装走同一个
+# 路径，旧 initramfs 会被当成「已经有了」而整段跳过。285H 上出现过
+# /boot/initramfs-6.6.161-alk.img 仍是上一构建的 11 MiB 旧文件、里面没有
+# 新内核才加入的 LPSS 模块链，触控板在内核已修好的情况下依旧不工作；手工
+# dracut 后同一路径变成 29 MiB 才恢复。initramfs 与 vmlinuz 必须同源，这个
+# 等价关系只能由本事务直接保证。
 dracut --force /boot/initramfs-%{kernel_release}.img %{kernel_release}
 if [ ! -s /boot/initramfs-%{kernel_release}.img ]; then
     echo "airymaxos-kernel: initramfs generation failed" >&2

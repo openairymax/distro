@@ -429,7 +429,7 @@ t6_rel() {
     local rel="$1"
 
     case "${rel}" in
-    *-alk) return 0 ;;
+    *-alk | *-alk.*) return 0 ;;
     esac
     echo "uname -r: ${rel} (want *-alk)"
     return 1
@@ -448,7 +448,7 @@ t6_boot() {
             return 1
         }
     done
-    grep -qx 'CONFIG_LOCALVERSION="-alk"' "${cfg}" || {
+    grep -q '^CONFIG_LOCALVERSION="-alk' "${cfg}" || {
         echo "config-${rel}: LOCALVERSION mismatch"
         return 1
     }
