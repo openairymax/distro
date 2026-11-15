@@ -458,17 +458,29 @@ def b_parts(product):
     return name, ver, f"{name}-{ver}"
 
 
-def t_val(key, value, brand):
+def t_named(value: str, brand: tuple) -> str:
+    """family/short：底座名换成本产品名，已带本产品名的副本原样保留。"""
+    return brand[0] if BASE_NAME.search(value) else value
+
+
+def t_name(value: str, brand: tuple) -> str:
+    """name：底座前缀的取短名，其余底座名取产品名。"""
+    if not BASE_NAME.search(value):
+        return value
+    return brand[2] if value.lower().startswith("openeuler-") else brand[0]
+
+
+def t_val(key: str, value: str, brand: tuple) -> str:
     """返回品牌键改写后的值；非品牌键或已合规时原样返回。"""
-    name, ver, slug, variant = brand
+    _name, ver, _slug, variant = brand
     if key == "version":
         return ver or value
     if key == "variant":
         return variant or value
     if key in ("family", "short"):
-        return name if BASE_NAME.search(value) else value
-    if key == "name" and BASE_NAME.search(value):
-        return slug if value.lower().startswith("openeuler-") else name
+        return t_named(value, brand)
+    if key == "name":
+        return t_name(value, brand)
     return value
 
 
