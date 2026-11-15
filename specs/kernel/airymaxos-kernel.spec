@@ -63,7 +63,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 7
+%global airy_release 8
 %global kernel_version 6.6.161
 %global kernel_local -alk
 %global kernel_release %{kernel_version}%{kernel_local}
@@ -558,6 +558,14 @@ depmod -a %{kernel_release}
 %endif
 
 %changelog
+* Sun Nov 15 2026 SPHARX <dev@spharx.com> - 0.0.4-8
+- kernel：i915 认领 Arrow Lake-H/U/S 的 PCI ID，并去掉 mtl_info 上的
+  require_force_probe。Intel 把 ARL 的显示设备挂在 MTL 那一行设备表上，
+  该行带 force-probe 门禁，于是 285H 的 00:02.0 [8086:7d51] 从开机起没有
+  驱动：/dev/dri 不存在、firmware 内置面板只有 2880x1800 一种模式、
+  背光与 kscreen 后端全部落到空实现。补丁本身此前已落在 ALK-6.6-dev
+  （4eea4aa6141a），但子模块指针仍指向它的父提交，发行内核因此没带上；
+  本次同时把指针与配方发布号一起推进，装机后以模块别名与驱动绑定核对
 * Sun Nov 08 2026 SPHARX <dev@spharx.com> - 0.0.4-7
 - kernel：%%post core 每次安装都重建 initramfs，并用显式依赖把
   airymaxos-kernel-modules 排在本包之前。两者都不做时，「同名 initramfs
