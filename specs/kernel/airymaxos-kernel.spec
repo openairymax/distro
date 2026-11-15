@@ -63,7 +63,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 9
+%global airy_release 10
 %global kernel_version 6.6.161
 # 本地版本里带上构建号。uname -r 是内核在 /boot、/usr/lib/modules 与
 # 引导项里的唯一身份：只写 -alk 时，补丁级升级前后 uname -r 完全相同，
@@ -195,7 +195,7 @@ Obsoletes:      kernel-core
 
 %description core
 Bootable kernel image for AirymaxOS. Installation generates the matching
-initramfs and registers the image with kernel-install when available.
+initramfs and converges the boot menu onto it.
 
 %package modules
 Summary:        AirymaxOS kernel modules
@@ -498,6 +498,14 @@ assert_file %{ksrc}/tools/bpf/bpftool/bpftool
 %endif
 
 %post core
+# 引导项落地。本产品未启用 BLS，菜单由 grub2-mkconfig 扫描 /boot 现生成；
+# kernel-install 属 systemd 的可选组件，285H 上 `command -v kernel-install`
+# 为空，此前唯一那条分支被「when available」静默跳过：升级完成后菜单里没有
+# 任何本版本条目，而 rpm -U 已删掉旧包的 vmlinuz，第一条指向不存在的文件，
+# 重启即 "file not found"。注册职责因此不挂在 kernel-install 上——它在就照
+# 旧调用，随后的收敛对所有情况都生效：grub_args.sh 的 apply 模式重生成 cfg
+# 并同步品牌副本，后者才是被固件加载的活动配置（D-07）。
+airy_args=/usr/lib/airymaxos/boot/grub_args.sh
 if command -v kernel-install >/dev/null 2>&1; then
     kernel-install add %{kernel_release} /boot/vmlinuz-%{kernel_release} || :
 fi
@@ -521,6 +529,21 @@ dracut --force /boot/initramfs-%{kernel_release}.img %{kernel_release}
 if [ ! -s /boot/initramfs-%{kernel_release}.img ]; then
     echo "airymaxos-kernel: initramfs generation failed" >&2
     exit 1
+fi
+# initramfs 已就位，此时重生成才带上正确的 initrd 行。收敛成功而菜单里没有
+# 本版本，说明生成输入或 /boot 视图已不对，放行等于交付一台升级后不可引导
+# 的机器；收敛本身失败（无 /etc/default/grub、无 grub2-mkconfig、ESP 未挂）
+# 则只报告不中止——新装机器的引导项由安装器的 bootloader 阶段在包事务之后
+# 写入，在这里中断会让整台机器装不完。
+if [ -x "${airy_args}" ]; then
+    if "${airy_args}" >/dev/null; then
+        if ! "${airy_args}" --require-entry %{kernel_release}; then
+            echo "airymaxos-kernel: no boot entry for %{kernel_release}" >&2
+            exit 1
+        fi
+    else
+        echo "airymaxos-kernel: boot config not converged" >&2
+    fi
 fi
 
 %preun core
@@ -562,6 +585,15 @@ depmod -a %{kernel_release}
 %endif
 
 %changelog
+* Sun Nov 15 2026 SPHARX <dev@spharx.com> - 0.0.4-10
+- kernel：%%post core 不再把引导项注册押在 kernel-install 上。该工具属
+  systemd 的可选组件，285H 上不存在（command -v 为空），唯一的注册分支被
+  「when available」静默跳过：升级完成后菜单里没有任何本版本条目，而
+  rpm -U 已删掉旧包的 vmlinuz，第一条指向不存在的文件，重启即 file not
+  found。改为不论该工具是否存在都由 grub_args.sh 收敛（重生成 cfg 并同步
+  品牌副本），随后以 --require-entry 断言活动配置里有本版本的 linux 行，
+  缺失即中断事务；收敛本身失败时只报告不阻断，新装机器的引导项由安装器
+  的 bootloader 阶段在包事务之后写入
 * Sun Nov 15 2026 SPHARX <dev@spharx.com> - 0.0.4-8
 - kernel：i915 认领 Arrow Lake-H/U/S 的 PCI ID，并去掉 mtl_info 上的
   require_force_probe。Intel 把 ARL 的显示设备挂在 MTL 那一行设备表上，

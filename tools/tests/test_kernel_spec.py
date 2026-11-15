@@ -171,6 +171,17 @@ class KernelSpecTest(unittest.TestCase):
         self.assertIn("rm -f /boot/initramfs-%{kernel_release}.img",
                       body(self.text, "preun", "core"))
 
+    def test_boot_entry_converges(self):
+        """升级后必须有引导项：kernel-install 缺失时不能只剩静默跳过。"""
+        post = body(self.text, "post", "core")
+        self.assertIn("airy_args=/usr/lib/airymaxos/boot/grub_args.sh", post)
+        self.assertIn('"${airy_args}" --require-entry %{kernel_release}', post)
+        self.assertIn("no boot entry for %{kernel_release}", post)
+        self.assertIn("boot config not converged", post)
+        # 断言在 initramfs 之后：此时重生成的菜单行才带正确的 initrd
+        self.assertLess(post.index("dracut --force"),
+                        post.index("--require-entry"))
+
     def test_initramfs_unowned(self):
         lines = self.text.splitlines()
         secs = spec_lint.parse_secs(lines)

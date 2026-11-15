@@ -67,6 +67,10 @@
 #
 # 退出码：0 = 已收敛（含无需改动）；1 = 参数未能落地；2 = 用法错误。调用者
 #         据 1 中止安装：静默降级只会把观感问题推迟到验收现场。
+#
+# 断言模式 --require-entry <release>：只读，不改写任何文件，判定活动配置里
+# 有该版本的 linux 行，缺失退 1。由内核包 %post 在收敛之后调用——升级前后
+# 内核的 vmlinuz 同名替换与否，只有菜单里的事实能说明。
 # ===========================================================================
 
 defaults=/etc/default/grub
@@ -83,6 +87,7 @@ stale='rhgb quiet'
 timeout=1
 mkconfig=grub2-mkconfig
 font=
+entry=
 mode=apply
 
 note()
@@ -101,6 +106,7 @@ usage()
     printf 'usage: %s [--defaults FILE] [--cfg FILE] [--esp DIR]\n' "$0" >&2
     printf '       [--etc DIR] [--state FILE] [--append ARGS] [--timeout SECS]\n' >&2
     printf '       [--font FILE] [--mkconfig CMD] [--check] [--no-regen]\n' >&2
+    printf '       [--require-entry RELEASE]\n' >&2
 }
 
 while [ $# -gt 0 ]; do
@@ -114,6 +120,7 @@ while [ $# -gt 0 ]; do
     --timeout) timeout=${2:?--timeout 需要秒数}; shift 2 ;;
     --font) font=${2:?--font 需要文件}; shift 2 ;;
     --mkconfig) mkconfig=${2:?--mkconfig 需要命令}; shift 2 ;;
+    --require-entry) entry=${2:?--require-entry 需要内核版本}; shift 2 ;;
     --check) mode=check; shift ;;
     --no-regen) mode=edit; shift ;;
     *) usage; exit 2 ;;
@@ -245,6 +252,26 @@ check_consoles()
         rc=1
     }
     return "${rc}"
+}
+
+# 引导项事实：内核升级后菜单里必须出现本版本的 linux 行。按完整 token 匹配，
+# 前缀匹配会让 -alk.9 命中 -alk.99，两个内核的条目就分不开了。品牌副本存在
+# 时它就是活动配置（见文件头 D-07），只查生成侧会放过「生成了但没同步」这一
+# 半——那一半在重启后才显形：菜单与命令行都停在旧内核。内核包的 post 用它
+# 判定升级是否真的可引导：kernel-install 缺失时菜单没有任何新条目，而 rpm
+# 已删掉旧包的 vmlinuz，第一条指向不存在的文件。
+check_entry()
+{
+    local copy pat
+    copy=$(brand_dir)/grub.cfg
+    [ -f "${copy}" ] || copy=${cfg}
+    pat="vmlinuz-${entry}([[:space:]]|\$)"
+    if grep -Eq "${pat}" "${copy}" 2>/dev/null; then
+        note "entry ok: vmlinuz-${entry} in ${copy}"
+        return 0
+    fi
+    note "entry missing: vmlinuz-${entry} not in ${copy}"
+    return 1
 }
 
 # 参数行先按语义算好，再交给结构改写：摘旧项、补缺项、重放控制台三件事只
@@ -458,6 +485,15 @@ sync_brand()
 
 if [ "${mode}" = check ]; then
     verify || exit 1
+    exit 0
+fi
+
+# 断言模式只读：不改写输入文件、不重生成、不碰 ESP。放在参数改写之前，
+# 调用方可在一次安装事务里先 apply 再断言。
+if [ -n "${entry}" ]; then
+    [ -n "${cfg}" ] || cfg=$(pick_cfg) ||
+        fail "no ${etc}/grub2-efi.cfg or ${etc}/grub2.cfg"
+    check_entry || exit 1
     exit 0
 fi
 
