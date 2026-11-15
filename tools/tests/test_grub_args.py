@@ -419,6 +419,62 @@ class GrubArgsTest(unittest.TestCase):
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
         self.assertNotIn("brand copy refreshed:", res.stdout)
 
+    def require_entry(self, release, copy_body=None):
+        """品牌副本里放一条 menuentry，按其 linux 行判定条目是否落地。"""
+        self.write()
+        cfg, copy = self.esp_pair()
+        if copy_body is None:
+            copy_body = ("menuentry 'AirymaxOS' {\n"
+                         "\tlinux /vmlinuz-%s root=UUID=x ro\n}\n" % release)
+        copy.write_text(copy_body, encoding="utf-8")
+        return self.run_args("--defaults", str(self.defaults), "--cfg", str(cfg),
+                             "--require-entry", release)
+
+    def test_require_entry_present(self):
+        res = self.require_entry("6.6.161-alk.9")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("entry ok: vmlinuz-6.6.161-alk.9", res.stdout)
+
+    def test_require_entry_missing(self):
+        # 285H 现场：kernel-install 不存在，内核升级后菜单里没有新条目，而
+        # rpm 已删掉旧包的 vmlinuz。这一步必须显式失败而不是静默放过。
+        res = self.require_entry(
+            "6.6.161-alk.10",
+            "menuentry 'x' {\n\tlinux /vmlinuz-6.6.161-alk.9 ro\n}\n")
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("entry missing: vmlinuz-6.6.161-alk.10", res.stdout)
+
+    def test_require_entry_token_boundary(self):
+        # -alk.9 不能命中 -alk.99：前缀匹配会让两个内核的条目分不开
+        res = self.require_entry("6.6.161-alk.9",
+                                 "linux /vmlinuz-6.6.161-alk.99 ro\n")
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("entry missing:", res.stdout)
+
+    def test_require_entry_reads_generated_cfg(self):
+        # 品牌副本不存在时（未品牌化的 ESP 或 BIOS 引导）以生效配置为准
+        self.write()
+        cfg = self.root / "grub.cfg"
+        cfg.write_text("linux /vmlinuz-6.6.161-alk.9 root=UUID=x ro\n",
+                       encoding="utf-8")
+        res = self.run_args("--defaults", str(self.defaults), "--cfg", str(cfg),
+                            "--require-entry", "6.6.161-alk.9")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("entry ok:", res.stdout)
+
+    def test_require_entry_writes_nothing(self):
+        # 断言模式只读：内核 post 在同一个事务里先收敛再断言，断言不得改写
+        # 输入文件，也不得伪造安装期的状态文件
+        before = self.write().read_text(encoding="utf-8")
+        cfg = self.root / "grub.cfg"
+        cfg.write_text("linux /vmlinuz-6.6.161-alk.9 ro\n", encoding="utf-8")
+        res = self.run_args("--defaults", str(self.defaults),
+                            "--cfg", str(cfg),
+                            "--require-entry", "6.6.161-alk.9")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertEqual(self.text(), before)
+        self.assertFalse(self.state.exists())
+
     def font(self, name="unicode.pf2", body="pf2\n"):
         path = self.root / name
         path.write_text(body, encoding="utf-8")
