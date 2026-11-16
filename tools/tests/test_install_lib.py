@@ -13,6 +13,7 @@
 # ===========================================================================
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -61,11 +62,23 @@ class InstallLibTest(unittest.TestCase):
                          ["AIRYMAX-INSTALL-STEP 3/7 disk"])
 
     def test_wait_beats_while_command_runs(self):
+        """心跳必须出现，且 t= 是真实走过的秒数：负载下 sleep 会超时返回，
+        条数与具体读数都不该被钉死，断言的是格式、单调性与「只走控制台」。"""
         res = self.sh('airy_step 8 10 grub\n'
                       'airy_wait grub2-mkconfig sleep 2', AIRY_BEAT=1)
         self.assertEqual(res.returncode, 0, res.stderr)
-        self.assertIn("AIRYMAX-INSTALL-WAIT step=8/10 grub "
-                      "name=grub2-mkconfig t=1s", self.console_lines())
+        lines = [ln for ln in self.console_lines()
+                 if ln.startswith("AIRYMAX-INSTALL-WAIT")]
+        self.assertTrue(lines, self.console_lines())
+        pattern = (r"^AIRYMAX-INSTALL-WAIT step=8/10 grub "
+                   r"name=grub2-mkconfig t=(\d+)s$")
+        stamps = []
+        for line in lines:
+            hit = re.match(pattern, line)
+            self.assertIsNotNone(hit, line)
+            stamps.append(int(hit.group(1)))
+        self.assertGreaterEqual(stamps[0], 1)
+        self.assertEqual(stamps, sorted(stamps))
         self.assertNotIn("AIRYMAX-INSTALL-WAIT", res.stdout)
 
     def test_wait_passes_rc_and_quiet_output(self):
