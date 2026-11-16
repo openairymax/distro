@@ -70,20 +70,21 @@ airy_step()
 
 # wait_beat <name> — 心跳循环，每 AIRY_BEAT 秒一行。
 #
-# 计数从调用开始累计，报的是「已经等了多久」，不是墙钟时刻：装机现场没有
-# 对时保证，绝对时刻读不出意义。sleep 必须自己丢掉输出，否则它比命令活得
-# 久，继承到的管道要等下一次 tick 才关，采集端会连带挂住（与 stage_run.sh
-# 同一处理）。主脚本段已经不在时自行退出，不在装机介质上留一个每 15 秒往
-# 串口写一行的孤儿。
+# 报的是「已经等了多久」，不是墙钟时刻：装机现场没有对时保证，绝对时刻读不出
+# 意义。这个秒数必须取自真实走过的时钟（SECONDS），不能按 beat 累加：负载高时
+# sleep 会超时返回，累加值会比实际等待短，日志上「t=1s」可能已经过了两秒，恰好
+# 在最需要判断卡在哪儿的时候给出错误读数。sleep 必须自己丢掉输出，否则它比命令
+# 活得久，继承到的管道要等下一次 tick 才关，采集端会连带挂住（与 stage_run.sh
+# 同一处理）。主脚本段已经不在时自行退出，不在装机介质上留一个每 15 秒往串口
+# 写一行的孤儿。
 wait_beat()
 {
-    local name="$1" used=0 beat="${AIRY_BEAT:-15}"
+    local name="$1" beat="${AIRY_BEAT:-15}" t0="${SECONDS}"
 
     while sleep "${beat}" >/dev/null 2>&1; do
         kill -0 "$$" 2>/dev/null || return 0
-        used=$((used + beat))
         airy_beat "AIRYMAX-INSTALL-WAIT step=${AIRY_STEP:-unknown}" \
-            "name=${name} t=${used}s"
+            "name=${name} t=$((SECONDS - t0))s"
     done
 }
 
