@@ -166,6 +166,7 @@ Source69:       20-airymax-listen-run.conf
 Source70:       airy-pkg
 Source71:       airypkg-%{version}.tar.gz
 Source72:       ukui_compat.sh
+Source73:       airymax-llm.conf
 
 BuildRequires:  gcc
 BuildRequires:  python3-devel
@@ -261,6 +262,8 @@ install -m 0755 %{SOURCE17} %{SOURCE18} %{SOURCE50} %{SOURCE53} \
     %{SOURCE72} %{buildroot}/usr/lib/airymaxos/scripts/
 install -d -m 0755 %{buildroot}%{_presetdir}
 install -m 0644 %{SOURCE19} %{SOURCE20} %{buildroot}%{_presetdir}/
+install -d -m 0755 %{buildroot}%{_tmpfilesdir}
+install -m 0644 %{SOURCE73} %{buildroot}%{_tmpfilesdir}/airymax-llm.conf
 install -m 0644 %{SOURCE49} %{buildroot}/usr/lib/airymaxos/boot-set
 install -d -m 0755 %{buildroot}%{_bindir}
 install -m 0755 %{SOURCE21} %{buildroot}%{_bindir}/airy-disk
@@ -372,6 +375,14 @@ grep -qxF 'ExecStart=/usr/bin/airy-model serve' \
     %{buildroot}%{_unitdir}/airy-llm.service
 grep -qxF 'StateDirectory=airy-llm' \
     %{buildroot}%{_unitdir}/airy-llm.service
+grep -qxF 'StateDirectoryMode=0755' \
+    %{buildroot}%{_unitdir}/airy-llm.service
+grep -qxF 'User=airy' %{buildroot}%{_unitdir}/airy-llm.service
+grep -qxF 'SupplementaryGroups=airy-cogn' \
+    %{buildroot}%{_unitdir}/airy-llm.service
+test -f %{buildroot}%{_tmpfilesdir}/airymax-llm.conf
+grep -qxF 'd /var/lib/airy-llm 0755 airy airy -' \
+    %{buildroot}%{_tmpfilesdir}/airymax-llm.conf
 grep -qxF 'ConditionPathExists=/var/lib/airy-llm/manifest.json' \
     %{buildroot}%{_unitdir}/airy-llm.service
 grep -qxF 'Slice=airymax-agent.slice' \
@@ -533,7 +544,24 @@ for unit in airy-rt-bandwidth.service airy-rt-memcap.service \
     grep -qxF "${unit}" %{buildroot}/usr/lib/airymaxos/boot-set || exit 1
 done
 
+%pre
+# 服务账户是单元的硬依赖：User=airy、Group=airy、
+# SupplementaryGroups=airy-cogn。账户缺失时单元以 217/USER 失败，资产装得
+# 再全也起不来，且只会在 journal 里留一行「用户不存在」——装机时看不出来，
+# 装机后表现为模型服务永远 inactive。因此这里让事务失败，而不是交付一个
+# 「装完即坏」的系统。账户已存在时不改动，升级路径保持幂等。
+getent group airy >/dev/null || groupadd -r airy || exit 1
+getent group airy-cogn >/dev/null || groupadd -r airy-cogn || exit 1
+getent passwd airy >/dev/null ||
+    useradd -r -g airy -G airy-cogn -d /var/lib/airy-llm -M \
+        -s /sbin/nologin -c "AirymaxOS Agent Runtime" airy || exit 1
+exit 0
+
 %post
+if command -v systemd-tmpfiles >/dev/null 2>&1; then
+    systemd-tmpfiles --create %{_tmpfilesdir}/airymax-llm.conf \
+        >/dev/null 2>&1 || :
+fi
 if command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload >/dev/null 2>&1 || :
 fi
@@ -581,6 +609,7 @@ fi
 %{_unitdir}/*.timer
 %{_presetdir}/90-airymax.preset
 %{_presetdir}/99-airymax-default-disable.preset
+%{_tmpfilesdir}/airymax-llm.conf
 %{_bindir}/airy-disk
 %{_bindir}/airy-update
 %{_bindir}/airy-model
