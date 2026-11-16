@@ -1,7 +1,7 @@
 # ci — 组合冒烟矩阵
 
 > 目标：每一次"桌面包组 × 内核 RPM"的冻结点滚动/内核指针推进，
-> 都经过同一套可重复的十七项最低验收。
+> 都经过同一套可重复的最低验收。
 
 ## 冒烟矩阵
 
@@ -25,6 +25,11 @@
 | T16 | 观测工具 | `airy-bench --check` 完成一轮 IPC 往返自检、`airy-demo --check` 清点对端与终端、`airy-observe --static` 的资产与品牌字段齐全（三者 status 均为 ok） | 装机后即可现场观测与演示 |
 | T17 | 系统盘布局 | `findmnt` 取证 `/` 与 `/data` 各挂在一个 `part` 上且互不相同；`lsblk` 统计的分区数 ≥2 | DISK-01 双分区落地（不读安装期计划，只看实际块层） |
 | X1 | 内核仓反向门禁 | kernel CI 持续拒绝 Qt/X11/Wayland 头依赖与 KABI 白名单外变更（由 agent-linux CI 承担，此处仅交叉核对报告） | 双向不污染 |
+
+下表为 0.0.3 基线 T1–T17。0.0.4 起新增 T18–T31（构建指纹、固件三件、
+控制台状态、系统清点、会话稳态、字体图标、无线固件布局、现场诊断工具、
+网络前端闭包、触控板、托盘、联机网络），逐项定义以 `run-smoke.sh` 头部
+为准；报告侧按 TAP 计划推导项数，不复制常量。
 
 ## 矩阵维度
 
@@ -120,8 +125,8 @@ ci/run-image-ci.sh --out /out --iso-base /path/netinst.iso \
 关键链只在此处采集：验收安装 `%post` 已 mask `airymax-desktop-ready.service`，
 同一观测点不设第二个判定者，`osaccrt_bootchain` 据此对账 `boot.service`。
 
-判定要求计划为 `1..17`、十七条 `ok`、无 `not ok`/`Bail out!`/`# SKIP`、
-`# summary` 的 `fail=0`。会话内 runner 上限 180s，
+判定要求 TAP 计划末项与 `ok` 条数一致（当前 `1..31`）、无
+`not ok`/`Bail out!`/`# SKIP`、`# summary` 的 `fail=0`。会话内 runner 上限 180s，
 report 轮询上限 240s；由于转发先于结论标记，宿主机命中
 `AIRYMAX-SMOKE-PASS` 时 TAP 全文已在串口，`image-ci.yml` 的
 "Extract smoke TAP" 步骤据此还原 `smoke-<fw>-<n>.tap`
