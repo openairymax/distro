@@ -83,7 +83,14 @@ args='loglevel=5 plymouth.enable=0'
 # 旧版本写进命令行的画面参数。merge 只补不删，升级机器上它们一定还在；
 # 不在这里摘掉，同一份配置在全新安装与升级两条路径上会得到两种观感——
 # 前者逐行打印，后者被 splash 与 quiet 重新藏起来。
-stale='rhgb quiet'
+#
+# cgroup_disable=files 是安装器从基底带进来的死参数：cgroup_disable= 只受理
+# 控制器名与可选特性名，ALK 6.6.161 的特性表只有 "pressure"（见
+# kernel/kernel/cgroup/cgroup.c 的 cgroup_opt_feature_names），"files" 两者
+# 都不命中，内核什么也不做。它不影响功能，却会让看 /proc/cmdline 排障的人
+# 以为 cgroup 文件被关掉了；同一行里的 crashkernel 与 apparmor 有实际含义，
+# 只摘这一项。
+stale='rhgb quiet cgroup_disable=files'
 timeout=1
 mkconfig=grub2-mkconfig
 font=
