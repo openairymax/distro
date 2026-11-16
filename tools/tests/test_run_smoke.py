@@ -173,6 +173,10 @@ class RunSmokeTest(unittest.TestCase):
         self.write_blocks()
         self.marker = self.write_marker()
         self.xorg = self.start_xorg("-config", XCONF)
+        # T1 的会话组件基线：两条都由伪 pgrep 覆盖，判定逻辑另有用例逐条
+        # 破坏。真基线名单是产品台账，不在这里复写第二份。
+        self.baseline = self.root / "session-baseline.txt"
+        self.baseline.write_text("ukui-panel\nibus-daemon\n", encoding="utf-8")
 
     def tearDown(self):
         self._tmp.cleanup()
@@ -671,6 +675,7 @@ class RunSmokeTest(unittest.TestCase):
             "PYTHONPATH": str(SERVICES),
             "AIRYMAX_SMOKE_WAIT": "0",
             "AIRYMAX_SMOKE_ROOT": str(self.sysroot),
+            "AIRYMAX_SMOKE_BASELINE": str(self.baseline),
         }
         env.update(extra)
         return subprocess.run([BASH, str(SCRIPT), *args], env=env,
@@ -828,6 +833,33 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke(FAKE_PROCS="ibus-daemon")
         self.assert_fail(res, 1)
         self.assertIn("ukui-session not running", res.stdout)
+
+    def test_baseline_component_missing(self):
+        """会话起来了但组件不全：缺失项必须点名，否则「缺一个面板」会被
+        会话存在的判定盖过去。"""
+        self.tools()
+        self.baseline.write_text("ukui-panel\nukui-sidebar\n", encoding="utf-8")
+        res = self.run_smoke()
+        self.assert_fail(res, 1)
+        self.assertIn("session components missing: ukui-sidebar", res.stdout)
+
+    def test_baseline_ignores_comments(self):
+        """名单允许注释与空行：台账要写实测日期与口径，解析不得把它们算成
+        组件，也不得因末行空行报缺。"""
+        self.tools()
+        self.baseline.write_text("# 285H 实测\n\nukui-panel\n",
+                                 encoding="utf-8")
+        res = self.run_smoke()
+        self.assertIn("ok 1 - T1", res.stdout)
+        self.assertIn("session baseline: 1 components ok", res.stdout)
+
+    def test_baseline_unreadable(self):
+        """名单读不到即判负：没有名单就没有判据，不能默认放行。"""
+        self.tools()
+        self.baseline.unlink()
+        res = self.run_smoke()
+        self.assert_fail(res, 1)
+        self.assertIn("baseline missing", res.stdout)
 
     def test_ibus_down(self):
         self.tools()

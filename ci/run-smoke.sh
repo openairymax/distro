@@ -24,9 +24,13 @@
 #                       err-budget。机器类别与指纹由 airy-observe 按 `--root`
 #                       指向的 sysfs 现场判定，文件里没有本机所属的组即判负
 #                       （最严），不因缺组放行。
+#   AIRYMAX_SMOKE_BASELINE  T1 的会话组件基线；缺省读脚本同目录的
+#                       session-baseline.txt。缺文件即判负：名单本身就是
+#                       判据，读不到就无从判定会话是否完整。
 #
 # 覆盖:
-#   T1  UKUI X11 会话：loginctl 会话属性、ukui-session 进程、X server 可达
+#   T1  UKUI X11 会话：loginctl 会话属性、ukui-session 进程、X server 可达、
+#       会话组件基线齐备（与 session-baseline.txt 逐项比对，缺项点名）
 #   T2  ibus 输入法：守护进程、全局引擎、会话输入法变量
 #   T3  PulseAudio 音频栈：pactl 与守护进程握手
 #   T4  桌面隔离 slice：user@UID.service 归属与 slice 资源参数
@@ -106,6 +110,9 @@ SYSROOT="${AIRYMAX_SMOKE_ROOT:-}"
 SELF_DIR="${BASH_SOURCE[0]%/*}"
 [ "${SELF_DIR}" = "${BASH_SOURCE[0]}" ] && SELF_DIR=.
 BUDGET_FILE="${AIRYMAX_SMOKE_BUDGET_FILE:-${SELF_DIR}/err-budget}"
+# T1 的会话组件基线：同一目录的名单文件。判据是「逐项常在」，不是「总数够」，
+# 因为总数会把「缺一个面板、多一个残留」抵成正常。
+BASE_FILE="${AIRYMAX_SMOKE_BASELINE:-${SELF_DIR}/session-baseline.txt}"
 
 # 判定者不把自己的结论当证据。上报单元（airymax-smoke-report.service）的失败
 # 由本轮 TAP 判定驱动，产品就绪单元在验收 ISO 又被 mask，于是它一旦红过，
@@ -306,13 +313,36 @@ seat_proc() {
     }
 }
 
-# T1: UKUI X11 会话（lightdm 会话 + 会话进程 + X server + 驱动标记）
+# base_check — 会话组件逐项在位。名单只有一份（session-baseline.txt），
+# 桌面状态面板与验收编排读同一份；这里只做比对，不另存期望值。
+base_check() {
+    local name miss="" n=0
+
+    [ -r "${BASE_FILE}" ] || {
+        echo "baseline missing: ${BASE_FILE}"
+        return 1
+    }
+    while read -r name; do
+        case "${name}" in '' | '#'*) continue ;; esac
+        n=$((n + 1))
+        pgrep -x "${name}" >/dev/null 2>&1 && continue
+        miss="${miss} ${name}"
+    done <"${BASE_FILE}"
+    [ -z "${miss}" ] || {
+        echo "session components missing:${miss}"
+        return 1
+    }
+    echo "session baseline: ${n} components ok"
+}
+
+# T1: UKUI X11 会话（lightdm 会话 + 会话进程 + 组件基线 + X server + 驱动标记）
 t1_x11() {
     need loginctl || return $?
     need pgrep || return $?
     need xdpyinfo || return $?
     seat_env || return 1
     seat_proc || return 1
+    base_check || return 1
     seat_marker
 }
 

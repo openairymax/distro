@@ -1,0 +1,32 @@
+# session-baseline.txt — UKUI 会话组件基线（run-smoke.sh T1 的事实源）
+#
+# 285H 实测（2026-11-16，airymaxos-0.0.4-21 / kernel 6.6.161-alk.13，登录后
+# 稳定态、无外部应用）：会话内常驻 21 个组件、合计 23 个进程。首列是内核
+# comm（pgrep -x 口径，15 字节截断）。
+#
+# 判据是「逐项常在」，不是实例数：ukui-screensave 实测 3 个进程（每个输出
+# 一台），锁屏实例数随输出数变化，它不是完整性判据。
+#
+# 名单只此一份：桌面状态面板、验收编排与本节判据读同一文件，不得各写一份。
+# 组件增减属产品变更，须同时改本文件与 §8 M4-5 的「23 进程基线」台账。
+ukui-kwin_x11
+ukui-panel
+ukui-session
+ukui-menu
+ukui-sidebar
+ukui-notificati
+ukui-settings-d
+ukui-search
+ukui-search-ser
+ukui-window-swi
+ukui-control-ce
+ukui-volume-con
+ukui-power-mana
+ukui-powermanag
+ukui-upower
+ukui-flash-disk
+ukui-screensave
+ukui-bluetooth
+polkit-ukui-aut
+kylin-nm
+sni-daemon
