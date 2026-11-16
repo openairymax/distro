@@ -599,7 +599,10 @@ inst_args()
     if [ "${ACCEPTANCE}" -eq 1 ]; then
         INST_ARGS+=(--boot-marker AIRYMAX-SMOKE-PASS)
     elif [ "${PROFILE}" = desktop ]; then
-        INST_ARGS+=(--boot-marker AIRYMAX-DESKTOP-READY)
+        # 联机就绪与桌面就绪同属「装完可用」：桌面起来但
+        # 网络不通的镜像在交付上是残缺的，两个标记都出现才收尾。
+        INST_ARGS+=(--boot-marker AIRYMAX-DESKTOP-READY
+                    --boot-marker AIRYMAX-NET-READY)
     fi
 }
 

@@ -726,7 +726,8 @@ if [ -n "$nv" ] && ! grep -q BOOTENTRY "$nv"; then
 fi
 case "${FAKE_QEMU_BOOT_MODE:-ok}" in
 ok) printf 'AirymaxOS login:\\nAIRYMAX-DESKTOP-READY unit=lightdm ' > "$log"
-    printf 'class=greeter type=x11\\n' >> "$log" ;;
+    printf 'class=greeter type=x11\\nAIRYMAX-NET-READY ipv4=ens3=10.0.2.15 ' >> "$log"
+    printf 'src=dhcp gw=10.0.2.2 dns=10.0.2.3\\n' >> "$log" ;;
 login-only) printf 'AirymaxOS login:\\n' > "$log" ;;
 noisy) printf '[FAILED] Failed to start OpenSSH server daemon.\\n' > "$log"
     printf "See 'systemctl status sshd.service' for details.\\n" >> "$log"
@@ -745,6 +746,11 @@ nomarker) printf 'booting\\n' > "$log" ;;
 slow) sleep 2; printf 'login:\\n' > "$log" ;;
 desktop-slow) sleep 2
     printf 'AirymaxOS login:\\nAIRYMAX-DESKTOP-READY unit=lightdm\\n' > "$log" ;;
+desktop-net) printf 'AirymaxOS login:\\nAIRYMAX-DESKTOP-READY unit=lightdm ' > "$log"
+    printf 'class=greeter type=x11\\nAIRYMAX-NET-READY ipv4=ens3=10.0.2.15 ' >> "$log"
+    printf 'src=dhcp gw=10.0.2.2 dns=10.0.2.3\\n' >> "$log" ;;
+desktop-nonet) printf 'AirymaxOS login:\\nAIRYMAX-DESKTOP-READY unit=lightdm\\n' > "$log"
+    printf 'AIRYMAX-NET-OFFLINE ipv4=none src=none gw=none dns=none\\n' >> "$log" ;;
 hang) printf 'booting\\n' > "$log"; exec sleep 60 ;;
 esac
 exit 0

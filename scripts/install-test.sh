@@ -79,7 +79,8 @@ MAX_BOOT_SET=0
 PROGRESS_EVERY=30
 PROG_AT=0
 MARKER="install complete"
-BOOT_MARKER="login:"
+BOOT_MARKERS=()
+BOOT_MARKER_SET=0
 FW_DIR=""
 ACCEL="tcg"
 
@@ -111,7 +112,7 @@ usage()
   --max-boot S         启动墙钟上限秒数，缺省 30；仅 login: 腿生效，
                        桌面/验收标记腿缺省不设上限
   --marker TEXT        %post 完成标记，缺省 "install complete"
-  --boot-marker TEXT   启动完成标记，缺省 "login:"
+  --boot-marker TEXT   启动完成标记，可重复；全部出现才算启动完成，缺省 "login:"
   --fw-dir DIR         优先在该目录探测 OVMF/AAVMF 固件
   -h, --help           显示本帮助
 
@@ -185,7 +186,12 @@ parse_args()
             optarg "$1" "$#"; need_num "$1" "$2"
             MAX_BOOT="$2"; MAX_BOOT_SET=1; shift 2 ;;
         --marker) optarg "$1" "$#"; MARKER="$2"; shift 2 ;;
-        --boot-marker) optarg "$1" "$#"; BOOT_MARKER="$2"; shift 2 ;;
+        --boot-marker)
+            optarg "$1" "$#"
+            # 首个标记顶替缺省值，后续追加：调用方给几个就等几个，
+            # 不缺省混入 login:——否则桌面腿会在登录提示一出现就判过。
+            [ "${BOOT_MARKER_SET}" -eq 1 ] || BOOT_MARKERS=()
+            BOOT_MARKERS+=("$2"); BOOT_MARKER_SET=1; shift 2 ;;
         --fw-dir) optarg "$1" "$#"; FW_DIR="$2"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
         *) die "未知参数: $1" ;;
@@ -194,7 +200,8 @@ parse_args()
     [ -n "${ISO}" ] || die "--iso 必填"
     [ -f "${ISO}" ] || die "ISO 不存在: ${ISO}"
     [ "${RUNS}" -ge 1 ] || die "--runs 必须大于 0"
-    if [ "${MAX_BOOT_SET}" -eq 0 ] && [ "${BOOT_MARKER}" != "login:" ]; then
+    [ "${BOOT_MARKER_SET}" -eq 1 ] || BOOT_MARKERS=("login:")
+    if [ "${MAX_BOOT_SET}" -eq 0 ] && [ "${BOOT_MARKERS[*]}" != "login:" ]; then
         MAX_BOOT=""
     fi
 }
@@ -538,9 +545,16 @@ install_run()
 
 probe_log()
 {
-    grep -q "${BOOT_MARKER}" "$1" 2>/dev/null && return 0
-    grep -qE "${BOOT_FAIL}" "$1" 2>/dev/null && return 2
-    return 1
+    local m
+
+    # 多个标记同时给出时结论取交集：桌面起来了但联机没就绪，仍然是
+    # 「装完不能用」，不能在第一个标记出现时就收尾。
+    for m in "${BOOT_MARKERS[@]}"; do
+        grep -q "${m}" "$1" 2>/dev/null && continue
+        grep -qE "${BOOT_FAIL}" "$1" 2>/dev/null && return 2
+        return 1
+    done
+    return 0
 }
 
 # 归因用，不参与判定：systemd 在失败单元之后会打印

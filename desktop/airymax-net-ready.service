@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
+# ===========================================================================
+# airymax-net-ready — 首启联机就绪探针
+#
+# WantedBy=graphical.target 且 Type=simple：探针不挂 target 的等待面。
+# 联机就绪最长要等 AIRYMAX_NET_WAIT（60 秒），用 oneshot 会让
+# graphical.target 陪着等——断网的机器上，开机时间因此凭空多一分钟，
+# 而这段时间对本单元毫无必要：它只是上报，判定由宿主机看标记。
+# 脚本自己始终以 0 退出，Type=simple 下不会留下 failed 记账。
+#
+# 与 airymax-desktop-ready 的分工：那个单元判「桌面进不进得去」（oneshot，
+# 失败即 BLOCKED）；本单元判「装完能不能联网」（观测，不参与 Boot 判定）。
+# ===========================================================================
+[Unit]
+Description=AirymaxOS first-boot network readiness probe
+Documentation=https://atomgit.com/openairymax/agent-linux
+After=NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/airymaxos/desktop/net_ready.sh
+# stdout 只进 journal：console 由脚本内的 con.sh 独占（串口 + /dev/console
+# + 活动 VT），理由与 desktop-ready 同。
+StandardOutput=journal
+StandardError=journal+console
+
+[Install]
+WantedBy=graphical.target

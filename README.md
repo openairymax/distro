@@ -91,6 +91,8 @@ distro/
 │   ├── airymax-desktop.slice      # Low-interference cgroup slice
 │   ├── airymax-desktop-ready.service  # Graphical login chain readiness probe
 │   ├── desktop_ready.sh           # UKUI session + lightdm/greeter check
+│   ├── airymax-net-ready.service  # First-boot network readiness probe
+│   ├── net_ready.sh               # Address/source/gateway/DNS quartet reporter
 │   ├── boot_state.sh              # Failed-unit accounting shared library
 │   ├── 70-airymax-ukui-policy.sh  # Post-install policy script
 │   ├── lightdm/                   # lightdm seat policy

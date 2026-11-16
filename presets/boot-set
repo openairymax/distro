@@ -25,6 +25,12 @@
 lightdm.service
 airymax-desktop-ready.service
 
+# 首启联机就绪：net-doctor 只答「为什么没网」，桌面就绪只答「桌面起没起」，
+# 装机验收要答的是「装完能不能联网」。探针有界等待四元组（地址/来源/网关/
+# DNS）并把结论写成 AIRYMAX-NET-READY/OFFLINE 落串口，宿主机据此判定，不再
+# 依赖现场人工联网。不启用时症状是验收腿只能等到桌面标记，联机状态无人上报。
+airymax-net-ready.service
+
 # RT 带宽与换页上限：cgroup v1 上 systemd 不写 memory.memsw.limit_in_bytes，
 # 由 airy-rt-cap memcap 补写。不开机执行，长任务换页就没有上界。两者分属
 # 两个单元：带宽依赖登录后才存在的桌面 slice，必然只落一部分；换页上限
