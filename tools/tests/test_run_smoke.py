@@ -8,7 +8,7 @@
 # 的退出码规则。这里用 PATH 沙箱提供伪 loginctl /
 # pgrep / xdpyinfo / ibus / pactl / systemctl / gsettings /
 # sha256sum / fc-list / uname / xrandr / findmnt / lsblk / dmesg /
-# hostname / hostnamectl，并给
+# hostname / hostnamectl / ip，并给
 # T6–T18 与 T22、T25–T27 准备一份只读系统视图（AIRYMAX_SMOKE_ROOT），每个
 # 用例只破坏一个前提，从而在无桌面环境下判定真实控制流。
 #
@@ -208,6 +208,7 @@ class RunSmokeTest(unittest.TestCase):
         self.write_tray()
         self.write_vconsole()
         self.write_dmi()
+        self.write_resolv()
 
     def write_net_front(self, kylin=True, modules=NET_MODULES):
         """T28 的落点：面板与控制中心共用的网络前端闭包。判的是文件是否
@@ -263,6 +264,18 @@ class RunSmokeTest(unittest.TestCase):
         for key, value in (values or DMI).items():
             (root / key).write_text(f"{value}\n", encoding="utf-8")
         return root
+
+    def write_resolv(self, server="192.168.7.1"):
+        """T31 的落点：装好的机器由 NetworkManager 写入的解析服务器。
+        airy-observe 的 net.dns 按观察根读 resolv.conf，与真机同一路径。"""
+        path = self.sysroot / "etc" / "resolv.conf"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if server is None:
+            if path.exists():
+                path.unlink()
+            return path
+        path.write_text(f"nameserver {server}\n", encoding="utf-8")
+        return path
 
     def write_acpi_touchpad(self, node="PNP0C50:00", path=TPAD_PATH):
         """T29 的落点：ACPI 命名空间里存在触控板节点，但输入子系统是否
@@ -2088,6 +2101,28 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke()
         self.assert_fail(res, 30)
         self.assertIn("ukui-volume-control-applet-qt", res.stdout)
+
+    def test_net_live_ok(self):
+        # 地址、网关、DNS 三件齐备：值与真机同形，走 airy-observe 的解析
+        self.tools()
+        res = self.run_smoke()
+        self.assertTrue(self.tap(res, 31).startswith("ok"), res.stdout)
+        self.assertIn("net: ipv4=eth0=192.168.7.20 gw=192.168.7.1", res.stdout)
+
+    def test_net_live_no_addr(self):
+        # 没有全局地址的机器：网关与 DNS 再全也不构成联机
+        self.tools()
+        res = self.run_smoke(FAKE_IP_ADDR="")
+        self.assert_fail(res, 31)
+        self.assertIn("地址 none", res.stdout)
+
+    def test_net_live_dns_none(self):
+        # 地址与路由都对，但解析服务器缺失：能连 IP、不能连域名
+        self.tools()
+        self.write_resolv(server=None)
+        res = self.run_smoke()
+        self.assert_fail(res, 31)
+        self.assertIn("DNS none", res.stdout)
 
     def test_build_id_ok(self):
         self.tools()

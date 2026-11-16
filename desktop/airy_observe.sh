@@ -33,8 +33,8 @@
 #     个权威来源（os-release、grub 默认项、hostname）。
 #   运行段（kernel.*、session.*、boot.* 等）需要真实内核与 systemd，只在
 #     活体模式出现；--static 跳过它，不要求构建机有 X server 或 systemd。
-# --root 指定观察根，与 --static 配合用于打包自检；运行段不受 --root 影响，
-# 因为它问的是当前内核与当前 cgroup。
+# --root 指定观察根，与 --static 配合用于打包自检。运行段问的是当前内核与
+# 当前 cgroup，只有 net.dns / net.wifi 这类纯文件读取随观察根改变。
 #
 # 末两行固定为 mode、fields：调用方按 status 判一次结论即可，不必自己聚合
 # 各行。status=ok 表示身份与桌面链都成立，非零退出码让脚本能直接用在 CI
@@ -206,7 +206,8 @@ net_gw() {
 
 net_dns() {
     local v
-    v=$(sed -n 's/^nameserver //p' /etc/resolv.conf 2>/dev/null | head -n 1)
+    v=$(sed -n 's/^nameserver //p' "${ROOT}/etc/resolv.conf" 2>/dev/null |
+        head -n 1)
     printf '%s' "${v:-none}"
 }
 
@@ -242,7 +243,7 @@ net_src() {
 # 尚未发现设备，而验收要回答的恰恰是「硬件在不在」。
 net_wifi() {
     local d list=
-    for d in /sys/class/net/*/wireless; do
+    for d in "${ROOT}"/sys/class/net/*/wireless; do
         [ -d "$d" ] || continue
         d=${d%/wireless}
         list=${list:+$list,}${d##*/}

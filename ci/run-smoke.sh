@@ -11,11 +11,12 @@
 #   AIRYMAX_SMOKE_WAIT  守护进程就绪等待秒数（默认 30）
 #   AIRYMAX_SMOKE_HOST  期望的主机名（默认 airymax-pc，即配方值）
 #   AIRYMAX_SMOKE_ROOT  只读系统视图的根前缀（默认空，即真实 /）。T1、T5–T16、
-#                       T18 与 T23、T25–T27 读取 /run、/usr/share、/boot、
+#                       T18 与 T23、T25–T27、T31 读取 /run、/usr/share、/boot、
 #                       /sys、/etc、/usr/lib、/usr/bin 下的运行态标记、发行版
 #                       标识、资产与随镜像交付的工具，单测在沙箱里用该前缀
 #                       复核判定，装机现场保持默认值。
-#                       T17 读实时块层，不经该前缀。
+#                       T17 读实时块层，T31 的地址与路由取自 ip 的实时输出，
+#                       两者不经该前缀。
 #   AIRYMAX_SMOKE_BUILD_ID  发布清单记录的构建来源指纹。给出时要求与本机
 #                       BUILD_ID 逐字相同，把「装的是这一轮产出的镜像」变成
 #                       可判定事实；缺省只校验机内两处一致。
@@ -70,6 +71,9 @@
 #       不适用通过。LPSS 的 PCI ID 缺项时总线不存在、日志无错，只能这样判
 #   T30 托盘三件：网络/电量/音量各由一个托盘进程提供，且都由 autostart
 #       拉起；包在而 autostart 缺时进程不自启，图标同样消失且无日志
+#   T31 联机网络：全局 IPv4、默认网关与 DNS 三项同时成立。三项都取自
+#       airy-observe 的 net 段，与桌面状态面板、宿主侧 net-online --live
+#       同源；缺哪项报哪项，并附整个 net 段，区分断在地址、路由还是解析
 #
 # 判定语义:
 #   0  — 全部通过
@@ -79,8 +83,9 @@
 # 部测试机”这一情形。
 #
 # 本脚本自身由 XDG autostart 拉起，与 ibus、pulseaudio 的 autostart 条目
-# 同阶段并发执行，守护进程此刻可能尚未就绪。因此这两项探测做有界等待：
-# AIRYMAX_SMOKE_WAIT 秒内反复探测，超时仍不就绪即判失败（不放宽判定）。
+# 同阶段并发执行，守护进程此刻可能尚未就绪；网络也由 NetworkManager 在开机后
+# 异步收敛。因此这几项探测做有界等待：AIRYMAX_SMOKE_WAIT 秒内反复探测，超时
+# 仍不就绪即判失败（不放宽判定）。
 # ===========================================================================
 set -uo pipefail
 
@@ -1767,8 +1772,85 @@ t30_tray() {
     printf 'tray: nm, power, volume entry points present\n'
 }
 
+obs_field() { # obs_field <报告> <键> — airy-observe 报告里该键的取值
+    local line
+
+    line=$(printf '%s\n' "$1" |
+        sed -n "s/^AIRYMAX-OBSERVE $2=//p" | head -n 1)
+    line=${line%\"}
+    printf '%s' "${line#\"}"
+}
+
+# 点分十进制 IPv4：net.ipv4 的取值形如 "eth0=192.168.7.20,eth1=…"，先按
+# 逗号分项、去掉接口名，再验四段且每段不超过 255。任一段不是数字或越界
+# 即整项作废，不做「看起来像地址」的宽松匹配。
+has_v4() {
+    local cand octet n
+
+    for cand in $(printf '%s' "$1" | tr ',' ' '); do
+        n=0
+        for octet in $(printf '%s' "${cand#*=}" | tr '.' ' '); do
+            case ${octet} in
+            '' | *[!0-9]*) n=0; break ;;
+            esac
+            [ "${octet}" -le 255 ] || { n=0; break; }
+            n=$((n + 1))
+        done
+        [ "${n}" -eq 4 ] && return 0
+    done
+    return 1
+}
+
+# 联机网络的判据：全局 IPv4、默认网关、DNS 三项同时成立。三者都取自
+# airy-observe 的 net 段，与桌面状态面板、宿主侧 net-online --live 同源；
+# 缺哪项报哪项，并附整个 net 段，区分断在地址、路由还是解析。
+net_ready() { # net_ready <报告>
+    local ipv4 gw dns
+
+    ipv4=$(obs_field "$1" net.ipv4)
+    gw=$(obs_field "$1" net.gw)
+    dns=$(obs_field "$1" net.dns)
+    has_v4 "${ipv4}" && has_v4 "${gw}" && [ "${dns:-absent}" != absent ] &&
+        [ "${dns}" != none ]
+}
+
+t31_net_why() {
+    local rc out ipv4 gw dns
+
+    out=$(airy-observe --section net --root "${SYSROOT:-/}" 2>&1)
+    rc=$?
+    ipv4=$(obs_field "${out}" net.ipv4)
+    gw=$(obs_field "${out}" net.gw)
+    dns=$(obs_field "${out}" net.dns)
+    printf '网络未就绪：地址 %s，网关 %s，DNS %s\n' \
+        "${ipv4:-absent}" "${gw:-absent}" "${dns:-absent}"
+    [ "${rc}" -eq 0 ] || printf 'airy-observe --section net rc=%s\n' "${rc}"
+    printf '%s\n' "${out}"
+}
+
+t31_net_live() {
+    local waited=0 out
+
+    need airy-observe || return 1
+    while :; do
+        if out=$(airy-observe --section net --root "${SYSROOT:-/}" 2>/dev/null) &&
+            net_ready "${out}"; then
+            printf 'net: ipv4=%s gw=%s dns=%s\n' \
+                "$(obs_field "${out}" net.ipv4)" \
+                "$(obs_field "${out}" net.gw)" \
+                "$(obs_field "${out}" net.dns)"
+            return 0
+        fi
+        [ "${waited}" -ge "${START_WAIT}" ] && break
+        sleep 1
+        waited=$((waited + 1))
+    done
+    t31_net_why
+    return 1
+}
+
 printf 'TAP version 14\n'
-printf '1..30\n'
+printf '1..31\n'
 printf '# AirymaxOS distro smoke: target=%s date=%s\n' \
     "${TARGET}" "$(date -u '+%FT%TZ')"
 printf '# ownership: budget-file=%s\n' "${BUDGET_FILE}"
@@ -1808,6 +1890,7 @@ probe 27 "T27 field diagnostic tools" t27_field_tools
 probe 28 "T28 network front closure" t28_net_front
 probe 29 "T29 builtin touchpad" t29_touchpad
 probe 30 "T30 tray entry points" t30_tray
+probe 31 "T31 network bring-up live" t31_net_live
 
 printf '# summary: pass=%d fail=%d\n' "${PASS}" "${FAIL}"
 [ "${FAIL}" -eq 0 ]

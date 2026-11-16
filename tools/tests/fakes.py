@@ -1075,6 +1075,34 @@ cat "${FAKE_DMESG_FILE}"
 """
 
 
+# 联机网络探测（T31）读 ip 的三条查询。沙箱没有真实网卡，伪工具按查询
+# 作答；负例把 FAKE_IP_ADDR / FAKE_IP_ROUTE 置空，让「无地址」「无网关」
+# 走真实 airy-observe 的解析路径，而不是绕过解析直接判死。
+IP = """\
+#!/bin/sh
+kind=""
+for a in "$@"; do
+    case "$a" in
+    addr|route|link) kind=$a ;;
+    esac
+done
+case "$kind" in
+addr)
+    v=${FAKE_IP_ADDR-2: eth0    inet 192.168.7.20/24 brd 192.168.7.255 scope global dynamic eth0}
+    [ -n "$v" ] && printf '%s\\n' "$v"
+    ;;
+route)
+    v=${FAKE_IP_ROUTE-default via 192.168.7.1 dev eth0 proto dhcp src 192.168.7.20 metric 100}
+    [ -n "$v" ] && printf '%s\\n' "$v"
+    ;;
+link)
+    printf '%s\\n' '1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536'
+    printf '%s\\n' '2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500'
+    ;;
+esac
+"""
+
+
 # 块层内省全部走 lsblk/blockdev/findmnt：真机上它们是 sysfs 的读取者，
 # 沙箱里用一张表复刻同一输出面。表由 FAKE_LSBLK_DB 指向，每行八列：
 #   path|type|bytes|rm|tran|serial|model|mounts（挂载点以逗号分隔）
@@ -1329,7 +1357,7 @@ def smoke_tools(bin_dir, omit=()):
              ("findmnt", FINDMNT), ("lsblk", LSBLK), ("dmesg", DMESG),
              ("hostname", HOSTNAME), ("hostnamectl", HOSTNAMECTL),
              ("journalctl", JOURNALCTL), ("rpm", RPM),
-             ("coredumpctl", COREDUMPCTL))
+             ("coredumpctl", COREDUMPCTL), ("ip", IP))
     for name, body in table:
         if name not in omit:
             write(bin_dir, name, body)
