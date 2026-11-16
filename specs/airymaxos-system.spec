@@ -82,7 +82,7 @@
 # spec-lint: source-bundle ../../system/services/airypkg
 
 %global airy_version 0.0.4
-%global airy_release 55
+%global airy_release 56
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 %{!?_tmpfilesdir:%global _tmpfilesdir /usr/lib/tmpfiles.d}
@@ -634,6 +634,13 @@ fi
 %{python3_sitelib}/airypkg
 
 %changelog
+* Mon Nov 16 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-56
+- 模型运行根的属主与权限改由 tmpfiles.d 条目声明（d /var/lib/airy-llm
+  0755 airy airy -），并由 %pre 建立 airy 与 airy-cogn 两个服务账户。
+  此前该目录由服务首启时以 root 身份创建、缺省 0750，两账户也不存在，
+  桌面会话以普通用户读清单必得 EACCES，airy-status 的模型一行因此恒为
+  absent——判定与权限各自正确，合起来却是一条错结论。0755 只放开读，
+  写入仍只归服务账户；%post 重放 tmpfiles，既有系统的属主漂移自愈
 * Thu Nov 12 2026 Liren Wang <wangliren@spharx.cn> - 0.0.4-55
 - 阶段结论行带上实测耗时。stage_run 在结论行关键值之前打印 ms=<毫秒>，
   取 EPOCHREALTIME 计算的开始到退出耗时；取不到时间源时不打印，避免把
