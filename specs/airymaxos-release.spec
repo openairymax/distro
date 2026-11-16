@@ -143,6 +143,8 @@ Source47:       airy-pkg-install.desktop
 Source48:       mimeapps.list
 Source49:       65-airymax-audio.sh
 Source50:       console-font.sh
+Source51:       airy_status.py
+Source52:       airymax-status.desktop
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -268,6 +270,8 @@ install -m 0755 %{SOURCE31} \
     %{buildroot}/usr/lib/airymaxos/desktop/airy_demo.py
 install -m 0755 %{SOURCE32} \
     %{buildroot}/usr/lib/airymaxos/desktop/airy_inspect.py
+install -m 0755 %{SOURCE51} \
+    %{buildroot}/usr/lib/airymaxos/desktop/airy_status.py
 
 # 录屏与观察点以子命令形式对外：实现留在库目录，入口只是符号链接，升级时
 # 不需要在多处同步文件名，也不会出现 /usr/bin 与库目录两份实现。
@@ -278,6 +282,7 @@ ln -s ../lib/airymaxos/desktop/airy_bench.py %{buildroot}%{_bindir}/airy-bench
 ln -s ../lib/airymaxos/desktop/airy_demo.py %{buildroot}%{_bindir}/airy-demo
 ln -s ../lib/airymaxos/desktop/airy_inspect.py %{buildroot}%{_bindir}/airy-kernel
 ln -s ../lib/airymaxos/desktop/airy_inspect.py %{buildroot}%{_bindir}/airy-os
+ln -s ../lib/airymaxos/desktop/airy_status.py %{buildroot}%{_bindir}/airy-status
 
 install -d -m 0755 %{buildroot}%{_sysconfdir}/lightdm/lightdm.conf.d
 install -m 0644 %{SOURCE7} \
@@ -364,6 +369,8 @@ install -m 0644 %{SOURCE46} \
 install -d -m 0755 %{buildroot}%{_datadir}/applications
 install -m 0644 %{SOURCE47} \
     %{buildroot}%{_datadir}/applications/airy-pkg-install.desktop
+install -m 0644 %{SOURCE52} \
+    %{buildroot}%{_datadir}/applications/airymax-status.desktop
 install -d -m 0755 %{buildroot}%{_sysconfdir}/xdg
 install -m 0644 %{SOURCE48} %{buildroot}%{_sysconfdir}/xdg/mimeapps.list
 
@@ -614,6 +621,23 @@ test -L %{buildroot}%{_bindir}/airy-os
     grep -qxF 'AIRYMAX-OS os.id=airymaxos'
 %{buildroot}%{_bindir}/airy-os --root %{buildroot} |
     grep -qxF 'AIRYMAX-OS session.autologin=amuser'
+# 桌面状态面板：行为在门禁里用桩生产者覆盖，这里只钉住「入口确实指向已
+# 安装的实现」与「菜单项确实可见」。Exec 写错时点击无反应；NoDisplay=true
+# 则是另一类静默——包在、菜单里却没有，用户永远找不到。
+python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' \
+    %{buildroot}/usr/lib/airymaxos/desktop/airy_status.py
+test -x %{buildroot}/usr/lib/airymaxos/desktop/airy_status.py
+test -L %{buildroot}%{_bindir}/airy-status
+grep -qxF 'Exec=/usr/bin/airy-status' \
+    %{buildroot}%{_datadir}/applications/airymax-status.desktop
+grep -qxF 'Terminal=true' \
+    %{buildroot}%{_datadir}/applications/airymax-status.desktop
+grep -qxF 'Name[zh_CN]=系统状态' \
+    %{buildroot}%{_datadir}/applications/airymax-status.desktop
+if grep -qxF 'NoDisplay=true' \
+    %{buildroot}%{_datadir}/applications/airymax-status.desktop; then
+    exit 1
+fi
 # 类别集合必须同时覆盖 greeter 与 autologin：座位策略启用 autologin 时
 # lightdm 不创建 greeter 会话，只认一类会让另一种镜像永远等不到就绪标记。
 grep -qxF 'SESS_CLASSES="greeter user"' \
@@ -947,12 +971,15 @@ fi
 /usr/lib/airymaxos/desktop/airy_bench.py
 /usr/lib/airymaxos/desktop/airy_demo.py
 /usr/lib/airymaxos/desktop/airy_inspect.py
+/usr/lib/airymaxos/desktop/airy_status.py
 %{_bindir}/airy-record
 %{_bindir}/airy-observe
 %{_bindir}/airy-bench
 %{_bindir}/airy-demo
 %{_bindir}/airy-kernel
 %{_bindir}/airy-os
+%{_bindir}/airy-status
+%{_datadir}/applications/airymax-status.desktop
 /usr/lib/airymaxos/boot/efi_brand.sh
 /usr/lib/airymaxos/boot/grub_args.sh
 %{_datadir}/plymouth/themes/default.plymouth
