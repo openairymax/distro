@@ -85,6 +85,7 @@
 %global airy_release 55
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
+%{!?_tmpfilesdir:%global _tmpfilesdir /usr/lib/tmpfiles.d}
 
 Name:           airymaxos-system
 Version:        %{airy_version}
@@ -180,6 +181,7 @@ Requires:       rpm-build
 Requires:       systemd
 Requires:       xz
 Requires:       zstd
+Requires(pre):  shadow-utils
 Requires(post): systemd
 Requires(postun): systemd
 
