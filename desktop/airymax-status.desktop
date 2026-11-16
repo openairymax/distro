@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=System Status
+Name[zh_CN]=系统状态
+Comment=Disk, network and model status on this machine
+Comment[zh_CN]=本机磁盘、网络与模型状态
+Exec=/usr/bin/airy-status
+Icon=computer
+Terminal=true
+Categories=System;Settings;
+Keywords=disk;network;model;status;
