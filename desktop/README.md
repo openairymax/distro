@@ -214,6 +214,31 @@ multi-user.target，不会触发该单元；workstation kickstart 显式 enable�
 遵循 OS-OPS-010。该标记证明 greeter 已就绪，桌面会话内的进程与音频探测
 仍由 `ci/run-smoke.sh` 承担。
 
+## 首启联机就绪探针（决策 2026-11-16）
+
+`net_doctor` 只回答「为什么没网」，登录链探针只回答「桌面进没进」，装机
+验收要回答的第三个问题是「装完能不能联网」。三份证据不能互相顶替：桌面
+起来了而网络不通的镜像在交付上仍是残缺的。
+
+`airymax-net-ready.service`（`Type=simple`、`WantedBy=graphical.target`）
+在 `NetworkManager` 之后执行 `net_ready.sh`，在 `AIRYMAX_NET_WAIT`（默认
+60s，2s 间隔）内轮询 `airy-observe --section net`：四元组成立时打印
+`AIRYMAX-NET-READY ipv4=… src=dhcp gw=… dns=…`，超时打印
+`AIRYMAX-NET-OFFLINE …`。每 `AIRYMAX_NET_BEAT`（默认 6s）打一行
+`AIRYMAX-NET-WAIT elapsed=<n>s`，等待过程本身可判读。
+
+判据只取四元组，不含网关 ICMP：CI 的 QEMU 腿走 slirp 用户态网络，ICMP
+不回包是常态，把它写进判据会让每条验收腿固定判负。真机腿的
+`ci/gates/net-online.sh --live` 仍把 ping 作为第五项，那是有人值守、有
+真实网关的场景。
+
+探针始终 0 退出：它的产出是标记而不是判定，非零退出会把探针自己写进
+`systemctl --failed`，进而被 `AIRYMAX-BOOT-HEALTH` 当成启动失败。装机
+验收的产品腿同时等 `AIRYMAX-DESKTOP-READY` 与 `AIRYMAX-NET-READY` 两个
+标记（`install-test.sh --boot-marker` 可重复，全部出现才收尾）；验收剖面
+把两个产品就绪单元一并 mask，联机判定交给会话内的 T31，同一观测点只有
+一个判定者。
+
 ## 失败单元记账（决策 2026-10-23）
 
 「本次启动有没有单元失败、分别是哪几个」是产品探针与验收 ISO 串口上报
@@ -317,6 +342,10 @@ multi-user.target，不会触发该单元；workstation kickstart 显式 enable�
   （`graphical.target` 下拉起登录链探针）
 - `desktop_ready.sh` → `/usr/lib/airymaxos/desktop/`
   （探针实现：UKUI 会话定义与 lightdm/greeter 会话校验）
+- `airymax-net-ready.service` → `/usr/lib/systemd/system/`
+  （`graphical.target` 下拉起首启联机就绪探针）
+- `net_ready.sh` → `/usr/lib/airymaxos/desktop/`
+  （探针实现：地址/来源/网关/DNS 四元组轮询与串口结论）
 - `boot_state.sh` → `/usr/lib/airymaxos/desktop/`
   （共享库：失败单元记账与有界取证，探针与验收上报共用）
 - `display_mode.sh` → `/usr/lib/airymaxos/desktop/`

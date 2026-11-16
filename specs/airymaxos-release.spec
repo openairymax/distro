@@ -68,7 +68,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 22
+%global airy_release 23
 # 桌面版本随冻结点滚动，写在 /etc/airymaxos/desktop-version，供控制中心
 # 「关于」页读取。控制中心自己不猜版本：缺文件即只显示桌面名。此宏与
 # lockfile/ukui-components.yaml 的 ukui-control-center 版本由
@@ -145,6 +145,8 @@ Source49:       65-airymax-audio.sh
 Source50:       console-font.sh
 Source51:       airy_status.py
 Source52:       airymax-status.desktop
+Source53:       airymax-net-ready.service
+Source54:       net_ready.sh
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -246,6 +248,8 @@ install -m 0644 %{SOURCE13} \
     %{buildroot}%{_unitdir}/airymax-desktop-ready.service
 install -m 0644 %{SOURCE44} \
     %{buildroot}%{_unitdir}/airymax-audio-init.service
+install -m 0644 %{SOURCE53} \
+    %{buildroot}%{_unitdir}/airymax-net-ready.service
 
 install -d -m 0755 %{buildroot}/usr/lib/airymaxos/desktop
 install -m 0755 %{SOURCE14} \
@@ -270,6 +274,8 @@ install -m 0755 %{SOURCE31} \
     %{buildroot}/usr/lib/airymaxos/desktop/airy_demo.py
 install -m 0755 %{SOURCE32} \
     %{buildroot}/usr/lib/airymaxos/desktop/airy_inspect.py
+install -m 0755 %{SOURCE54} \
+    %{buildroot}/usr/lib/airymaxos/desktop/net_ready.sh
 install -m 0755 %{SOURCE51} \
     %{buildroot}/usr/lib/airymaxos/desktop/airy_status.py
 
@@ -552,6 +558,12 @@ grep -qxF 'WantedBy=graphical.target' \
     %{buildroot}%{_unitdir}/airymax-desktop-ready.service
 bash -n %{buildroot}/usr/lib/airymaxos/desktop/desktop_ready.sh
 bash -n %{buildroot}/usr/lib/airymaxos/desktop/boot_state.sh
+# 联机就绪探针：四元组与标记前缀是装机验收在宿主机侧的判据，两边不一致时
+# 表现为「装完必然判负」而不是启动失败，故在构建期钉住出口与触发点。
+grep -qxF 'WantedBy=graphical.target' \
+    %{buildroot}%{_unitdir}/airymax-net-ready.service
+bash -n %{buildroot}/usr/lib/airymaxos/desktop/net_ready.sh
+test -x %{buildroot}/usr/lib/airymaxos/desktop/net_ready.sh
 # 首启音频初始化：条件取反写错（少了 !）会让每次启动都重设音量，把用户
 # 调好的值抹掉，而这在服务状态里看不出来；触发点写错则单元永不执行，症状
 # 仍是"开箱没声音"。两处都断言生效行本身。
@@ -960,7 +972,9 @@ fi
 %{_unitdir}/airymax-desktop.slice
 %{_unitdir}/airymax-desktop-ready.service
 %{_unitdir}/airymax-audio-init.service
+%{_unitdir}/airymax-net-ready.service
 /usr/lib/airymaxos/desktop/desktop_ready.sh
+/usr/lib/airymaxos/desktop/net_ready.sh
 /usr/lib/airymaxos/desktop/audio_init.sh
 /usr/lib/airymaxos/desktop/boot_state.sh
 /usr/lib/airymaxos/desktop/display_mode.sh
@@ -997,6 +1011,12 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Mon Nov 16 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-23
+- 新增首启联机就绪探针 net_ready.sh 与 airymax-net-ready.service：装机验收
+  此前只等桌面标记，「装完能不能联网」没有 guest 侧证据，net-online --live
+  只能在有人值守的真机上跑。探针有界等待地址/来源/网关/DNS 四元组，结论以
+  AIRYMAX-NET-READY/OFFLINE 落串口，宿主机据此判定；验收剖面把它与桌面
+  就绪单元一并 mask，保证同一观测点只有一个判定者
 * Mon Nov 16 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-22
 - 身份号随 airymaxos-system-0.0.4-56 上调。该版修掉模型运行根的属主与
   账户缺口（0750 且 airy/airy-cogn 不存在，桌面会话读清单得 EACCES，

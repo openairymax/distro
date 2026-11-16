@@ -36,8 +36,10 @@ install -m 0644 /run/install/repo/fixture/airymax-alive.timer \
 set -eu
 
 # 2) 同一观测点只允许一个判定者：产品就绪单元让位给会话内冒烟。
+#    联机就绪同理——验收剖面的网络判定是 T31，产品探针若同时上报，宿主机
+#    就分不清「T31 判绿」与「探针碰巧等到地址」哪一个成立。
 #    安装器 chroot 内没有 systemd 总线，单元文件操作走 --root 离线语义。
-systemctl --root=/ mask airymax-desktop-ready.service
+systemctl --root=/ mask airymax-desktop-ready.service airymax-net-ready.service
 
 # 3) 无人值守验收没有键盘输入：自动登录必须由产品侧的
 #    /etc/lightdm/lightdm.conf.d/50-airymax.conf 提供。这里只断言，不再

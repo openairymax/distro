@@ -354,6 +354,26 @@ class InstallTestTest(unittest.TestCase):
         self.assertIn("not ok 2", res.stdout)
         self.assertIn("boot failure pattern", res.stderr)
 
+    def test_net_marker_joins_desktop_marker(self):
+        self.tools()
+        res = self.install("--runs", "1",
+                           "--boot-marker", "AIRYMAX-DESKTOP-READY",
+                           "--boot-marker", "AIRYMAX-NET-READY",
+                           FAKE_QEMU_BOOT_MODE="desktop-net")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("ok 2", res.stdout)
+        self.assertIn("max_boot=auto", self.manifest())
+
+    def test_net_marker_is_not_optional(self):
+        """桌面起来了但联机未就绪，装机腿仍须判负。"""
+        self.tools()
+        res = self.install("--runs", "1",
+                           "--boot-marker", "AIRYMAX-DESKTOP-READY",
+                           "--boot-marker", "AIRYMAX-NET-READY",
+                           FAKE_QEMU_BOOT_MODE="desktop-nonet")
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("not ok 2", res.stdout)
+
     def test_smoke_boot_marker(self):
         self.tools()
         res = self.install("--runs", "1",
