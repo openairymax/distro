@@ -241,6 +241,23 @@ class GrubArgsTest(unittest.TestCase):
         self.assertIn("missing: loglevel=5", res.stdout)
         self.assertIn("missing: plymouth.enable=0", res.stdout)
 
+    def test_dead_cgroup_token_dropped(self):
+        # 基底带进来的 cgroup_disable=files 在 ALK 6.6 上不命中任何控制器或
+        # 可选特性，留着只是诊断噪音；同一行里的 crashkernel 与 apparmor 有
+        # 实际含义，摘除必须只针对死参数，不能连带删掉其他启动项。
+        body = STOCK.replace('GRUB_CMDLINE_LINUX="console=ttyS0,115200 '
+                             'console=tty0"',
+                             'GRUB_CMDLINE_LINUX="console=ttyS0,115200 '
+                             'console=tty0 cgroup_disable=files apparmor=0 '
+                             'crashkernel=512M"')
+        res = self.apply(body=body)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertEqual(self.cmdline(),
+                         "console=ttyS0,115200 console=tty0 apparmor=0 "
+                         "crashkernel=512M loglevel=5 plymouth.enable=0")
+        res = self.check()
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+
     def test_stale_splash_args_dropped(self):
         # merge 只补不删：升级机器上旧画面参数一定还在文件里，留着它们等于
         # 把屏幕重新交给 splash 与 quiet，同一份配置出现两种观感。
