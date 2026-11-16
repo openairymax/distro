@@ -2103,11 +2103,22 @@ class RunSmokeTest(unittest.TestCase):
         self.assertIn("ukui-volume-control-applet-qt", res.stdout)
 
     def test_net_live_ok(self):
-        # 地址、网关、DNS 三件齐备：值与真机同形，走 airy-observe 的解析
+        # 地址、租约来源、网关、DNS 四项齐备：值与真机同形，走 airy-observe
+        # 的解析
         self.tools()
         res = self.run_smoke()
         self.assertTrue(self.tap(res, 31).startswith("ok"), res.stdout)
-        self.assertIn("net: ipv4=eth0=192.168.7.20 gw=192.168.7.1", res.stdout)
+        self.assertIn("net: ipv4=eth0=192.168.7.20 src=dhcp gw=192.168.7.1",
+                      res.stdout)
+
+    def test_net_live_static(self):
+        # 静态地址：报告上同样有一个 IPv4，但不是租约，装机验收判负
+        self.tools()
+        res = self.run_smoke(FAKE_IP_ADDR=(
+            "2: eth0    inet 192.168.7.20/24 brd 192.168.7.255 "
+            "scope global eth0"))
+        self.assert_fail(res, 31)
+        self.assertIn("来源 static", res.stdout)
 
     def test_net_live_no_addr(self):
         # 没有全局地址的机器：网关与 DNS 再全也不构成联机

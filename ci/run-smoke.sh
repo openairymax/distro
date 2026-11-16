@@ -1801,29 +1801,38 @@ has_v4() {
     return 1
 }
 
-# 联机网络的判据：全局 IPv4、默认网关、DNS 三项同时成立。三者都取自
-# airy-observe 的 net 段，与桌面状态面板、宿主侧 net-online --live 同源；
-# 缺哪项报哪项，并附整个 net 段，区分断在地址、路由还是解析。
+# 联机网络的判据：全局 IPv4、租约来源、默认网关、DNS 四项同时成立。四项
+# 都取自 airy-observe 的 net 段，与桌面状态面板、宿主侧 net-online --live
+# 同一份来源；缺哪项报哪项，并附整个 net 段，区分断在地址、来源、路由还是
+# 解析。
+#
+# 判来源而不只判「有没有地址」：装机现场静态地址与租约在报告上都是一个
+# IPv4，区别只在续约——租约到期会消失并重新协商，静态项不会。宿主侧
+# net-online --live 另把网关能否 ping 通当第五项，这里不复述：guest 里
+# ICMP 被上游网络丢弃是常态，把 ping 不通判成断网会在能上网的机器上报红。
+# 可达性因此只归宿主侧，两侧共用同一个 net 段作证据。
 net_ready() { # net_ready <报告>
-    local ipv4 gw dns
+    local ipv4 src gw dns
 
     ipv4=$(obs_field "$1" net.ipv4)
+    src=$(obs_field "$1" net.src)
     gw=$(obs_field "$1" net.gw)
     dns=$(obs_field "$1" net.dns)
-    has_v4 "${ipv4}" && has_v4 "${gw}" && [ "${dns:-absent}" != absent ] &&
-        [ "${dns}" != none ]
+    [ "${src:-absent}" = dhcp ] && has_v4 "${ipv4}" && has_v4 "${gw}" &&
+        [ "${dns:-absent}" != absent ] && [ "${dns}" != none ]
 }
 
 t31_net_why() {
-    local rc out ipv4 gw dns
+    local rc out ipv4 src gw dns
 
     out=$(airy-observe --section net --root "${SYSROOT:-/}" 2>&1)
     rc=$?
     ipv4=$(obs_field "${out}" net.ipv4)
+    src=$(obs_field "${out}" net.src)
     gw=$(obs_field "${out}" net.gw)
     dns=$(obs_field "${out}" net.dns)
-    printf '网络未就绪：地址 %s，网关 %s，DNS %s\n' \
-        "${ipv4:-absent}" "${gw:-absent}" "${dns:-absent}"
+    printf '网络未就绪：地址 %s，来源 %s，网关 %s，DNS %s\n' \
+        "${ipv4:-absent}" "${src:-absent}" "${gw:-absent}" "${dns:-absent}"
     [ "${rc}" -eq 0 ] || printf 'airy-observe --section net rc=%s\n' "${rc}"
     printf '%s\n' "${out}"
 }
@@ -1835,8 +1844,9 @@ t31_net_live() {
     while :; do
         if out=$(airy-observe --section net --root "${SYSROOT:-/}" 2>/dev/null) &&
             net_ready "${out}"; then
-            printf 'net: ipv4=%s gw=%s dns=%s\n' \
+            printf 'net: ipv4=%s src=%s gw=%s dns=%s\n' \
                 "$(obs_field "${out}" net.ipv4)" \
+                "$(obs_field "${out}" net.src)" \
                 "$(obs_field "${out}" net.gw)" \
                 "$(obs_field "${out}" net.dns)"
             return 0
