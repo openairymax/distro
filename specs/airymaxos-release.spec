@@ -68,7 +68,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 21
+%global airy_release 22
 # 桌面版本随冻结点滚动，写在 /etc/airymaxos/desktop-version，供控制中心
 # 「关于」页读取。控制中心自己不猜版本：缺文件即只显示桌面名。此宏与
 # lockfile/ukui-components.yaml 的 ukui-control-center 版本由
@@ -997,6 +997,11 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Mon Nov 16 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-22
+- 身份号随 airymaxos-system-0.0.4-56 上调。该版修掉模型运行根的属主与
+  账户缺口（0750 且 airy/airy-cogn 不存在，桌面会话读清单得 EACCES，
+  airy-status 的模型行恒为 absent）。已装机器的更新通道按本号比较新旧，
+  故内容变了必须换号：同一个号对应两份字节，通道就再也分不出该不该推
 * Mon Nov 16 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-21
 - grub_args.sh 收敛品牌副本的 grubenv：GRUB_DEFAULT=saved 的入口名只从
   活动配置目录读取，而 grubby 与 grub2-editenv 写的是生成目录那一份，
