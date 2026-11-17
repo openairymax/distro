@@ -68,7 +68,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 23
+%global airy_release 24
 # 桌面版本随冻结点滚动，写在 /etc/airymaxos/desktop-version，供控制中心
 # 「关于」页读取。控制中心自己不猜版本：缺文件即只显示桌面名。此宏与
 # lockfile/ukui-components.yaml 的 ukui-control-center 版本由
@@ -1011,6 +1011,14 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Mon Nov 16 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-24
+- 身份号随 airymaxos-system-0.0.4-57 上调。该版修掉首启拉起整栈的两层缺陷：
+  装机后重启 airy-llm 会经 Requires 重跑首启，首启无条件 start agentrt.target，
+  而 %pre 只建了 airy 与 airy-cogn 两个组、12 个 *_d 又不在 0.0.4 载荷内，
+  13 个单元全部以 216/GROUP 失败，target 连带失败，systemctl --failed 从此
+  不为零。首启改为按 airyctl 判据报 target=absent 并照常落完成标记，%pre
+  循环建立单元契约声明的全部 13 个组，units_lint 增加建组清单与启动门控
+  两条断言，三种退化各有用例
 * Mon Nov 16 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-23
 - 新增首启联机就绪探针 net_ready.sh 与 airymax-net-ready.service：装机验收
   此前只等桌面标记，「装完能不能联网」没有 guest 侧证据，net-online --live
