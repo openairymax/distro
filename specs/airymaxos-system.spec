@@ -82,7 +82,7 @@
 # spec-lint: source-bundle ../../system/services/airypkg
 
 %global airy_version 0.0.4
-%global airy_release 59
+%global airy_release 60
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 %{!?_tmpfilesdir:%global _tmpfilesdir /usr/lib/tmpfiles.d}
@@ -639,6 +639,14 @@ fi
 %{python3_sitelib}/airypkg
 
 %changelog
+* Tue Nov 17 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-60
+- 推理引擎的随行库改由调用方前置到加载路径。285H 以 build 25 重装后，
+  airy-model selftest 的冒烟项以退出码 127 失败：引擎二进制以构建机的
+  绝对路径作 RUNPATH，随行的 libllama/libggml 在目标机上解析不到，系统
+  也没有指向 /usr/libexec/airy-llm 的全局加载路径。自检冒烟与启动器改为
+  在同一处把引擎目录前置到 LD_LIBRARY_PATH，既有取值原样保留；库跟着
+  可替换的引擎走，不为它写全局 ld.so 配置。新增加载路径三条用例、冒烟
+  取到引擎目录一条与启动器一条，引擎相关用例共 44 个全绿
 * Tue Nov 17 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-59
 - 首启联机探针随 airymaxos-release 0.0.4-26 改为快段加慢段。单窗口判定
   在 Wi-Fi 关联慢于 60 秒的机器上必然给出假阴性：285H build 25 的
