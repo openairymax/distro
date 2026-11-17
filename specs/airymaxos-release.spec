@@ -68,7 +68,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 25
+%global airy_release 26
 # 桌面版本随冻结点滚动，写在 /etc/airymaxos/desktop-version，供控制中心
 # 「关于」页读取。控制中心自己不猜版本：缺文件即只显示桌面名。此宏与
 # lockfile/ukui-components.yaml 的 ukui-control-center 版本由
@@ -1011,6 +1011,14 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Tue Nov 17 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-26
+- 身份号随 airymaxos-system-0.0.4-59 上调。该版修掉首启联机探针的单窗口
+  假阴性：285H build 25 实测，快段第 54 秒仍无租约即打印 AIRYMAX-NET-OFFLINE
+  并退出，随后 NetworkManager 才拿到 DHCP，该结论再无纠正机会。等待改为
+  快段 60 秒 + 慢段 600 秒：快段过期只落 AIRYMAX-NET-LATE 边界行并附当时
+  的四元组，慢段内就绪照常产出 READY，结论行仍只出现一次，慢段心跳用
+  AIRYMAX-NET-SLOW 与前段区分；观察工具非零退出的输出不再当作证据。新增
+  转段顺序、慢段纠正与慢段心跳三个用例，契约用例共 15 个全绿
 * Tue Nov 17 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-25
 - 身份号随 airymaxos-system-0.0.4-58 上调。该版修掉开机阶段行的折叠缺陷：
   ui.sh 的 sed 是子进程，local LC_ALL=C 不导出给它，285H 的 zh_CN.UTF-8

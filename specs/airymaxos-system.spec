@@ -82,7 +82,7 @@
 # spec-lint: source-bundle ../../system/services/airypkg
 
 %global airy_version 0.0.4
-%global airy_release 58
+%global airy_release 59
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 %{!?_tmpfilesdir:%global _tmpfilesdir /usr/lib/tmpfiles.d}
@@ -639,6 +639,12 @@ fi
 %{python3_sitelib}/airypkg
 
 %changelog
+* Tue Nov 17 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-59
+- 首启联机探针随 airymaxos-release 0.0.4-26 改为快段加慢段。单窗口判定
+  在 Wi-Fi 关联慢于 60 秒的机器上必然给出假阴性：285H build 25 的
+  AIRYMAX-NET-OFFLINE 在租约到达之前就已落盘，且没有纠正机会。慢段默认
+  600 秒继续观察，快段过期只落 AIRYMAX-NET-LATE 边界行，结论行仍只出现
+  一次；本包只随身份号调整，探针实现与用例在 release 包内
 * Tue Nov 17 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-58
 - 开机阶段行的 ASCII 折叠改在命令行上钉 locale。_ui_ascii 的 sed 是子进程，
   function 内的 local LC_ALL=C 不导出给它，它继承调用方的 LANG；285H 上
