@@ -1,0 +1,95 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
+# ===========================================================================
+# distro/lockfile/lang-policy.yaml — 自有代码语言政策（唯一事实来源）
+#
+# 决策依据：docs-closed/agent-linux-dev/10-references/base-definition-and-replacement.md
+# 判定门禁：ci/gates/lang-lock.sh
+#
+# 规则：default 为 rust；上游组件保持其既有语言；任何 C/C++ 自有代码
+# 必须出现在 legacy 或 exceptions 中，并带复查版本，否则判负。
+# ===========================================================================
+schema: 1
+updated: 2026-11-17
+owner: platform
+
+policy:
+  default: rust
+  edition: "2021"
+  boundary: process
+  kernel_rust: disabled
+  c_shared_lib: exception-only
+  toolchain: "1.90.0"
+  toolchain_source: openEuler-24.03-LTS-SP3
+  pinning:
+    - rust-toolchain.toml
+    - Cargo.lock
+    - vendor
+  forbidden:
+    - "#if 0"
+    - "TODO: remove after switch"
+    - "dual-implementation"
+
+# 自有 Rust 组件。status: planned（未落地）/ present（已落地，可构建）。
+# planned 组件一旦出现 Cargo.toml，必须改为 present，否则门禁判负。
+components:
+  - id: boot-tui
+    layer: L4
+    language: rust
+    path: tui/boot
+    status: planned
+    since: 0.0.5
+    note: 开机 TUI 会话层；不链接 agentrt
+  - id: boot-ime
+    layer: L4
+    language: rust
+    path: tui/ime
+    status: planned
+    since: 0.0.5
+    note: 独立 IME 进程；仅共享 AIRYIME1 格式与数据资产
+  - id: asr-gateway
+    layer: L4
+    language: rust
+    path: tui/asr
+    status: planned
+    since: 0.0.5
+    note: 本地离线语音识别网关；独占录音设备
+  - id: intentd
+    layer: L4
+    language: rust
+    path: tui/intent
+    status: planned
+    since: 0.0.5
+    note: 接入预检与路由；不决定策略
+  - id: desktop-dock
+    layer: L3
+    language: rust
+    path: desktop/dock
+    status: planned
+    since: 0.0.6
+    note: Slint 实现；复用 AirymaxRT 能力，不复用 boot TUI 运行时
+  - id: airy-tools-rs
+    layer: L1
+    language: rust
+    path: system/tools
+    status: planned
+    since: 0.0.16
+    note: 核心工具群的自有实现，逐包替换上游实现
+
+# 上游组件保持既有语言：只做适配，不重写。
+upstream_language:
+  - path: kernel
+    language: c
+    reason: ALK 是 Linux 6.6 线的微内核化改造，不启用内核 Rust
+  - path: distro/presets
+    language: shell
+    reason: 交付链脚本沿用 systemd 生态惯例
+
+# 既有 C 实现：允许保留到复查版本，不得新增同类文件。
+legacy:
+  - path: system/bin/airy-rt-lat.c
+    language: c
+    reason: 既有 RT 延迟采样实现，随核心工具群替换一并迁 Rust
+    review_by: 0.0.16
+
+# C ABI 例外：必须写明 path/language/reason/owner/expires，缺一判负。
+exceptions: []
