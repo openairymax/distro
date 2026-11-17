@@ -82,7 +82,7 @@
 # spec-lint: source-bundle ../../system/services/airypkg
 
 %global airy_version 0.0.4
-%global airy_release 57
+%global airy_release 58
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 %{!?_tmpfilesdir:%global _tmpfilesdir /usr/lib/tmpfiles.d}
@@ -639,6 +639,15 @@ fi
 %{python3_sitelib}/airypkg
 
 %changelog
+* Tue Nov 17 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-58
+- 开机阶段行的 ASCII 折叠改在命令行上钉 locale。_ui_ascii 的 sed 是子进程，
+  function 内的 local LC_ALL=C 不导出给它，它继承调用方的 LANG；285H 上
+  LANG=zh_CN.UTF-8，方括号区间走排序规则后连 "[ 2/9 ]"、stage 代号与 token
+  一并折成 "?"，九阶段行整行不可读（journal 里 216/GROUP 之外的另一处
+  「卡住看不出问题在哪」）。改为 LC_ALL=C sed，并把连续非 ASCII 段折成
+  一个 "?"：字节语义下一个汉字是三个字节，逐字节替换会把一个词拉成三个
+  问号。新增一条源级用例，判据不依赖测试机是否装有排序 locale；285H 以
+  zh_CN.UTF-8 实机复验 ok/note/FAIL 三行输出逐字正确
 * Mon Nov 16 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-57
 - 首启只在 agentrt 载荷在位时拉起 agentrt.target，%pre 建立单元契约声明的
   全部 13 个组。285H 现场：装机后重启 airy-llm，其 Requires 把首启重跑了

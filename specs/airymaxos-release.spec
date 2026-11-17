@@ -68,7 +68,7 @@
 # ===========================================================================
 
 %global airy_version 0.0.4
-%global airy_release 24
+%global airy_release 25
 # 桌面版本随冻结点滚动，写在 /etc/airymaxos/desktop-version，供控制中心
 # 「关于」页读取。控制中心自己不猜版本：缺文件即只显示桌面名。此宏与
 # lockfile/ukui-components.yaml 的 ukui-control-center 版本由
@@ -1011,6 +1011,12 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Tue Nov 17 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-25
+- 身份号随 airymaxos-system-0.0.4-58 上调。该版修掉开机阶段行的折叠缺陷：
+  ui.sh 的 sed 是子进程，local LC_ALL=C 不导出给它，285H 的 zh_CN.UTF-8
+  让方括号区间走排序规则，整行（含 "[ 2/9 ]" 与 token）折成 "?"，卡住时
+  看不出停在哪一步。折叠改在命令行上钉 locale，并新增一条不依赖排序
+  locale 的源级用例；build 24 在装配期被这条现场取证拦下，未出交付件
 * Mon Nov 16 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-24
 - 身份号随 airymaxos-system-0.0.4-57 上调。该版修掉首启拉起整栈的两层缺陷：
   装机后重启 airy-llm 会经 Requires 重跑首启，首启无条件 start agentrt.target，
