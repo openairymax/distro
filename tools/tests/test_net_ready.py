@@ -11,6 +11,10 @@
 # AIRYMAX-NET-OFFLINE 而不是崩溃；探针始终 0 退出，否则它会把自己写进
 # systemctl --failed，被 AIRYMAX-BOOT-HEALTH 当成启动失败。
 #
+# 等待分两段：快段过期只落 AIRYMAX-NET-LATE 边界行，不代表离线；慢段内
+# 拿到租约仍要产出 READY。用例默认把慢段设为 0，让离线断言保持瞬时；慢段
+# 自身的行为由 AIRYMAX_NET_LATE 显式驱动的三个用例覆盖。
+#
 # Author: Liren Wang <wangliren@spharx.cn>
 # Version: 0.0.4
 # ===========================================================================
@@ -68,11 +72,28 @@ class NetReadyTest(unittest.TestCase):
                     f"printf '%s' '{body}'\n"
                     f"exit {rc}\n")
 
+    def observe_seq(self, bodies):
+        """按调用次数回放观测正文，用来驱动慢段内「先无后有」的时序。"""
+        state = self.root / "observe-count"
+        state.write_text("0\n", encoding="utf-8")
+        cases = "".join(f"  {i}) printf '%s' '{body}' ;;\n"
+                        for i, body in enumerate(bodies, 1))
+        fakes.write(self.bin, "airy-observe",
+                    "#!/bin/sh\n"
+                    f"n=$(cat '{state}')\n"
+                    "n=$((n + 1))\n"
+                    f"printf '%s\\n' \"$n\" >'{state}'\n"
+                    "case \"$n\" in\n"
+                    f"{cases}"
+                    f"  *) printf '%s' '{bodies[-1]}' ;;\n"
+                    "esac\n")
+
     def run_probe(self, *args, **extra):
         self.serial = self.root / "ttyS0"
         self.serial.write_text("", encoding="utf-8")
         env = {"PATH": str(self.bin), "HOME": str(self.root),
-               "AIRYMAX_NET_WAIT": "0", "AIRYMAX_NET_POLL": "1",
+               "AIRYMAX_NET_WAIT": "0", "AIRYMAX_NET_LATE": "0",
+               "AIRYMAX_NET_POLL": "1",
                "AIRYMAX_OBSERVE": str(self.bin / "airy-observe"),
                "AIRYMAX_UI_LIB": str(UI),
                "AIRYMAX_CON_LIB": str(CON),
@@ -153,6 +174,34 @@ class NetReadyTest(unittest.TestCase):
         res = self.run_probe(AIRYMAX_NET_WAIT="2", AIRYMAX_NET_BEAT="6")
         self.assertEqual(
             res.stdout.count("AIRYMAX-NET-WAIT"), 1, res.stdout)
+
+    def test_fast_expiry_is_not_a_verdict(self):
+        """快段过期只是转段：LATE 在 OFFLINE 之前，离线结论只出现一次。"""
+        self.observe("AIRYMAX-OBSERVE net.src=none\n")
+        res = self.run_probe(AIRYMAX_NET_WAIT="1", AIRYMAX_NET_LATE="1",
+                             AIRYMAX_NET_SLOW="1")
+        self.assertIn("AIRYMAX-NET-LATE ipv4=", res.stdout)
+        self.assertLess(res.stdout.index("AIRYMAX-NET-LATE"),
+                        res.stdout.index(OFFLINE))
+        self.assertEqual(res.stdout.count(OFFLINE), 1, res.stdout)
+        self.assertEqual(res.stdout.count(READY), 0, res.stdout)
+
+    def test_late_window_recovers_ready(self):
+        """慢段内才拿到租约仍要 READY：285H 假阴性的回归用例。"""
+        self.observe_seq(["AIRYMAX-OBSERVE net.src=none\n", NET_OK])
+        res = self.run_probe(AIRYMAX_NET_WAIT="0", AIRYMAX_NET_LATE="4",
+                             AIRYMAX_NET_SLOW="1")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn(f"{READY} ipv4=ens3=10.0.2.15", res.stdout)
+        self.assertNotIn(OFFLINE, res.stdout)
+
+    def test_slow_heartbeat_reports_progress(self):
+        self.observe("AIRYMAX-OBSERVE net.src=none\n")
+        res = self.run_probe(AIRYMAX_NET_WAIT="0", AIRYMAX_NET_LATE="2",
+                             AIRYMAX_NET_SLOW="1",
+                             AIRYMAX_NET_LATE_BEAT="1")
+        self.assertIn("AIRYMAX-NET-SLOW elapsed=1s", res.stdout)
+        self.assertIn(OFFLINE, res.stdout)
 
     def test_missing_boot_state_fails(self):
         res = self.run_probe(

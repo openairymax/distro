@@ -3,10 +3,12 @@
 # airymax-net-ready — 首启联机就绪探针
 #
 # WantedBy=graphical.target 且 Type=simple：探针不挂 target 的等待面。
-# 联机就绪最长要等 AIRYMAX_NET_WAIT（60 秒），用 oneshot 会让
-# graphical.target 陪着等——断网的机器上，开机时间因此凭空多一分钟，
-# 而这段时间对本单元毫无必要：它只是上报，判定由宿主机看标记。
+# 等待分快段与慢段（默认 60 + 600 秒），最坏情况下本单元存活十一分钟；
+# 用 oneshot 会让 graphical.target 陪着等——断网或慢速 Wi-Fi 的机器上，
+# 开机时间凭空多出这段时间，而本单元只是上报，判定由宿主机看标记。
 # 脚本自己始终以 0 退出，Type=simple 下不会留下 failed 记账。
+# 运行期长度只在 journal 里体现为 AIRYMAX-NET-WAIT/LATE/SLOW 心跳，不影响
+# 开机时序：target 不等待它，它也不写失败态。
 #
 # 与 airymax-desktop-ready 的分工：那个单元判「桌面进不进得去」（oneshot，
 # 失败即 BLOCKED）；本单元判「装完能不能联网」（观测，不参与 Boot 判定）。
