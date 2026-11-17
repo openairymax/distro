@@ -82,7 +82,7 @@
 # spec-lint: source-bundle ../../system/services/airypkg
 
 %global airy_version 0.0.4
-%global airy_release 56
+%global airy_release 57
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 %{!?_tmpfilesdir:%global _tmpfilesdir /usr/lib/tmpfiles.d}
@@ -547,13 +547,18 @@ for unit in airy-rt-bandwidth.service airy-rt-memcap.service \
 done
 
 %pre
-# 服务账户是单元的硬依赖：User=airy、Group=airy、
-# SupplementaryGroups=airy-cogn。账户缺失时单元以 217/USER 失败，资产装得
-# 再全也起不来，且只会在 journal 里留一行「用户不存在」——装机时看不出来，
-# 装机后表现为模型服务永远 inactive。因此这里让事务失败，而不是交付一个
-# 「装完即坏」的系统。账户已存在时不改动，升级路径保持幂等。
-getent group airy >/dev/null || groupadd -r airy || exit 1
-getent group airy-cogn >/dev/null || groupadd -r airy-cogn || exit 1
+# 服务账户与附属组是单元的硬依赖：User=airy、Group=airy，各单元的
+# SupplementaryGroups 覆盖 12 个业务组。账户或组缺失时单元以 217/USER 或
+# 216/GROUP 失败，资产装得再全也起不来，且只会在 journal 里留一行——装机
+# 时看不出来，装机后表现为整栈永远 inactive。因此这里让事务失败，而不是
+# 交付一个「装完即坏」的系统。组清单是 system/tools/units_lint.py 中
+# SERVICES[*].groups 的并集，lint 反向核对两者一致；循环建组使新增组不必
+# 另抄一行。已存在时不改动，升级路径保持幂等。
+for grp in airy airy-cogn airy-net airy-dev airy-sched airy-monitor \
+    airy-alert airy-backup airy-memory airy-security airy-log airy-vfs \
+    airy-config; do
+    getent group "$grp" >/dev/null || groupadd -r "$grp" || exit 1
+done
 getent passwd airy >/dev/null ||
     useradd -r -g airy -G airy-cogn -d /var/lib/airy-llm -M \
         -s /sbin/nologin -c "AirymaxOS Agent Runtime" airy || exit 1
@@ -634,6 +639,16 @@ fi
 %{python3_sitelib}/airypkg
 
 %changelog
+* Mon Nov 16 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-57
+- 首启只在 agentrt 载荷在位时拉起 agentrt.target，%pre 建立单元契约声明的
+  全部 13 个组。285H 现场：装机后重启 airy-llm，其 Requires 把首启重跑了
+  一遍，首启无条件 start agentrt.target，13 个单元全部以 216/GROUP 失败；
+  临时补组后再起仍是 203/EXEC——*_d 随 0.1.x 的 airymaxos-services 交付，
+  不在 0.0.4 镜像内。缺载荷时启动整栈只会把「这一层还没装」写成一屏
+  failed，掩盖真正的故障，因此首启按 airyctl 判据报 target=absent、照常落
+  完成标记，与失败模板的 ConditionPathExists 用同一个路径。units_lint 增加
+  两条门禁：SERVICES[*].groups 并集必须全部出现在 %pre 建组清单中，首启的
+  start_stack 必须先测 PAYLOAD 再启动 target
 * Mon Nov 16 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-56
 - 模型运行根的属主与权限改由 tmpfiles.d 条目声明（d /var/lib/airy-llm
   0755 airy airy -），并由 %pre 建立 airy 与 airy-cogn 两个服务账户。
