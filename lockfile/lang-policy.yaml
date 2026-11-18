@@ -9,7 +9,7 @@
 # 必须出现在 legacy 或 exceptions 中，并带复查版本，否则判负。
 # ===========================================================================
 schema: 1
-updated: 2026-11-17
+updated: 2026-11-18
 owner: platform
 
 policy:
@@ -31,33 +31,39 @@ policy:
 
 # 自有 Rust 组件。status: planned（未落地）/ present（已落地，可构建）。
 # planned 组件一旦出现 Cargo.toml，必须改为 present，否则门禁判负。
+# workspace 标明该 crate 所属的 Cargo 工作区：Cargo.lock 与 rust-toolchain.toml
+# 钉在工作区根，成员目录里不再各放一份，故 present 判定到根上找这两个文件。
 components:
   - id: boot-tui
     layer: L4
     language: rust
-    path: tui/boot
-    status: planned
+    path: system/tui/crates/boot-tui
+    workspace: system/tui
+    status: present
     since: 0.0.5
     note: 开机 TUI 会话层；不链接 agentrt
   - id: boot-ime
     layer: L4
     language: rust
-    path: tui/ime
-    status: planned
+    path: system/tui/crates/boot-ime
+    workspace: system/tui
+    status: present
     since: 0.0.5
     note: 独立 IME 进程；仅共享 AIRYIME1 格式与数据资产
   - id: asr-gateway
     layer: L4
     language: rust
-    path: tui/asr
-    status: planned
+    path: system/tui/crates/asr-gateway
+    workspace: system/tui
+    status: present
     since: 0.0.5
     note: 本地离线语音识别网关；独占录音设备
-  - id: intentd
+  - id: intent
     layer: L4
     language: rust
-    path: tui/intent
-    status: planned
+    path: system/tui/crates/intent
+    workspace: system/tui
+    status: present
     since: 0.0.5
     note: 接入预检与路由；不决定策略
   - id: desktop-dock
