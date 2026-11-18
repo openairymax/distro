@@ -46,6 +46,12 @@ def check_top(doc, errs):
         bad(errs, "policy.pinning 不得为空")
 
 
+def pin_dir(root, comp):
+    """锁与工具链的钉住处：workspace 成员随根，独立组件在自己的 path。"""
+    ws = comp.get("workspace")
+    return root / str(ws) if ws else root / str(comp.get("path", ""))
+
+
 def check_comp(root, comp, errs, seen):
     cid = str(comp.get("id", ""))
     if not cid:
@@ -70,8 +76,11 @@ def check_comp(root, comp, errs, seen):
     if not has_cargo:
         bad(errs, f"{cid}: present 但缺少 Cargo.toml")
         return False
+    ws = comp.get("workspace")
+    if ws and not (root / str(ws) / "Cargo.toml").is_file():
+        bad(errs, f"{cid}: workspace 不是 Cargo 根: {ws}")
     for name in ("Cargo.lock", "rust-toolchain.toml"):
-        if not (path / name).is_file():
+        if not (pin_dir(root, comp) / name).is_file():
             bad(errs, f"{cid}: present 但缺少 {name}")
     for f in path.rglob("*"):
         if f.is_file() and f.suffix in CODE_SUFFIX:
@@ -80,7 +89,7 @@ def check_comp(root, comp, errs, seen):
 
 
 def check_tool(root, comp, want, errs):
-    path = root / str(comp.get("path", "")) / "rust-toolchain.toml"
+    path = pin_dir(root, comp) / "rust-toolchain.toml"
     if not path.is_file():
         return
     text = path.read_text(encoding="utf-8", errors="replace")
