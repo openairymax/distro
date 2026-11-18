@@ -45,11 +45,11 @@
 #      Exec=/usr/libexec/ukui-*server，二进制却在 /usr/bin，激活时按绝对
 #      路径 execve 失败，控制中心各模块打开即空。清单从实际存在的二进制
 #      推导，不维护第二份文件名表（DESKTOP-UKUI-01）；
-#  18. 部署引导期会话选择的两个单元与桌面侧的两处前置判据：选择器在 120
-#      秒窗口内把结论写成 desired，GUI 链路与 TUI 各自按同一份判据决定是
-#      否启动（U-09）。boot-tui 没有 [Install]，只由选择器显式 start，故不
-#      进启用清单；判据脚本与状态写入归发行包，本包只在 drop-in 里登记
-#      调用点，不复制判据。
+#  18. 部署引导期会话选择的两个单元、桌面侧的两处前置判据与判据/状态写入
+#      两条 helper：选择器在 120 秒窗口内把结论写成 desired，GUI 链路与 TUI
+#      各自按同一份判据决定是否启动（U-09）。boot-tui 没有 [Install]，只由
+#      选择器显式 start，故不进启用清单；调用方与实现同包，升级时不会出现
+#      「单元已换、判据还是旧的」。
 #
 # 单元启用（systemctl enable）只有一条实现：读 /usr/lib/airymaxos/boot-set。
 # 装机由 kickstart 按清单下启用位（镜像内无法启用未来会在目标机跑的单元），
@@ -75,8 +75,7 @@
 # spec-lint: source-root ../../system/units
 # spec-lint: source-root ../../system/scripts
 # spec-lint: source-root ../../system/bin
-# spec-lint: source-root ../../distro/desktop/lightdm.service.d
-# spec-lint: source-root ../../distro/desktop/airymax-desktop-ready.service.d
+# spec-lint: source-root ../../distro/desktop
 # spec-lint: source-bundle ../../system/services/airydisk
 # spec-lint: source-bundle ../../system/services/airyllm
 # spec-lint: source-bundle ../../system/services/airyupdate
@@ -179,6 +178,8 @@ Source74:       airy-session-choice.service
 Source75:       boot-tui.service
 Source76:       10-airymax-session-choice.conf
 Source77:       20-airymax-session-mode.conf
+Source78:       airy-session-cond.sh
+Source79:       airy-session-state
 
 BuildRequires:  gcc
 BuildRequires:  python3-devel
@@ -275,6 +276,13 @@ install -m 0644 %{SOURCE76} \
     %{buildroot}%{_unitdir}/lightdm.service.d/10-airymax-session-choice.conf
 install -m 0644 %{SOURCE77} \
     %{buildroot}%{_unitdir}/airymax-desktop-ready.service.d/20-airymax-session-mode.conf
+# 判据与状态写入跟调用它们的单元同包：两者同属一个安装事务，升级时不会出现
+# 「单元已经换成新版、判据还是旧的」。两处都以绝对路径调用，落点固定。
+install -d -m 0755 %{buildroot}/usr/lib/airymaxos/desktop
+install -m 0755 %{SOURCE78} \
+    %{buildroot}/usr/lib/airymaxos/desktop/airy-session-cond.sh
+install -m 0755 %{SOURCE79} \
+    %{buildroot}/usr/lib/airymaxos/desktop/airy-session-state
 install -d -m 0755 %{buildroot}/usr/lib/airymaxos/scripts
 install -m 0755 %{SOURCE17} %{SOURCE18} %{SOURCE50} %{SOURCE53} \
     %{SOURCE54} %{SOURCE56} %{SOURCE59} %{SOURCE62} %{SOURCE64} \
@@ -452,6 +460,28 @@ grep -qxF 'ExecCondition=/usr/lib/airymaxos/desktop/airy-session-cond.sh gui air
     %{buildroot}%{_unitdir}/airymax-desktop-ready.service.d/20-airymax-session-mode.conf
 grep -qxF 'ExecStartPost=-+/usr/lib/airymaxos/desktop/airy-session-state gui' \
     %{buildroot}%{_unitdir}/airymax-desktop-ready.service.d/20-airymax-session-mode.conf
+# 判据与状态写入必须是可执行脚本：缺可执行位时 systemd 只报 203/EXEC，从单元
+# 状态上看不出是权限问题。三个出口在此复跑：无 desired 放行（没有选择器的
+# 机器保持原行为）、desired=tui 时 gui 判据必须拒绝、参数非法必须拒绝。
+test -x %{buildroot}/usr/lib/airymaxos/desktop/airy-session-cond.sh
+test -x %{buildroot}/usr/lib/airymaxos/desktop/airy-session-state
+sh -n %{buildroot}/usr/lib/airymaxos/desktop/airy-session-cond.sh
+sh -n %{buildroot}/usr/lib/airymaxos/desktop/airy-session-state
+airy_dir=$(mktemp -d)
+AIRY_SESSION_DIR="${airy_dir}" \
+    %{buildroot}/usr/lib/airymaxos/desktop/airy-session-cond.sh gui
+AIRY_SESSION_DIR="${airy_dir}" \
+    %{buildroot}/usr/lib/airymaxos/desktop/airy-session-state tui
+test "$(cat "${airy_dir}/mode")" = "tui"
+test "$(cat "${airy_dir}/desired")" = "tui"
+if AIRY_SESSION_DIR="${airy_dir}" \
+    %{buildroot}/usr/lib/airymaxos/desktop/airy-session-cond.sh gui; then
+    exit 1
+fi
+if %{buildroot}/usr/lib/airymaxos/desktop/airy-session-cond.sh desk; then
+    exit 1
+fi
+rm -rf "${airy_dir}"
 test -f %{buildroot}%{_unitdir}/airy-boot-mount.service
 grep -qxF 'ExecStart=/usr/lib/airymaxos/scripts/stage_run.sh 基础挂载 3 root,boot,efi /usr/lib/airymaxos/scripts/boot_mount.sh' \
     %{buildroot}%{_unitdir}/airy-boot-mount.service
@@ -644,6 +674,9 @@ fi
 %dir /usr/lib/airymaxos
 %dir /usr/lib/airymaxos/scripts
 /usr/lib/airymaxos/scripts/*.sh
+%dir /usr/lib/airymaxos/desktop
+/usr/lib/airymaxos/desktop/airy-session-cond.sh
+/usr/lib/airymaxos/desktop/airy-session-state
 /usr/lib/airymaxos/boot-set
 %{_unitdir}/*.service
 %{_unitdir}/*.slice
