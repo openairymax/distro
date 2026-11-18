@@ -1,0 +1,53 @@
+#!/bin/sh
+# SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
+# ===========================================================================
+# airy-session-state — 会话真正就绪后写 mode
+#
+# 用法: airy-session-state <gui|tui>
+# 退出码: 0 写入成功；2 参数非法；1 写入失败。
+#
+# 由两个 root 身份的 ExecStartPost 调用：boot-tui.service 在 READY 之后写
+# tui，airymax-desktop-ready.service 在探针成功后写 gui。选择器自己只写
+# `desired`——「用户选了 TUI」与「TUI 已经起来」是两件事，前者不能冒充后者。
+#
+# 同时把 `desired` 对齐到实际值：运行期切换（U-10）会先改 desired，再起
+# 目标会话；目标会话就绪时这次对齐把两者收回到同一值，失败回滚因此不需要
+# 额外的回写步骤。
+#
+# 写入走同目录临时文件 + rename，读取方不会看到半行。
+#
+# SSoT: 0.0.5 方案 §14.15。
+# ===========================================================================
+set -u
+
+CONF=/etc/airymaxos/session.conf
+# shellcheck disable=SC1090
+[ -r "${CONF}" ] && . "${CONF}"
+DIR="${AIRY_SESSION_DIR:-/run/airymaxos/session}"
+
+mode="${1:-}"
+case "${mode}" in
+    gui|tui) ;;
+    *)
+        printf 'AIRYMAX-SESSION-STATE invalid=%s\n' "${mode}" >&2
+        exit 2
+        ;;
+esac
+
+if ! mkdir -p -m 0755 "${DIR}" 2>/dev/null; then
+    printf 'AIRYMAX-SESSION-STATE mode=%s mkdir=%s\n' "${mode}" "${DIR}" >&2
+    exit 1
+fi
+
+for name in mode desired; do
+    tmp="${DIR}/.${name}.new"
+    if ! printf '%s\n' "${mode}" > "${tmp}" 2>/dev/null ||
+        ! mv -f "${tmp}" "${DIR}/${name}" 2>/dev/null; then
+        rm -f "${tmp}" 2>/dev/null
+        printf 'AIRYMAX-SESSION-STATE mode=%s write=%s\n' "${mode}" "${name}" >&2
+        exit 1
+    fi
+done
+
+printf 'AIRYMAX-SESSION-STATE mode=%s\n' "${mode}"
+exit 0

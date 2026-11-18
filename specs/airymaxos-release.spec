@@ -12,7 +12,9 @@
 #   4. 部署桌面会话静态资产：lightdm 座位策略、座位 X server 启动封装、X11
 #      会话输入法环境、分辨率自适应与 PulseAudio 就绪等待、输入法自启项、
 #      UKUI 壁纸注册表与背景默认值、三张品牌默认壁纸、桌面调度 slice、
-#      user@.service 挂接及登录链就绪探针；
+#      user@.service 挂接、登录链就绪探针，以及引导期会话选择的判据与状态
+#      写入（airy-session-cond.sh / airy-session-state）和它们共用的
+#      /etc/airymaxos/session.conf；
 #   5. 部署登录与提权策略：sshd 允许交付账户的空口令登录，sudo 以
 #      NOPASSWD 放开同一账户的非交互提权，桌面侧关闭空闲锁屏（空口令账户
 #      被锁屏拦住只会制造口令框）；
@@ -147,6 +149,9 @@ Source51:       airy_status.py
 Source52:       airymax-status.desktop
 Source53:       airymax-net-ready.service
 Source54:       net_ready.sh
+Source55:       airy-session-cond.sh
+Source56:       airy-session-state
+Source57:       airy-session.conf
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -278,6 +283,17 @@ install -m 0755 %{SOURCE54} \
     %{buildroot}/usr/lib/airymaxos/desktop/net_ready.sh
 install -m 0755 %{SOURCE51} \
     %{buildroot}/usr/lib/airymaxos/desktop/airy_status.py
+# 会话选择的两条公共实现：判据供两处 ExecCondition 调用，状态写入供两个
+# 以 root 运行的 ExecStartPost 调用。两者都只读 /run 下的会话目录，正文
+# 只有一份；unit 与 drop-in 里写的是调用路径，不是复制品。
+install -m 0755 %{SOURCE55} \
+    %{buildroot}/usr/lib/airymaxos/desktop/airy-session-cond.sh
+install -m 0755 %{SOURCE56} \
+    %{buildroot}/usr/lib/airymaxos/desktop/airy-session-state
+# 状态目录写在配置里而不是散落在四个调用方：路径一旦漂移，症状是「选了 TUI
+# 但桌面照样起来」，从任何单元的状态里都看不出来。
+install -m 0644 %{SOURCE57} \
+    %{buildroot}%{_sysconfdir}/airymaxos/session.conf
 
 # 录屏与观察点以子命令形式对外：实现留在库目录，入口只是符号链接，升级时
 # 不需要在多处同步文件名，也不会出现 /usr/bin 与库目录两份实现。
@@ -564,6 +580,33 @@ grep -qxF 'WantedBy=graphical.target' \
     %{buildroot}%{_unitdir}/airymax-net-ready.service
 bash -n %{buildroot}/usr/lib/airymaxos/desktop/net_ready.sh
 test -x %{buildroot}/usr/lib/airymaxos/desktop/net_ready.sh
+# 会话选择判据：两个调用方共用一份实现，判据的三条出口（放行 / 跳过 / 参数
+# 非法）都在构建期走一遍。跳过与放行的区别只有退出码，写反时症状是「选了
+# TUI 但桌面照样起来」或「选了 GUI 反而没有桌面」，都不产生失败单元，只能
+# 在构建期钉住。状态目录经环境变量指向临时树，判定不依赖目标机路径；临时
+# 目录里不放 desired 即覆盖「文件缺失必须放行」这条。
+test -x %{buildroot}/usr/lib/airymaxos/desktop/airy-session-cond.sh
+sh -n %{buildroot}/usr/lib/airymaxos/desktop/airy-session-cond.sh
+test -x %{buildroot}/usr/lib/airymaxos/desktop/airy-session-state
+sh -n %{buildroot}/usr/lib/airymaxos/desktop/airy-session-state
+grep -qxF 'AIRY_SESSION_DIR=/run/airymaxos/session' \
+    %{buildroot}%{_sysconfdir}/airymaxos/session.conf
+airy_cond=%{buildroot}/usr/lib/airymaxos/desktop/airy-session-cond.sh
+airy_sess="$(mktemp -d)"
+AIRY_SESSION_DIR="${airy_sess}" "${airy_cond}" gui probe.service >/dev/null
+printf 'tui\n' > "${airy_sess}/desired"
+if AIRY_SESSION_DIR="${airy_sess}" "${airy_cond}" gui probe.service \
+    >/dev/null 2>&1; then
+    echo 'desired=tui 时 gui 判据不得放行' >&2
+    exit 1
+fi
+AIRY_SESSION_DIR="${airy_sess}" "${airy_cond}" tui probe.service >/dev/null
+if AIRY_SESSION_DIR="${airy_sess}" "${airy_cond}" bogus probe.service \
+    >/dev/null 2>&1; then
+    echo '非法会话名必须以 2 退出' >&2
+    exit 1
+fi
+rm -rf "${airy_sess}"
 # 首启音频初始化：条件取反写错（少了 !）会让每次启动都重设音量，把用户
 # 调好的值抹掉，而这在服务状态里看不出来；触发点写错则单元永不执行，症状
 # 仍是"开箱没声音"。两处都断言生效行本身。
@@ -969,12 +1012,15 @@ fi
 %config(noreplace) %{_sysconfdir}/systemd/user/plasma-kglobalaccel.service.d/50-airymax-no-qpa-theme.conf
 %config(noreplace) %{_sysconfdir}/systemd/user/plasma-kscreen.service.d/50-airymax-no-qpa-theme.conf
 %config(noreplace) %{_sysconfdir}/systemd/journald.conf.d/50-airymax-journald.conf
+%config(noreplace) %{_sysconfdir}/airymaxos/session.conf
 %{_unitdir}/airymax-desktop.slice
 %{_unitdir}/airymax-desktop-ready.service
 %{_unitdir}/airymax-audio-init.service
 %{_unitdir}/airymax-net-ready.service
 /usr/lib/airymaxos/desktop/desktop_ready.sh
 /usr/lib/airymaxos/desktop/net_ready.sh
+/usr/lib/airymaxos/desktop/airy-session-cond.sh
+/usr/lib/airymaxos/desktop/airy-session-state
 /usr/lib/airymaxos/desktop/audio_init.sh
 /usr/lib/airymaxos/desktop/boot_state.sh
 /usr/lib/airymaxos/desktop/display_mode.sh

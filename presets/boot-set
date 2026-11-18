@@ -25,6 +25,12 @@
 lightdm.service
 airymax-desktop-ready.service
 
+# 引导期会话选择：tty1 上的 120 秒窗口。不启用时症状是「TUI 永远进不去」——
+# desired 不写，两个 ExecCondition 都放行，机器安静地进桌面，而选择器本身
+# 没有任何驻留状态可供观察。boot-tui.service 不在此列：它由选择器在 tui
+# 分支显式 start，固定启用会让选择器的结论失去意义。
+airy-session-choice.service
+
 # 首启联机就绪：net-doctor 只答「为什么没网」，桌面就绪只答「桌面起没起」，
 # 装机验收要答的是「装完能不能联网」。探针有界等待四元组（地址/来源/网关/
 # DNS）并把结论写成 AIRYMAX-NET-READY/OFFLINE 落串口，宿主机据此判定，不再
