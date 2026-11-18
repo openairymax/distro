@@ -68,6 +68,11 @@
 # 材，不下载、也不新增任何 Source。
 # ===========================================================================
 
+# 运行期会话切换的 polkit 规则与切换单元同在 system/tui 子树，按 §14.16 归
+# 本包（授权面随桌面策略走）。校验器需要额外搜索根才能按裸文件名找到它；
+# 该目录与 distro 根不重叠，不会出现同名文件两处命中。
+# spec-lint: source-root ../../system/tui/polkit
+
 %global airy_version 0.0.4
 %global airy_release 27
 # 桌面版本随冻结点滚动，写在 /etc/airymaxos/desktop-version，供控制中心
@@ -149,6 +154,7 @@ Source52:       airymax-status.desktop
 Source53:       airymax-net-ready.service
 Source54:       net_ready.sh
 Source55:       airy-session.conf
+Source56:       50-airy-session-switch.rules
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -285,6 +291,12 @@ install -m 0755 %{SOURCE51} \
 # 包，与两个单元同包；这里只放 /etc 下的路径定义，目录也由本包持有。
 install -m 0644 %{SOURCE55} \
     %{buildroot}%{_sysconfdir}/airymaxos/session.conf
+
+# 运行期切换的授权面：规则只放行两个实例名的切换单元。目录由 polkit 包持有，
+# 这里只落文件；规则与切换单元分属两包，各自的升级不会互相阻塞。
+install -d -m 0755 %{buildroot}%{_datadir}/polkit-1/rules.d
+install -m 0644 %{SOURCE56} \
+    %{buildroot}%{_datadir}/polkit-1/rules.d/50-airy-session-switch.rules
 
 # 录屏与观察点以子命令形式对外：实现留在库目录，入口只是符号链接，升级时
 # 不需要在多处同步文件名，也不会出现 /usr/bin 与库目录两份实现。
@@ -671,6 +683,17 @@ grep -qxF 'user-session=ukui' \
     %{buildroot}%{_sysconfdir}/lightdm/lightdm.conf.d/50-airymax.conf
 grep -qxF 'autologin-user=amuser' \
     %{buildroot}%{_sysconfdir}/lightdm/lightdm.conf.d/50-airymax.conf
+# 注销钩子目标必须是 tui 实例：写成 gui 或漏掉该键的表现都是「注销后又回
+# 到桌面」（自动登录会在 greeter 处立刻重进），从 lightdm 日志里看不出来。
+grep -qxF 'session-cleanup-script=/usr/lib/airymaxos/desktop/airy-session-cleanup.sh' \
+    %{buildroot}%{_sysconfdir}/lightdm/lightdm.conf.d/50-airymax.conf
+# 授权面两条判据：动作 id 错会让规则永不生效（切换恒 not authorized）；单元
+# 名正则写宽会让本地用户借此启停任意单元。两者都不影响构建，必须在打包期拦。
+test -f %{buildroot}%{_datadir}/polkit-1/rules.d/50-airy-session-switch.rules
+grep -qF 'org.freedesktop.systemd1.manage-units' \
+    %{buildroot}%{_datadir}/polkit-1/rules.d/50-airy-session-switch.rules
+grep -qF '^airy-session-switch@(gui|tui)\.service$' \
+    %{buildroot}%{_datadir}/polkit-1/rules.d/50-airy-session-switch.rules
 grep -qxF 'PermitEmptyPasswords yes' \
     %{buildroot}%{_sysconfdir}/ssh/sshd_config.d/50-airymax-sshd.conf
 # 网络策略：装机验收只看「首启 60s 内有路 DHCP 成功且网关可达」，而
@@ -954,6 +977,7 @@ fi
 %config(noreplace) %{_sysconfdir}/yum.repos.d/airymaxos.repo
 %config(noreplace) %{_sysconfdir}/rpm/macros.airymax
 %config(noreplace) %{_sysconfdir}/lightdm/lightdm.conf.d/50-airymax.conf
+%{_datadir}/polkit-1/rules.d/50-airy-session-switch.rules
 %config(noreplace) %{_sysconfdir}/ssh/sshd_config.d/50-airymax-sshd.conf
 %dir %attr(0750, root, root) %{_sysconfdir}/sudoers.d
 %config(noreplace) %attr(0440, root, root) %{_sysconfdir}/sudoers.d/90-airymax

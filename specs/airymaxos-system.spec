@@ -180,6 +180,8 @@ Source76:       10-airymax-session-choice.conf
 Source77:       20-airymax-session-mode.conf
 Source78:       airy-session-cond.sh
 Source79:       airy-session-state
+Source80:       airy-session-switch@.service
+Source81:       airy-session-cleanup.sh
 
 BuildRequires:  gcc
 BuildRequires:  python3-devel
@@ -254,6 +256,7 @@ install -m 0644 %{SOURCE1} %{SOURCE2} %{SOURCE3} %{SOURCE4} %{SOURCE5} \
     %{SOURCE30} %{SOURCE31} %{SOURCE32} %{SOURCE35} %{SOURCE51} %{SOURCE52} \
     %{SOURCE37} %{SOURCE38} %{SOURCE42} %{SOURCE43} %{SOURCE45} \
     %{SOURCE55} %{SOURCE60} %{SOURCE61} %{SOURCE63} %{SOURCE74} %{SOURCE75} \
+    %{SOURCE80} \
     %{buildroot}%{_unitdir}/
 install -m 0644 %{SOURCE0} %{SOURCE15} %{buildroot}%{_unitdir}/
 install -d -m 0755 %{buildroot}%{_unitdir}/user.slice.d
@@ -283,6 +286,10 @@ install -m 0755 %{SOURCE78} \
     %{buildroot}/usr/lib/airymaxos/desktop/airy-session-cond.sh
 install -m 0755 %{SOURCE79} \
     %{buildroot}/usr/lib/airymaxos/desktop/airy-session-state
+# 注销钩子由 lightdm 以 root 在会话结束后执行，只提交切换作业；它与切换单元
+# 同包，避免出现「钩子已装、单元还没装」的升级窗口。
+install -m 0755 %{SOURCE81} \
+    %{buildroot}/usr/lib/airymaxos/desktop/airy-session-cleanup.sh
 install -d -m 0755 %{buildroot}/usr/lib/airymaxos/scripts
 install -m 0755 %{SOURCE17} %{SOURCE18} %{SOURCE50} %{SOURCE53} \
     %{SOURCE54} %{SOURCE56} %{SOURCE59} %{SOURCE62} %{SOURCE64} \
@@ -482,6 +489,22 @@ if %{buildroot}/usr/lib/airymaxos/desktop/airy-session-cond.sh desk; then
     exit 1
 fi
 rm -rf "${airy_dir}"
+# 运行期切换：入口只提交本单元的启动作业，真正的停旧／起新／回滚都在这里以
+# root 完成。实例占位符必须原样进命令行（换成固定实例名会让另一个方向切不
+# 过去）；不设 [Install]，否则开机会先跑一次切换；就绪等待窗口必须覆盖
+# 「等 90 秒 + 回滚再等 90 秒」，写小了会在中间态被 systemd 杀掉。
+test -f %{buildroot}%{_unitdir}/airy-session-switch@.service
+grep -qxF 'ExecStart=/usr/bin/airy-session-mode --switch %%i' \
+    %{buildroot}%{_unitdir}/airy-session-switch@.service
+grep -qxF 'TimeoutStartSec=300' \
+    %{buildroot}%{_unitdir}/airy-session-switch@.service
+! grep -q '^\[Install\]' %{buildroot}%{_unitdir}/airy-session-switch@.service
+# 注销钩子只在 lightdm 会话结束后跑，写错目标实例名的表现是「注销后仍回
+# 桌面」，从日志里看不出。可执行位与语法同判据。
+test -x %{buildroot}/usr/lib/airymaxos/desktop/airy-session-cleanup.sh
+sh -n %{buildroot}/usr/lib/airymaxos/desktop/airy-session-cleanup.sh
+grep -qxF 'systemctl --no-block start airy-session-switch@tui.service 2>/dev/null' \
+    %{buildroot}/usr/lib/airymaxos/desktop/airy-session-cleanup.sh
 test -f %{buildroot}%{_unitdir}/airy-boot-mount.service
 grep -qxF 'ExecStart=/usr/lib/airymaxos/scripts/stage_run.sh 基础挂载 3 root,boot,efi /usr/lib/airymaxos/scripts/boot_mount.sh' \
     %{buildroot}%{_unitdir}/airy-boot-mount.service
@@ -677,6 +700,7 @@ fi
 %dir /usr/lib/airymaxos/desktop
 /usr/lib/airymaxos/desktop/airy-session-cond.sh
 /usr/lib/airymaxos/desktop/airy-session-state
+/usr/lib/airymaxos/desktop/airy-session-cleanup.sh
 /usr/lib/airymaxos/boot-set
 %{_unitdir}/*.service
 %{_unitdir}/*.slice
