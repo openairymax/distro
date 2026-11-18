@@ -44,7 +44,12 @@
 #      落点之间的差：ukui-interface 的 D-Bus 服务文件写
 #      Exec=/usr/libexec/ukui-*server，二进制却在 /usr/bin，激活时按绝对
 #      路径 execve 失败，控制中心各模块打开即空。清单从实际存在的二进制
-#      推导，不维护第二份文件名表（DESKTOP-UKUI-01）。
+#      推导，不维护第二份文件名表（DESKTOP-UKUI-01）；
+#  18. 部署引导期会话选择的两个单元与桌面侧的两处前置判据：选择器在 120
+#      秒窗口内把结论写成 desired，GUI 链路与 TUI 各自按同一份判据决定是
+#      否启动（U-09）。boot-tui 没有 [Install]，只由选择器显式 start，故不
+#      进启用清单；判据脚本与状态写入归发行包，本包只在 drop-in 里登记
+#      调用点，不复制判据。
 #
 # 单元启用（systemctl enable）只有一条实现：读 /usr/lib/airymaxos/boot-set。
 # 装机由 kickstart 按清单下启用位（镜像内无法启用未来会在目标机跑的单元），
@@ -70,6 +75,8 @@
 # spec-lint: source-root ../../system/units
 # spec-lint: source-root ../../system/scripts
 # spec-lint: source-root ../../system/bin
+# spec-lint: source-root ../../distro/desktop/lightdm.service.d
+# spec-lint: source-root ../../distro/desktop/airymax-desktop-ready.service.d
 # spec-lint: source-bundle ../../system/services/airydisk
 # spec-lint: source-bundle ../../system/services/airyllm
 # spec-lint: source-bundle ../../system/services/airyupdate
@@ -168,6 +175,10 @@ Source70:       airy-pkg
 Source71:       airypkg-%{version}.tar.gz
 Source72:       ukui_compat.sh
 Source73:       airymax-llm.conf
+Source74:       airy-session-choice.service
+Source75:       boot-tui.service
+Source76:       10-airymax-session-choice.conf
+Source77:       20-airymax-session-mode.conf
 
 BuildRequires:  gcc
 BuildRequires:  python3-devel
@@ -241,7 +252,7 @@ install -m 0644 %{SOURCE1} %{SOURCE2} %{SOURCE3} %{SOURCE4} %{SOURCE5} \
     %{SOURCE23} %{SOURCE24} %{SOURCE27} \
     %{SOURCE30} %{SOURCE31} %{SOURCE32} %{SOURCE35} %{SOURCE51} %{SOURCE52} \
     %{SOURCE37} %{SOURCE38} %{SOURCE42} %{SOURCE43} %{SOURCE45} \
-    %{SOURCE55} %{SOURCE60} %{SOURCE61} %{SOURCE63} \
+    %{SOURCE55} %{SOURCE60} %{SOURCE61} %{SOURCE63} %{SOURCE74} %{SOURCE75} \
     %{buildroot}%{_unitdir}/
 install -m 0644 %{SOURCE0} %{SOURCE15} %{buildroot}%{_unitdir}/
 install -d -m 0755 %{buildroot}%{_unitdir}/user.slice.d
@@ -258,6 +269,12 @@ install -m 0644 %{SOURCE68} \
     %{buildroot}%{_unitdir}/dbus.socket.d/10-airymax-listen-reset.conf
 install -m 0644 %{SOURCE69} \
     %{buildroot}%{_unitdir}/dbus.socket.d/20-airymax-listen-run.conf
+install -d -m 0755 %{buildroot}%{_unitdir}/lightdm.service.d \
+    %{buildroot}%{_unitdir}/airymax-desktop-ready.service.d
+install -m 0644 %{SOURCE76} \
+    %{buildroot}%{_unitdir}/lightdm.service.d/10-airymax-session-choice.conf
+install -m 0644 %{SOURCE77} \
+    %{buildroot}%{_unitdir}/airymax-desktop-ready.service.d/20-airymax-session-mode.conf
 install -d -m 0755 %{buildroot}/usr/lib/airymaxos/scripts
 install -m 0755 %{SOURCE17} %{SOURCE18} %{SOURCE50} %{SOURCE53} \
     %{SOURCE54} %{SOURCE56} %{SOURCE59} %{SOURCE62} %{SOURCE64} \
@@ -409,6 +426,32 @@ grep -qxF 'ListenStream=' \
 test -f %{buildroot}%{_unitdir}/dbus.socket.d/20-airymax-listen-run.conf
 grep -qxF 'ListenStream=/run/dbus/system_bus_socket' \
     %{buildroot}%{_unitdir}/dbus.socket.d/20-airymax-listen-run.conf
+# 引导期会话选择：窗口必须留足、选择器必须能独占 tty1；两者任一写错的表现
+# 都是「倒计时没走完就回到登录提示」或「按键被 getty 抢走」，从服务状态上
+# 看不出来。boot-tui 不得带 [Install]：它由选择器显式 start，被固定拉起就
+# 等于没有选择。drop-in 的判据逐行断言，改错一个字会让 GUI 在选了 TUI 的
+# 机器上照样启动。
+test -f %{buildroot}%{_unitdir}/airy-session-choice.service
+grep -qxF 'ExecStart=/usr/bin/airy-session-pick --timeout 120 --default gui' \
+    %{buildroot}%{_unitdir}/airy-session-choice.service
+grep -qxF 'TimeoutStartSec=150' \
+    %{buildroot}%{_unitdir}/airy-session-choice.service
+grep -qxF 'Conflicts=getty@tty1.service rescue.target' \
+    %{buildroot}%{_unitdir}/airy-session-choice.service
+test -f %{buildroot}%{_unitdir}/boot-tui.service
+grep -qxF 'ExecStart=/usr/bin/boot-tui' \
+    %{buildroot}%{_unitdir}/boot-tui.service
+grep -qxF 'ExecStartPost=-+/usr/lib/airymaxos/desktop/airy-session-state tui' \
+    %{buildroot}%{_unitdir}/boot-tui.service
+! grep -q '^\[Install\]' %{buildroot}%{_unitdir}/boot-tui.service
+test -f %{buildroot}%{_unitdir}/lightdm.service.d/10-airymax-session-choice.conf
+grep -qxF 'ExecCondition=/usr/lib/airymaxos/desktop/airy-session-cond.sh gui lightdm.service' \
+    %{buildroot}%{_unitdir}/lightdm.service.d/10-airymax-session-choice.conf
+test -f %{buildroot}%{_unitdir}/airymax-desktop-ready.service.d/20-airymax-session-mode.conf
+grep -qxF 'ExecCondition=/usr/lib/airymaxos/desktop/airy-session-cond.sh gui airymax-desktop-ready.service' \
+    %{buildroot}%{_unitdir}/airymax-desktop-ready.service.d/20-airymax-session-mode.conf
+grep -qxF 'ExecStartPost=-+/usr/lib/airymaxos/desktop/airy-session-state gui' \
+    %{buildroot}%{_unitdir}/airymax-desktop-ready.service.d/20-airymax-session-mode.conf
 test -f %{buildroot}%{_unitdir}/airy-boot-mount.service
 grep -qxF 'ExecStart=/usr/lib/airymaxos/scripts/stage_run.sh 基础挂载 3 root,boot,efi /usr/lib/airymaxos/scripts/boot_mount.sh' \
     %{buildroot}%{_unitdir}/airy-boot-mount.service
@@ -612,6 +655,10 @@ fi
 %{_unitdir}/systemd-fsck@.service.d/*.conf
 %dir %{_unitdir}/dbus.socket.d
 %{_unitdir}/dbus.socket.d/*.conf
+%dir %{_unitdir}/lightdm.service.d
+%{_unitdir}/lightdm.service.d/*.conf
+%dir %{_unitdir}/airymax-desktop-ready.service.d
+%{_unitdir}/airymax-desktop-ready.service.d/*.conf
 %{_unitdir}/*.target
 %{_unitdir}/*.timer
 %{_presetdir}/90-airymax.preset
