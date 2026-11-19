@@ -66,6 +66,10 @@ readonly INST_ERR="${INST_FAIL}|${RPM_FAIL}|${PAY_FAIL}|${ASK_FAIL}"
 readonly FW_FAIL='Boot failed|No bootable device|could not read the boot disk'
 
 . "${DISTRO_ROOT}/scripts/lib/outdir.sh"
+# 剖面归一化只有一份实现（ci/lib/profile.sh）。段完整性断言要按剖面给出
+# 期望集，而剖面判断若在本脚本再抄一遍 case，就会重演「三处各写一份、其中
+# 两份把 true 归一成 0」的旧故障。
+. "${DISTRO_ROOT}/../ci/lib/profile.sh"
 
 ISO=""
 OUT="${TMPDIR:-/tmp}/airymaxos-install-test"
@@ -634,20 +638,71 @@ stop_qemu()
 # 0.0.4 的验收在只有 7 段的日志上通过，缺的正是首启判定与自检与取证——
 # 机器照常进桌面，而「卡在哪一步」的现场证据少了两块。段行不齐与启动
 # 失败不同，后者会自己冒出来，前者不会。
+#
+# 验收剖面按设计 mask 掉产品就绪单元（单一判定者原则），第 8 段因此不会
+# 发射。期望集必须与本次启动的剖面一致：屏蔽清单从执行 mask 的夹具里读，
+# 单元与阶段的归属从契约的 UI_STAGE_UNITS 里读，两处都是各自的事实源。
+# 放行的只是「按设计不存在」的段，其余段照旧全量要求；屏蔽清单或归属任一
+# 处改动都会自动反映到期望集，本脚本不持有第三份编号表。
 stage_table()
 {
     sed -n "s/^[[:space:]]*'\([0-9][0-9]*\)|.*|\([a-z][a-z-]*\)'$/\1 \2/p" \
         "${DISTRO_ROOT}/../system/scripts/ui.sh"
 }
 
-stage_missing()
+stage_own()
+{
+    sed -n "s/^[[:space:]]*'\([a-z][a-z-]*\)|\([^'|]*\)'$/\1 \2/p" \
+        "${DISTRO_ROOT}/../system/scripts/ui.sh"
+}
+
+# 验收剖面下被整单元屏蔽的生产者。产品剖面没有屏蔽，返回空。
+mask_units()
+{
+    local ks="${DISTRO_ROOT}/ci/ks/acceptance.part"
+
+    [ "$(airy_profile)" -eq 1 ] || return 0
+    [ -r "${ks}" ] || {
+        printf 'acceptance fixture missing: %s\n' "${ks}" >&2
+        return 1
+    }
+    sed -n 's/^[[:space:]]*systemctl --root=\/ mask[[:space:]]\{1,\}//p' \
+        "${ks}"
+}
+
+# 本次启动应出现的阶段行。被屏蔽单元负责的阶段整段剔除；未登记归属的
+# 单元即便被屏蔽也不剔除，宁可判负也不静默缩短判据。
+stage_want()
+{
+    local -A own=() held=()
+    local unit code id rows
+
+    rows=$(mask_units) || return 1
+    if [ -z "${rows}" ]; then
+        stage_table
+        return 0
+    fi
+    for unit in ${rows}; do
+        held[${unit}]=1
+    done
+    while read -r code unit; do
+        own[${code}]=${unit}
+    done < <(stage_own)
+    while read -r id code; do
+        unit=${own[${code}]:-}
+        [ -n "${unit}" ] && [ -n "${held[${unit}]:-}" ] && continue
+        printf '%s %s\n' "${id}" "${code}"
+    done < <(stage_table)
+}
+
+stage_absent()
 {
     local log="$1" total="$2" id code miss=""
 
     while read -r id code; do
         grep -qF "[ ${id}/${total} ] ${code}" "${log}" 2>/dev/null ||
             miss="${miss}${id}(${code}) "
-    done < <(stage_table)
+    done
     printf '%s' "${miss}"
 }
 
@@ -656,7 +711,7 @@ stage_missing()
 # 缺行时把缺的序号与代号一并报出，下一次现场验收不必人工数段。
 wait_stages()
 {
-    local log="$1" total miss deadline
+    local log="$1" total want rows miss deadline
 
     total=$(stage_table | wc -l)
     if [ "${total}" -eq 0 ]; then
@@ -664,9 +719,18 @@ wait_stages()
             "${DISTRO_ROOT}/../system/scripts/ui.sh" >&2
         return 1
     fi
+    rows=$(stage_want) || return 1
+    want=$(printf '%s\n' "${rows}" | wc -l)
+    [ "${want}" -gt 0 ] || {
+        printf 'stage set empty after profile mask\n' >&2
+        return 1
+    }
+    [ "${want}" -eq "${total}" ] ||
+        printf 'profile masks %s stage(s): %s of %s expected\n' \
+            "$((total - want))" "${want}" "${total}" >&2
     deadline=$(( $(date +%s) + STAGE_WAIT ))
     while :; do
-        miss=$(stage_missing "${log}" "${total}")
+        miss=$(stage_absent "${log}" "${total}" <<<"${rows}")
         [ -z "${miss}" ] && return 0
         if [ "$(date +%s)" -ge "${deadline}" ]; then
             printf 'boot stages missing in %s: %s(of %s)\n' \
