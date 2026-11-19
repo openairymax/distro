@@ -869,6 +869,22 @@ for kv in ${FAKE_PIDS_BUMP:-}; do
         ;;
     esac
 done
+# T1 的迟到模拟：FAKE_LATE 形如 "ukui-power-mana=2"——前两次询问回答「不在」，
+# 之后回答「在」。基线判定必须逐轮重判而不是单点快照，这个变量让「晚到」
+# 成为可复现的输入，而不依赖用例与脚本的时序巧合。
+for kv in ${FAKE_LATE:-}; do
+    case "$kv" in
+    "$pat"=*)
+        limit="${kv#*=}"
+        f="${HOME:-/tmp}/.pgrep-late.${pat}"
+        c=0
+        [ -r "$f" ] && c=$(cat "$f")
+        if [ "$c" -ge "$limit" ]; then exit 0; fi
+        printf '%s\\n' "$((c + 1))" >"$f"
+        exit 1
+        ;;
+    esac
+done
 # T24 需要 pid 本身：FAKE_PIDS 形如 "ukui-panel=100 ukui-kwin_x11=101"，
 # 命中即回放该 pid；未列出的名字仍走下面的「存在即可」老口径。
 for kv in ${FAKE_PIDS:-}; do

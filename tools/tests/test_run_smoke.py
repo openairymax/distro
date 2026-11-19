@@ -625,6 +625,21 @@ class RunSmokeTest(unittest.TestCase):
         proc.terminate()
         proc.wait(timeout=10)
 
+    def write_dbus_service(self, unit, bus, exec_path, create_exec=True):
+        """T1 惰性服务的落点：总线声明与 Exec 本体。判据是「可激活」，两者
+        任缺一件都说明总线拉不起这个服务；只写声明不装本体用来复核后半句。"""
+        d = self.sysroot / "usr" / "share" / "dbus-1" / "services"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / unit).write_text(
+            f"[D-BUS Service]\nName={bus}\nExec={exec_path}\n",
+            encoding="utf-8")
+        exe = self.sysroot / exec_path.lstrip("/")
+        if create_exec:
+            exe.parent.mkdir(parents=True, exist_ok=True)
+            exe.write_text("#!/bin/sh\n", encoding="utf-8")
+            exe.chmod(0o755)
+        return exe
+
     def tools(self, omit=()):
         fakes.link_tools(self.bin)
         fakes.smoke_tools(self.bin, omit)
@@ -675,6 +690,7 @@ class RunSmokeTest(unittest.TestCase):
             "FAKE_RPM_NAMES": " ".join(PACKAGES),
             "PYTHONPATH": str(SERVICES),
             "AIRYMAX_SMOKE_WAIT": "0",
+            "AIRYMAX_SMOKE_BASE_WAIT": "0",
             "AIRYMAX_SMOKE_ROOT": str(self.sysroot),
             "AIRYMAX_SMOKE_BASELINE": str(self.baseline),
         }
@@ -861,6 +877,92 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke()
         self.assert_fail(res, 1)
         self.assertIn("baseline missing", res.stdout)
+
+    def test_baseline_waits_for_late_component(self):
+        """会话收敛需要时间：组件由 autostart 并发拉起，晚到不是缺失。
+        窗口内逐轮重判，迟到的组件必须被认成在位，并留下收敛耗时。"""
+        self.tools()
+        self.baseline.write_text("ukui-panel\nukui-power-mana\n",
+                                 encoding="utf-8")
+        res = self.run_smoke(FAKE_LATE="ukui-power-mana=2",
+                             AIRYMAX_SMOKE_BASE_WAIT="4")
+        self.assertIn("ok 1 - T1", res.stdout)
+        self.assertIn("converged in", res.stdout)
+
+    def test_baseline_wait_is_bounded(self):
+        """窗口只给时间不放宽判据：始终不出现的组件在窗口耗尽后仍须点名，
+        且带出收敛秒数，避免「等了多久」变成不可复核的猜测。"""
+        self.tools()
+        self.baseline.write_text("ukui-panel\nukui-power-mana\n",
+                                 encoding="utf-8")
+        res = self.run_smoke(AIRYMAX_SMOKE_BASE_WAIT="1")
+        self.assert_fail(res, 1)
+        self.assertIn("session components missing: ukui-power-mana", res.stdout)
+        self.assertIn("session base wait: 1s", res.stdout)
+
+    def test_baseline_dbus_activatable(self):
+        """通知守护进程由总线按需激活、没有 autostart：空闲会话里它本就不
+        常驻。判据改为「可激活」——服务声明在、Exec 可执行即成立。"""
+        self.tools()
+        self.baseline.write_text(
+            "ukui-notificati\tdbus:org.freedesktop.Notifications\n",
+            encoding="utf-8")
+        self.write_dbus_service(
+            "org.ukui.freedesktop.Notification.service",
+            "org.freedesktop.Notifications",
+            "/usr/lib/ukui-notification-daemon/ukui-notifications")
+        res = self.run_smoke()
+        self.assertIn("ok 1 - T1", res.stdout)
+        self.assertIn("session baseline: 1 components ok", res.stdout)
+
+    def test_baseline_dbus_undeclared(self):
+        """总线名无人声明：服务不会被任何请求拉起，按缺项判负并点名总线名。"""
+        self.tools()
+        self.baseline.write_text(
+            "ukui-notificati\tdbus:org.freedesktop.Notifications\n",
+            encoding="utf-8")
+        res = self.run_smoke()
+        self.assert_fail(res, 1)
+        self.assertIn("dbus service not declared:"
+                      " org.freedesktop.Notifications", res.stdout)
+
+    def test_baseline_dbus_exec_missing(self):
+        """声明在而本体不在：激活请求会落到空处，判据必须覆盖 Exec 本身。"""
+        self.tools()
+        self.baseline.write_text(
+            "ukui-notificati\tdbus:org.freedesktop.Notifications\n",
+            encoding="utf-8")
+        self.write_dbus_service(
+            "org.ukui.freedesktop.Notification.service",
+            "org.freedesktop.Notifications",
+            "/usr/lib/ukui-notification-daemon/ukui-notifications",
+            create_exec=False)
+        res = self.run_smoke()
+        self.assert_fail(res, 1)
+        self.assertIn("dbus service exec missing:", res.stdout)
+
+    def test_baseline_gate_absent(self):
+        """硬件门控：子系统不存在时组件无从启动，记为 gated 而不是缺项，
+        但名单不得因此缩小——门控路径存在时它仍是必判项。"""
+        self.tools()
+        self.baseline.write_text(
+            "ukui-panel\nukui-bluetooth\tgate:/sys/class/bluetooth\n",
+            encoding="utf-8")
+        res = self.run_smoke()
+        self.assertIn("ok 1 - T1", res.stdout)
+        self.assertIn("session baseline: 1 components ok, gated: ukui-bluetooth",
+                      res.stdout)
+
+    def test_baseline_gate_present(self):
+        """门控路径存在即恢复判定：有蓝牙子系统的机器上组件缺位必须判负。"""
+        self.tools()
+        self.baseline.write_text(
+            "ukui-panel\nukui-bluetooth\tgate:/sys/class/bluetooth\n",
+            encoding="utf-8")
+        (self.sysroot / "sys" / "class" / "bluetooth").mkdir(parents=True)
+        res = self.run_smoke()
+        self.assert_fail(res, 1)
+        self.assertIn("session components missing: ukui-bluetooth", res.stdout)
 
     def test_ibus_down(self):
         self.tools()

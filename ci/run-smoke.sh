@@ -28,10 +28,17 @@
 #   AIRYMAX_SMOKE_BASELINE  T1 的会话组件基线；缺省读脚本同目录的
 #                       session-baseline.txt。缺文件即判负：名单本身就是
 #                       判据，读不到就无从判定会话是否完整。
+#   AIRYMAX_SMOKE_BASE_WAIT  T1 的会话收敛窗口秒数（默认 45）。本脚本与基线
+#                       组件同由 XDG autostart 拉起，组件出现时刻彼此相差
+#                       数秒；窗口只给时间，不放宽判据，窗口内仍未出现即
+#                       判负。
 #
 # 覆盖:
 #   T1  UKUI X11 会话：loginctl 会话属性、ukui-session 进程、X server 可达、
-#       会话组件基线齐备（与 session-baseline.txt 逐项比对，缺项点名）
+#       会话组件基线齐备（与 session-baseline.txt 逐项比对，缺项点名）。基线
+#       每行可带判据：缺省为常驻进程，dbus:<总线名> 为按需激活的服务（进程
+#       不在位时以服务声明与 Exec 可执行证明其可激活），gate:<路径> 表示组件
+#       只在对应硬件存在时要求在位
 #   T2  ibus 输入法：守护进程、全局引擎、会话输入法变量
 #   T3  PulseAudio 音频栈：pactl 与守护进程握手
 #   T4  桌面隔离 slice：user@UID.service 归属与 slice 资源参数
@@ -102,6 +109,7 @@ PAPER_SHA=fee7f439834ac7dacfc75deaf80a1db1c4bc7459583248eecc87125d52a5ef18
 BID_MAX=64
 T23_SHOWN=8
 START_WAIT="${AIRYMAX_SMOKE_WAIT:-30}"
+BASE_WAIT="${AIRYMAX_SMOKE_BASE_WAIT:-45}"
 HOSTNAME_WANT="${AIRYMAX_SMOKE_HOST:-airymax-pc}"
 SYSROOT="${AIRYMAX_SMOKE_ROOT:-}"
 
@@ -314,26 +322,117 @@ seat_proc() {
     }
 }
 
+# dbus_unit <总线名> — 返回声明该名字的 .service 文件。服务可由包安装到
+# 系统目录，也可由本地配置覆盖，两处都查；名字不随文件名走（上游把
+# org.freedesktop.Notifications 的声明放在 org.ukui.* 文件里），只能按
+# Name= 反查。
+dbus_unit() {
+    local dir unit
+
+    for dir in "${SYSROOT}/usr/share/dbus-1/services" \
+        "${SYSROOT}/etc/dbus-1/session.d"; do
+        [ -d "${dir}" ] || continue
+        for unit in "${dir}"/*.service; do
+            [ -e "${unit}" ] || continue
+            grep -qx "Name=$1" "${unit}" 2>/dev/null || continue
+            printf '%s\n' "${unit}"
+            return 0
+        done
+    done
+    return 1
+}
+
+# base_dbus <comm> <总线名> — 惰性服务可激活：进程在位即成立；不在位时以
+# 服务声明与其 Exec 可执行证明总线能把它拉起来。通知守护进程没有 autostart，
+# 只在第一条通知到来时由总线启动，空闲会话里要求它常驻是在判上游设计错。
+base_dbus() {
+    local unit exec
+
+    pgrep -x "$1" >/dev/null 2>&1 && return 0
+    unit=$(dbus_unit "$2") || {
+        echo "dbus service not declared: $2"
+        return 1
+    }
+    exec=$(sed -n 's/^Exec=//p' "${unit}" | head -n 1)
+    exec=${exec%% *}
+    [ -n "${exec}" ] || {
+        echo "dbus service has no Exec: ${unit}"
+        return 1
+    }
+    case "${exec}" in
+    /*) [ -x "${SYSROOT}${exec}" ] || {
+        echo "dbus service exec missing: ${exec}"
+        return 1
+    } ;;
+    *) command -v "${exec}" >/dev/null 2>&1 || {
+        echo "dbus service exec missing: ${exec}"
+        return 1
+    } ;;
+    esac
+}
+
+# base_diag — 缺项现场。缺的不是「进程没起」这件事，而是它为何没起：
+# 会话自述的桌面名决定 OnlyShowIn 条目是否被 autostart 采纳，同族进程是否
+# 在位决定是单点缺项还是整批未起。等待窗口与诊断同源，避免两处各说各话。
+base_diag() {
+    printf 'XDG_CURRENT_DESKTOP=%s\n' "${XDG_CURRENT_DESKTOP:-unset}"
+    printf 'session procs:'
+    ps -eo comm= 2>/dev/null | sort -u | grep -E '^(ukui|kylin|sni)' |
+        tr '\n' ' ' | sed 's/ $//'
+    printf '\n'
+}
+
 # base_check — 会话组件逐项在位。名单只有一份（session-baseline.txt），
 # 桌面状态面板与验收编排读同一份；这里只做比对，不另存期望值。
+# 等待窗口内逐轮重判：本脚本与组件同由 autostart 并发拉起，单点快照会把
+# 「晚到」判成「缺失」，而缺项点名必须只在真的缺时出现。
 base_check() {
-    local name miss="" n=0
+    local name kind miss gated ok waited=0
 
     [ -r "${BASE_FILE}" ] || {
         echo "baseline missing: ${BASE_FILE}"
         return 1
     }
-    while read -r name; do
-        case "${name}" in '' | '#'*) continue ;; esac
-        n=$((n + 1))
-        pgrep -x "${name}" >/dev/null 2>&1 && continue
-        miss="${miss} ${name}"
-    done <"${BASE_FILE}"
+    while :; do
+        miss="" gated="" ok=0
+        while read -r name kind; do
+            case "${name}" in '' | '#'*) continue ;; esac
+            case "${kind:-}" in
+            gate:*)
+                if [ -e "${SYSROOT}${kind#gate:}" ]; then
+                    pgrep -x "${name}" >/dev/null 2>&1 ||
+                        miss="${miss} ${name}"
+                    ok=$((ok + 1))
+                else
+                    gated="${gated} ${name}"
+                fi
+                ;;
+            dbus:*)
+                base_dbus "${name}" "${kind#dbus:}" ||
+                    miss="${miss} ${name}"
+                ok=$((ok + 1))
+                ;;
+            *)
+                pgrep -x "${name}" >/dev/null 2>&1 || miss="${miss} ${name}"
+                ok=$((ok + 1))
+                ;;
+            esac
+        done <"${BASE_FILE}"
+        [ -z "${miss}" ] && break
+        [ "${waited}" -ge "${BASE_WAIT}" ] && break
+        sleep 1
+        waited=$((waited + 1))
+    done
     [ -z "${miss}" ] || {
         echo "session components missing:${miss}"
+        echo "session base wait: ${waited}s"
+        base_diag
         return 1
     }
-    echo "session baseline: ${n} components ok"
+    printf 'session baseline: %s components ok' "${ok}"
+    [ -z "${gated}" ] || printf ', gated:%s' "${gated}"
+    [ "${waited}" -eq 0 ] || printf ' (converged in %ss)' "${waited}"
+    printf '\n'
 }
 
 # T1: UKUI X11 会话（lightdm 会话 + 会话进程 + 组件基线 + X server + 驱动标记）

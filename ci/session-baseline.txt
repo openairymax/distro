@@ -7,14 +7,18 @@
 # 判据是「逐项常在」，不是实例数：ukui-screensave 实测 3 个进程（每个输出
 # 一台），锁屏实例数随输出数变化，它不是完整性判据。
 #
-# 名单只此一份：桌面状态面板、验收编排与本节判据读同一文件，不得各写一份。
+# 第二列可给出判据，缺省即「会话内常驻进程」：
+#   dbus:<总线名>    总线按需激活的服务。空闲会话里它本就不常驻，判据是
+#                    服务声明在、其 Exec 可执行，进程在位同样成立。
+#   gate:<路径>      组件只在对应硬件存在时要求在位；路径缺失时记为 gated，
+#                    不算缺项。门控条件与被门控的子系统自己的启动条件同源。
 # 组件增减属产品变更，须同时改本文件与 §8 M4-5 的「23 进程基线」台账。
 ukui-kwin_x11
 ukui-panel
 ukui-session
 ukui-menu
 ukui-sidebar
-ukui-notificati
+ukui-notificati	dbus:org.freedesktop.Notifications
 ukui-settings-d
 ukui-search
 ukui-search-ser
@@ -26,7 +30,7 @@ ukui-powermanag
 ukui-upower
 ukui-flash-disk
 ukui-screensave
-ukui-bluetooth
+ukui-bluetooth	gate:/sys/class/bluetooth
 polkit-ukui-aut
 kylin-nm
 sni-daemon
