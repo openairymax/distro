@@ -355,7 +355,13 @@ dl_src()
     need curl
     mkdir -p "$(dirname "$dst")"
     tmp="$(dirname "$dst")/.$(basename "$dst").part.$$"
-    if ! curl -fsSL --retry 3 --connect-timeout 20 -o "$tmp" "$url"; then
+    # 上游源的 HTTP/2 通道会以 INTERNAL_ERROR 中断连接，而 curl 的默认重试
+    # 集合不含该错误（92）：一次抖动便让整轮组装作废。这里固定 HTTP/1.1
+    # 从传输层消除这一类断流，并对所有错误重试；低速阈值把「已连接但不来
+    # 数据」从无限等待变成一次可重试的失败。
+    if ! curl -fsSL --http1.1 --retry 5 --retry-all-errors --retry-delay 5 \
+            --connect-timeout 20 --speed-limit 1024 --speed-time 60 \
+            -o "$tmp" "$url"; then
         rm -f "$tmp"
         die "${E_IO}" "下载源失败: $(basename "$dst")（$url）"
     fi
