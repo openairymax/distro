@@ -204,13 +204,12 @@ parse_args()
         *) die "未知参数: $1" ;;
         esac
     done
-    [ -n "${ISO}" ] || die "--iso 必填"
-    [ -f "${ISO}" ] || die "ISO 不存在: ${ISO}"
+    [ -f "${ISO:-}" ] || die "--iso 必填且必须是存在的文件: ${ISO:-未给出}"
     [ "${RUNS}" -ge 1 ] || die "--runs 必须大于 0"
+    # 首个 --boot-marker 顶替缺省值后，MAX_BOOT 的语义从「30s 上限」变成
+    # 「未指定」：桌面腿与验收腿的墙钟包含会话初始化，不能被 30s 截断。
     [ "${BOOT_MARKER_SET}" -eq 1 ] || BOOT_MARKERS=("login:")
-    if [ "${MAX_BOOT_SET}" -eq 0 ] && [ "${BOOT_MARKERS[*]}" != "login:" ]; then
-        MAX_BOOT=""
-    fi
+    [ "${MAX_BOOT_SET}" -eq 1 ] || [ "${BOOT_MARKERS[*]}" = "login:" ] || MAX_BOOT=""
 }
 
 fw_probe()
@@ -254,21 +253,19 @@ fw_probe()
 
 check_env()
 {
-    case "${ARCH}" in
-    x86_64|aarch64) ;;
+    # 架构与固件是一个二维约束：拆成三条 case 时，「aarch64 只能 uefi」要
+    # 单列一条 if，且非法架构与非法固件会在同一条输入上互相遮盖。合成一张
+    # 表后每种组合只出现一次，报错落在真正不合法的那个维度上。
+    case "${ARCH}:${FIRMWARE}" in
+    x86_64:bios|x86_64:uefi|x86_64:both|aarch64:uefi) ;;
+    x86_64:*) die "不支持的固件: ${FIRMWARE}" ;;
+    aarch64:*) die "aarch64 仅支持 uefi 固件: ${FIRMWARE}" ;;
     *) die "不支持的架构: ${ARCH}" ;;
-    esac
-    case "${FIRMWARE}" in
-    bios|uefi|both) ;;
-    *) die "不支持的固件: ${FIRMWARE}" ;;
     esac
     case "${MEDIA}" in
     cdrom|usb) ;;
     *) die "不支持的介质形态: ${MEDIA}" ;;
     esac
-    if [ "${ARCH}" = aarch64 ] && [ "${FIRMWARE}" != uefi ]; then
-        die "aarch64 仅支持 uefi 固件"
-    fi
     if [ "${FIRMWARE}" != bios ] && ! fw_probe; then
         # --firmware both 是「能测就测两条腿」的意图声明，宿主机没有
         # OVMF/AAVMF 时 UEFI 腿本就无从执行。此时按 bios 腿继续，而不是
@@ -287,11 +284,6 @@ check_env()
 need()
 {
     command -v "$1" >/dev/null 2>&1
-}
-
-tools_ready()
-{
-    need "${QEMU}" && need qemu-img
 }
 
 # 跳过的理由要能直接指向缺失的那一条命令。只写「工具链不可用」时，现场
@@ -626,8 +618,8 @@ wait_marker()
 
 stop_qemu()
 {
-    kill "$1" 2>/dev/null || true
-    wait "$1" 2>/dev/null || true
+    kill "$1" 2>/dev/null
+    wait "$1" 2>/dev/null
 }
 
 # 九阶段契约（system/scripts/ui.sh 的 UI_STAGES）在串口日志里是否完整。
@@ -656,43 +648,32 @@ stage_own()
         "${DISTRO_ROOT}/../system/scripts/ui.sh"
 }
 
-# 验收剖面下被整单元屏蔽的生产者。产品剖面没有屏蔽，返回空。
-mask_units()
+# 本次启动应出现的阶段行。被屏蔽单元负责的阶段整段剔除；未登记归属的
+# 单元即便被屏蔽也不剔除，宁可判负也不静默缩短判据。
+#
+# 三张表按代号对齐一次即可得出结论，不需要在 shell 里维护两张关联数组：
+# 段表与归属表 join 出「段 ↔ 生产者」，未登记归属的段由 -e 填哨兵 @，
+# 它不可能出现在屏蔽清单里，因此原样保留；再按屏蔽清单整行剔除。
+# 三张表各取各自的事实源，本函数不持有第四份编号表。
+stage_want()
 {
     local ks="${DISTRO_ROOT}/ci/ks/acceptance.part"
 
-    [ "$(airy_profile)" -eq 1 ] || return 0
+    [ "$(airy_profile)" -eq 1 ] || {
+        stage_table
+        return 0
+    }
     [ -r "${ks}" ] || {
         printf 'acceptance fixture missing: %s\n' "${ks}" >&2
         return 1
     }
-    sed -n 's/^[[:space:]]*systemctl --root=\/ mask[[:space:]]\{1,\}//p' \
-        "${ks}"
-}
-
-# 本次启动应出现的阶段行。被屏蔽单元负责的阶段整段剔除；未登记归属的
-# 单元即便被屏蔽也不剔除，宁可判负也不静默缩短判据。
-stage_want()
-{
-    local -A own=() held=()
-    local unit code id rows
-
-    rows=$(mask_units) || return 1
-    if [ -z "${rows}" ]; then
-        stage_table
-        return 0
-    fi
-    for unit in ${rows}; do
-        held[${unit}]=1
-    done
-    while read -r code unit; do
-        own[${code}]=${unit}
-    done < <(stage_own)
-    while read -r id code; do
-        unit=${own[${code}]:-}
-        [ -n "${unit}" ] && [ -n "${held[${unit}]:-}" ] && continue
-        printf '%s %s\n' "${id}" "${code}"
-    done < <(stage_table)
+    LC_ALL=C join -a1 -e @ -o 1.1,1.2,2.2 -1 2 -2 1 \
+        <(stage_table | LC_ALL=C sort -k2,2) \
+        <(stage_own | LC_ALL=C sort -k1,1) |
+        grep -vwF -f <(sed -n \
+            's/^[[:space:]]*systemctl --root=\/ mask[[:space:]]\{1,\}//p' \
+            "${ks}" | tr -s '[:space:]' '\n' | sed '/^$/d') |
+        cut -d' ' -f1,2 | LC_ALL=C sort -n
 }
 
 stage_absent()
@@ -886,14 +867,15 @@ TOTAL=0
 
 main()
 {
-    local fw
+    local fw tools
     parse_args "$@"
     check_env
     OUT="$(out_guard install-test "${OUT}")" || exit $?
     QEMU="qemu-system-${ARCH}"
-    if ! tools_ready; then
+    tools=$(missing_tools)
+    if [ -n "${tools}" ]; then
         printf 'TAP version 14\n1..0 # SKIP QEMU toolchain unavailable: %s\n' \
-            "$(missing_tools)"
+            "${tools}"
         exit "${SKIP}"
     fi
     accel_set
