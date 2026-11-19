@@ -408,6 +408,7 @@ make_bundle()
         --sort=name --mtime="@${SOURCE_DATE_EPOCH}" \
         --owner=0 --group=0 --numeric-owner \
         --exclude=__pycache__ --exclude='*.pyc' \
+        --exclude=target --exclude=.git \
         -cf - "$(basename "$dir")" | gzip -n > "$dst"; then
         rm -f "$dst"
         die "${E_IO}" "生成源归档失败: $name"

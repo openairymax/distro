@@ -50,6 +50,12 @@
 #      各自按同一份判据决定是否启动（U-09）。boot-tui 没有 [Install]，只由
 #      选择器显式 start，故不进启用清单；调用方与实现同包，升级时不会出现
 #      「单元已换、判据还是旧的」。
+#  19. 部署三个会话入口二进制（boot-tui、airy-session-pick、
+#      airy-session-mode）与 TUI 主题：单元 ExecStart 指向的三条路径必须由
+#      本包自己交付。0.0.5 的一处真实事故正是单元先于二进制进入镜像——
+#      session-choice 在 4 秒内以 203/EXEC 失败，开机降级为 degraded，
+#      而打包清单与单元分属两处，谁都没报错。二进制按架构编译，放进
+#      noarch 的发行包会把 ELF 标错架构，因此落在本包。
 #
 # 单元启用（systemctl enable）只有一条实现：读 /usr/lib/airymaxos/boot-set。
 # 装机由 kickstart 按清单下启用位（镜像内无法启用未来会在目标机跑的单元），
@@ -65,7 +71,8 @@
 #
 # 构建约束：单元、脚本与入口脚本为仓库内裸露文件名，由构建流水线 staging
 # 到 _sourcedir 后 rpmbuild；三个 Python 包以整目录归档交付，归档由驱动按
-# `<目录名>-<Version>.tar.gz` 现场生成，配方本身不生成任何内容。
+# `<目录名>-<Version>.tar.gz` 现场生成。TUI 源码同样整目录归档，配方内的
+# 唯一生成物是三个会话入口二进制；离线编译依赖归档内 vendor/，不访问网络。
 #
 # 同批构建的配方共用一个 _sourcedir，故每个文件都按 SOURCE 编号逐个落盘，
 # 不用通配符：airymaxos-release 也往同一目录暂存 .sh 与 .service，通配会
@@ -86,6 +93,7 @@
 # spec-lint: source-bundle ../../system/services/airybright
 # spec-lint: source-bundle ../../system/services/airydeb
 # spec-lint: source-bundle ../../system/services/airypkg
+# spec-lint: source-bundle ../../system/tui
 
 %global airy_version 0.0.5
 %global airy_release 1
@@ -182,9 +190,12 @@ Source78:       airy-session-cond.sh
 Source79:       airy-session-state
 Source80:       airy-session-switch@.service
 Source81:       airy-session-cleanup.sh
+Source82:       tui-%{version}.tar.gz
 
+BuildRequires:  cargo
 BuildRequires:  gcc
 BuildRequires:  python3-devel
+BuildRequires:  rust
 Requires:       bash
 Requires:       binutils
 Requires:       dnf
@@ -242,10 +253,17 @@ server and desktop profiles can opt out without editing the payload.
 %prep
 %setup -q -c -T
 install -m 0644 %{SOURCE44} airy-rt-lat.c
+tar -xzf %{SOURCE82}
 
 %build
 gcc %{optflags} -std=c11 -Wall -Wextra -Werror -o airy-rt-lat \
     airy-rt-lat.c -lpthread
+# 会话入口与桌面共用同一份 TUI 工作区：按键判定、状态写入与渲染都在库里，
+# 三个入口只做进程边界。归档内 vendor/ 是唯一依赖来源，离线编译，构建机
+# 不访问 crates.io；CARGO_HOME 落进构建目录，避免写用户家目录。
+cd tui
+CARGO_HOME="$PWD/.cargo-home" CARGO_NET_OFFLINE=true \
+    cargo build --release --locked --offline
 
 %install
 install -d -m 0755 %{buildroot}%{_unitdir}
@@ -310,6 +328,17 @@ install -m 0755 %{SOURCE57} %{buildroot}%{_bindir}/airy-bright
 install -m 0755 %{SOURCE65} %{buildroot}%{_bindir}/airy-deb
 install -m 0755 %{SOURCE70} %{buildroot}%{_bindir}/airy-pkg
 install -m 0755 airy-rt-lat %{buildroot}%{_bindir}/airy-rt-lat
+# 三条路径由单元 ExecStart 直接给出，缺一条就是开机降级；安装时不改名、
+# 不建软链，保持与单元文本逐字一致。
+for tui_bin in boot-tui airy-session-pick airy-session-mode; do
+    install -m 0755 "tui/target/release/${tui_bin}" \
+        "%{buildroot}%{_bindir}/${tui_bin}"
+done
+install -d -m 0755 %{buildroot}%{_datadir}/airymaxos/system/tui/themes
+install -m 0644 tui/themes/*.toml \
+    %{buildroot}%{_datadir}/airymaxos/system/tui/themes/
+# 审批目录由 airy-tui-exec 在运行时读取，目录本身随包交付；内容由管理员填写。
+install -d -m 0755 %{buildroot}%{_sysconfdir}/airymaxos/system/tui/approvals.d
 install -d -m 0755 %{buildroot}%{python3_sitelib}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE25}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE26}
@@ -641,6 +670,17 @@ for unit in airy-rt-bandwidth.service airy-rt-memcap.service \
     airymax-net-doctor.service; do
     grep -qxF "${unit}" %{buildroot}/usr/lib/airymaxos/boot-set || exit 1
 done
+# 单元引用的三条入口必须真的落盘：0.0.5 的 session-choice 在 4 秒内以
+# 203/EXEC 失败，正是因为打包清单只核对了单元文本、没有核对二进制。
+# 断言四件事：存在、可执行、是 ELF、不是软链（软链会让架构归属失真）。
+for tui_bin in boot-tui airy-session-pick airy-session-mode; do
+    tui_path="%{buildroot}%{_bindir}/${tui_bin}"
+    test -x "${tui_path}"
+    test ! -L "${tui_path}"
+    test "$(od -An -tx1 -N4 "${tui_path}" | tr -d ' \n')" = 7f454c46
+done
+test -s %{buildroot}%{_datadir}/airymaxos/system/tui/themes/airy-dark.toml
+test -d %{buildroot}%{_sysconfdir}/airymaxos/system/tui/approvals.d
 
 %pre
 # 服务账户与附属组是单元的硬依赖：User=airy、Group=airy，各单元的
@@ -731,6 +771,18 @@ fi
 %{_bindir}/airy-deb
 %{_bindir}/airy-pkg
 %{_bindir}/airy-rt-lat
+%{_bindir}/boot-tui
+%{_bindir}/airy-session-pick
+%{_bindir}/airy-session-mode
+%dir %{_datadir}/airymaxos
+%dir %{_datadir}/airymaxos/system
+%dir %{_datadir}/airymaxos/system/tui
+%dir %{_datadir}/airymaxos/system/tui/themes
+%{_datadir}/airymaxos/system/tui/themes/*.toml
+%dir %{_sysconfdir}/airymaxos
+%dir %{_sysconfdir}/airymaxos/system
+%dir %{_sysconfdir}/airymaxos/system/tui
+%dir %{_sysconfdir}/airymaxos/system/tui/approvals.d
 %{python3_sitelib}/airydisk
 %{python3_sitelib}/airyllm
 %{python3_sitelib}/airyupdate
