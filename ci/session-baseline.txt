@@ -12,6 +12,11 @@
 #                    服务声明在、其 Exec 可执行，进程在位同样成立。
 #   gate:<路径>      组件只在对应硬件存在时要求在位；路径缺失时记为 gated，
 #                    不算缺项。门控条件与被门控的子系统自己的启动条件同源。
+#
+# 电量托盘（ukui-power-manager-tray，comm 为 ukui-power-mana）门控到电池：
+# 验收机没有任何 power_supply 设备时，同一镜像三条腿里它在位与否不定——
+# 进程无设备可显示，起来即退且 journal 不留行，45 秒窗口内时有时无。有电池
+# 的机器上它必须常在；托盘入口点是否存在由 T30 单独负责。
 # 组件增减属产品变更，须同时改本文件与 §8 M4-5 的「23 进程基线」台账。
 ukui-kwin_x11
 ukui-panel
@@ -25,7 +30,7 @@ ukui-search-ser
 ukui-window-swi
 ukui-control-ce
 ukui-volume-con
-ukui-power-mana
+ukui-power-mana	gate:/sys/class/power_supply/BAT0
 ukui-powermanag
 ukui-upower
 ukui-flash-disk
