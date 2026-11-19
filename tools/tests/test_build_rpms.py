@@ -24,8 +24,8 @@ DISTRO = SCRIPT.parent.parent
 BASH = shutil.which("bash") or "/bin/bash"
 
 TOOLS = ("basename", "cat", "cmp", "cp", "cut", "date", "dirname", "find",
-         "gzip", "mkdir", "mv", "nproc", "rm", "sed", "sha256sum", "sort",
-         "tar", "uname")
+         "gzip", "mkdir", "mv", "nproc", "rm", "sed", "sha256sum", "sleep",
+         "sort", "tar", "tr", "uname", "wc")
 
 SPEC = """\
 Name:           airymaxos-demo
@@ -119,6 +119,51 @@ printf 'payload\\n' > "$out"
 CURL_FAIL = """\
 #!/bin/sh
 exit 7
+"""
+
+# 三段式假 curl：前两轮各交付一段并以 18（传输中断）退出，第三轮补齐尾段。
+# 每轮的偏移由 STATE 文件的行数决定，模拟服务端按 Range 从断点续发。
+CURL_STEP = """\
+#!/bin/sh
+out=""; url=""
+[ -n "${CURL_LOG:-}" ] && printf '%s\\n' "$@" >> "$CURL_LOG"
+while [ $# -gt 0 ]; do
+    case "$1" in
+    -o) shift; out=$1 ;;
+    https://*) url=$1 ;;
+    esac
+    shift
+done
+[ -n "$out" ] && [ -n "$url" ] || exit 2
+n=0
+[ -n "${CURL_STATE:-}" ] && [ -f "$CURL_STATE" ] && n=$(wc -l < "$CURL_STATE")
+[ -n "${CURL_STATE:-}" ] && printf 'x\\n' >> "$CURL_STATE"
+case "$n" in
+0) printf 'payl' > "$out"; exit 18 ;;
+1) printf 'oad' >> "$out"; exit 18 ;;
+esac
+printf '\\n' >> "$out"
+"""
+
+# 不认 Range 的服务端：首轮写下若干字节后以 33 退出，之后整份重发。33 之后
+# 若还把已落盘的部分留着接续，拼出来的就是「错位文件」——摘要能挡住它，但
+# 轮次全废；脚本必须在 33 时丢掉部分文件。
+CURL_RANGE = """\
+#!/bin/sh
+out=""; url=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+    -o) shift; out=$1 ;;
+    https://*) url=$1 ;;
+    esac
+    shift
+done
+[ -n "$out" ] && [ -n "$url" ] || exit 2
+n=0
+[ -n "${CURL_STATE:-}" ] && [ -f "$CURL_STATE" ] && n=$(wc -l < "$CURL_STATE")
+[ -n "${CURL_STATE:-}" ] && printf 'x\\n' >> "$CURL_STATE"
+[ "$n" -eq 0 ] && { printf 'junk' > "$out"; exit 33; }
+printf 'payload\\n' >> "$out"
 """
 
 RPM2CPIO = """\
@@ -417,7 +462,7 @@ class BuildRpmsTest(unittest.TestCase):
 
         repo.openeuler.org 会以 INTERNAL_ERROR 关闭 HTTP/2 流，而 curl 的
         默认重试集合不含该错误，一次抖动就会让整轮组装作废。判据落在
-        curl 的入参上：固定 HTTP/1.1、对所有错误重试、低速连接有上限。
+        curl 的入参上：固定 HTTP/1.1、断点续传、低速连接有上限。
         """
         self.full()
         self.tools(("curl", CURL))
@@ -427,8 +472,43 @@ class BuildRpmsTest(unittest.TestCase):
                               "--arch", "x86_64", CURL_LOG=str(log))
         self.assertEqual(res.returncode, 0, res.stderr)
         args = log.read_text(encoding="utf-8").splitlines()
-        for flag in ("--http1.1", "--retry-all-errors", "--speed-limit"):
+        for flag in ("--http1.1", "--speed-limit", "-C"):
             self.assertIn(flag, args)
+
+    def test_source_fetch_resumes_after_cut(self):
+        """断流必须续传：每轮只给几 MB 的镜像只有累加才会收敛。
+
+        run 44549305771 里 ukui-control-center 的 src.rpm 连断六轮，每轮都
+        从零开始，44 分钟后整轮组装作废。判据落在结果上：三段式假 curl 前
+        两轮各交付一段并以 18 退出，只有接续断点才拼得出完整摘要。
+        """
+        self.full()
+        self.tools(("curl", CURL_STEP))
+        self.url_spec()
+        res = self.run_script("--out", str(self.out), "--spec", str(self.spec),
+                              "--arch", "x86_64",
+                              CURL_STATE=str(self.root / "curl.step"))
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("续传", res.stderr)
+        staged = (self.out / "work" / "rpmbuild" / "SOURCES" / "demo.conf")
+        self.assertEqual(staged.read_bytes(), PAYLOAD)
+
+    def test_source_fetch_drops_part_on_no_range(self):
+        """服务端不认 Range（33）时必须丢掉部分文件，不能继续接续。
+
+        33 表示「这一份无法从断点续」，把已落盘的字节留着接下一轮，拼出的
+        是错位内容；摘要能拦住它，但整轮重试全部作废。判据落在结果上：首轮
+        塞进 4 字节垃圾、以 33 退出，最终交付的仍应是完整原件。
+        """
+        self.full()
+        self.tools(("curl", CURL_RANGE))
+        self.url_spec()
+        res = self.run_script("--out", str(self.out), "--spec", str(self.spec),
+                              "--arch", "x86_64",
+                              CURL_STATE=str(self.root / "curl.range"))
+        self.assertEqual(res.returncode, 0, res.stderr)
+        staged = (self.out / "work" / "rpmbuild" / "SOURCES" / "demo.conf")
+        self.assertEqual(staged.read_bytes(), PAYLOAD)
 
     def test_source_url_cache_reuse(self):
         # 摘要命中缓存即不再联网：发布重放不能依赖上游站点是否还在线。
