@@ -290,6 +290,20 @@ tools_ready()
     need "${QEMU}" && need qemu-img
 }
 
+# 跳过的理由要能直接指向缺失的那一条命令。只写「工具链不可用」时，现场
+# 得回到宿主手工复现才知道缺的是 qemu-system-<arch> 还是 qemu-img；0.0.5 的
+# 验收镜像里三条腿都是这一行，而宿主其实只装上了固件、一条 qemu 命令都没
+# 有，事后翻日志也看不出这个区别。
+missing_tools()
+{
+    local c out=""
+
+    for c in "${QEMU}" qemu-img; do
+        need "${c}" || out="${out}${out:+ }${c}"
+    done
+    printf '%s' "${out}"
+}
+
 accel_set()
 {
     if [ -r /dev/kvm ] && [ "$(uname -m)" = "${ARCH}" ]; then
@@ -814,7 +828,8 @@ main()
     OUT="$(out_guard install-test "${OUT}")" || exit $?
     QEMU="qemu-system-${ARCH}"
     if ! tools_ready; then
-        printf 'TAP version 14\n1..0 # SKIP QEMU toolchain unavailable\n'
+        printf 'TAP version 14\n1..0 # SKIP QEMU toolchain unavailable: %s\n' \
+            "$(missing_tools)"
         exit "${SKIP}"
     fi
     accel_set
