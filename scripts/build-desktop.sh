@@ -362,7 +362,7 @@ write_payload()
 derive_ks()
 {
     local out="${OUT_ABS}/install.ks" log="${OUT_ABS}/logs/install-ks.log"
-    python3 "$CL_SPEC" install "$KS" >"$out" 2>"$log" ||
+    python3 "$CL_SPEC" install --arch "$ARCH" "$KS" >"$out" 2>"$log" ||
         die "${E_INVAL}" "安装期配方投影失败（日志 ${log}）"
     KS="$out"
     printf '安装期配方: %s\n' "$KS"

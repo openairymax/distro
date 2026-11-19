@@ -78,8 +78,15 @@ HELP_RE = re.compile(r"^\s*text\s+help\s*$")
 ENDTEXT_RE = re.compile(r"^\s*endtext\s*$")
 ISOLINUX_HINT = re.compile(r"^\s*(label|append|menu (?:label|title))\b")
 APPEND_RE = re.compile(r"^\s*append\s")
-SERIAL_RE = re.compile(r"console=ttyS0")
-SERIAL_ARG = "console=tty0 console=ttyS0,115200"
+# 串口控制台随架构不同：x86_64 是 8250 的 ttyS0，aarch64 是 PL011 的
+# ttyAMA0。装机验收只从串口读进度，补错名字等于整条腿静默。
+SERIAL = {
+    "x86_64": (re.compile(r"console=ttyS0"),
+               "console=tty0 console=ttyS0,115200"),
+    "aarch64": (re.compile(r"console=ttyAMA0"),
+                "console=tty0 console=ttyAMA0,115200"),
+}
+ARCH = "x86_64"
 # 引导菜单的无人值守等待秒数。底座 60 秒：装机现场从插盘到进安装器先空等
 # 一分钟。20 秒够读完菜单并按下方向键，按键即停，故不牺牲可选性。
 WAIT_S = 20
@@ -301,9 +308,10 @@ def i_serial(line):
     由底座与 mkksiso 共同决定，重排会让 stage2 定位失效。
     """
     text = line.rstrip("\r\n")
-    if not APPEND_RE.match(text) or SERIAL_RE.search(text):
+    serial_re, serial_arg = SERIAL[ARCH]
+    if not APPEND_RE.match(text) or serial_re.search(text):
         return None
-    return text + " " + SERIAL_ARG + eol(line), ("append", SERIAL_ARG)
+    return text + " " + serial_arg + eol(line), ("append", serial_arg)
 
 
 def i_serial_all(lines):
@@ -621,7 +629,7 @@ def flag(arg, name, argv, pos):
 
 def opt_of(arg):
     """返回匹配的长选项名；普通参数返回 None，未知短横参数抛用法错误。"""
-    for name in ("--product", "--variant"):
+    for name in ("--product", "--variant", "--arch"):
         if arg == name or arg.startswith(name + "="):
             return name
     if arg.startswith("-"):
@@ -630,10 +638,10 @@ def opt_of(arg):
 
 
 def parse(argv):
-    """解析 CLI；返回 (product, variant, path)，--help 返回 (None, None, None)。"""
+    """解析 CLI；返回 (product, variant, arch, path)，--help 返回四个 None。"""
     if any(arg in ("-h", "--help") for arg in argv):
-        return None, None, None
-    got = {"--product": None, "--variant": ""}
+        return None, None, None, None
+    got = {"--product": None, "--variant": "", "--arch": "x86_64"}
     files = []
     pos = 0
     while pos < len(argv):
@@ -647,12 +655,15 @@ def parse(argv):
         pos += 2 if arg == name else 1
     if not got["--product"] or len(files) != 1:
         raise ValueError("需要 --product 与唯一 FILE")
-    return got["--product"], got["--variant"], files[0]
+    if got["--arch"] not in SERIAL:
+        raise ValueError(f"不支持的架构: {got['--arch']}")
+    return got["--product"], got["--variant"], got["--arch"], files[0]
 
 
 def main(argv):
+    global ARCH
     try:
-        product, variant, name = parse(argv)
+        product, variant, ARCH, name = parse(argv)
     except ValueError as exc:
         print(f"cfg_brand: {exc}", file=sys.stderr)
         print(USAGE, file=sys.stderr)

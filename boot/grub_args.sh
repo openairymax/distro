@@ -141,6 +141,15 @@ case "${timeout}" in
 '' | *[!0-9]*) usage; exit 2 ;;
 esac
 
+# 串口设备名随架构不同：x86_64 是 8250 的 ttyS0，aarch64 是 PL011 的
+# ttyAMA0（QEMU virt 与多数 ARM 服务器同一默认）。控制台集合的判定与改写
+# 都读 consoles，因此只在这里按目标机架构分一次，别处不再重复架构判断。
+# 0.0.3 在 x86 上写进 ttyAMA0 的教训（D-05）：幽灵控制台会让
+# systemd-vconsole-setup 失败，而 /dev/console 的归属只由末位 console= 决定。
+if [ "$(uname -m)" = aarch64 ]; then
+    consoles='ttyAMA0,115200 tty0'
+fi
+
 [ -r "${defaults}" ] || fail "no ${defaults}"
 
 # console= 是顺序敏感项，不接受从命令行追加：--append 的用法是补普通参数，
