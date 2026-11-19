@@ -18,6 +18,11 @@ install -m 0755 /run/install/repo/run-smoke.sh \
 #    T23 永远为红，棘轮失去信号价值。
 install -m 0644 /run/install/repo/err-budget \
     "${root}/usr/lib/airymaxos/ci/err-budget"
+#    T1 的会话组件基线同理由 run-smoke.sh 按自身路径读取：缺文件时脚本
+#    只能报「baseline missing」，无法逐项判定。它与上面的预算文件一样是
+#    判据的事实源，不是可选的说明文件。
+install -m 0644 /run/install/repo/session-baseline.txt \
+    "${root}/usr/lib/airymaxos/ci/session-baseline.txt"
 install -m 0755 /run/install/repo/fixture/airymax-smoke-run.sh \
     "${root}/usr/lib/airymaxos/ci/airymax-smoke-run.sh"
 install -m 0755 /run/install/repo/fixture/airymax-smoke-report.sh \

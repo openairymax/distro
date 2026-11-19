@@ -561,6 +561,7 @@ class AcceptFixtureTest(unittest.TestCase):
 
     ADD = re.compile(r'ADDS\+=\("\$\{DISTRO_ROOT\}/(ci/[^"]+)"\)')
     COPY = re.compile(r"/run/install/repo/(\S+)")
+    NEED = re.compile(r"\$\{SELF_DIR\}/([A-Za-z0-9._-]+)")
 
     def test_payload_installed(self):
         part = DISTRO / "ci" / "ks" / "acceptance.part"
@@ -578,6 +579,27 @@ class AcceptFixtureTest(unittest.TestCase):
             else:
                 want.add(name)
         self.assertEqual(sorted(want - copied), [])
+
+    def test_smoke_sidecars_packaged(self):
+        """run-smoke.sh 按自身路径读取的事实源必须随介质交付。
+
+        两处声明互相对账只能保证「声明过的都装了」，管不到「该声明的没
+        声明」——T1 的会话基线就是这样漏掉的：脚本读 session-baseline.txt，
+        夹具既没入 ISO 也没装进系统，三条腿在 T1 同时判「无法取证」。
+        故以脚本自身的读取点为第三方事实源，缺一即失败。
+        """
+        part = DISTRO / "ci" / "ks" / "acceptance.part"
+        needs = set(self.NEED.findall(
+            (DISTRO / "ci" / "run-smoke.sh").read_text(encoding="utf-8")))
+        self.assertIn("err-budget", needs)
+        adds = {Path(rel).name
+                for rel in self.ADD.findall(SCRIPT.read_text(encoding="utf-8"))}
+        self.assertEqual(sorted(needs - adds), [],
+                         "run-smoke.sh 读取的同目录文件未随 ISO 交付")
+        copied = {Path(p).name
+                  for p in self.COPY.findall(part.read_text(encoding="utf-8"))}
+        self.assertEqual(sorted(needs - copied), [],
+                         "run-smoke.sh 读取的同目录文件未装进目标系统")
 
 
 if __name__ == "__main__":
