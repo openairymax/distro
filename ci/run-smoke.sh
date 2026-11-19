@@ -404,57 +404,78 @@ auto_diag() {
     printf '\n'
 }
 
+# base_gated <判据> — 该条是否因硬件缺席而免判。门控条件与被门控子系统
+# 自己的启动条件同源：机器上没有这个硬件时，进程不在位不是缺项。
+base_gated() {
+    case "$1" in
+    gate:*) [ ! -e "${SYSROOT}${1#gate:}" ] ;;
+    *) return 1 ;;
+    esac
+}
+
+# base_item <comm> <判据> — 单条基线判据，0 表示成立（含硬件门控）。
+base_item() {
+    local name="$1" kind="${2:-}"
+
+    base_gated "${kind}" && return 0
+    case "${kind}" in
+    dbus:*) base_dbus "${name}" "${kind#dbus:}" ;;
+    *) pgrep -x "${name}" >/dev/null 2>&1 ;;
+    esac
+}
+
+# base_scan — 一轮比对，结果写入 BASE_OK / BASE_MISS / BASE_GATED。
+base_scan() {
+    local name kind
+
+    BASE_OK=0 BASE_MISS="" BASE_GATED=""
+    while read -r name kind; do
+        case "${name}" in '' | '#'*) continue ;; esac
+        if base_item "${name}" "${kind:-}"; then
+            if base_gated "${kind:-}"; then
+                BASE_GATED="${BASE_GATED} ${name}"
+            else
+                BASE_OK=$((BASE_OK + 1))
+            fi
+        else
+            BASE_MISS="${BASE_MISS} ${name}"
+        fi
+    done <"${BASE_FILE}"
+}
+
+# base_report <等待秒数> — 结论与缺项现场。
+base_report() {
+    if [ -n "${BASE_MISS}" ]; then
+        echo "session components missing:${BASE_MISS}"
+        echo "session base wait: $1s"
+        base_diag
+        return 1
+    fi
+    printf 'session baseline: %s components ok' "${BASE_OK}"
+    [ -z "${BASE_GATED}" ] || printf ', gated:%s' "${BASE_GATED}"
+    [ "$1" -eq 0 ] || printf ' (converged in %ss)' "$1"
+    printf '\n'
+}
+
 # base_check — 会话组件逐项在位。名单只有一份（session-baseline.txt），
 # 桌面状态面板与验收编排读同一份；这里只做比对，不另存期望值。
 # 等待窗口内逐轮重判：本脚本与组件同由 autostart 并发拉起，单点快照会把
 # 「晚到」判成「缺失」，而缺项点名必须只在真的缺时出现。
 base_check() {
-    local name kind miss gated ok waited=0
+    local waited=0
 
     [ -r "${BASE_FILE}" ] || {
         echo "baseline missing: ${BASE_FILE}"
         return 1
     }
     while :; do
-        miss="" gated="" ok=0
-        while read -r name kind; do
-            case "${name}" in '' | '#'*) continue ;; esac
-            case "${kind:-}" in
-            gate:*)
-                if [ -e "${SYSROOT}${kind#gate:}" ]; then
-                    pgrep -x "${name}" >/dev/null 2>&1 ||
-                        miss="${miss} ${name}"
-                    ok=$((ok + 1))
-                else
-                    gated="${gated} ${name}"
-                fi
-                ;;
-            dbus:*)
-                base_dbus "${name}" "${kind#dbus:}" ||
-                    miss="${miss} ${name}"
-                ok=$((ok + 1))
-                ;;
-            *)
-                pgrep -x "${name}" >/dev/null 2>&1 || miss="${miss} ${name}"
-                ok=$((ok + 1))
-                ;;
-            esac
-        done <"${BASE_FILE}"
-        [ -z "${miss}" ] && break
+        base_scan
+        [ -z "${BASE_MISS}" ] && break
         [ "${waited}" -ge "${BASE_WAIT}" ] && break
         sleep 1
         waited=$((waited + 1))
     done
-    [ -z "${miss}" ] || {
-        echo "session components missing:${miss}"
-        echo "session base wait: ${waited}s"
-        base_diag
-        return 1
-    }
-    printf 'session baseline: %s components ok' "${ok}"
-    [ -z "${gated}" ] || printf ', gated:%s' "${gated}"
-    [ "${waited}" -eq 0 ] || printf ' (converged in %ss)' "${waited}"
-    printf '\n'
+    base_report "${waited}"
 }
 
 # T1: UKUI X11 会话（lightdm 会话 + 会话进程 + 组件基线 + X server + 驱动标记）
