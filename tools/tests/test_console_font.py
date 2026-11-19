@@ -10,7 +10,7 @@
 # 日志指到夹具树，脚本自身的默认路径与目标机一致。
 #
 # Author: Decheng Li <lidecheng@spharx.cn>
-# Version: 0.0.4
+# Version: 0.0.5
 # ===========================================================================
 
 import subprocess

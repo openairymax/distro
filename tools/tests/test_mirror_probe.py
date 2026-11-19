@@ -10,7 +10,7 @@
 # 服务验证，不依赖任何公网镜像。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.4
+# Version: 0.0.5
 # ===========================================================================
 
 import http.server

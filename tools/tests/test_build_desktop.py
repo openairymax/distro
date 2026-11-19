@@ -10,7 +10,7 @@
 # group 元数据与 ISO 回读一致性。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.4
+# Version: 0.0.5
 # ===========================================================================
 
 import gzip

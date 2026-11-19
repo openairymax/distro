@@ -10,7 +10,7 @@
 # 标准库 unittest 编写，可被 pytest 直接收集。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.4
+# Version: 0.0.5
 # ===========================================================================
 
 import configparser

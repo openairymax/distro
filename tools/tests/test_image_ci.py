@@ -9,7 +9,7 @@
 # 以预构建 ISO 和真实 build-iso 两条路径分别验证编排与产物定位。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.4
+# Version: 0.0.5
 # ===========================================================================
 
 import hashlib

@@ -9,9 +9,10 @@
 # 临时目录与清理，不增加判据。用标准库 unittest 编写，可被 pytest 直接收集。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.4
+# Version: 0.0.5
 # ===========================================================================
 
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -26,12 +27,18 @@ GOOD = """\
 # tool in one line
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.4
+# Version: 0.0.5
 """
 
+# 期望版本取自夹具，而不是在这里另写一份字面量：夹具横幅会随发布版本一起
+# 被抬，两份字面量必然分叉，而分叉后测试仍然自洽——它比的是自己那一份。
+def banner_ver(text: str) -> str:
+    return re.search(r"^# Version: (\S+)$", text, re.MULTILINE).group(1)
 
-def codes(text: str, want: str = "0.0.4") -> list[str]:
-    return [i.code for i in head_lint.judge(want, text.splitlines())]
+
+def codes(text: str, want: str | None = None) -> list[str]:
+    return [i.code for i in head_lint.judge(want or banner_ver(GOOD),
+                                            text.splitlines())]
 
 
 class HeadLintTest(unittest.TestCase):
@@ -46,7 +53,8 @@ class HeadLintTest(unittest.TestCase):
         self.assertEqual(codes(text), ["H001"])
 
     def test_stale_version_is_reported(self) -> None:
-        text = GOOD.replace("0.0.4", "0.0.3")
+        text = GOOD.replace(f"# Version: {banner_ver(GOOD)}",
+                            "# Version: 9.9.9")
         self.assertEqual(codes(text), ["H002"])
 
     def test_version_beyond_banner_depth_is_ignored(self) -> None:

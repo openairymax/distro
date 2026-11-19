@@ -16,7 +16,7 @@
 # 中止；此前只测 --no-regen，恰好绕过整段路径。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.4
+# Version: 0.0.5
 # ===========================================================================
 
 import os

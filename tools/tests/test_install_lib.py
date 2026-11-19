@@ -10,7 +10,7 @@
 # 以及 EXIT 陷阱在 set -e 中止时补发 rc 失败行。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.4
+# Version: 0.0.5
 # ===========================================================================
 
 import os

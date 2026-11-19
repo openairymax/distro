@@ -59,11 +59,11 @@
 #   /usr/include 文件冲突，使装机事务失败）。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.4
+# Version: 0.0.5
 # ===========================================================================
 
-%global airy_version 0.0.4
-%global airy_release 13
+%global airy_version 0.0.5
+%global airy_release 1
 %global kernel_version 6.6.161
 # 本地版本里带上构建号。uname -r 是内核在 /boot、/usr/lib/modules 与
 # 引导项里的唯一身份：只写 -alk 时，补丁级升级前后 uname -r 完全相同，
@@ -630,6 +630,9 @@ depmod -a %{kernel_release}
 %endif
 
 %changelog
+* Thu Nov 19 2026 SPHARX <dev@spharx.com> - 0.0.5-1
+- kernel：版本基线抬到 0.0.5，与发行包同源；供应商版本号的次版本随基线
+  抬到 5，uname 与生成头里的版本码同批更新。发行号在新基线上从 1 重新计
 * Sun Nov 15 2026 SPHARX <dev@spharx.com> - 0.0.4-13
 - kernel：core 与 modules 子包补 installonlypkg(kernel) 身份。此前只有主包
   带该身份，dnf 便只把主包当 install-only：285H 上 0.0.4-11 升 0.0.4-12 时

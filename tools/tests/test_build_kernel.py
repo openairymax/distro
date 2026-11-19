@@ -10,7 +10,7 @@
 # %global kernel_version，测试不另存一份版本真值。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.4
+# Version: 0.0.5
 # ===========================================================================
 
 import hashlib

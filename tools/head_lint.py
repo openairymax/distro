@@ -29,7 +29,7 @@
 # 退出码：0 通过；1 存在问题；2 读取错误。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.4
+# Version: 0.0.5
 # ===========================================================================
 
 from __future__ import annotations

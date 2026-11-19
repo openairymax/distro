@@ -24,7 +24,7 @@
 # 退出码：0 成功；5 配方、标记或共享脚本不满足。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.4
+# Version: 0.0.5
 # ===========================================================================
 
 from __future__ import annotations
