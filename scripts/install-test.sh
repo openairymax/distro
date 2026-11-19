@@ -181,7 +181,8 @@ parse_args()
         --firmware) optarg "$1" "$#"; FIRMWARE="$2"; shift 2 ;;
         --media) optarg "$1" "$#"; MEDIA="$2"; shift 2 ;;
         --install-timeout)
-            optarg "$1" "$#"; need_num "$1" "$2"; INSTALL_TIMEOUT="$2"; shift 2 ;;
+            optarg "$1" "$#"; need_num "$1" "$2"
+            INSTALL_TIMEOUT="$2"; shift 2 ;;
         --boot-timeout)
             optarg "$1" "$#"; need_num "$1" "$2"; BOOT_TIMEOUT="$2"; shift 2 ;;
         --max-boot)
@@ -218,13 +219,15 @@ fw_probe()
     else
         case "${ARCH}" in
         x86_64)
-            # 与 ci/lib/host.sh 的 uefi_fw_paths 逐字一致：Ubuntu 24.04 起
-            # 只有 4M 形态，Debian 另有合并镜像 OVMF.fd，故用 glob 覆盖命名变化。
+            # 与 ci/lib/host.sh 的 uefi_fw_paths 逐字一致：Ubuntu 24.04
+            # 起只有 4M 形态，Debian 另有合并镜像 OVMF.fd，故用 glob
+            # 覆盖命名变化。
             cand=(/usr/share/OVMF/OVMF_CODE*.fd /usr/share/ovmf/OVMF.fd
                   /usr/share/edk2/ovmf/OVMF_CODE*.fd /usr/share/qemu/OVMF.fd)
             ;;
         aarch64)
-            cand=(/usr/share/AAVMF/AAVMF_CODE.fd /usr/share/edk2/aarch64/QEMU_EFI.fd
+            cand=(/usr/share/AAVMF/AAVMF_CODE.fd
+                  /usr/share/edk2/aarch64/QEMU_EFI.fd
                   /usr/share/qemu-efi-aarch64/QEMU_EFI.fd)
             ;;
         esac
@@ -268,7 +271,8 @@ check_env()
         # 让整轮装机段以参数错误退出：否则一台未装 edk2 的构建机连 BIOS
         # 腿的证据也拿不到，缺陷被环境问题掩盖。
         if [ "${FIRMWARE}" = both ]; then
-            printf 'install-test: 未找到 UEFI 固件，UEFI 腿降级为跳过，仅跑 BIOS 腿\n' >&2
+            printf 'install-test: 未找到 UEFI 固件，' >&2
+            printf 'UEFI 腿降级为跳过，仅跑 BIOS 腿\n' >&2
             FIRMWARE=bios
         else
             die "未找到 UEFI 固件（OVMF/AAVMF）"
@@ -359,9 +363,10 @@ dev_media()
         # 裸盘形态：固件按 MBR/GPT 找 ESP。真机 U 盘装机走的就是这条路，
         # 站点派生后若漏掉 MBR 0xEF 分区项与 GPT 条目的对齐，这里装不上，
         # 而 -cdrom 腿仍然全绿。bootindex 让固件优先选它，不依赖型号排序。
+        local usb="usb-storage,drive=usb0,bus=xhci.0"
         QARGS+=(-device qemu-xhci,id=xhci
                 -drive "file=${iso},if=none,id=usb0,format=raw,readonly=on"
-                -device "usb-storage,drive=usb0,bus=xhci.0,removable=on,bootindex=1")
+                -device "${usb},removable=on,bootindex=1")
         return 0
     fi
     if [ "${ARCH}" = aarch64 ]; then
@@ -500,8 +505,10 @@ install_run()
     # wait_inst() 首轮就会 grep INST_ERR，残留日志能让空跑直接判失败；
     # 末尾的 MARKER 断言同样会被残留日志满足，从而假通过。
     rm -f "${log}" "${fwlog}" "${dir}/qemu.log" || return 1
-    qemu-img create -f qcow2 "${disk}" 40G >"${dir}/qemu-img.log" 2>&1 ||
-        { printf 'qemu-img create failed: run-%s-%s\n' "${fw}" "${n}" >&2; return 1; }
+    qemu-img create -f qcow2 "${disk}" 40G \
+        >"${dir}/qemu-img.log" 2>&1 ||
+        { printf 'qemu-img create failed: run-%s-%s\n' \
+              "${fw}" "${n}" >&2; return 1; }
     qemu_base
     fw_args "${fw}" "${dir}" || return 1
     dev_disk "${disk}" "${fw}"
@@ -532,7 +539,8 @@ install_run()
                "${fw}" "${n}" "$(($(date +%s) - start))" >&2 ;;
         4) printf 'firmware rejected the media in run-%s-%s: %.110s\n' \
                "${fw}" "${n}" "$(log_tail "${fwlog}")" >&2 ;;
-        *) printf 'install run %s-%s exited rc=%s\n' "${fw}" "${n}" "${rc}" >&2 ;;
+        *) printf 'install run %s-%s exited rc=%s\n' \
+               "${fw}" "${n}" "${rc}" >&2 ;;
         esac
         fail_note "${fw}" "${log}" "${dir}/qemu.log" "${fwlog}" \
             "$(($(date +%s) - start))"
@@ -661,7 +669,10 @@ boot_run()
     local disk="${dir}/disk.qcow2" log="${dir}/boot.log"
     local fwlog="${dir}/firmware.log"
     local pid start now code
-    [ -f "${disk}" ] || { printf 'no disk for run-%s-%s\n' "${fw}" "${n}" >&2; return 1; }
+    [ -f "${disk}" ] || {
+        printf 'no disk for run-%s-%s\n' "${fw}" "${n}" >&2
+        return 1
+    }
     # 同 install_run：boot.log 若不轮转，wait_marker 首轮就能被上一轮的
     # 标记满足，空跑会被判为启动成功。
     rm -f "${log}" "${fwlog}" "${dir}/qemu-boot.log" || return 1
@@ -683,7 +694,8 @@ boot_run()
     BOOT_S=$((now - start))
     case "${code}" in
     0) wait_stages "${log}" || {
-           fail_note "${fw}" "${log}" "${dir}/qemu-boot.log" "${fwlog}" "${BOOT_S}"
+           fail_note "${fw}" "${log}" "${dir}/qemu-boot.log" \
+               "${fwlog}" "${BOOT_S}"
            return 1
        } ;;
     2) printf 'boot failure pattern in run-%s-%s/boot.log\n' "${fw}" "${n}" >&2
@@ -808,8 +820,10 @@ main()
     accel_set
     legs_build
     printf 'TAP version 14\n1..%d\n' "$((RUNS * 2 * ${#LEGS[@]}))"
-    printf '# AirymaxOS install test: iso=%s arch=%s firmware=%s media=%s runs=%s accel=%s\n' \
-        "$(basename "${ISO}")" "${ARCH}" "${FIRMWARE}" "${MEDIA}" "${RUNS}" "${ACCEL}"
+    printf '# AirymaxOS install test:'
+    printf ' iso=%s arch=%s firmware=%s media=%s runs=%s accel=%s\n' \
+        "$(basename "${ISO}")" "${ARCH}" "${FIRMWARE}" \
+        "${MEDIA}" "${RUNS}" "${ACCEL}"
     for fw in "${LEGS[@]}"; do
         run_leg "${fw}"
     done
