@@ -380,6 +380,28 @@ base_diag() {
     ps -eo comm= 2>/dev/null | sort -u | grep -E '^(ukui|kylin|sni)' |
         tr '\n' ' ' | sed 's/ $//'
     printf '\n'
+    auto_diag
+    printf 'power supply: %s\n' \
+        "$(ls "${SYSROOT}/sys/class/power_supply" 2>/dev/null | tr '\n' ' ')"
+}
+
+# auto_diag — autostart 里声明了、进程却不在位的那几条。基线读到的是内核
+# 截断到 15 字节的进程名，缺项时无法回溯是哪条 .desktop 没有生效；按清单
+# 反查一次，把「声明与实况」对不上的一次列全，也顺带暴露启动即退的条目。
+auto_diag() {
+    local f exec name
+
+    printf 'autostart idle:'
+    for f in "${SYSROOT}/etc/xdg/autostart/"*.desktop; do
+        [ -r "${f}" ] || continue
+        exec=$(sed -n 's/^Exec=//p' "${f}" | head -n 1)
+        exec=${exec%% *}
+        [ -n "${exec}" ] || continue
+        name=${exec##*/}
+        pgrep -x "${name:0:15}" >/dev/null 2>&1 && continue
+        printf ' %s' "${name}"
+    done
+    printf '\n'
 }
 
 # base_check — 会话组件逐项在位。名单只有一份（session-baseline.txt），
