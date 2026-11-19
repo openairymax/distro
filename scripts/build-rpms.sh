@@ -65,6 +65,12 @@ BUILD_ID=""
 START_AT=""
 START_EPOCH=0
 
+# 单个源的重试轮数：上游 CDN 每轮只给几 MB 就以 curl 18 收尾时，只有续传
+# 才会收敛。轮数按 26 MB 的 ukui src.rpm 与实测每轮约 3.4 MB 定：12 轮
+# 留出一倍余量，同时把最坏等待限制在十几分钟内。
+readonly SRC_TRIES=12
+readonly SRC_DELAY=5
+
 usage()
 {
     cat <<'EOF'
@@ -346,34 +352,72 @@ check_src_url()
     esac
 }
 
+# dl_once URL TMP —— 一次续传尝试，返回 curl 退出码。
+#
+# 上游源的 HTTP/2 通道会以 INTERNAL_ERROR 中断连接，默认重试集合不含该
+# 错误（92），一次抖动便让整轮组装作废：固定 HTTP/1.1 从传输层消除这一类
+# 断流，低速阈值把「已连接但不来数据」从无限等待变成一次可重试的失败。
+#
+# 关键是 -C -：镜像每轮只给几 MB 就以 curl 18 收尾时，不带断点的重试每轮
+# 都从零开始，期望总进度是「每轮均分」而非累加，26 MB 的 ukui src.rpm 在
+# run 44549305771 就是这样连断六轮、44 分钟后整轮作废。接续把每轮已得
+# 的字节留在同一个 .part 上，中断只损失一个区间。
+dl_once()
+{
+    local url="$1" tmp="$2" rc=0
+    curl -fsSL --http1.1 --connect-timeout 20 \
+        --speed-limit 1024 --speed-time 60 \
+        -C - -o "${tmp}" "${url}" || rc=$?
+    # 33 是服务端不认 Range：此时已落盘的部分无法接续，留着重试只会拼出
+    # 一份内容错位的文件，直接丢掉，下一轮从零开始。
+    [ "${rc}" -ne 33 ] || rm -f "${tmp}"
+    return "${rc}"
+}
+
+part_note()
+{
+    local tmp="$1" try="$2" got
+    got="$(wc -c <"${tmp}" 2>/dev/null | tr -d '[:space:]' || true)"
+    printf 'build-rpms: 取源中断（第 %s 轮），已得 %s 字节，续传\n' \
+        "${try}" "${got:-0}" >&2
+}
+
+dl_seal()
+{
+    local tmp="$1" sum="$2" dst="$3" got
+    if ! got="$(sum_of "${tmp}")"; then
+        rm -f "${tmp}"
+        die "${E_IO}" "sha256sum 失败: ${tmp}"
+    fi
+    if [ "${got}" != "${sum}" ]; then
+        rm -f "${tmp}"
+        die "${E_IO}" "源摘要不符: $(basename "${dst}") 期望 ${sum} 实得 ${got}"
+    fi
+    mv -f "${tmp}" "${dst}"
+}
+
 dl_src()
 {
-    local url="$1" sum="$2" dst="$3" tmp got
-    if [ -f "$dst" ] && digest_ok "$dst" "$sum"; then
+    local url="$1" sum="$2" dst="$3" tmp try
+    if [ -f "${dst}" ] && digest_ok "${dst}" "${sum}"; then
         return 0
     fi
     need curl
-    mkdir -p "$(dirname "$dst")"
-    tmp="$(dirname "$dst")/.$(basename "$dst").part.$$"
-    # 上游源的 HTTP/2 通道会以 INTERNAL_ERROR 中断连接，而 curl 的默认重试
-    # 集合不含该错误（92）：一次抖动便让整轮组装作废。这里固定 HTTP/1.1
-    # 从传输层消除这一类断流，并对所有错误重试；低速阈值把「已连接但不来
-    # 数据」从无限等待变成一次可重试的失败。
-    if ! curl -fsSL --http1.1 --retry 5 --retry-all-errors --retry-delay 5 \
-            --connect-timeout 20 --speed-limit 1024 --speed-time 60 \
-            -o "$tmp" "$url"; then
-        rm -f "$tmp"
-        die "${E_IO}" "下载源失败: $(basename "$dst")（$url）"
-    fi
-    if ! got="$(sum_of "$tmp")"; then
-        rm -f "$tmp"
-        die "${E_IO}" "sha256sum 失败: $tmp"
-    fi
-    if [ "$got" != "$sum" ]; then
-        rm -f "$tmp"
-        die "${E_IO}" "源摘要不符: $(basename "$dst") 期望 $sum 实得 $got"
-    fi
-    mv -f "$tmp" "$dst"
+    mkdir -p "$(dirname "${dst}")"
+    tmp="$(dirname "${dst}")/.$(basename "${dst}").part.$$"
+    rm -f "${tmp}"
+    try=0
+    while [ "${try}" -lt "${SRC_TRIES}" ]; do
+        try=$((try + 1))
+        if dl_once "${url}" "${tmp}"; then
+            dl_seal "${tmp}" "${sum}" "${dst}"
+            return 0
+        fi
+        part_note "${tmp}" "${try}"
+        sleep "${SRC_DELAY}"
+    done
+    rm -f "${tmp}"
+    die "${E_IO}" "下载源失败: $(basename "${dst}")（${url}，续传 ${SRC_TRIES} 轮未达）"
 }
 
 fetch_src()
