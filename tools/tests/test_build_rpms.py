@@ -104,6 +104,7 @@ printf 'signature\\n' > "$out"
 CURL = """\
 #!/bin/sh
 out=""; url=""
+[ -n "${CURL_LOG:-}" ] && printf '%s\\n' "$@" >> "$CURL_LOG"
 while [ $# -gt 0 ]; do
     case "$1" in
     -o) shift; out=$1 ;;
@@ -410,6 +411,24 @@ class BuildRpmsTest(unittest.TestCase):
         self.assertEqual(res.returncode, 0, res.stderr)
         staged = (self.out / "work" / "rpmbuild" / "SOURCES" / "demo.conf")
         self.assertEqual(staged.read_bytes(), PAYLOAD)
+
+    def test_source_fetch_survives_transport_reset(self):
+        """取源必须容忍上游 HTTP/2 断流。
+
+        repo.openeuler.org 会以 INTERNAL_ERROR 关闭 HTTP/2 流，而 curl 的
+        默认重试集合不含该错误，一次抖动就会让整轮组装作废。判据落在
+        curl 的入参上：固定 HTTP/1.1、对所有错误重试、低速连接有上限。
+        """
+        self.full()
+        self.tools(("curl", CURL))
+        self.url_spec()
+        log = self.root / "curl.args"
+        res = self.run_script("--out", str(self.out), "--spec", str(self.spec),
+                              "--arch", "x86_64", CURL_LOG=str(log))
+        self.assertEqual(res.returncode, 0, res.stderr)
+        args = log.read_text(encoding="utf-8").splitlines()
+        for flag in ("--http1.1", "--retry-all-errors", "--speed-limit"):
+            self.assertIn(flag, args)
 
     def test_source_url_cache_reuse(self):
         # 摘要命中缓存即不再联网：发布重放不能依赖上游站点是否还在线。
