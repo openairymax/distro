@@ -1,5 +1,6 @@
 #!/bin/sh
 # SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-FileCopyrightText: 2025-2026 SPHARX Ltd.
 # ===========================================================================
 # efi_brand.sh — 在 ESP 内建立 AirymaxOS 引导项并置顶
 #

@@ -1,5 +1,6 @@
 #!/bin/sh
 # SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
+# SPDX-FileCopyrightText: 2025-2026 SPHARX Ltd.
 # ===========================================================================
 # airy-session-cond.sh — lightdm 与桌面就绪探针的启动前置判据
 #

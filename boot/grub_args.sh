@@ -1,5 +1,6 @@
 #!/bin/sh
 # SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-FileCopyrightText: 2025-2026 SPHARX Ltd.
 # ===========================================================================
 # grub_args.sh — 内核启动参数与菜单范围的持久来源
 #
