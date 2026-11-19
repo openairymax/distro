@@ -44,6 +44,25 @@ def osrel(key):
     return hit.group(1) if hit else ""
 
 
+def stage_prints():
+    """按 ui.sh 的 UI_STAGES 生成串口段行的 printf 序列。
+
+    编号与 ASCII 代号取自契约本身：阶段增删时伪日志随之变化，安装验收的
+    段行棘轮才不会被伪工具里另抄的一份清单满足。
+    """
+    text = (DISTRO.parent / "system" / "scripts" / "ui.sh").read_text(
+        encoding="utf-8")
+    block = re.search(r"UI_STAGES=\((.*?)^\)", text, re.M | re.S)
+    if not block:
+        raise RuntimeError("ui.sh: UI_STAGES 区块不可读")
+    rows = re.findall(r"'(\d+)\|[^']*\|([a-z][a-z-]*)'", block.group(1))
+    if not rows:
+        raise RuntimeError("ui.sh: UI_STAGES 无条目")
+    total = len(rows)
+    return "".join(f"    printf '[ {i}/{total} ] {c}\\n'\n"
+                   for i, c in rows)
+
+
 def iso_payload(path):
     """取伪 ISO 的载荷区字节：PVD 之后，按卷空间大小截断并去掉尾部填充。
 
@@ -668,6 +687,10 @@ printf 'signature\\n' > "$out"
 
 QEMU = """\
 #!/bin/sh
+# 九阶段屏幕行由 ui.sh 的 UI_STAGES 生成（stage_prints），此处不另抄清单。
+stages()
+{
+@STAGES@}
 log=""; boot=""; nv=""; media=0
 # 参数值（-boot 的 order、-serial 的路径等）由 case 分支的 shift 消费，
 # 逐 token 记录只会留下开关名而丢掉取值。整份 argv 先落盘，测试才能断言
@@ -725,33 +748,45 @@ if [ -n "$nv" ] && ! grep -q BOOTENTRY "$nv"; then
     printf 'nvram lost\\n' > "$log"
     exit 1
 fi
+# 成功腿先在串口留下九阶段行，再打标记：安装验收按 ui.sh 的 UI_STAGES
+# 逐条比对，伪日志缺段会被判启动未完成。panic/nomarker/hang 在用户态
+# 之前中断，本就没有段行，因此不预置。
 case "${FAKE_QEMU_BOOT_MODE:-ok}" in
-ok) printf 'AirymaxOS login:\\nAIRYMAX-DESKTOP-READY unit=lightdm ' > "$log"
-    printf 'class=greeter type=x11\\nAIRYMAX-NET-READY ipv4=ens3=10.0.2.15 ' >> "$log"
-    printf 'src=dhcp gw=10.0.2.2 dns=10.0.2.3\\n' >> "$log" ;;
-login-only) printf 'AirymaxOS login:\\n' > "$log" ;;
-noisy) printf '[FAILED] Failed to start OpenSSH server daemon.\\n' > "$log"
+panic|nomarker|hang) ;;
+*) stages > "$log" ;;
+esac
+case "${FAKE_QEMU_BOOT_MODE:-ok}" in
+ok) printf 'AirymaxOS login:\\nAIRYMAX-DESKTOP-READY' >> "$log"
+    printf ' unit=lightdm class=greeter type=x11\\n' >> "$log"
+    printf 'AIRYMAX-NET-READY ipv4=ens3=10.0.2.15 src=dhcp' >> "$log"
+    printf ' gw=10.0.2.2 dns=10.0.2.3\\n' >> "$log" ;;
+login-only) printf 'AirymaxOS login:\\n' >> "$log" ;;
+noisy) printf '[FAILED] Failed to start OpenSSH server daemon.\\n' >> "$log"
     printf "See 'systemctl status sshd.service' for details.\\n" >> "$log"
     printf 'AirymaxOS login:\\n' >> "$log" ;;
-degraded) printf '[FAILED] Failed to start OpenSSH server daemon.\\n' > "$log"
+degraded) printf '[FAILED] Failed to start OpenSSH server daemon.\\n' >> "$log"
     printf 'AIRYMAX-BOOT-DEGRADED failed=1 units=sshd.service\\n' >> "$log" ;;
-desktop-fail) printf 'AirymaxOS login:\\nAIRYMAX-DESKTOP-FAIL reason=session ' > "$log"
-    printf 'path=/usr/share/xsessions/ukui.desktop\\n' >> "$log" ;;
-smoke-pass) printf 'AirymaxOS login:\\nAIRYMAX-SMOKE-PASS ' > "$log"
+desktop-fail) printf 'AirymaxOS login:\\nAIRYMAX-DESKTOP-FAIL' >> "$log"
+    printf ' reason=session' >> "$log"
+    printf ' path=/usr/share/xsessions/ukui.desktop\\n' >> "$log" ;;
+smoke-pass) printf 'AirymaxOS login:\\nAIRYMAX-SMOKE-PASS ' >> "$log"
     printf 'tap=/var/log/airymax/smoke.tap\\n' >> "$log" ;;
-smoke-fail) printf 'AirymaxOS login:\\nAIRYMAX-SMOKE-FAIL reason=tap ' > "$log"
+smoke-fail) printf 'AirymaxOS login:\\nAIRYMAX-SMOKE-FAIL reason=tap ' >> "$log"
     printf 'tap=/var/log/airymax/smoke.tap\\n' >> "$log" ;;
 panic) printf 'Kernel panic - not syncing\\n' > "$log" ;;
-failed) printf '[FAILED] Failed to start airy.service\\n' > "$log" ;;
+failed) printf '[FAILED] Failed to start airy.service\\n' >> "$log" ;;
 nomarker) printf 'booting\\n' > "$log" ;;
-slow) sleep 2; printf 'login:\\n' > "$log" ;;
+slow) sleep 2; printf 'login:\\n' >> "$log" ;;
 desktop-slow) sleep 2
-    printf 'AirymaxOS login:\\nAIRYMAX-DESKTOP-READY unit=lightdm\\n' > "$log" ;;
-desktop-net) printf 'AirymaxOS login:\\nAIRYMAX-DESKTOP-READY unit=lightdm ' > "$log"
-    printf 'class=greeter type=x11\\nAIRYMAX-NET-READY ipv4=ens3=10.0.2.15 ' >> "$log"
-    printf 'src=dhcp gw=10.0.2.2 dns=10.0.2.3\\n' >> "$log" ;;
-desktop-nonet) printf 'AirymaxOS login:\\nAIRYMAX-DESKTOP-READY unit=lightdm\\n' > "$log"
-    printf 'AIRYMAX-NET-OFFLINE ipv4=none src=none gw=none dns=none\\n' >> "$log" ;;
+    printf 'AirymaxOS login:\\nAIRYMAX-DESKTOP-READY' >> "$log"
+    printf ' unit=lightdm\\n' >> "$log" ;;
+desktop-net) printf 'AirymaxOS login:\\nAIRYMAX-DESKTOP-READY' >> "$log"
+    printf ' unit=lightdm class=greeter type=x11\\n' >> "$log"
+    printf 'AIRYMAX-NET-READY ipv4=ens3=10.0.2.15 src=dhcp' >> "$log"
+    printf ' gw=10.0.2.2 dns=10.0.2.3\\n' >> "$log" ;;
+desktop-nonet) printf 'AirymaxOS login:\\nAIRYMAX-DESKTOP-READY' >> "$log"
+    printf ' unit=lightdm\\nAIRYMAX-NET-OFFLINE' >> "$log"
+    printf ' ipv4=none src=none gw=none dns=none\\n' >> "$log" ;;
 hang) printf 'booting\\n' > "$log"; exec sleep 60 ;;
 esac
 exit 0
@@ -1352,7 +1387,8 @@ def desk_tools(bin_dir):
 def qemu_tools(bin_dir, arch="x86_64", qemu=True):
     write(bin_dir, "qemu-img", QEMU_IMG)
     if qemu:
-        write(bin_dir, f"qemu-system-{arch}", QEMU)
+        write(bin_dir, f"qemu-system-{arch}",
+              QEMU.replace("@STAGES@", stage_prints()))
 
 
 def smoke_tools(bin_dir, omit=()):
