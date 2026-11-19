@@ -78,6 +78,7 @@ BOOT_TIMEOUT=300
 MAX_BOOT=30
 MAX_BOOT_SET=0
 PROGRESS_EVERY=30
+STAGE_WAIT=10
 PROG_AT=0
 MARKER="install complete"
 BOOT_MARKERS=()
@@ -603,6 +604,57 @@ stop_qemu()
     wait "$1" 2>/dev/null || true
 }
 
+# 九阶段契约（system/scripts/ui.sh 的 UI_STAGES）在串口日志里是否完整。
+# 期望表从契约本身解析，不在验收脚本里另抄一份编号与代号：抄一份就会在
+# 阶段增删时静默漂移，而这条断言存在的意义正是防漂移。序号与 ASCII 代号
+# 是屏幕上的稳定部分，中文名只进 journal，因此只匹配前者。
+#
+# 0.0.4 的验收在只有 7 段的日志上通过，缺的正是首启判定与自检与取证——
+# 机器照常进桌面，而「卡在哪一步」的现场证据少了两块。段行不齐与启动
+# 失败不同，后者会自己冒出来，前者不会。
+stage_table()
+{
+    sed -n "s/^[[:space:]]*'\([0-9][0-9]*\)|.*|\([a-z][a-z-]*\)'$/\1 \2/p" \
+        "${DISTRO_ROOT}/../system/scripts/ui.sh"
+}
+
+stage_missing()
+{
+    local log="$1" total="$2" id code miss=""
+
+    while read -r id code; do
+        grep -qF "[ ${id}/${total} ] ${code}" "${log}" 2>/dev/null ||
+            miss="${miss}${id}(${code}) "
+    done < <(stage_table)
+    printf '%s' "${miss}"
+}
+
+# 登录提示与 multi-user 并行拉起的两个观察者之间有毫秒级竞态，因此标记
+# 命中后再给 STAGE_WAIT 秒收齐；行齐立即返回，不以固定等待拖慢正常启动。
+# 缺行时把缺的序号与代号一并报出，下一次现场验收不必人工数段。
+wait_stages()
+{
+    local log="$1" total miss deadline
+
+    total=$(stage_table | wc -l)
+    if [ "${total}" -eq 0 ]; then
+        printf 'stage table unreadable: %s\n' \
+            "${DISTRO_ROOT}/../system/scripts/ui.sh" >&2
+        return 1
+    fi
+    deadline=$(( $(date +%s) + STAGE_WAIT ))
+    while :; do
+        miss=$(stage_missing "${log}" "${total}")
+        [ -z "${miss}" ] && return 0
+        if [ "$(date +%s)" -ge "${deadline}" ]; then
+            printf 'boot stages missing in %s: %s(of %s)\n' \
+                "${log}" "${miss}" "${total}" >&2
+            return 1
+        fi
+        sleep 1
+    done
+}
+
 boot_run()
 {
     local fw="$1" n="$2" dir="${OUT}/run-$1-$2"
@@ -630,7 +682,10 @@ boot_run()
     now=$(date +%s)
     BOOT_S=$((now - start))
     case "${code}" in
-    0) ;;
+    0) wait_stages "${log}" || {
+           fail_note "${fw}" "${log}" "${dir}/qemu-boot.log" "${fwlog}" "${BOOT_S}"
+           return 1
+       } ;;
     2) printf 'boot failure pattern in run-%s-%s/boot.log\n' "${fw}" "${n}" >&2
        fail_note "${fw}" "${log}" "${dir}/qemu-boot.log" "${fwlog}" "${BOOT_S}"
        return 1 ;;
