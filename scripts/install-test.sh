@@ -229,8 +229,11 @@ fw_probe()
                   /usr/share/edk2/ovmf/OVMF_CODE*.fd /usr/share/qemu/OVMF.fd)
             ;;
         aarch64)
-            cand=(/usr/share/AAVMF/AAVMF_CODE.fd
-                  /usr/share/edk2/aarch64/QEMU_EFI.fd
+            # 同样与 uefi_fw_paths 逐字一致：AAVMF 各发行版另带 4M/MS
+            # 变体，QEMU_EFI 也有带版本后缀的命名，枚举单个文件名会在
+            # 只装变体的宿主上误判缺失。
+            cand=(/usr/share/AAVMF/AAVMF_CODE*.fd
+                  /usr/share/edk2/aarch64/QEMU_EFI*.fd
                   /usr/share/qemu-efi-aarch64/QEMU_EFI.fd)
             ;;
         esac

@@ -314,7 +314,7 @@ post_iso()
         flag="--no-md5"
     fi
     if ! iso_post "$DEST" "${WORK}/ks.cfg" "$VOLID" "$WORK" \
-        --product "$PRODUCT" --variant "$VARIANT" "$flag"; then
+        --product "$PRODUCT" --variant "$VARIANT" --arch "$ARCH" "$flag"; then
         die "${E_IO}" "ISO 后处理失败（日志 ${WORK}/logs）"
     fi
 }

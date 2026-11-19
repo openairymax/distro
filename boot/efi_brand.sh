@@ -35,7 +35,7 @@
 esp=/boot/efi
 label=AirymaxOS
 state=/var/lib/airymaxos/efi-brand
-loader='\EFI\airymaxos\shimx64.efi'
+loader=
 
 note()
 {
@@ -71,22 +71,34 @@ dst=${esp}/EFI/airymaxos
 command -v efibootmgr >/dev/null 2>&1 || fail "efibootmgr unavailable"
 [ -e ${state} ] && skip "already branded (${state})"
 
-# 按目录找已签名的 shim，排除目标目录自身。
+# 按目录找已签名的 shim，排除目标目录自身。shim 与二级加载器的文件名随
+# 架构不同（x86_64 是 shimx64.efi / grubx64.efi，aarch64 是 shimaa64.efi /
+# grubaa64.efi），因此按通配匹配并把实际文件名带到 NVRAM 条目与 CSV，不在
+# 脚本里维护一张架构表。
 src=
+shim=
 for d in ${esp}/EFI/*; do
     [ -d "${d}" ] || continue
     [ "${d}" = "${dst}" ] && continue
-    [ -f "${d}/shimx64.efi" ] || continue
+    for f in "${d}"/shim*.efi; do
+        [ -f "${f}" ] || continue
+        shim=${f##*/}
+        break
+    done
+    [ -n "${shim}" ] || continue
     src=${d}
     break
 done
 [ -n "${src}" ] || fail "no signed shim under ${esp}/EFI"
+loader="\\EFI\\airymaxos\\${shim}"
 
 install -d -m 0755 "${dst}" || fail "create ${dst} failed"
-for f in shimx64.efi shimx64.hash grubx64.efi mmx64.efi fbx64.efi grub.cfg \
-    grubenv; do
-    [ -f "${src}/${f}" ] || continue
-    install -m 0644 "${src}/${f}" "${dst}/${f}" || fail "copy ${f} failed"
+# 整套二级加载器必须同目录闭合：shim 只从自己所在目录取 grub 与本目录的
+# 配置文件，签名链也在同一目录内。通配包含两种架构的同类文件，命中即拷。
+for f in "${src}"/shim*.efi "${src}"/shim*.hash "${src}"/grub*.efi \
+    "${src}"/mm*.efi "${src}"/fb*.efi "${src}"/grub.cfg "${src}"/grubenv; do
+    [ -f "${f}" ] || continue
+    install -m 0644 "${f}" "${dst}/${f##*/}" || fail "copy ${f##*/} failed"
 done
 # 字体与 grub.cfg 同属活动配置的一部分：$prefix 指向本目录，00_header 的
 # loadfont 读的也是这里。
@@ -95,8 +107,14 @@ if [ -f "${src}/fonts/unicode.pf2" ]; then
     install -m 0644 "${src}/fonts/unicode.pf2" "${dst}/fonts/unicode.pf2" ||
         fail "copy font failed"
 fi
-printf 'shimx64.efi,airymaxos,,%s\n' "${label}" >"${dst}/BOOTX64.CSV" ||
-    fail "write BOOTX64.CSV failed"
+# 回退 CSV 的文件名由固件架构决定（BOOTX64.CSV / BOOTAA64.CSV），以目标机
+# 的 uname 判定——本脚本运行在目标根内，读到的就是交付架构。
+case "$(uname -m)" in
+aarch64) csv=BOOTAA64.CSV ;;
+*) csv=BOOTX64.CSV ;;
+esac
+printf '%s,airymaxos,,%s\n' "${shim}" "${label}" >"${dst}/${csv}" ||
+    fail "write ${csv} failed"
 
 dev=$(findmnt -no SOURCE --target "${esp}" 2>/dev/null) || dev=
 [ -n "${dev}" ] && dev=$(readlink -f "${dev}" 2>/dev/null)

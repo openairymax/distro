@@ -121,13 +121,31 @@ def rewrite(line: str, key: str, val: str) -> str:
     return " ".join(out)
 
 
-def proj_line(line: str, base: str) -> str | None:
+def console_args(arch: str) -> str:
+    """按架构给出 bootloader 的控制台集合，末位固定 tty0。"""
+    serial = "ttyAMA0,115200" if arch == "aarch64" else "ttyS0,115200"
+    return f"console={serial} console=tty0"
+
+
+def set_consoles(word: str, arch: str) -> str:
+    """替换 bootloader 行里的 console= 集合，其余参数原样保留。"""
+    words = shlex.split(word)
+    rest = [tok for tok in shlex.split(opt(words, "--append") or "")
+            if not tok.startswith("console=")]
+    app = " ".join([console_args(arch)] + rest)
+    kept = [tok for tok in shlex.split(word) if not tok.startswith("--append")]
+    return " ".join(kept + ['--append="%s"' % app])
+
+
+def proj_line(line: str, base: str, arch: str) -> str | None:
     word = line.strip()
     if not word or word.startswith("#"):
         return line
     words = shlex.split(word)
     if words[0] == "url":
         return rewrite(word, "--url", base) + "\n"
+    if words[0] == "bootloader":
+        return set_consoles(word, arch) + "\n"
     if words[0] == "repo" and opt(words, "--name") != VENDOR:
         return None
     return line
@@ -143,13 +161,13 @@ def check_pose(text: str, src: str, base: str) -> None:
         raise ValueError("投影后仓库未指向载荷")
 
 
-def project(text: str) -> str:
+def project(text: str, arch: str = "x86_64") -> str:
     base = payload_url(repos(text))
     lines = text.splitlines(keepends=True)
     head = next((pos for pos, line in enumerate(lines)
                  if line.strip().startswith("%")), len(lines))
-    body = [row for row in (proj_line(line, base) for line in lines[:head])
-            if row is not None]
+    rows = (proj_line(line, base, arch) for line in lines[:head])
+    body = [row for row in rows if row is not None]
     flowed = "".join(body + lines[head:])
     check_pose(flowed, text, base)
     return flowed
@@ -405,6 +423,8 @@ def parse(argv: list[str]) -> argparse.Namespace:
     env = sub.add_parser("envs")
     env.add_argument("file", type=Path)
     ins = sub.add_parser("install")
+    ins.add_argument("--arch", default="x86_64",
+                     choices=["x86_64", "aarch64"])
     ins.add_argument("file", type=Path)
     ver = sub.add_parser("verify")
     ver.add_argument("--env", required=True)
@@ -431,7 +451,7 @@ def main(argv: list[str]) -> int:
         elif args.cmd == "envs":
             emit_envs(text)
         elif args.cmd == "install":
-            sys.stdout.write(project(text))
+            sys.stdout.write(project(text, args.arch))
         else:
             emit_pkgs(text, args.comps)
     except (OSError, ValueError) as err:

@@ -175,7 +175,8 @@ iso_cfg_verify()
         return 1
     fi
     python3 "${ISO_POST_ROOT}/tools/cfg_brand.py" --product "${product}" \
-        --variant "${variant}" "${got}" >/dev/null 2>&1 || rc=$?
+        --variant "${variant}" --arch "${ISO_POST_ARCH}" "${got}" \
+        >/dev/null 2>&1 || rc=$?
     if [ "${rc}" -ne 3 ]; then
         iso_post_log "回读的 ${cfg} 未达到幂等（退出码 ${rc}）"
         return 1
@@ -194,7 +195,8 @@ cfg_brand_prep()
     iso_xor "${iso}" "/${cfg}" "${src}" "${work}/logs/xorriso.log" \
         || return 3
     python3 "${ISO_POST_ROOT}/tools/cfg_brand.py" \
-        --product "${product}" --variant "${variant}" "${src}" \
+        --product "${product}" --variant "${variant}" \
+        --arch "${ISO_POST_ARCH}" "${src}" \
         >"${log}" 2>&1 || rc=$?
     if [ -s "${log}" ]; then
         sed 's/^/  /' "${log}" >&2
@@ -325,6 +327,7 @@ iso_post_opts()
     ISO_POST_MD5=1
     ISO_POST_PRODUCT=""
     ISO_POST_VARIANT=""
+    ISO_POST_ARCH="x86_64"
     while [ $# -gt 0 ]; do
         opt="$1"
         case "${opt}" in
@@ -343,6 +346,14 @@ iso_post_opts()
                 return 1
             fi
             ISO_POST_VARIANT="$2"
+            shift 2
+            ;;
+        --arch)
+            if [ $# -lt 2 ]; then
+                iso_post_log "--arch 缺少参数"
+                return 1
+            fi
+            ISO_POST_ARCH="$2"
             shift 2
             ;;
         '') shift ;;
