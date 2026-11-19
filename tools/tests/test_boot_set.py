@@ -64,6 +64,15 @@ GOVERNANCE = {
     "airymax-update-check.timer",
 }
 
+# agentrt-* 里的边界观察者：不拉 target、不依赖 daemon 载荷，载荷缺席时记
+# 跳过或 target=absent 并照常返回 0。九阶段的第 2、9 段由它们产生，禁止
+# 启用会让一台完好机器的开机打印永久缺两行（0.0.4 现场即如此）。运行时栈
+# 的其余 agentrt-*.service 仍不得进本清单。
+OBSERVERS = {
+    "agentrt-firstboot.service",
+    "agentrt-health-check.service",
+}
+
 UNIT_RE = re.compile(
     r"^[A-Za-z0-9@._-]+\.(service|timer|target|slice|socket|path)$")
 
@@ -134,8 +143,11 @@ class BootSetTest(unittest.TestCase):
 
     def test_no_agent_stack(self):
         gated = [u for u in entries() if u.startswith("agentrt-")
-                 and u.endswith(".service")]
+                 and u.endswith(".service") and u not in OBSERVERS]
         self.assertEqual([], gated)
+
+    def test_stage_observers_listed(self):
+        self.assertEqual(set(), OBSERVERS - set(entries()))
 
     def test_spec_consumes(self):
         text = SPEC.read_text(encoding="utf-8")
