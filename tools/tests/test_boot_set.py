@@ -16,7 +16,7 @@
 # 本机的 systemd。
 #
 # Author: Decheng Li <lidecheng@spharx.cn>
-# Version: 0.0.4
+# Version: 0.0.5
 # ===========================================================================
 
 import os

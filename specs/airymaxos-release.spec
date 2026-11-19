@@ -73,8 +73,8 @@
 # 该目录与 distro 根不重叠，不会出现同名文件两处命中。
 # spec-lint: source-root ../../system/tui/polkit
 
-%global airy_version 0.0.4
-%global airy_release 27
+%global airy_version 0.0.5
+%global airy_release 1
 # 桌面版本随冻结点滚动，写在 /etc/airymaxos/desktop-version，供控制中心
 # 「关于」页读取。控制中心自己不猜版本：缺文件即只显示桌面名。此宏与
 # lockfile/ukui-components.yaml 的 ukui-control-center 版本由
@@ -1047,6 +1047,9 @@ fi
 %{_datadir}/licenses/airymaxos-release/LICENSE
 
 %changelog
+* Thu Nov 19 2026 SPHARX <dev@spharx.com> - 0.0.5-1
+- 版本基线抬到 0.0.5。发行包、系统包、内核包与固件包同批抬到 0.0.5-1，
+  避免四个子包的 NEVRA 基线各说各话；发行号在新基线上从 1 重新计
 * Tue Nov 17 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-27
 - 身份号随 airymaxos-system-0.0.4-60 上调；该版修掉重装后模型自检在冒烟项
   以退出码 127 失败的缺陷（引擎随行库不在加载路径上），本包只随身份号调整

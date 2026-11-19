@@ -10,7 +10,7 @@
 # 必须恰好以工具树为源码区。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.4
+# Version: 0.0.5
 # ===========================================================================
 
 import shutil

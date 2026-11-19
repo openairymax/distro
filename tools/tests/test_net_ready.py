@@ -17,7 +17,7 @@
 # 自身的行为由 AIRYMAX_NET_LATE 显式驱动的三个用例覆盖。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.4
+# Version: 0.0.5
 # ===========================================================================
 
 import configparser

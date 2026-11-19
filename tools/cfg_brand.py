@@ -51,7 +51,7 @@
 #         安装项等）或改写后仍有白名单外的底座字样；2 用法错误。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.4
+# Version: 0.0.5
 # ===========================================================================
 
 from __future__ import annotations

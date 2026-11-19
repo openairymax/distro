@@ -11,7 +11,7 @@
 # 在无 root、无镜像工具的环境下仍可判定。每个用例只破坏一个前提。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.4
+# Version: 0.0.5
 # ===========================================================================
 
 import hashlib

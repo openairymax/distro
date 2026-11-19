@@ -15,7 +15,7 @@
 # 构建机的 /usr。
 #
 # Author: Decheng Li <lidecheng@spharx.cn>
-# Version: 0.0.4
+# Version: 0.0.5
 # ===========================================================================
 
 import os

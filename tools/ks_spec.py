@@ -42,7 +42,7 @@
 # 退出码：0 成功；5 配方或 comps 不满足。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.4
+# Version: 0.0.5
 # ===========================================================================
 
 from __future__ import annotations

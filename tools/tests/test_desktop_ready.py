@@ -9,7 +9,7 @@
 # 每个用例只破坏一个前提，验证成功标记、失败标记与有界轮询。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.4
+# Version: 0.0.5
 # ===========================================================================
 
 import configparser

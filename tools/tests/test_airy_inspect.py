@@ -11,7 +11,7 @@
 # 用法错误以 2 退出、帮助以 0 退出。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.4
+# Version: 0.0.5
 # ===========================================================================
 
 import hashlib

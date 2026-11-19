@@ -27,11 +27,11 @@
 # 两个包持有，dnf 事务直接失败。本包只承载「哪个 ABI、哪些固件提供包」。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.4
+# Version: 0.0.5
 # ===========================================================================
 
-%global airy_version 0.0.4
-%global airy_release 4
+%global airy_version 0.0.5
+%global airy_release 1
 # 内核 ABI。抬基线时只改这里与内核配方的 %%(kernel_version) 两处，同源断言
 # 保证两者不会各自漂移（tools/tests/test_fw_contract.py 的 abi 用例）。
 %global kernel_abi 6.6.161
@@ -213,6 +213,9 @@ exit 0
 %ghost %{_localstatedir}/log/airymaxos/firmware-flat.log
 
 %changelog
+* Thu Nov 19 2026 SPHARX <dev@spharx.com> - 0.0.5-1
+- 版本基线抬到 0.0.5，与发行包同源；发行号在新基线上从 1 重新计，本包
+  只随身份号调整
 * Wed Nov 11 2026 SPHARX <dev@spharx.com> - 0.0.4-4
 - firmware：豁免台账随包落盘，%%posttrans 的补链调用带 --exempt。构建期
   预演早就按 distro/firmware/fw-exempt.txt 放行，装机期却没有这份表，把

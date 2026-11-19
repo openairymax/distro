@@ -9,7 +9,7 @@
 # 组合产物仍是合法配方。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
-# Version: 0.0.4
+# Version: 0.0.5
 # ===========================================================================
 
 import subprocess

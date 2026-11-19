@@ -87,8 +87,8 @@
 # spec-lint: source-bundle ../../system/services/airydeb
 # spec-lint: source-bundle ../../system/services/airypkg
 
-%global airy_version 0.0.4
-%global airy_release 60
+%global airy_version 0.0.5
+%global airy_release 1
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 %{!?_presetdir:%global _presetdir /usr/lib/systemd/system-preset}
 %{!?_tmpfilesdir:%global _tmpfilesdir /usr/lib/tmpfiles.d}
@@ -743,6 +743,9 @@ fi
 %{python3_sitelib}/airypkg
 
 %changelog
+* Thu Nov 19 2026 SPHARX <dev@spharx.com> - 0.0.5-1
+- 版本基线抬到 0.0.5，与发行包 0.0.5-1 同源；发行号在新基线上从 1 重新计，
+  本包只随身份号调整
 * Tue Nov 17 2026 Decheng Li <lidecheng@spharx.cn> - 0.0.4-60
 - 推理引擎的随行库改由调用方前置到加载路径。285H 以 build 25 重装后，
   airy-model selftest 的冒烟项以退出码 127 失败：引擎二进制以构建机的

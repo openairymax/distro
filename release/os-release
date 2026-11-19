@@ -15,15 +15,15 @@
 # VERSION 是「版本名称」的展示源（ukui-control-center 的关于页直读此键），
 # 与 PRETTY_NAME 同形：「<ASCII 短名> <VERSION_ID>」，避免两处各写一套口径。
 NAME="OpenAirymax"
-VERSION="OpenAirymax 0.0.4"
+VERSION="OpenAirymax 0.0.5"
 ID=airymaxos
 ID_LIKE="openeuler"
-VERSION_ID="0.0.4"
+VERSION_ID="0.0.5"
 # 构件来源指纹：仓库内为空，组装期由 airymaxos-release 的 %install 按
 # airy_build_id 改写，并与 /etc/airymaxos-build 逐字相同。装好的系统据此
 # 反查「这份镜像由哪次构建产出」，无需再依赖镜像文件名或外部台账。
 BUILD_ID=""
-PRETTY_NAME="OpenAirymax 0.0.4"
+PRETTY_NAME="OpenAirymax 0.0.5"
 VERSION_CODENAME=openairymax
 VARIANT="Workstation"
 # 不声明 VARIANT_ID：openEuler 24.03 的 firewalld %posttrans 按 VARIANT_ID 选择
