@@ -357,6 +357,9 @@ accept_ks()
     # T23 的棘轮预算与脚本同目录：缺它脚本按 0 判定，验收会在此处直接暴露
     # 「预算没随镜像交付」，而不是悄悄放宽。
     ADDS+=("${DISTRO_ROOT}/ci/err-budget")
+    # T1 的会话组件基线同理：判据来自这份名单，缺文件时脚本只能判「无法
+    # 取证」。两处声明（此处与 ks 片段的安装清单）由 AcceptFixtureTest 对账。
+    ADDS+=("${DISTRO_ROOT}/ci/session-baseline.txt")
     ADDS+=("${DISTRO_ROOT}/ci/fixture")
 }
 
