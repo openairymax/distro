@@ -10,15 +10,20 @@
 # 有 AIRYMAX-ALIVE 就说明 PID1 与作业队列还在跑，dri=0 就说明没有图形
 # 设备、X 无从启动。
 #
-# 直写 /dev/ttyS0 而不写 /dev/console：后者归内核命令行里最后一个
-# console=，本项目是 console=ttyS0,115200 console=tty0，落点在本地屏，
-# 只接串口的现场读不到（run 41925092075 因此丢了整段卡点证据）。
+# 直写串口设备而不写 /dev/console：后者归内核命令行里最后一个 console=，
+# 本项目是 console=<串口> console=tty0，落点在本地屏，只接串口的现场读不到
+# （run 41925092075 因此丢了整段卡点证据）。串口名随架构不同：x86_64 的
+# 8250 是 ttyS0，aarch64 的 PL011 是 ttyAMA0，按 uname -m 派生。
 #
 # 只进验收镜像，不进产品配方：产品机器的串口不该被周期性噪声占满。
 # ===========================================================================
 set -euo pipefail
 
-readonly DEV="${AIRY_ALIVE_DEV:-/dev/ttyS0}"
+airy_dev=/dev/ttyS0
+if [ "$(uname -m)" = aarch64 ]; then
+    airy_dev=/dev/ttyAMA0
+fi
+readonly DEV="${AIRY_ALIVE_DEV:-${airy_dev}}"
 
 cnt() {
     awk 'NF { c++ } END { print c + 0 }'

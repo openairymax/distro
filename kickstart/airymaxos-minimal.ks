@@ -34,22 +34,21 @@ repo --name=airymaxos-offline --baseurl=file:///run/install/repo/airymax/Package
 repo --name=update --baseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP3/update/$basearch/ --cost=100
 
 # ---- 引导与分区（UEFI + BIOS 双栈）----
-# 顺序是语义：kernel 把 /dev/console 路由到命令行里最后一个 console=。
-# 串口在前、tty0 在后，/dev/console 才是 VT——反过来会让
-# systemd-vconsole-setup 锁不住 /dev/console，桌面就绪门禁随之失败（285H
-# 实测）。这里的 --append 只覆盖首次安装；%post 末尾由 grub_args.sh 把同一
-# 集合写进 /etc/default/grub，后续每次重建才不丢参数（D-30）。工作站配方
-# 同序。
+# 控制台集合不进 --append（D-05）：串口名随架构不同（x86_64 的 ttyS0、
+# aarch64 的 ttyAMA0），而 kickstart 无法按架构分支；写死任一边都会在另一
+# 架构上留下不存在的 console= 并让 active 列表多出一项。集合的唯一事实源
+# 是 boot/grub_args.sh 的 consoles 常量，%post 按 uname -m 写进
+# /etc/default/grub 并重建 grub.cfg，首启即按它生效（D-30）；安装器自身
+# 日志走 build-iso.sh 的 KARGS，同样按 --arch 派生。工作站配方同源。
 #
-# console 集合按架构收敛（D-05）：x86_64 为 tty0 + ttyS0，ARM64 的 ttyAMA0
-# 不得出现在本配方——无该设备时 console= 注册成幽灵项并让
-# systemd-vconsole-setup 失败。aarch64 配方各自持有自己的控制台集合。
+# 顺序仍是语义：kernel 把 /dev/console 路由到最后一个 console=，串口在前、
+# tty0 在后；这条随集合一起在 grub_args.sh 里兑现，本文件不再重复。
 #
 # 菜单停留秒数与上面同一来源：安装器这一份只覆盖首启，%post 由
 # grub_args.sh 归一化为 1 秒。285H 冷启动实测 loader 段 3.78s，其中 3s 是
 # 默认停留且不产出任何信息。两处必须相等——不同步时，只要重建一次 grub.cfg
 # 就回退到长停留。
-bootloader --timeout=1 --append="console=ttyS0,115200 console=tty0"
+bootloader --timeout=1 --append="loglevel=5 plymouth.enable=0"
 
 # 选盘、布局与选盘记录只有一份实现（kickstart/disk-select.sh），构建期由
 # tools/ks_embed.py 展开进下面的脚本段。clearpart --all 加 autopart 会把

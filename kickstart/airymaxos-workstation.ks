@@ -57,24 +57,26 @@ repo --name=airymaxos-offline --baseurl=file:///run/install/repo/airymax/Package
 # 保留 info 级消息、压掉 debug：告警以上照常打印，卡住时能看出停在哪一步。
 # 两路日志仍然都在：屏幕与外接串口同时收到内核与 systemd 的输出。
 #
-# 顺序是语义：kernel 把 /dev/console 路由到命令行里最后一个 console=。
-# 串口在前、tty0 在后，/dev/console 才是 VT；反过来（0.0.3 的写法）在
-# 285H 上实测 /sys/class/tty/console/active = "tty0 ttyS0"，systemd-vconsole-setup
-# 报 "Failed to lock /dev/console: Input/output error"，airymax-desktop-ready
-# 因此每个启动周期都失败。安装器这一份只是首启用的副本，持久来源是
-# boot/grub_args.sh 里的 consoles 常量，两处必须同序。
+# 控制台集合不进 --append，理由与架构无关：它是唯一随架构变化的内容
+# （x86_64 的 8250 是 ttyS0，aarch64 的 PL011 是 ttyAMA0），而 kickstart
+# 本身没有按架构分支的能力，写死任一边都会在另一架构上留下不存在的
+# console=——0.0.3 把 ARM 的 ttyAMA0 一并写进 x86 命令行时，内核把它注册
+# 成幽灵项，/sys/class/tty/console/active 从两项变三项（D-05）。
+# 集合的唯一事实源是 boot/grub_args.sh 的 consoles 常量：%post 按 uname -m
+# 写进 /etc/default/grub 并重建 grub.cfg，首启即按它生效（D-30）。安装器
+# 自己的日志另走 build-iso.sh 的 KARGS，同样按 --arch 派生。
 #
-# console 集合按架构收敛（D-05）：本配方只产 x86_64，控制台就是 tty0 与
-# 8250 串口 ttyS0。0.0.3 把 ARM64 的 ttyAMA0 一并写进命令行，内核在没有
-# 该设备的机器上把 console= 注册成幽灵项，systemd-vconsole-setup 因此
-# 失败；命令行的 console= 计数也从 2 变成 3。架构分支不允许留在这里——
-# aarch64 由同目录的独立配方按自己的控制台集合产出。
+# 顺序仍是语义：kernel 把 /dev/console 路由到命令行里最后一个 console=。
+# 串口在前、tty0 在后，/dev/console 才是 VT；反过来在 285H 上实测
+# systemd-vconsole-setup 报 "Failed to lock /dev/console: Input/output error"，
+# airymax-desktop-ready 因此每个启动周期都失败。这条约束随集合一起落在
+# grub_args.sh 里，不再于本文件重复。
 #
 # 菜单停留秒数与 boot/grub_args.sh 的 timeout 常量同源：安装器这一份只
 # 覆盖首启，%post 会把它归一化为 1 秒。285H 冷启动实测 loader 段 3.78s，
 # 其中 3s 是默认停留且不产出任何信息。两处不同步时，只要 grub2-mkconfig
 # 再跑一次（内核升级、grub2 包升级）就回退到长停留。
-bootloader --timeout=1 --append="console=ttyS0,115200 console=tty0 loglevel=5 plymouth.enable=0"
+bootloader --timeout=1 --append="loglevel=5 plymouth.enable=0"
 
 # ---- 分区作用域（真机缺陷 D-33）----
 # 安装器没有「自动」盘名：clearpart --all + autopart 会把每一块可用磁盘都
