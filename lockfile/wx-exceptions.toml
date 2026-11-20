@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
+# ===========================================================================
+# wx-exceptions.toml — W^X 例外的唯一可编辑源（K-02 / I-27）
+#
+# 职责：内核强制 W^X 之后，只有在这里登记的身份可以完成「已写映射再申请
+# 执行」的迁移。本文件是构建期输入，不随镜像安装；内核只读由它生成的
+# 只读表（kernel/security/airy/airy_wx_table.c），运行时不解析 TOML。
+#
+# 判定面（kernel/security/airy/airy_superv_lsm.c 的 file_mprotect 钩子）：
+#   新请求含 PROT_EXEC，且新请求或旧映射可写，才进入本表；命中放行，
+#   未命中一律拒绝（fail-closed）。一次性 mmap(PROT_WRITE|PROT_EXEC) 不
+#   经过本表——JIT 与图形栈依赖它，误伤与放过 W→X 同样算缺陷。
+#
+# 生成（ci/tools/wx-table-gen.py）：
+#   python3 ci/tools/wx-table-gen.py          # 重写生成文件
+#   python3 ci/tools/wx-table-gen.py --check  # 断言生成文件与本文一致
+#
+# 为什么 agent_id 必填：例外授予的是身份，不写身份等于给所有任务开口子，
+# 生成器直接判错。agent_id 取任务在 security blob 里绑定的编号；0 是未
+# 绑定任务的保留值，登记 0 等于放行所有普通进程，评审必须逐条说明理由。
+#
+# 字段（未知键判错，避免拼写错误被静默忽略）：
+#   name      必填，唯一，写进生成文件的注释，便于与评审记录对账；
+#   agent_id  必填，0..1023；
+#   req_prot  可选，新保护位，0..7（R=1 W=2 X=4），省略即不约束；
+#   old_prot  可选，旧映射保护位，0..7，省略即不约束。
+#
+# 示例（默认不生效；启用前先确认身份与用途，并同步更新评审记录）：
+#
+# [[exception]]
+# name = "vendor-jit-runtime"
+# agent_id = 7
+# req_prot = 7
+# ===========================================================================
+schema = 1
