@@ -285,7 +285,10 @@ iso_post_fix()
     0)
         # 把「改了什么」写进构建日志：只报成功无法区分「本来就一致」与
         # 「刚才修正了」，事后复盘引导故障时这条记录就是唯一凭据。
-        note="$(sed -n 's/^sync: //p' "${log}" | tail -n 1)"
+        # 纯 UEFI 介质（无分区表）单列，避免被读成「本来就一致」。
+        note="$(sed -n -e 's/^sync: //p' \
+            -e 's/^status: uefi-only$/uefi-only (no partition table)/p' \
+            "${log}" | tail -n 1)"
         iso_post_log "isohybrid ${note:-already consistent}"
         return 0
         ;;

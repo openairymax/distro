@@ -9,7 +9,9 @@
 # LBA 18，EFI 镜像条目在 platform 0xEF 段内，isolinux 引导镜像在 LBA 20
 # 且带合法的 boot info table）。每个用例只破坏一个前提，修复后必须能重新
 # 读出合法 GPT 头 CRC、合法的 bi_file 与 bi_csum。无 El Torito 记录的镜像
-# 按「不适用」退出 77，使 build-iso 的伪 ISO 沙箱用例不受本门禁影响。
+# 按「不适用」退出 77，使 build-iso 的伪 ISO 沙箱用例不受本门禁影响；无
+# BIOS 腿且无分区表的镜像按纯 UEFI 介质判 ok（底座 aarch64 netinst 的真实
+# 布局），但 BIOS 腿存在而分区表缺失仍判错位。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
 # Version: 0.0.5
@@ -76,16 +78,17 @@ def isolinux(lba):
     return bytes(img)
 
 
-def torito(lba):
+def torito(lba, bios=True):
     br = bytearray(BLK)
     br[0:7] = b"\x00CD001\x01"
     br[7:39] = b"EL TORITO SPECIFICATION"
     struct.pack_into("<I", br, 71, 18)
     cat = bytearray(BLK)
     cat[0] = 1
-    cat[32] = 0x88
-    struct.pack_into("<H", cat, 38, 4)
-    struct.pack_into("<I", cat, 40, 20)
+    if bios:
+        cat[32] = 0x88
+        struct.pack_into("<H", cat, 38, 4)
+        struct.pack_into("<I", cat, 40, 20)
     cat[64] = 0x91
     cat[65] = 0xEF
     struct.pack_into("<H", cat, 66, 1)
@@ -93,6 +96,15 @@ def torito(lba):
     struct.pack_into("<H", cat, 102, UEFI_LEN)
     struct.pack_into("<I", cat, 104, lba)
     return bytes(br), bytes(cat)
+
+
+def bare(lba=UEFI_LBA, bios=True):
+    """只有 El Torito 记录、没有 MBR/GPT 的介质（底座 aarch64 的真实布局）。"""
+    br, cat = torito(lba, bios)
+    raw = bytearray(b"\0" * (BLOCKS * BLK))
+    raw[17 * BLK:18 * BLK] = br
+    raw[18 * BLK:19 * BLK] = cat
+    return bytes(raw)
 
 
 def image(lba=UEFI_LBA, mbr=(UEFI_LBA * 4, UEFI_LEN), gpt=None,
@@ -175,6 +187,29 @@ class IsohybridTest(unittest.TestCase):
         path = self.make(gpt=(UEFI_LBA * 4, UEFI_LBA * 4 + UEFI_LEN))
         res = self.run_tool("--check", str(path))
         self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+
+    def test_uefi_only_passes(self):
+        path = self.dir / "uefi.iso"
+        path.write_bytes(bare(bios=False))
+        res = self.run_tool("--check", str(path))
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("status: uefi-only", res.stdout)
+
+    def test_uefi_only_sync_noop(self):
+        path = self.dir / "uefi.iso"
+        path.write_bytes(bare(bios=False))
+        before = path.read_bytes()
+        res = self.run_tool("--sync", str(path))
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("status: uefi-only", res.stdout)
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_bios_without_tables_fails(self):
+        path = self.dir / "bios.iso"
+        path.write_bytes(bare())
+        res = self.run_tool("--check", str(path))
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertIn("status: mismatch", res.stdout)
 
     def test_plain_iso_skipped(self):
         path = self.dir / "plain.iso"

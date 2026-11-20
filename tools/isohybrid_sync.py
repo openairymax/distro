@@ -29,8 +29,16 @@
 # ——isohybrid 介质按镜像尺寸截断，备份头位置无意义（sgdisk -v 已报
 # invalid backup GPT header）。
 #
+# 纯 UEFI 介质不适用：底座 openEuler-24.03-LTS-SP3-netinst-aarch64-dvd.iso
+# 系统区无 0x55AA 签名、LBA1 无 GPT 头，引导目录校验头平台 ID 为 0xEF 且
+# 只有一条 UEFI 条目（实测 LBA 44 处的引导目录），即上游从未为 aarch64
+# 提供分区表。此类介质没有 BIOS 腿，也没有任何可对齐的分区项；把「分区表
+# 不存在」判成错位会让 mkksiso 依底座重建的每一份 aarch64 镜像必然失败
+# （run 44658410649）。故无 BIOS 条目且 MBR/GPT 均缺失时判 uefi-only 并
+# 以 0 退出；只要分区表存在任意一项，仍按三元一致判错位。
+#
 # 用法：isohybrid_sync.py [--check|--sync] ISO
-# 退出码：0 一致；1 不一致；2 用法或读取错误；77 非 El Torito 镜像（不适用）。
+# 退出码：0 一致或纯 UEFI 介质；1 不一致；2 用法或读取错误；77 非 El Torito 镜像（不适用）。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
 # Version: 0.0.5
@@ -266,12 +274,20 @@ def aligned(sig):
             == want_size)
 
 
+def uefi_only(sig):
+    """纯 UEFI 介质：无 BIOS 腿且从未登记 MBR/GPT，没有可对齐的对象。"""
+    return not sig["bios"] and not sig["mbr"] and not sig["gpt"]
+
+
 def _screen(fh):
     """先出勘察报告；判不下去时直接给收场码，能修才把签名交回调用方。"""
     sig = survey(fh)
     if sig is None:
         return None, SKIP
     report(sig)
+    if uefi_only(sig):
+        print("status: uefi-only")
+        return None, OK
     if aligned(sig):
         print("status: ok")
         return None, OK
@@ -313,12 +329,11 @@ def sync(path):
 
 def check(path):
     with path.open("rb") as fh:
-        sig = survey(fh)
-        if sig is None:
-            return SKIP
-        report(sig)
-        print(f"status: {'ok' if aligned(sig) else 'mismatch'}")
-        return OK if aligned(sig) else BAD
+        _, early = _screen(fh)
+        if early is not None:
+            return early
+        print("status: mismatch")
+        return BAD
 
 
 def main(argv):
