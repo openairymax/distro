@@ -152,6 +152,27 @@ done
 %end
 %include /tmp/airymax-disk.ks
 
+# ---- 安装失败取证 ----
+# 分区逐个建成、界面切到「激活存储」，随后以
+#   Failed to activate swap /dev/nvme0n1p4: Failed to open the device
+# 收场，而界面上只剩这一句。设备节点为何在激活时缺席——udev 尚未建出、
+# 分区表被重读、还是设备被判忙——只写在安装器内存里的 storage.log，
+# 安装器一退出就随内存消失，验收只能拿到「失败」两个字。
+#
+# %onerror 是 anaconda 唯一承诺在安装失败时仍执行的脚本段，且与 %pre 同处
+# 安装器环境（不 chroot）。三份日志各取尾部打到控制台，验收的 install.log
+# 才有下一步可查的事实。段内每步都容错：取证脚本自己不得改变失败形态。
+%onerror --log=/tmp/airymax-onerror.log
+set -eu
+for f in /tmp/storage.log /tmp/anaconda.log /tmp/program.log; do
+    [ -r "${f}" ] || continue
+    printf 'AIRYMAX-INST-ERROR file=%s\n' "${f##*/}"
+    tail -n 80 "${f}" 2>/dev/null | while IFS= read -r line; do
+        printf 'AIRYMAX-INST-ERROR %s %s\n' "${f##*/}" "${line}"
+    done
+done >/dev/console 2>&1 || :
+%end
+
 # ---- 网络 ----
 # 主机名由安装器按产品口径直接落盘：airymax-pc 是合法 RFC 1123 标签，
 # anaconda 不会改写。0.0.3 的产品名 AIRYMAX_PC 含下划线，B50 实测被静默
