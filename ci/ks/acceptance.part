@@ -104,9 +104,11 @@ systemctl --root=/ enable airymax-alive.timer
 #       即使 PID1 不再打印状态，串口仍能看到它们发出的最后一行。
 #       TTYPath 必须显式写成串口设备：缺省落点 /dev/console 归内核命令行
 #       里最后一个 console=，产品命令行是
-#       console=ttyS0,115200 console=tty0，用户态的每一行都停在本地屏上。
+#       console=<串口> console=tty0，用户态的每一行都停在本地屏上。
 #       run 41925092075 的冷启动因此在 3.9 秒后彻底静默，探针判负也没有
-#       一行落到串口。
+#       一行落到串口。串口名随架构不同（x86_64 的 8250 是 ttyS0，aarch64
+#       的 PL011 是 ttyAMA0），按 uname -m 派生；写死 ttyS0 时 aarch64 的
+#       转发目标不存在，整段用户态证据同样会丢。
 #    c) 停滞判定——默认 hung_task_timeout_secs=120 比 --boot-timeout
 #       短不了多少，且 sysrq 被关掉后宿主侧无法取栈；验收镜像打开 sysrq
 #       并缩短阈值，配合 airy-boot-watch 的卡点快照构成完整证据链。
@@ -124,10 +126,14 @@ command -v grubby >/dev/null 2>&1 &&
         --args="ignore_loglevel systemd.show_status=yes" >/dev/null || :
 
 install -d -m 0755 /etc/systemd/journald.conf.d
-cat > /etc/systemd/journald.conf.d/50-acceptance-console.conf <<'EOF'
+airy_tty=/dev/ttyS0
+if [ "$(uname -m)" = aarch64 ]; then
+    airy_tty=/dev/ttyAMA0
+fi
+cat > /etc/systemd/journald.conf.d/50-acceptance-console.conf <<EOF
 [Journal]
 ForwardToConsole=yes
-TTYPath=/dev/ttyS0
+TTYPath=${airy_tty}
 MaxLevelConsole=info
 RateLimitIntervalSec=0
 EOF

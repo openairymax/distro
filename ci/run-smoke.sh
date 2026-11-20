@@ -1120,7 +1120,10 @@ t14_repos() {
 # cons_check <命令行> <来源> —— 控制台集合的判定只有这一处：默认文件与运行期
 # 命令行必须是同一套，否则「装完当天正常、重启后失声」会被两个口径各自放过。
 cons_check() {
-    local cons
+    local cons ser=ttyS0
+    if [ "$(uname -m)" = aarch64 ]; then
+        ser=ttyAMA0
+    fi
     cons=$(printf '%s\n' "$1" | tr ' ' '\n' | grep '^console=' |
         tr '\n' ' ') || {
         printf '%s lacks console=\n' "$2"
@@ -1128,7 +1131,7 @@ cons_check() {
     }
     cons=${cons% }
     case " ${cons} " in
-    *" console=ttyS0,115200 "*) ;;
+    *" console=${ser},115200 "*) ;;
     *)
         printf '%s lacks the serial console\n' "$2"
         return 1

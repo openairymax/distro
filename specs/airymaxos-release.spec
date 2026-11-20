@@ -89,6 +89,19 @@
 # 把空 BUILD_ID 写进发行版标识——那样镜像看起来正常，却无法归因到某次构建。
 %{!?airy_build_id:%global airy_build_id unset}
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
+# 串口控制台名随架构不同：x86_64 的 8250 是 ttyS0，aarch64 的 PL011 是
+# ttyAMA0。本包把同一组参数写进 /etc/kernel/cmdline（BLS）与 %%check 的期望
+# 值，两处必须同源，所以名字只在这里按目标架构派生一次；运行期由
+# boot/grub_args.sh 用 uname -m 做同一映射。此前两处都硬编码 ttyS0，aarch64
+# 构建在 %%check 与 BLS 一致性断言上失败（run 44644999888 的 aarch64 腿）。
+%ifarch aarch64
+%global airy_serial ttyAMA0,115200
+%else
+%global airy_serial ttyS0,115200
+%endif
+# 末位必须是 console=tty0：/dev/console 落在最后一个 console= 上，VT 让位给
+# 串口时 systemd-vconsole-setup 在每个启动周期失败（285H）。
+%global airy_cmdline console=%{airy_serial} console=tty0 loglevel=5 plymouth.enable=0
 
 Name:           airymaxos-release
 Version:        %{airy_version}
@@ -372,8 +385,7 @@ install -m 0755 %{SOURCE20} \
 # 起来像产物自身的行为。内容与 grub_args.sh 写进 /etc/default/grub 的命令行
 # 逐字同源，%%check 直接比对两份产物，真源只有 grub_args.sh 一处。
 install -d -m 0755 %{buildroot}%{_sysconfdir}/kernel
-printf 'console=ttyS0,115200 console=tty0 loglevel=5 plymouth.enable=0\n' \
-    >%{buildroot}%{_sysconfdir}/kernel/cmdline
+printf '%s\n' '%{airy_cmdline}' >%{buildroot}%{_sysconfdir}/kernel/cmdline
 
 install -d -m 0755 %{buildroot}%{_sysconfdir}/xdg/autostart
 install -m 0644 %{SOURCE9} \
@@ -818,8 +830,7 @@ printf 'GRUB_TIMEOUT=3\nGRUB_CMDLINE_LINUX="console=tty0 quiet"\n#GRUB_DISABLE_O
     >"${airy_tmp}/grub"
 "${airy_args}" --defaults "${airy_tmp}/grub" --no-regen >/dev/null
 grep -qxF 'GRUB_TIMEOUT=1' "${airy_tmp}/grub"
-grep -qxF 'GRUB_CMDLINE_LINUX="console=ttyS0,115200 console=tty0 loglevel=5 plymouth.enable=0"' \
-    "${airy_tmp}/grub"
+grep -qxF 'GRUB_CMDLINE_LINUX="%{airy_cmdline}"' "${airy_tmp}/grub"
 grep -qxF 'GRUB_DISABLE_OS_PROBER=true' "${airy_tmp}/grub"
 airy_sum=$(sha256sum <"${airy_tmp}/grub")
 "${airy_args}" --defaults "${airy_tmp}/grub" --no-regen >/dev/null

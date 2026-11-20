@@ -54,7 +54,12 @@ GPG_KEY=""
 # latarcyrheb-sun16，没有 CJK 字形，VGA 文本模式装不进中文字库，一旦界面
 # 跟随 ks 的 lang zh_CN.UTF-8，屏幕上的每一步都只剩方块（285H 装机实测）。
 # 装出来的系统语言仍由 ks 的 lang 决定，桌面不受影响。
-KARGS="console=tty0 console=ttyS0,115200 inst.lang=en_US.UTF-8"
+#
+# 串口名与架构相关：x86_64 的 8250 是 ttyS0，aarch64 的 PL011 是 ttyAMA0。
+# 名字只在 default_kargs 里按 ARCH 派生一次；写死 ttyS0 时 aarch64 安装器
+# 整段日志只停在本地屏，串口现场拿不到任何卡点证据（run 41925092075）。
+KARGS=""
+KARGS_SET=0
 MD5=1
 PRODUCT=""
 VARIANT=""
@@ -81,8 +86,10 @@ usage()
                      的 PRETTY_NAME（"<短名> <版本号>"）
   --variant NAME     介质自述的产品变体（.treeinfo 的 variant），缺省沿用
                      底座原值；工作站剖面传 Workstation
-  --kargs TEXT       追加到安装内核命令行的参数，缺省
-                     "console=tty0 console=ttyS0,115200"；传空串则不追加
+  --kargs TEXT       追加到安装内核命令行的参数，缺省按架构派生
+                     "console=tty0 console=<串口>,115200 inst.lang=en_US.UTF-8"
+                     （x86_64 的串口是 ttyS0，aarch64 是 ttyAMA0）；
+                     传空串则不追加
   --add PATH         额外加入 ISO 的文件或目录，可重复
   --gpg-key KEYID    生成分离签名 .asc
   --no-md5           跳过尾部补齐与校验块注入（仅限调试）
@@ -129,7 +136,7 @@ parse_args()
         --version) optarg "$1" "$#"; VERSION="$2"; shift 2 ;;
         --product) optarg "$1" "$#"; PRODUCT="$2"; shift 2 ;;
         --variant) optarg "$1" "$#"; VARIANT="$2"; shift 2 ;;
-        --kargs) optarg "$1" "$#"; KARGS="$2"; shift 2 ;;
+        --kargs) optarg "$1" "$#"; KARGS="$2"; KARGS_SET=1; shift 2 ;;
         --add) optarg "$1" "$#"; ADDS+=("$2"); shift 2 ;;
         --gpg-key) optarg "$1" "$#"; GPG_KEY="$2"; shift 2 ;;
         --no-md5) MD5=0; shift ;;
@@ -148,6 +155,21 @@ check_arch()
     x86_64|aarch64) ;;
     *) die "${E_INVAL}" "不支持的 ISO 架构: $ARCH" ;;
     esac
+    default_kargs
+}
+
+# 安装器命令行：两个架构只差串口设备名。名字按 ARCH 在同目录的
+# release 配方里也有一份（airy_serial 宏，管已装系统的 BLS 与 grub），
+# 两处是同一条事实在不同的执行面上：前者只在安装期存在，后者只在装机后
+# 存在，没有同时生效的路径，也就不存在漂移。
+default_kargs()
+{
+    [ "$KARGS_SET" -eq 0 ] || return 0
+    local serial=ttyS0
+    if [ "$ARCH" = aarch64 ]; then
+        serial=ttyAMA0
+    fi
+    KARGS="console=tty0 console=${serial},115200 inst.lang=en_US.UTF-8"
 }
 
 check_volid()
