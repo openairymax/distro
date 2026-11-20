@@ -843,7 +843,8 @@ airy_rel=$(sed -n 's/^GRUB_CMDLINE_LINUX="\(.*\)"$/\1/p' "${airy_tmp}/grub" |
 test "${airy_bls}" = "${airy_rel}"
 test "${airy_bls}" = "${airy_base}"
 test "$(printf '%s\n' "${airy_bls}" | tr ' ' '\n' | grep -c '^console=')" -eq 2
-test "${airy_bls##* }" = console=tty0
+test "$(printf '%s\n' "${airy_bls}" | tr ' ' '\n' | grep '^console=' |
+    tail -n 1)" = console=tty0
 # 字体落位：gfxmode 段落的前提是 $prefix/fonts/unicode.pf2，而 $prefix 由
 # grubx64.efi 内嵌、指向发行版目录，不是品牌副本目录。B50 上字体进了
 # never-loaded 的那份配置旁边，cfg 断言全绿、屏幕仍是 800x600（D-31）。
