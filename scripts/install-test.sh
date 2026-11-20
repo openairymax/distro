@@ -331,6 +331,14 @@ qemu_base()
     else
         QARGS+=(-vga virtio)
     fi
+    # 装机与冷启动两条腿都要一块用户态网卡：kickstart 取包依赖它，冷启动
+    # 的 AIRYMAX-NET-READY 也要 DHCP 到 10.0.2.15。网卡只在此处定义一次。
+    # 此前只在装机腿追加，冷启动腿由 QEMU 补默认网卡，而默认值会加载
+    # x86 专属的 efi-virtio.rom；aarch64 没有这份选件 ROM，QEMU 在开机前
+    # 就以 "failed to find romfile" 退出，串口一个字节都没有（run
+    # 44726376164 的 boot 腿）。空 romfile 是官方关闭选件 ROM 的写法，
+    # 两架构同源，且两条腿都不做网络启动。
+    QARGS+=(-netdev user,id=n0 -device virtio-net-pci,netdev=n0,romfile=)
     # openEuler 24.03 用户态以 x86-64-v2 为基线，glibc 在 PID1 缺少
     # SSE4.2 时直接 exit_group(127)，内核随即 panic。QEMU 缺省机型的
     # qemu64 不含该基线，故必须显式指定 CPU：KVM 下透传宿主特性，
@@ -539,11 +547,7 @@ install_run()
     else
         QARGS+=(-boot order=d)
     fi
-    # 网卡只做用户态联网，不做网络启动，因此不挂选项 ROM：默认的
-    # efi-virtio.rom 由 x86 的 ipxe-qemu 提供，aarch64 固件路径找不到它
-    # 会让 QEMU 直接退出。空 romfile 是官方关掉该 ROM 的写法。
-    QARGS+=(-netdev user,id=n0 -device virtio-net-pci,netdev=n0,romfile=
-            -serial "file:${log}")
+    QARGS+=(-serial "file:${log}")
     start=$(date +%s)
     PROG_AT=${PROGRESS_EVERY}
     "${QEMU}" "${QARGS[@]}" >/dev/null 2>"${dir}/qemu.log" &
