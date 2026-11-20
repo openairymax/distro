@@ -160,17 +160,28 @@ done
 # 安装器一退出就随内存消失，验收只能拿到「失败」两个字。
 #
 # %onerror 是 anaconda 唯一承诺在安装失败时仍执行的脚本段，且与 %pre 同处
-# 安装器环境（不 chroot）。三份日志各取尾部打到控制台，验收的 install.log
+# 安装器环境（不 chroot）。三份日志各取尾部打到串口，验收的 install.log
 # 才有下一步可查的事实。段内每步都容错：取证脚本自己不得改变失败形态。
 %onerror --log=/tmp/airymax-onerror.log
 set -eu
+# 落点必须是串口：/dev/console 只归内核命令行里最后一个 console=，本产品的
+# 命令行是串口在前、tty0 在后，写进 /dev/console 的取证停在本地屏上，无头
+# 验收的 install.log 一个字都读不到。串口设备名随架构（x86_64 为 ttyS0，
+# aarch64 为 ttyAMA0），逐个探测可写者，两者都不在才退回 /dev/console。
+air_ink=/dev/console
+for air_dev in /dev/ttyS0 /dev/ttyAMA0; do
+    if [ -w "${air_dev}" ]; then
+        air_ink=${air_dev}
+        break
+    fi
+done
 for f in /tmp/storage.log /tmp/anaconda.log /tmp/program.log; do
     [ -r "${f}" ] || continue
     printf 'AIRYMAX-INST-ERROR file=%s\n' "${f##*/}"
     tail -n 80 "${f}" 2>/dev/null | while IFS= read -r line; do
         printf 'AIRYMAX-INST-ERROR %s %s\n' "${f##*/}" "${line}"
     done
-done >/dev/console 2>&1 || :
+done >"${air_ink}" 2>&1 || :
 %end
 
 # ---- 网络 ----
