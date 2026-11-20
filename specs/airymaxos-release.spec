@@ -89,19 +89,6 @@
 # 把空 BUILD_ID 写进发行版标识——那样镜像看起来正常，却无法归因到某次构建。
 %{!?airy_build_id:%global airy_build_id unset}
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
-# 串口控制台名随架构不同：x86_64 的 8250 是 ttyS0，aarch64 的 PL011 是
-# ttyAMA0。本包把同一组参数写进 /etc/kernel/cmdline（BLS）与 %%check 的期望
-# 值，两处必须同源，所以名字只在这里按目标架构派生一次；运行期由
-# boot/grub_args.sh 用 uname -m 做同一映射。此前两处都硬编码 ttyS0，aarch64
-# 构建在 %%check 与 BLS 一致性断言上失败（run 44644999888 的 aarch64 腿）。
-%ifarch aarch64
-%global airy_serial ttyAMA0,115200
-%else
-%global airy_serial ttyS0,115200
-%endif
-# 末位必须是 console=tty0：/dev/console 落在最后一个 console= 上，VT 让位给
-# 串口时 systemd-vconsole-setup 在每个启动周期失败（285H）。
-%global airy_cmdline console=%{airy_serial} console=tty0 loglevel=5 plymouth.enable=0
 
 Name:           airymaxos-release
 Version:        %{airy_version}
@@ -383,9 +370,14 @@ install -m 0755 %{SOURCE20} \
 # 会被写进新内核的条目，成为永久参数。285H 上 0.0.4-8 的显示路径挂死排查正撞
 # 在这里：临时参数一旦固化，下一次启动用同一组参数复现同一个现场，而现场看
 # 起来像产物自身的行为。内容与 grub_args.sh 写进 /etc/default/grub 的命令行
-# 逐字同源，%%check 直接比对两份产物，真源只有 grub_args.sh 一处。
+# 逐字同源：这里直接取脚本的 --baseline 输出，串口名按架构派生只在脚本里发生
+# 一次。此前 spec 用 %%ifarch 自行写一份，BuildArch: noarch 的包在 rpm 4.18
+# 不展开该条件，aarch64 构建把 ttyS0 写进 BLS 而脚本写出 ttyAMA0，%%check
+# 两份产物对不上（run 44648895514 的 aarch64 腿）。
 install -d -m 0755 %{buildroot}%{_sysconfdir}/kernel
-printf '%s\n' '%{airy_cmdline}' >%{buildroot}%{_sysconfdir}/kernel/cmdline
+%{buildroot}/usr/lib/airymaxos/boot/grub_args.sh --baseline \
+    >%{buildroot}%{_sysconfdir}/kernel/cmdline
+chmod 0644 %{buildroot}%{_sysconfdir}/kernel/cmdline
 
 install -d -m 0755 %{buildroot}%{_sysconfdir}/xdg/autostart
 install -m 0644 %{SOURCE9} \
@@ -825,24 +817,33 @@ grep -qF 'efibootmgr -o "${order}"' \
 # 者都会收敛到脚本常量，而不是复述常量本身。
 sh -n %{buildroot}/usr/lib/airymaxos/boot/grub_args.sh
 airy_args=%{buildroot}/usr/lib/airymaxos/boot/grub_args.sh
+# 期望值与 BLS 文件都取脚本的 --baseline：串口名按构建架构在脚本里派生一次。
+airy_base=$("${airy_args}" --baseline)
 airy_tmp=$(mktemp -d)
 printf 'GRUB_TIMEOUT=3\nGRUB_CMDLINE_LINUX="console=tty0 quiet"\n#GRUB_DISABLE_OS_PROBER=true\n' \
     >"${airy_tmp}/grub"
 "${airy_args}" --defaults "${airy_tmp}/grub" --no-regen >/dev/null
 grep -qxF 'GRUB_TIMEOUT=1' "${airy_tmp}/grub"
-grep -qxF 'GRUB_CMDLINE_LINUX="%{airy_cmdline}"' "${airy_tmp}/grub"
+grep -qxF "GRUB_CMDLINE_LINUX=\"${airy_base}\"" "${airy_tmp}/grub"
 grep -qxF 'GRUB_DISABLE_OS_PROBER=true' "${airy_tmp}/grub"
 airy_sum=$(sha256sum <"${airy_tmp}/grub")
 "${airy_args}" --defaults "${airy_tmp}/grub" --no-regen >/dev/null
 test "$(sha256sum <"${airy_tmp}/grub")" = "${airy_sum}"
 "${airy_args}" --defaults "${airy_tmp}/grub" --check >/dev/null
 # BLS 与 grub 两条引导路径必须拿到同一组参数：kernel-install 读
-# /etc/kernel/cmdline，grub-mkconfig 读 /etc/default/grub。两份各写一次常量，
-# 迟早有一边被改漏，届时同机两个内核条目行为不同，而现象只在其中一个上出现。
+# /etc/kernel/cmdline，grub-mkconfig 读 /etc/default/grub。两份产物若来自两个
+# 来源，迟早有一边被改漏，届时同机两个内核条目行为不同，而现象只在其中一个
+# 上出现。
+# 两份产物与期望值三者相等，且结构上恰有两路 console=、末位是 tty0：
+# /dev/console 的归属只由末位决定，控制台集合缺项或外来项都会让
+# systemd-vconsole-setup 在每个启动周期失败（285H 的 ttyAMA0 幽灵控制台）。
 airy_bls=$(cat %{buildroot}%{_sysconfdir}/kernel/cmdline)
 airy_rel=$(sed -n 's/^GRUB_CMDLINE_LINUX="\(.*\)"$/\1/p' "${airy_tmp}/grub" |
     head -n 1)
 test "${airy_bls}" = "${airy_rel}"
+test "${airy_bls}" = "${airy_base}"
+test "$(printf '%s\n' "${airy_bls}" | tr ' ' '\n' | grep -c '^console=')" -eq 2
+test "${airy_bls##* }" = console=tty0
 # 字体落位：gfxmode 段落的前提是 $prefix/fonts/unicode.pf2，而 $prefix 由
 # grubx64.efi 内嵌、指向发行版目录，不是品牌副本目录。B50 上字体进了
 # never-loaded 的那份配置旁边，cfg 断言全绿、屏幕仍是 800x600（D-31）。

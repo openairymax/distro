@@ -20,6 +20,7 @@
 # ===========================================================================
 
 import os
+import platform
 import shutil
 import subprocess
 import tempfile
@@ -29,6 +30,8 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parents[2]
 SCRIPT = BASE / "boot" / "grub_args.sh"
 SH = shutil.which("sh") or "/bin/sh"
+# 串口名随架构派生，测试机与目标机同一映射：aarch64 的 PL011 是 ttyAMA0。
+SERIAL = "ttyAMA0,115200" if platform.machine() == "aarch64" else "ttyS0,115200"
 
 # 安装器生成的形态：参数行带 console，os-prober 以注释形式给出。
 STOCK = """\
@@ -113,6 +116,31 @@ class GrubArgsTest(unittest.TestCase):
         res = subprocess.run([SH, "-n", str(SCRIPT)], text=True,
                              capture_output=True)
         self.assertEqual(res.returncode, 0, res.stderr)
+
+    def test_baseline_console_by_arch(self):
+        # 期望值只由 consoles 与 args 推出：spec 的 %install 与 %check 都取
+        # 这一行，串口名不再在 spec 里按 %ifarch 另写一份（noarch 包在
+        # rpm 4.18 不展开该条件，aarch64 构建曾因此对不上）。
+        res = self.run_args("--baseline")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertEqual(res.stdout,
+                         "console=%s console=tty0 loglevel=5 "
+                         "plymouth.enable=0\n" % SERIAL)
+
+    def test_baseline_ignores_missing_defaults(self):
+        # %install 阶段目标根里还没有安装器生成的 /etc/default/grub，
+        # 基线不得以它为前提，也不得伪造安装期状态文件。
+        res = self.run_args("--baseline", "--defaults", str(self.root / "no"))
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("console=tty0 ", res.stdout)
+        self.assertFalse(self.state.exists())
+
+    def test_baseline_follows_append(self):
+        # --append 是替换附加参数集合，基线必须与 apply 后的命令行一致。
+        res = self.run_args("--baseline", "--append", "audit=0")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertEqual(res.stdout, "console=%s console=tty0 audit=0\n" %
+                         SERIAL)
 
     def test_args_appended(self):
         res = self.apply()

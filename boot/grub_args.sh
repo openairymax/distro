@@ -114,7 +114,7 @@ usage()
     printf 'usage: %s [--defaults FILE] [--cfg FILE] [--esp DIR]\n' "$0" >&2
     printf '       [--etc DIR] [--state FILE] [--append ARGS] [--timeout SECS]\n' >&2
     printf '       [--font FILE] [--mkconfig CMD] [--check] [--no-regen]\n' >&2
-    printf '       [--require-entry RELEASE]\n' >&2
+    printf '       [--require-entry RELEASE] [--baseline]\n' >&2
 }
 
 while [ $# -gt 0 ]; do
@@ -131,6 +131,7 @@ while [ $# -gt 0 ]; do
     --require-entry) entry=${2:?--require-entry 需要内核版本}; shift 2 ;;
     --check) mode=check; shift ;;
     --no-regen) mode=edit; shift ;;
+    --baseline) mode=baseline; shift ;;
     *) usage; exit 2 ;;
     esac
 done
@@ -149,8 +150,6 @@ esac
 if [ "$(uname -m)" = aarch64 ]; then
     consoles='ttyAMA0,115200 tty0'
 fi
-
-[ -r "${defaults}" ] || fail "no ${defaults}"
 
 # console= 是顺序敏感项，不接受从命令行追加：--append 的用法是补普通参数，
 # 塞进来的控制台会排到 tty0 之后并抢走 /dev/console。误用即用法错误，不静默
@@ -175,6 +174,25 @@ main_console()
 {
     printf 'console=%s\n' "${consoles##* }"
 }
+
+# 基线输出：本脚本对命令行的期望值只由 consoles 与 args 推出，安装期写进
+# /etc/kernel/cmdline（BLS 路径）的内容与构建期 %%check 的期望值都取这一行，
+# 不在 spec 里另写一份。此前 spec 用 %%ifarch 自行映射串口名，而 BuildArch:
+# noarch 的包在 rpm 4.18 不按目标架构展开该条件，aarch64 构建因此把 ttyS0
+# 写进 BLS、脚本却按 uname -m 写出 ttyAMA0，两份产物在 %%check 上对不上
+# （run 44648895514 的 aarch64 腿）。--baseline 只读且不要求 /etc/default/grub
+# 存在：%install 阶段目标根里还没有安装器生成的那份文件。
+baseline()
+{
+    printf '%s %s\n' "$(console_args)" "${args}"
+}
+
+if [ "${mode}" = baseline ]; then
+    baseline
+    exit 0
+fi
+
+[ -r "${defaults}" ] || fail "no ${defaults}"
 
 # 参数行是生成器的输入，判定与改写都读同一个来源，避免「文件里有、生成后
 # 没有」这类只在下次重启才暴露的偏差。
