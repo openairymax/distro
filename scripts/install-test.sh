@@ -79,6 +79,19 @@ FIRMWARE="bios"
 MEDIA="cdrom"
 INSTALL_TIMEOUT=3600
 BOOT_TIMEOUT=300
+# 判负后的收尾窗口（秒）与静默判据（连续多少次采样无新增字节）。
+#
+# 结论行不是报告的最后一行：看门狗先把 reason 写在最前面，随后才逐个打印
+# 目标、挂起作业、首个未完成单元、登录管理器与九阶段事实。宿主机一看到结论
+# 就停 QEMU，报告体永远写不到串口，验收只剩一句「卡住」——run 44794328593
+# 的 aarch64 冷启动就是这样，boot_watch 的 `AIRYMAX-BOOT-DM` 段一行都没有，
+# 崩溃发生在 lightdm 里却看不到 lightdm.log、x-0.log 与 greeter 日志。
+#
+# 判负后继续采到日志不再增长为止，上限 DRAIN 秒：报告体本身是毫秒级的连续
+# 写入，唯一会拖长的是各段的限时取证命令（journalctl、coredumpctl），它们
+# 各自有界，DRAIN 只是兜住总时长，不改变任何判定。
+DRAIN=45
+DRAIN_QUIET=3
 MAX_BOOT=30
 MAX_BOOT_SET=0
 PROGRESS_EVERY=30
@@ -605,6 +618,27 @@ note_units()
     printf '#   boot unit failures: %s\n' "${units//$'\n'/,}" >&2
 }
 
+# drain <log> — 判负后继续采日志，直到连续 DRAIN_QUIET 次采样没有新增字节
+# 或累计 DRAIN 秒。判定已经作出，本函数只决定「什么时候可以杀 QEMU」。
+drain()
+{
+    local log="$1" last=-1 same=0 spent=0 size=''
+
+    while [ "${spent}" -lt "${DRAIN}" ]; do
+        size="$(wc -c <"${log}" 2>/dev/null)" || size=''
+        if [ "${size}" = "${last}" ]; then
+            same=$((same + 1))
+            [ "${same}" -lt "${DRAIN_QUIET}" ] || return 0
+        else
+            same=0
+            last="${size}"
+        fi
+        sleep 1
+        spent=$((spent + 1))
+    done
+    return 0
+}
+
 # wait_marker <log> <fw-log> <pid> <deadline> <start>
 # 返回 0 命中启动标记、1 超时或进程早退未达标记、2 命中引导失败标记、
 # 3 固件判定磁盘不可引导。返回 3 与 wait_inst 同义：盘上没有可引导代码时
@@ -616,7 +650,10 @@ wait_marker()
         probe_log "${log}"
         rc=$?
         [ "${rc}" -eq 0 ] && return 0
-        [ "${rc}" -eq 2 ] && return 2
+        if [ "${rc}" -eq 2 ]; then
+            drain "${log}"
+            return 2
+        fi
         fw_failed "${fwlog}" && return 3
         if ! kill -0 "${pid}" 2>/dev/null; then
             # 进程可能刚写完标记就被回收，退出后必须再判一次，
