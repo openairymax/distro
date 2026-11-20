@@ -272,9 +272,12 @@ chk_inst()
     [ -n "${ISO}" ] || die "--skip-iso 且未给出 --iso 时无法执行装机段"
 }
 
-# aarch64 没有 BIOS 固件路径，只能走 uefi。
+# aarch64 没有 BIOS 固件路径，只能走 uefi。固件是装机段启动虚拟机的参数，
+# 组装段既不启虚拟也不读它；--skip-install 时它没有参与任何判据，据此判负
+# 会把「只组装」误拦成参数错误（run 44639509467 的 aarch64 腿即如此）。
 chk_fw()
 {
+    [ "${SKIP_INSTALL}" -eq 0 ] || return 0
     if [ "${ARCH}" = aarch64 ] && [ "${FIRMWARE}" != uefi ]; then
         die "aarch64 仅支持 uefi 固件"
     fi
