@@ -232,10 +232,17 @@ class ImageCiTest(unittest.TestCase):
                       "--skip-install")
         self.assertEqual(res.returncode, 5)
 
-    def test_aarch64_bios(self):
+    def test_aarch64_assemble_ignores_bios(self):
+        """固件只由装机段消费：只组装时 aarch64 不得因缺省 bios 被拦。"""
+        self.tools()
+        res = self.ci("--iso", str(self.iso), "--arch", "aarch64",
+                      "--skip-rpms", "--skip-kernel", "--skip-install")
+        self.assertEqual(res.returncode, 0, res.stderr)
+
+    def test_aarch64_bios_install(self):
+        """装机段没有 BIOS 固件路径，aarch64 带缺省 bios 判参数错误。"""
         self.assertEqual(
-            self.ci("--iso", str(self.iso), "--arch", "aarch64",
-                    "--skip-install").returncode, 5)
+            self.ci("--iso", str(self.iso), "--arch", "aarch64").returncode, 5)
 
     def test_out_in_source(self):
         target = DISTRO / ".image-ci-tmp"
