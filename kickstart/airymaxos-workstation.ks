@@ -205,6 +205,10 @@ airymaxos-system
 # 但闭包里的其他包可能把它间接带回来；显式列出使「装着但不参与启动」成为
 # 配方自身可判定的性质，也让日后 KMS 覆盖到位时只需去掉一个内核参数。
 plymouth
+# 崩溃现场解析：systemd-coredump 的栈解析依赖 libelf（elfutils 提供）。
+# 缺它时 core 只剩地址，桌面崩溃在串口上只有寄存器快照，无法判断停在
+# 哪一个函数；带上它，「卡住时知道停在哪」才在实机上成立。
+elfutils
 
 # 内核与发行版标识唯一：上游包组（@core 及其派生）携带 kernel、
 # kernel-tools、openEuler-release 与 openEuler-latest-release，这些包与
