@@ -147,3 +147,67 @@ kernel.watchdog_thresh = 10
 kernel.print-fatal-signals = 1
 EOF
 %end
+
+# 装机期旁路取证。存储激活失败时 anaconda 停在交互问句上不退出，%onerror
+# 没有执行机会；它自己的 /tmp/storage.log 只存在于安装环境的内存盘，安装器
+# 一停就随之消失。串口上于是只剩「Failed to activate swap ...」这一行结论，
+# 节点是否还在、哪个 blivet 动作先落盘、udev 是否在重读分区表，全都无从判断
+# （run 44794328593 的 x86_64 UEFI 光盘腿）。
+#
+# 这里在 %pre 起一个观察者：每秒比对一次磁盘分区节点清单，变化即落一行带
+# 开机秒数的快照；同时把 storage.log 的增量逐行转发到串口。健康路径只在
+# 起手打一行 armed，随后静默，不改变安装时序；异常路径上节点消失与
+# storage.log 行的时间先后就是判定依据。
+#
+# %pre 会被 anaconda 执行两遍（preScriptPass 与正式安装），锁文件让观察者
+# 只起一次；观察者随安装环境结束，另设三小时上限兜底。
+%pre --log=/tmp/airymax-instwatch.log
+set -eu
+air_ink=/dev/console
+for air_dev in /dev/ttyS0 /dev/ttyAMA0; do
+    if [ -w "${air_dev}" ]; then
+        air_ink=${air_dev}
+        break
+    fi
+done
+
+( set -C; : >/tmp/airymax-instwatch.pid ) 2>/dev/null || exit 0
+
+# 分区节点清单：只取本地磁盘的分区，整盘节点不参与判定。
+air_part()
+{
+    ls -1 /dev/nvme*n*p* /dev/sd*[0-9]* /dev/vd*[0-9]* 2>/dev/null |
+        LC_ALL=C sort | tr '\n' ' '
+}
+
+air_upt()
+{
+    cut -d. -f1 /proc/uptime 2>/dev/null || printf '0'
+}
+
+air_watch()
+{
+    air_seen=0
+    air_prev=''
+    air_cap=$(( $(air_upt) + 10800 ))
+    printf 'AIRYMAX-INST-WATCH armed ink=%s\n' "${air_ink}"
+    while [ "$(air_upt)" -lt "${air_cap}" ]; do
+        air_cur=$(air_part)
+        if [ "${air_cur}" != "${air_prev}" ]; then
+            printf 'AIRYMAX-INST-NODE t=%s nodes=%s\n' "$(air_upt)" "${air_cur}"
+            air_prev=${air_cur}
+        fi
+        if [ -r /tmp/storage.log ]; then
+            air_size=$(wc -c </tmp/storage.log 2>/dev/null) || air_size=0
+            if [ "${air_size}" -gt "${air_seen}" ]; then
+                tail -c +$((air_seen + 1)) /tmp/storage.log 2>/dev/null |
+                    sed 's/^/AIRYMAX-INST-LOG /'
+                air_seen=${air_size}
+            fi
+        fi
+        sleep 1
+    done
+}
+
+air_watch >>"${air_ink}" 2>&1 </dev/null &
+%end
