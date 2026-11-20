@@ -320,8 +320,14 @@ qemu_base()
     # 按设备匹配加载；这里仍统一接 virtio-gpu，让两架构的显示后端同源：
     # aarch64 的 virt 机型没有缺省显示设备，必须显式追加 PCI 设备，x86_64
     # 则以 -vga virtio 替换缺省 std VGA。
+    #
+    # aarch64 的 virt 机型同样没有缺省 SCSI 总线，而装机盘与安装介质都挂在
+    # SCSI 上；控制器只在这里建一次（id=scsi0），盘与光驱各自挂到 scsi0.0。
+    # 此前控制器只在光盘腿里追加，U 盘腿的 scsi-hd 找不到总线，QEMU 直接
+    # 报 "No 'SCSI' bus found"，装机一秒内失败。
     if [ "${ARCH}" = aarch64 ]; then
-        QARGS+=(-machine virt -device virtio-gpu-pci)
+        QARGS+=(-machine virt -device virtio-gpu-pci
+                -device virtio-scsi-pci,id=scsi0)
     else
         QARGS+=(-vga virtio)
     fi
@@ -352,7 +358,7 @@ dev_disk()
     local file="$1" fw="$2"
     if [ "${ARCH}" = aarch64 ]; then
         QARGS+=(-drive "file=${file},if=none,id=hd0,format=qcow2"
-                -device scsi-hd,drive=hd0)
+                -device scsi-hd,drive=hd0,bus=scsi0.0)
     elif [ "$(disk_kind "${fw}")" = nvme ]; then
         # 装机盘按交付形态取 NVMe。目标机（如 B50）只有 NVMe，virtio-blk
         # 只存在于虚拟化环境：过去用 virtio 自检，内核漏编 NVMe 时门禁
@@ -383,9 +389,8 @@ dev_media()
         return 0
     fi
     if [ "${ARCH}" = aarch64 ]; then
-        QARGS+=(-device virtio-scsi-pci,id=scsi0
-                -drive "file=$1,if=none,id=cd0,media=cdrom,readonly=on"
-                -device scsi-cd,drive=cd0)
+        QARGS+=(-drive "file=$1,if=none,id=cd0,media=cdrom,readonly=on"
+                -device scsi-cd,drive=cd0,bus=scsi0.0)
     else
         QARGS+=(-cdrom "$1")
     fi
