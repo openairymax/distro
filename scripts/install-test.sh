@@ -539,7 +539,10 @@ install_run()
     else
         QARGS+=(-boot order=d)
     fi
-    QARGS+=(-netdev user,id=n0 -device virtio-net-pci,netdev=n0
+    # 网卡只做用户态联网，不做网络启动，因此不挂选项 ROM：默认的
+    # efi-virtio.rom 由 x86 的 ipxe-qemu 提供，aarch64 固件路径找不到它
+    # 会让 QEMU 直接退出。空 romfile 是官方关掉该 ROM 的写法。
+    QARGS+=(-netdev user,id=n0 -device virtio-net-pci,netdev=n0,romfile=
             -serial "file:${log}")
     start=$(date +%s)
     PROG_AT=${PROGRESS_EVERY}
