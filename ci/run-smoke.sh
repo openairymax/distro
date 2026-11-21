@@ -1945,6 +1945,31 @@ t30_tray() {
         printf 'not in image:%s\n' "${miss}"
         return 1
     }
+
+    # 电量托盘按硬件收口：没有电池时它没有显示对象，上游在「起手即退」的
+    # 退出路径上偶发空指针崩溃（验收轮 UEFI 光盘腿留下 print-fatal-signals
+    # 转储与 dumped core，同轮另两条腿未复现）。75-airymax-power-tray.sh 在
+    # 会话拉起前落一条带 X-AirymaxOS-Gate 标记的 Hidden 条目抑制它。这里判
+    # 两件事：有电池时不得有抑制条目，没有电池时必须有一条——抑制条目丢了
+    # 就是崩溃回来，多出来就是托盘在该在的机器上消失，两种都只在装机后才可见。
+    local drop bat=0 node type
+    drop="${XDG_CONFIG_HOME:-${HOME}/.config}/autostart/ukui-power-manager-tray.desktop"
+    for node in "${SYSROOT}"/sys/class/power_supply/*/type; do
+        [ -r "${node}" ] || continue
+        type=$(cat "${node}" 2>/dev/null) || continue
+        [ "${type}" = Battery ] && bat=1 && break
+    done
+    if [ "${bat}" -eq 1 ]; then
+        [ ! -e "${drop}" ] || {
+            printf 'power tray gated although battery is present\n'
+            return 1
+        }
+    else
+        grep -qx 'Hidden=true' "${drop}" 2>/dev/null || {
+            printf 'power tray not gated without battery:%s\n' "${drop}"
+            return 1
+        }
+    fi
     printf 'tray: nm, power, volume entry points present\n'
 }
 

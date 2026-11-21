@@ -374,6 +374,9 @@ multi-user.target，不会触发该单元；workstation kickstart 显式 enable�
   （会话启动时应用分辨率策略）
 - `xinitrc.d/65-airymax-audio.sh` → `/etc/X11/xinit/xinitrc.d/`
   （面板启动前拉起 PulseAudio 并等套接字可连）
+- `xinitrc.d/75-airymax-power-tray.sh` → `/etc/X11/xinit/xinitrc.d/`
+  （没有电池时落用户级 Hidden 条目，抑制电量托盘：上游托盘在无设备的
+  退出路径上偶发空指针崩溃，见文件头）
 - `autostart/airymax-input-method.desktop` → `/etc/xdg/autostart/`
 - `user@.service.d/50-airymax-desktop.conf` →
   `/etc/systemd/system/user@.service.d/`

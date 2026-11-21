@@ -211,6 +211,7 @@ class RunSmokeTest(unittest.TestCase):
         self.write_field_tools()
         self.write_net_front()
         self.write_tray()
+        self.write_power()
         self.write_vconsole()
         self.write_dmi()
         self.write_resolv()
@@ -261,6 +262,30 @@ class RunSmokeTest(unittest.TestCase):
             elif unit_path.exists():
                 unit_path.unlink()
         return bindir
+
+    def write_power(self, battery=True, name="BAT0"):
+        """T30 的硬件事实：power_supply 的设备类型。有 Battery 时托盘该起，
+        没有时抑制条目必须在——上游托盘在没有设备可显示时会走「起手即退」
+        的退出路径，那条路上偶发空指针崩溃，只能靠硬件门控绕开。"""
+        base = self.sysroot / "sys" / "class" / "power_supply"
+        if base.exists():
+            shutil.rmtree(base)
+        node = base / name
+        node.mkdir(parents=True, exist_ok=True)
+        (node / "type").write_text("Battery\n" if battery else "Mains\n",
+                                   encoding="utf-8")
+        return node
+
+    def write_gate(self, marker=True):
+        """75-airymax-power-tray.sh 落在用户级 autostart 的抑制条目。"""
+        d = self.root / ".config" / "autostart"
+        d.mkdir(parents=True, exist_ok=True)
+        text = "[Desktop Entry]\nType=Application\nHidden=true\n"
+        if marker:
+            text += "X-AirymaxOS-Gate=power-tray\n"
+        path = d / "ukui-power-manager-tray.desktop"
+        path.write_text(text, encoding="utf-8")
+        return path
 
     def write_dmi(self, values=None):
         """T23 的机器身份：预算按机器类别与指纹取组，身份来自被测视图。"""
@@ -2236,6 +2261,31 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke()
         self.assert_fail(res, 30)
         self.assertIn("ukui-volume-control-applet-qt", res.stdout)
+
+    def test_tray_gate_without_battery(self):
+        # 没有电池：抑制条目必须在。少了它就是「托盘照起、退出即崩」，
+        # 上游那条退出路径的空指针只在无设备时出现。
+        self.tools()
+        self.write_power(battery=False, name="AC")
+        self.write_gate()
+        res = self.run_smoke()
+        self.assertTrue(self.tap(res, 30).startswith("ok"), res.stdout)
+
+    def test_tray_gate_missing_without_battery(self):
+        self.tools()
+        self.write_power(battery=False, name="AC")
+        res = self.run_smoke()
+        self.assert_fail(res, 30)
+        self.assertIn("not gated without battery", res.stdout)
+
+    def test_tray_gate_rejected_with_battery(self):
+        # 有电池却带着抑制条目：托盘在该在的机器上消失，同样只能装机后
+        # 才看得见，因此与缺失同等判负。
+        self.tools()
+        self.write_gate()
+        res = self.run_smoke()
+        self.assert_fail(res, 30)
+        self.assertIn("gated although battery is present", res.stdout)
 
     def test_net_live_ok(self):
         # 地址、租约来源、网关、DNS 四项齐备：值与真机同形，走 airy-observe

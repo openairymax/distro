@@ -17,6 +17,12 @@
 # 验收机没有任何 power_supply 设备时，同一镜像三条腿里它在位与否不定——
 # 进程无设备可显示，起来即退且 journal 不留行，45 秒窗口内时有时无。有电池
 # 的机器上它必须常在；托盘入口点是否存在由 T30 单独负责。
+#
+# 无设备的退出路径还会崩：同轮 UEFI 光盘腿在登录后一秒内留下
+# print-fatal-signals 转储与 dumped core，另两条腿未复现（竞态）。因此「门控
+# 到电池」有两半，缺一不可：本文件的 gate 判据说明「缺席不算缺项」，
+# desktop/xinitrc.d/75-airymax-power-tray.sh 在会话拉起前落用户级 Hidden
+# 条目说明「它凭什么不起」。T30 断言抑制条目与 power_supply 的 type 一致。
 # 组件增减属产品变更，须同时改本文件与 §8 M4-5 的「23 进程基线」台账。
 ukui-kwin_x11
 ukui-panel
