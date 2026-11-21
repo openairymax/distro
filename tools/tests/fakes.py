@@ -12,6 +12,7 @@
 # Version: 0.0.5
 # ===========================================================================
 
+import platform
 import re
 import shutil
 from pathlib import Path
@@ -973,11 +974,12 @@ UNAME = """\
 #!/bin/sh
 case "${1:-}" in
 -r) printf '%s\\n' "${FAKE_KERNEL_RELEASE:-6.6.157-alk}" ;;
+-m) printf '%s\\n' "__MACHINE__" ;;
 *)
     printf 'Linux\\n'
     ;;
 esac
-"""
+""".replace("__MACHINE__", platform.machine())
 
 # 冒烟 T8 判定主机名的三个读取面：静态文件、内核名与 hostnamectl 的静态
 # 字段。沙箱没有真实内核状态，两个探针按只读视图里的 /etc/hostname 作答；

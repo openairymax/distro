@@ -18,6 +18,7 @@
 # ===========================================================================
 
 import json
+import platform
 import re
 import shutil
 import subprocess
@@ -522,20 +523,22 @@ class RunSmokeTest(unittest.TestCase):
                         "sleep-activation-enabled=false\n", encoding="utf-8")
         return path
 
-    def write_esp(self):
+    def write_esp(self, sfx="x64"):
         """EFI 品牌的落点：完整签名套件、品牌状态与品牌日志，以及安装期
-        可见的 efivars 目录。状态文件与日志是 efi_brand.sh 真实产物。"""
+        可见的 efivars 目录。状态文件与日志是 efi_brand.sh 真实产物。
+        sfx 是该架构加载器的后缀（x86_64 为 x64，aarch64 为 aa64）。"""
         esp = self.sysroot / "boot" / "efi" / "EFI" / "airymaxos"
-        esp.mkdir(parents=True)
-        for name in ("shimx64.efi", "grubx64.efi"):
+        esp.mkdir(parents=True, exist_ok=True)
+        for name in (f"shim{sfx}.efi", f"grub{sfx}.efi"):
             (esp / name).write_bytes(b"efi\n")
-        (esp / "BOOTX64.CSV").write_text(
-            "shimx64.efi,airymaxos,,AirymaxOS\n", encoding="utf-8")
+        (esp / f"BOOT{sfx.upper()}.CSV").write_text(
+            f"shim{sfx}.efi,airymaxos,,AirymaxOS\n", encoding="utf-8")
         self.write_boot_cfg(esp)
         state = self.sysroot / "var" / "lib" / "airymaxos" / "efi-brand"
-        state.parent.mkdir(parents=True)
-        state.write_text("entry=0001\nloader=\\EFI\\airymaxos\\shimx64.efi\n",
-                         encoding="utf-8")
+        state.parent.mkdir(parents=True, exist_ok=True)
+        state.write_text(
+            f"entry=0001\nloader=\\EFI\\airymaxos\\shim{sfx}.efi\n",
+            encoding="utf-8")
         self.write_brand_log("AIRYMAX-EFI-NOTE entry=0001 disk=/dev/sda"
                              " part=1 order=0001\n")
         (self.sysroot / "sys" / "firmware" / "efi").mkdir(
@@ -1343,7 +1346,19 @@ class RunSmokeTest(unittest.TestCase):
          "shimx64.efi").unlink()
         res = self.run_smoke()
         self.assert_fail(res, 11)
-        self.assertIn("shimx64.efi missing", res.stdout)
+        self.assertIn("shim*.efi set is empty or ambiguous", res.stdout)
+
+    def test_efi_brand_aa64_layout(self):
+        # aarch64 交付落盘的是 shimaa64/grubaa64/BOOTAA64：判据从实际 shim
+        # 名派生配对件，不能按 x86 名字判负（run 44883012580 aarch64 两腿
+        # 的状态与 NVRAM 条目齐全，只因文件名不同被判负）
+        self.tools()
+        esp = self.sysroot / "boot" / "efi" / "EFI" / "airymaxos"
+        for name in ("shimx64.efi", "grubx64.efi", "BOOTX64.CSV"):
+            (esp / name).unlink()
+        self.write_esp(sfx="aa64")
+        res = self.run_smoke()
+        self.assertIn("ok 11 - T11 efi boot brand", res.stdout)
 
     def test_efi_brand_missing_csv(self):
         self.tools()
@@ -1973,6 +1988,19 @@ class RunSmokeTest(unittest.TestCase):
         self.write_wifi_firmware(legacy=True)
         res = self.run_smoke()
         self.assertIn("iwlwifi flat files: 1", res.stdout)
+
+    @unittest.skipUnless(platform.machine() == "x86_64",
+                         "Intel Wi-Fi 只在 x86_64 硬件矩阵内")
+    def test_wifi_fw_flat_requires_intel(self):
+        # 扁平布局下仍要求根上有 Intel Wi-Fi 固件：x86_64 交付的无线矩阵
+        # 不能空。非 x86 架构不请求 iwlwifi，该要求不在其硬件矩阵内。
+        self.tools()
+        self.write_wifi_firmware(legacy=True)
+        (self.sysroot / "usr" / "lib" / "firmware"
+         / "iwlwifi-gl-c0-fm-c0-83.ucode").unlink()
+        res = self.run_smoke()
+        self.assert_fail(res, 26)
+        self.assertIn("no iwlwifi firmware at firmware root", res.stdout)
 
     def test_wifi_fw_no_flat_list(self):
         # 安装期 %posttrans 没跑过（0.0.4 首装的实测形态）：入口是空的，清单
