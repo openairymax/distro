@@ -1,0 +1,40 @@
+diff -Naur ukui-settings-daemon-3.1.2/daemon/main.cpp ukui-settings-daemon-3.1.2~/daemon/main.cpp
+--- ukui-settings-daemon-3.1.2/daemon/main.cpp	2023-07-11 15:31:29.785135187 +0800
++++ ukui-settings-daemon-3.1.2~/daemon/main.cpp	2023-07-11 15:30:40.694366917 +0800
+@@ -56,6 +56,14 @@
+     QApplication::exit(15);
+ }
+ 
++void handlerB(int no)
++{
++    USD_LOG(LOG_DEBUG,"catch SIGSEGV signal, with exitcode %d",no);
++
++//    manager->managerStop();
++    QApplication::exit(15);
++}
++
+ int main (int argc, char* argv[])
+ {
+ #if (QT_VERSION >= QT_VERSION_CHECK(5, 6, 0))
+@@ -74,6 +82,7 @@
+ 
+     signal(SIGTERM, &handler);
+     signal(SIGABRT, &handlerA);
++    signal(SIGSEGV, &handlerB);
+     QApplication::setQuitOnLastWindowClosed(false);
+ 
+     QTranslator translator;
+@@ -108,10 +117,11 @@
+     //QTimer timer;
+     // Wait until the event loop starts
+     QTimer::singleShot(500, [=](){
+-        
++        //make sure program exit
+         exit(0);
+     });
+-
++       qApp->quit();
++       exit(0);
+     });
+ 
+     USD_LOG(LOG_INFO, "ukui-settings-daemon started!");

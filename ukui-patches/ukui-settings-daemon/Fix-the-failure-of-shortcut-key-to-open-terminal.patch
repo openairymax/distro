@@ -1,0 +1,29 @@
+From 02b63ef64da86153c93e96b59ab55c95b0167ffd Mon Sep 17 00:00:00 2001
+From: peijiankang <peijiankang@kylinos.cn>
+Date: Sun, 25 Jun 2023 15:57:27 +0900
+Subject: [PATCH] Fix the failure of shortcut key to open terminal
+
+---
+ plugins/media-keys/mediakey-manager.cpp | 6 +-----
+ 1 file changed, 1 insertion(+), 5 deletions(-)
+
+diff --git a/plugins/media-keys/mediakey-manager.cpp b/plugins/media-keys/mediakey-manager.cpp
+index 99f66b6..deca341 100644
+--- a/plugins/media-keys/mediakey-manager.cpp
++++ b/plugins/media-keys/mediakey-manager.cpp
+@@ -2165,11 +2165,7 @@ void MediaKeysManager::doOnScreenKeyboardAction()
+ 
+ void MediaKeysManager::doOpenTerminalAction()
+ {
+-    if(UsdBaseClass::isTablet()) {
+-        executeCommand("mate-terminal","");
+-    } else {
+-        executeCommand("x-terminal-emulator","");
+-    }
++    executeCommand("mate-terminal","");
+ }
+ 
+ void MediaKeysManager::doScreenshotAction(const QString pramater)
+-- 
+2.33.0
+

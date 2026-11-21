@@ -1,0 +1,84 @@
+--- a/plugins/color/color-manager.cpp
++++ b/plugins/color/color-manager.cpp
+@@ -21,6 +21,7 @@
+ #include <QTime>
+ #include <QDBusInterface>
+ #include <QDBusArgument>
++#include <QStringList>
+ #include <color-info.h>
+ 
+ #include "color-manager.h"
+@@ -404,39 +405,59 @@
+                             QDBusConnection::sessionBus());
+ 
+     QDBusMessage result = colorIft.call("nightColorInfo");
+-    const QDBusArgument &dbusArgs = result.arguments().at(0).value<QDBusArgument>().asVariant().value<QDBusArgument>();
++    if (QDBusMessage::ReplyMessage != result.type() || result.arguments().isEmpty()) {
++        USD_LOG(LOG_DEBUG,"kwin color correct unavailable, keep local night config");
++        return false;
++    }
++
++    const QDBusArgument dbusArgs = qvariant_cast<QDBusArgument>(result.arguments().at(0));
+ 
+     dbusArgs.beginArray();
+     while (!dbusArgs.atEnd()) {
+         ColorInfo color;
+         dbusArgs >> color;
+-        nightColor.push_back(color);
++        if (color.out.variant().isValid()) {
++            nightColor.push_back(color);
++        }
+     }
+     dbusArgs.endArray();
+ 
+-    for (ColorInfo it : nightColor) {
+-        mNightConfig.insert(it.arg, it.out.variant());
++    QHash<QString, QVariant> kwinConf;
++    for (const ColorInfo &it : nightColor) {
++        kwinConf.insert(it.arg, it.out.variant());
+     }
+ 
+-    settings->set(COLOR_KEY_TEMPERATURE, mNightConfig[KWIN_NIGHT_TEMP].toInt());
+-    settings->set(COLOR_KEY_ENABLED,mNightConfig[KWIN_COLOR_ACTIVE].toBool());
++    const QStringList required = {KWIN_COLOR_ACTIVE, KWIN_COLOR_MODE,
++                                  KWIN_NIGHT_TEMP, KWIN_CURRENT_TEMP,
++                                  KWIN_COLOR_START, KWIN_COLOR_END};
++    for (const QString &key : required) {
++        if (!kwinConf.contains(key)) {
++            USD_LOG(LOG_DEBUG,"kwin night color reply lacks %s", qPrintable(key));
++            return false;
++        }
++    }
++
++    mNightConfig = kwinConf;
++
++    settings->set(COLOR_KEY_TEMPERATURE, mNightConfig.value(KWIN_NIGHT_TEMP).toInt());
++    settings->set(COLOR_KEY_ENABLED,mNightConfig.value(KWIN_COLOR_ACTIVE).toBool());
+ 
+-    if (3 == mNightConfig[KWIN_COLOR_MODE].toInt()) {
++    if (3 == mNightConfig.value(KWIN_COLOR_MODE).toInt()) {
+         settings->set(COLOR_KEY_ALLDAY, true);
+-    } else if (2 == mNightConfig[KWIN_COLOR_MODE].toInt() && mNightConfig[KWIN_COLOR_START].toString() == "17:55:01"){
++    } else if (2 == mNightConfig.value(KWIN_COLOR_MODE).toInt() && mNightConfig.value(KWIN_COLOR_START).toString() == "17:55:01"){
+         settings->set(COLOR_KEY_AUTOMATIC, true);
+     } else {
+-        QTime startTime = QTime::fromString(mNightConfig[KWIN_COLOR_START].toString(),"hh:mm:ss");
+-        QTime endTime = QTime::fromString(mNightConfig[KWIN_COLOR_END].toString(),"hh:mm:ss");
++        QTime startTime = QTime::fromString(mNightConfig.value(KWIN_COLOR_START).toString(),"hh:mm:ss");
++        QTime endTime = QTime::fromString(mNightConfig.value(KWIN_COLOR_END).toString(),"hh:mm:ss");
+ 
+         settings->set(COLOR_KEY_FROM, hour_minute_to_value(startTime.hour(), startTime.minute()));
+         settings->set(COLOR_KEY_TO, hour_minute_to_value(endTime.hour(), endTime.minute()));
+     }
+ 
+-    USD_LOG_SHOW_PARAM1(mNightConfig[KWIN_COLOR_ACTIVE].toBool());
+-    USD_LOG_SHOW_PARAM1(mNightConfig[KWIN_COLOR_MODE].toInt());
+-    USD_LOG_SHOW_PARAMS(mNightConfig[KWIN_COLOR_START].toString().toLatin1().data());
+-    USD_LOG_SHOW_PARAMS(mNightConfig[KWIN_COLOR_END].toString().toLatin1().data());
++    USD_LOG_SHOW_PARAM1(mNightConfig.value(KWIN_COLOR_ACTIVE).toBool());
++    USD_LOG_SHOW_PARAM1(mNightConfig.value(KWIN_COLOR_MODE).toInt());
++    USD_LOG_SHOW_PARAMS(mNightConfig.value(KWIN_COLOR_START).toString().toLatin1().data());
++    USD_LOG_SHOW_PARAMS(mNightConfig.value(KWIN_COLOR_END).toString().toLatin1().data());
+ 
+     settings->set(HAD_READ_KWIN,true);
+     mNightConfig[KWIN_COLOR_ACTIVE] = false;
