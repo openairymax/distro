@@ -155,6 +155,7 @@ Source53:       airymax-net-ready.service
 Source54:       net_ready.sh
 Source55:       airy-session.conf
 Source56:       50-airy-session-switch.rules
+Source57:       75-airymax-power-tray.sh
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -344,6 +345,14 @@ install -m 0755 %{SOURCE18} \
     %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/60-airymax-display.sh
 install -m 0755 %{SOURCE49} \
     %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/65-airymax-audio.sh
+
+# 电量托盘按硬件收口。托盘只在有电池时有显示对象；没有 power_supply 设备时
+# 它起手即退，退出路径上的工作线程与已析构对象竞争，偶发空指针崩溃（验收
+# 轮的 UEFI 光盘腿留下了 print-fatal-signals 转储与 dumped core）。这不是
+# 验收环境独有：没有电池的台式机同样命中。判据读 sysfs 的 type=Battery，
+# 与 session-baseline 的门控同源；有电池时保持发行默认，不落任何抑制条目。
+install -m 0755 %{SOURCE57} \
+    %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/75-airymax-power-tray.sh
 
 # 触控板驱动归属与按下语义：70-synaptics.conf 随 ukui-settings-daemon 的硬依赖
 # 进入闭包，且排在 40-libinput.conf 之后，会把每块触控板都交给不再维护的遗留
@@ -748,6 +757,7 @@ sh -n %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/70-airymax-im.sh
 sh -n %{buildroot}/usr/lib/airymaxos/desktop/display_mode.sh
 sh -n %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/60-airymax-display.sh
 sh -n %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/65-airymax-audio.sh
+sh -n %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/75-airymax-power-tray.sh
 # 触控板改派只有「先匹配 synaptics、再改派 libinput」同时成立才生效：少了
 # MatchDriver 会连带把 evdev 触控板一起夺走，少了 Driver 则文件毫无作用，
 # 两种错法都不会让构建失败，只在装机后表现为「触控板不能用」。逐行断言。
@@ -1003,6 +1013,7 @@ fi
 %config(noreplace) %{_sysconfdir}/X11/xinit/xinitrc.d/70-airymax-im.sh
 %config(noreplace) %{_sysconfdir}/X11/xinit/xinitrc.d/60-airymax-display.sh
 %config(noreplace) %{_sysconfdir}/X11/xinit/xinitrc.d/65-airymax-audio.sh
+%config(noreplace) %{_sysconfdir}/X11/xinit/xinitrc.d/75-airymax-power-tray.sh
 %config(noreplace) %{_sysconfdir}/X11/xorg.conf.d/90-airymax-touchpad.conf
 %config(noreplace) %{_sysconfdir}/grub.d/01_airymax_display
 %dir %{_sysconfdir}/kernel
