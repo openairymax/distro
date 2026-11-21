@@ -897,15 +897,42 @@ t11_facts() {
         "${b:--}"
 }
 
+# t11_loader <品牌目录> —— 从实际落盘的 shim 名派生配对件与回退 CSV，结论
+# 写进 tl_shim 与 tl_grub、tl_csv。固件按自身架构取回退文件，shim 也只从
+# 自身目录取同后缀的二级加载器：x86_64 是 shimx64.efi/grubx64.efi/BOOTX64.CSV，
+# aarch64 是 shimaa64.efi/grubaa64.efi/BOOTAA64.CSV。名字随架构变，判据不
+# 维护架构表——与安装期 efi_brand.sh 同一口径。写死 x86 名字会把每个非 x86
+# 交付判负（run 44883012580 的 aarch64 两腿：品牌状态与 NVRAM 条目都在，
+# 只是文件名不同）。
+t11_loader() {
+    local -a shims=()
+    local sfx
+
+    shopt -s nullglob
+    shims=("$1"/shim*.efi)
+    shopt -u nullglob
+    [ "${#shims[@]}" -eq 1 ] || return 1
+    tl_shim=${shims[0]##*/}
+    sfx=${tl_shim#shim}
+    sfx=${sfx%.efi}
+    [ -n "${sfx}" ] || return 1
+    tl_grub="grub${sfx}.efi"
+    tl_csv="BOOT$(printf '%s' "${sfx}" | tr '[:lower:]' '[:upper:]').CSV"
+}
+
 # T11: EFI 品牌（安装期品牌化把 NVRAM 首选项换成 AirymaxOS，ESP 内是一整套
-# 已签名二级加载器；shim 只从自身目录取 grubx64.efi，缺一即不可引导）
+# 已签名二级加载器；shim 只从自身目录取同后缀的 grub，缺一即不可引导）
 t11_efi_brand() {
     local esp="${SYSROOT}/boot/efi/EFI/airymaxos" f out first
     if [ ! -d "${SYSROOT}/sys/firmware/efi" ]; then
         echo "non-EFI target: no NVRAM entry to brand"
         return 0
     fi
-    for f in shimx64.efi grubx64.efi BOOTX64.CSV; do
+    t11_loader "${esp}" || {
+        echo "${esp}/shim*.efi set is empty or ambiguous$(t11_facts)"
+        return 1
+    }
+    for f in "${tl_shim}" "${tl_grub}" "${tl_csv}"; do
         esp_ok "${esp}/${f}" && continue
         echo "${esp}/${f} missing$(t11_facts)"
         return 1
@@ -1777,10 +1804,10 @@ t26_fw_miss() { # t26_fw_miss <日志> — 打 flat=/miss= 与缺项原文，缺
 # 请求的那部分是内核会去取的，其余是更高 API 的现成资源，判据因此永远为负。
 #
 # 清单缺失说明 %posttrans 没在目标系统跑过（0.0.4 首装即此形态），失败行同时
-# 带出安装期自证日志的最后一行；清单为空说明基底本身就是扁平布局，此时要求
-# 根上有 iwlwifi-*.ucode。
+# 带出安装期自证日志的最后一行；清单为空说明基底本身就是扁平布局，此时是否
+# 必须在根上见到 iwlwifi-*.ucode 由该架构的硬件矩阵决定（t26_flat_root）。
 t26_wifi_fw() {
-    local root="${SYSROOT}/usr/lib/firmware" out f n=0
+    local root="${SYSROOT}/usr/lib/firmware" out
     local tool="${SYSROOT}/usr/libexec/airymaxos/fw-flat.sh"
     local list="${SYSROOT}/usr/share/airymaxos/firmware/firmware-flat.list"
     local fwlog="${SYSROOT}/var/log/airymaxos/firmware-flat.log"
@@ -1797,18 +1824,34 @@ t26_wifi_fw() {
     printf '%s\n' "${out}"
     t26_fw_miss "${fwlog}" || return 1
     case "${out}" in
-    rows=0*)
-        for f in "${root}"/iwlwifi-*.ucode; do
-            [ -e "${f}" ] || continue
-            n=$((n + 1))
-        done
-        [ "${n}" -gt 0 ] || {
-            echo "no iwlwifi firmware in image"
-            return 1
-        }
-        printf 'iwlwifi flat files: %s\n' "${n}"
-        ;;
+    rows=0*) t26_flat_root "${root}" ;;
     esac
+}
+
+# t26_flat_root ROOT —— 清单为空说明本轮没有需要补的入口。此时根上有没有
+# 扁平名，取决于该架构模块树请求了什么；Intel Wi-Fi 属 x86_64 硬件矩阵，
+# 其余架构的模块不请求 iwlwifi，用 x86 的器件表去要求别的架构即判负（run
+# 44883012580 的 aarch64 两腿：flat=0 miss=0 exempt=34，全部请求名都在豁免
+# 表内，根上没有 iwlwifi-*.ucode 属预期）。非 x86 架构显式打印理由，判据
+# 不静默放宽。
+t26_flat_root() {
+    local root=$1 f n=0 arch
+
+    arch=$(uname -m)
+    if [ "${arch}" != x86_64 ]; then
+        printf 'rows=0: %s modules request no flat entry;' "${arch}"
+        printf ' Intel Wi-Fi outside this arch matrix\n'
+        return 0
+    fi
+    for f in "${root}"/iwlwifi-*.ucode; do
+        [ -e "${f}" ] || continue
+        n=$((n + 1))
+    done
+    [ "${n}" -gt 0 ] || {
+        echo "no iwlwifi firmware at firmware root"
+        return 1
+    }
+    printf 'iwlwifi flat files: %s\n' "${n}"
 }
 
 # 现场诊断工具闭包（0.0.4 台账 P-01）：0.0.3 在 B50 与 285H 首启后网络不通，
