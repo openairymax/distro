@@ -247,8 +247,9 @@ seat_fbdev() {
 }
 
 # seat_kms <drv> <line> <argv> — KMS 分支：不得强塞 -config，且至少一路
-# 连接器就绪。驱动名与标记都可能为真，而屏幕仍因缺 EDID 或模式求交失败
-# 而黑屏，所以回查 status/modes/edid 三项实况。
+# 连接器就绪。驱动名与标记都可能为真，而屏幕仍可能因为连接器未点亮或模式
+# 表为空而黑屏，所以回查 status 与 modes 两项实况。EDID 不参与：虚拟输出
+# 按设计可以没有 EDID，modesetting 用的是连接器模式表。
 seat_kms() {
     local drv="$1" line="$2" argv="$3" out
 
@@ -258,7 +259,6 @@ seat_kms() {
     for out in "${SYSROOT}"/sys/class/drm/card*-*; do
         [ "$(cat "${out}/status" 2>/dev/null)" = connected ] || continue
         grep -q '[^[:space:]]' "${out}/modes" 2>/dev/null || continue
-        [ -s "${out}/edid" ] || continue
         return 0
     done
     echo "marker claims kms ${drv} but no ready output: ${line}"

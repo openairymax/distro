@@ -13,16 +13,16 @@
 # "Cannot run in framebuffer mode" 收场，lightdm 每次拉起都失败，桌面永远
 # 起不来。fbdev 是唯一直接消费 /dev/fb0 的后端，所以在缺口上显式交给它。
 #
-# 0.0.4 把判据从「驱动名不是 simple-framebuffer」升级为三条同时成立：
-# 真实 KMS 驱动、某个连接器已连接、该连接器同时给出可枚举模式与非空 EDID。
-# 驱动名只能说明内核绑上了显卡，说明不了这块屏能不能用。i915/amdgpu 加载
-# 成功但面板未点亮、eDP 无 EDID、或者只剩 disconnected 端口时，旧判据照旧
-# 交给 X 自动选择，X 随后在模式求交上失败，表现为「进了桌面但黑屏」。三条
-# 全成立才走自动选择（即 modesetting），否则落 fbdev 并把缺的哪一条写进
-# 标记，让现场一眼看出是驱动没起来、屏没接、还是 EDID 没读到。
+# 0.0.5 把判据收敛为两条：真实 KMS 驱动，且某个连接器已连接并有可枚举模式。
+# 驱动名只能说明内核绑上了显卡，说明不了这块屏能不能用；连接器与模式才是
+# X 真正消费的东西——modesetting 从连接器模式表取模式，不读 EDID。0.0.4 曾
+# 把「EDID 非空」也列为前提，结果把 QEMU virtio-gpu 这类按设计不提供 EDID
+# 的虚拟输出误判成缺口，落到 fbdev 后 X 报 "no screens found"，座位每次拉起
+# 即死（aarch64 验收现场）。EDID 只说明面板身份与首选时序，不说明能否扫描
+# 输出，因此不再参与判定；缺它时 modesetting 仍用连接器广播的模式。
 #
-# 判定只看 sysfs 的驱动名、连接器状态、modes 内容与 EDID 大小，不看显卡型
-# 号：换任何机器都不需要改这份脚本。
+# 判定只看 sysfs 的驱动名、连接器状态与 modes 内容，不看显卡型号：换任何
+# 机器都不需要改这份脚本。
 #
 # 入口：lightdm 按 xserver-command 调用，参数原样转交 Xorg。
 # 输出：一行 AIRYMAX-XSERVER 标记，同时写到 stdout 与固定状态文件
@@ -68,18 +68,15 @@ has_mode()
     grep -q '[^[:space:]]' "$1" 2>/dev/null
 }
 
-# out_verdict <out> <drv> — 一个已连接输出的判定：模式表空为 no-mode，
-# EDID 为空为 no-edid，两项齐备才认 kms。
+# out_verdict <out> <drv> — 一个已连接输出的判定：模式表非空即认 kms。
+# EDID 不参与判定：虚拟输出按设计可以没有 EDID，而 modesetting 用连接器
+# 模式表，不用 EDID。
 out_verdict()
 {
     local out="$1" drv="$2"
 
     has_mode "${out}/modes" || {
         printf 'gap no-mode\n'
-        return 0
-    }
-    [ -s "${out}/edid" ] || {
-        printf 'gap no-edid\n'
         return 0
     }
     printf 'kms %s\n' "${drv}"
@@ -101,7 +98,7 @@ card_out()
 
 # probe — 一次扫描给出判定：`kms <驱动名>` 或 `gap <缺口>`。
 # 缺口取值：no-kms（没有真实 KMS 卡）、no-output（有卡但无已连接输出）、
-# no-mode（已连接但模式表为空）、no-edid（有模式但 EDID 为空）。
+# no-mode（已连接但模式表为空）。
 probe()
 {
     local card drv seen=""
