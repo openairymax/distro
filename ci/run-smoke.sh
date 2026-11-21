@@ -2106,5 +2106,89 @@ probe 29 "T29 builtin touchpad" t29_touchpad
 probe 30 "T30 tray entry points" t30_tray
 probe 31 "T31 network bring-up live" t31_net_live
 
+# M1.5 的两条内核判据在这里只留读数，不进 1..31：判据侧要的是同一次开机上
+# 的原始值（实例是否存在、写入计数、探针读数、548 的返回），而不是被冒烟
+# 计划合并掉的一个布尔。窗口按探针的口径开：记录两个开关的原值、启用实例、
+# 清缓冲，调用之后再读计数，最后把开关原样回写，机器状态不留改动。全部输出
+# 为 TAP 注释行，宿主机按 AIRYMAX-TAP| 还原 smoke.tap 后与发行自证册逐项
+# 对账；探针缺失只说明这一层证据没取到，不改变上面 31 条的结论。
+M15_SEC=/sys/kernel/security/airy
+
+m15_sh()
+{
+    local out
+
+    out=$(sudo -n sh -c "$1" 2>&1) || out="${out} rc=$?"
+    printf '# m15 %s: %s\n' "$2" "${out//$'\n'/ }"
+}
+
+# 实例所在 tracefs：新挂载点优先，内核只给 debugfs 兼容路径时退回旧点。
+m15_tf()
+{
+    local root
+
+    for root in /sys/kernel/tracing /sys/kernel/debug/tracing; do
+        [ -d "${root}/instances/agent_trace" ] || continue
+        printf '%s' "${root}/instances/agent_trace"
+        return 0
+    done
+    return 1
+}
+
+# 每条判据各开一个窗口：先清缓冲再动手，读数只覆盖这一次动作。写入侧计数
+# 与事件头计数分开给出，两者不一致本身就是证据，因此不互相修正；判决策略
+# 事件单独点出，用来区分「没有发生」和「发生了但没有 IPC」。
+m15_win()
+{
+    m15_sh "echo > ${M15_T}/trace && echo 1 > ${M15_T}/tracing_on && echo armed" "${1}_arm"
+    m15_sh "$2" "${1}_run"
+    m15_sh "grep -m1 entries-written ${M15_T}/trace" "${1}_entries"
+    m15_sh "awk '/airy_ipc_send:/ {n++} END {print n + 0}' ${M15_T}/trace" "${1}_ipc"
+    m15_sh "awk '/airy_policy_decision:/ {n++} END {print n + 0}' ${M15_T}/trace" "${1}_policy"
+}
+
+m15_ev()
+{
+    local prev on M15_T
+
+    [ -d "${M15_SEC}" ] || { printf '# m15 host: 无 airy 设备面\n'; return 0; }
+    M15_T=$(m15_tf) || {
+        printf '# m15 trace: instances/agent_trace 缺失\n'
+        return 0
+    }
+    prev=$(sudo -n cat "${M15_T}/events/airy/enable" 2>/dev/null || :)
+    on=$(sudo -n cat "${M15_T}/tracing_on" 2>/dev/null || :)
+    m15_sh "echo 1 > ${M15_T}/events/airy/enable && echo enabled" enable
+    m15_win call 'python3 -c "
+import ctypes
+l = ctypes.CDLL(None, use_errno=True)
+l.syscall.restype = ctypes.c_long
+b = ctypes.create_string_buffer(128)
+for tag, arg in ((\"null\", 0), (\"zero\", ctypes.addressof(b))):
+    ctypes.set_errno(0)
+    r = l.syscall(ctypes.c_ulong(548), ctypes.c_ulong(1),
+                  ctypes.c_void_p(arg))
+    print(tag, r, ctypes.get_errno())
+"'
+    m15_win wx 'python3 -c "
+import ctypes
+l = ctypes.CDLL(None, use_errno=True)
+l.mmap.restype = ctypes.c_void_p
+l.mmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int,
+                   ctypes.c_int, ctypes.c_int, ctypes.c_long]
+p = l.mmap(None, 4096, 3, 0x22, -1, 0)
+if p == ctypes.c_void_p(-1).value:
+    print(\"w2x mmap-fail\", ctypes.get_errno())
+else:
+    ctypes.set_errno(0)
+    r = l.mprotect(ctypes.c_void_p(p), 4096, 7)
+    print(\"w2x\", r, ctypes.get_errno())
+"'
+    m15_sh "printf '%s\n' '${prev:-0}' > ${M15_T}/events/airy/enable; printf '%s\n' '${on:-0}' > ${M15_T}/tracing_on; echo restored" restore
+    m15_sh 'command -v airy-probe >/dev/null && airy-probe status --json || echo missing' probe
+}
+
+m15_ev
+
 printf '# summary: pass=%d fail=%d\n' "${PASS}" "${FAIL}"
 [ "${FAIL}" -eq 0 ]
