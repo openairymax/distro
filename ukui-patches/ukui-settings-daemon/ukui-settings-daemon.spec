@@ -33,7 +33,7 @@ Patch4:         ukui-settings-daemon-3.1.2-kylin-fix-coredump.patch
 Patch5:         session.patch
 Patch6:         fix-ukui-settings-daemon-SIGSEGV.patch
 Patch7:         fix-ukui-settings-daemon-SIGABRT.patch
-Patch100:       fix-build-error-of-libkscreen-qt5-5.27.6.patch
+Patch100:       ukui-settings-daemon-qt5.15-cxx17.patch
 Patch300:       fix-color-abort-on-unusable-kwin-reply.patch
 BuildRequires:  pkgconf-pkg-config
 BuildRequires:  intltool

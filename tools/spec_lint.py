@@ -43,6 +43,7 @@
 from __future__ import annotations
 
 import datetime
+import hashlib
 import re
 import sys
 from pathlib import Path
@@ -322,6 +323,58 @@ def check_srcs(tags: dict, index: dict[str, set[Path]],
             issues.append(Issue("E010", num, f"ambiguous source: {val}"))
 
 
+def spec_roots(path: Path, root: Path) -> list[Path]:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    return [root] + [extra for _, extra in parse_roots(lines, path)
+                     if extra.is_dir()]
+
+
+def src_hashes(path: Path, root: Path) -> dict[str, str]:
+    """本配方声明的 Source/Patch 各自解析到的文件摘要。
+
+    先只看配方自身目录，再退到 source-root 搜索根；build-rpms 把所有配方的
+    Source 汇进同一个 SOURCES 目录，同名的两份不同内容在那里只能二选一。
+    """
+    lines = path.read_text(encoding="utf-8").splitlines()
+    macros = collect_macros(lines)
+    local = build_index([path.parent])
+    wide: dict[str, set[Path]] = {}
+    out: dict[str, str] = {}
+    for tag, (_, raw) in parse_tags(lines).items():
+        if not (SRC.match(tag) or tag.startswith("Patch")):
+            continue
+        name = expand(raw, macros)
+        hits = local.get(name)
+        if hits is None:
+            if not wide:
+                wide = build_index(spec_roots(path, root))
+            hits = wide.get(name)
+        if hits and len(hits) == 1:
+            out[name] = hashlib.sha256(
+                next(iter(hits)).read_bytes()).hexdigest()
+    return out
+
+
+def check_shared(paths: list[Path], root: Path) -> list[Issue]:
+    seen: dict[str, dict[str, list[str]]] = {}
+    for path in paths:
+        try:
+            hits = src_hashes(path, root)
+        except OSError as err:
+            return [Issue("E019", 1, f"cannot read {err.filename}")]
+        for name, sha in hits.items():
+            seen.setdefault(name, {}).setdefault(sha, []).append(path.name)
+    issues: list[Issue] = []
+    for name in sorted(seen):
+        groups = seen[name]
+        if len(groups) < 2:
+            continue
+        who = ", ".join(sorted(p for lst in groups.values() for p in lst))
+        issues.append(Issue("E019", 1, f"source name with differing "
+                                      f"content: {name} ({who})"))
+    return issues
+
+
 def check_secs(secs: list[tuple[str, str, int]],
                issues: list[Issue]) -> None:
     names = [item[0] for item in secs]
@@ -520,6 +573,10 @@ def main(argv: list[str]) -> int:
             print(f"spec_lint: {err}", file=sys.stderr)
             return 2
         total += dump(path, issues)
+    if not argv[1:]:
+        specs = [p for p in sorted(root.rglob("*.spec"))
+                 if ".git" not in p.parts]
+        total += dump(root / "<shared>", check_shared(specs, root))
     return report("spec_lint", total)
 
 

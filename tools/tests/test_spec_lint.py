@@ -293,6 +293,26 @@ class SpecLintTest(unittest.TestCase):
                            "%check\ncommand -v sh >/dev/null 2>&1\n")
         self.assertEqual(self.codes(ok), [])
 
+    def test_shared_source_conflict(self):
+        (self.spec.parent / "demo.conf").write_text("x\n", encoding="utf-8")
+        other = self.root / "ukui" / "other"
+        other.mkdir(parents=True)
+        (other / "demo.conf").write_text("y\n", encoding="utf-8")
+        spec = other / "other.spec"
+        spec.write_text(VALID, encoding="utf-8")
+        issues = spec_lint.check_shared([self.spec, spec], self.root)
+        self.assertEqual([item.code for item in issues], ["E019"])
+
+    def test_shared_source_identical(self):
+        (self.spec.parent / "demo.conf").write_text("x\n", encoding="utf-8")
+        other = self.root / "ukui" / "other"
+        other.mkdir(parents=True)
+        (other / "demo.conf").write_text("x\n", encoding="utf-8")
+        spec = other / "other.spec"
+        spec.write_text(VALID, encoding="utf-8")
+        self.assertEqual(spec_lint.check_shared([self.spec, spec], self.root),
+                         [])
+
     def test_real_specs(self):
         root = Path(__file__).resolve().parents[2]
         specs = sorted((root / "specs").rglob("*.spec"))
