@@ -2199,8 +2199,8 @@ m15_ev()
         printf '# m15 trace: instances/agent_trace 缺失\n'
         return 0
     }
-    prev=$(sudo -n cat "${M15_T}/events/airy/enable" 2>/dev/null || :)
-    on=$(sudo -n cat "${M15_T}/tracing_on" 2>/dev/null || :)
+    prev=$(sudo -n cat "${M15_T}/events/airy/enable" 2>/dev/null)
+    on=$(sudo -n cat "${M15_T}/tracing_on" 2>/dev/null)
     m15_sh "echo 1 > ${M15_T}/events/airy/enable && echo enabled" enable
     m15_win call 'python3 -c "
 import ctypes
