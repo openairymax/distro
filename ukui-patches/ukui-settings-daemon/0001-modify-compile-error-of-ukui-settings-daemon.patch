@@ -1,0 +1,24 @@
+From c7a8d75f452b33af86290c0c906c7cd00b5fcc61 Mon Sep 17 00:00:00 2001
+From: peijiankang <peijiankang@kylinos.cn>
+Date: Mon, 31 Oct 2022 17:39:28 +0800
+Subject: [PATCH] modify compile error of ukui-settings-daemon
+
+---
+ translate_generation.sh | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/translate_generation.sh b/translate_generation.sh
+index d24c183..7fcb6b7 100755
+--- a/translate_generation.sh
++++ b/translate_generation.sh
+@@ -10,6 +10,6 @@ do
+     if [ "$version" == "fedora" ] || [ "$version" == "opensuse-tumbleweed" ] || [ "$version" == "opensuse-leap" ];then
+         lrelease-qt5 "${ts}"
+     else
+-    lrelease "${ts}"
++    lrelease-qt5 "${ts}"
+     fi
+ done
+-- 
+2.36.1
+

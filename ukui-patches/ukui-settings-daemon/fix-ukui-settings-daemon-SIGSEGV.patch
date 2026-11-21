@@ -1,0 +1,48 @@
+From 13693e16771b266448e084cd9cdb3a4e62a38563 Mon Sep 17 00:00:00 2001
+From: peijiankang <peijiankang@kylinos.cn>
+Date: Tue, 18 Jul 2023 09:23:41 +0800
+Subject: [PATCH] fix ukui-settings-daemon about color
+
+---
+ daemon/main.cpp                 | 4 ++--
+ plugins/color/color-manager.cpp | 2 ++
+ 2 files changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/daemon/main.cpp b/daemon/main.cpp
+index 64148a7..90adce1 100644
+--- a/daemon/main.cpp
++++ b/daemon/main.cpp
+@@ -106,7 +106,7 @@ int main (int argc, char* argv[])
+          USD_LOG(LOG_INFO, "manager start error!");
+         return 0;
+     }
+-
++/*
+     QObject::connect(&app,&QCoreApplication::aboutToQuit,[&]{
+ 	
+     //PluginManager::getInstance()->managerStop();
+@@ -124,7 +124,7 @@ int main (int argc, char* argv[])
+        qApp->quit();
+        exit(0);
+     });
+-
++*/
+     USD_LOG(LOG_INFO, "ukui-settings-daemon started!");
+     return app.exec();
+ }
+diff --git a/plugins/color/color-manager.cpp b/plugins/color/color-manager.cpp
+index 227cfbe..b877b76 100644
+--- a/plugins/color/color-manager.cpp
++++ b/plugins/color/color-manager.cpp
+@@ -84,6 +84,8 @@ ColorManager::ColorManager()
+     disabled_until_tmw = false;
+     datetime_override = NULL;
+     geoclue_enabled = true;
++    geoclue_client = nullptr;
++    geoclue_simple = nullptr;
+     smooth_enabled  = true;
+     cached_sunrise  = -1.f;
+     cached_sunset   = -1.f;
+-- 
+2.33.0
+

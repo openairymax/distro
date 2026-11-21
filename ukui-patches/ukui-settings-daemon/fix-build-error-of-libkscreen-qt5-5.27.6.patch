@@ -1,0 +1,408 @@
+From f0da2115c5ee6d2c6393e63762aa62dfd5820fe1 Mon Sep 17 00:00:00 2001
+From: peijiankang <peijiankang@kylinos.cn>
+Date: Wed, 16 Aug 2023 16:07:49 +0800
+Subject: [PATCH] test
+
+---
+ common/common.pri                             | 2 +-
+ daemon/daemon.pro                             | 2 +-
+ plugins/a11y-keyboard/a11y-keyboard.pro       | 2 +-
+ plugins/a11y-settings/a11y-settings.pro       | 2 +-
+ plugins/authority/authority.pro               | 2 +-
+ plugins/auto-brightness/auto-brightness.pro   | 2 +-
+ plugins/background/background.pro             | 2 +-
+ plugins/clipboard/clipboard.pro               | 2 +-
+ plugins/color/color.pro                       | 2 +-
+ plugins/housekeeping/housekeeping.pro         | 2 +-
+ plugins/kds/kds.pro                           | 2 +-
+ plugins/keybindings/keybindings.pro           | 2 +-
+ plugins/keyboard/keyboard.pro                 | 2 +-
+ plugins/locate-pointer/usd-locate-pointer.pro | 2 +-
+ plugins/media-keys/media-keys.pro             | 2 +-
+ plugins/mouse/mouse.pro                       | 2 +-
+ plugins/mpris/mpris.pro                       | 2 +-
+ plugins/save-param/save-param.pro             | 2 +-
+ plugins/sharing/sharing.pro                   | 2 +-
+ plugins/sound/sound.pro                       | 2 +-
+ plugins/tablet-mode/tablet-mode.pro           | 2 +-
+ plugins/xinput/xinput.pro                     | 2 +-
+ plugins/xrandr/xrandr-manager.cpp             | 2 +-
+ plugins/xrandr/xrandr.pro                     | 2 +-
+ plugins/xrdb/xrdb.pro                         | 2 +-
+ plugins/xsettings/xsettings.pro               | 2 +-
+ projectDir/common_9x0.pri                     | 2 +-
+ projectDir/common_master.pri                  | 2 +-
+ projectDir/common_tablet.pri                  | 2 +-
+ 29 files changed, 29 insertions(+), 29 deletions(-)
+
+diff --git a/common/common.pri b/common/common.pri
+index 08b2a49..6e04bd5 100644
+--- a/common/common.pri
++++ b/common/common.pri
+@@ -1,5 +1,5 @@
+ QT += core gui dbus x11extras
+-CONFIG += c++11 no_keywords link_pkgconfig x11extras debug
++CONFIG += c++17 no_keywords link_pkgconfig x11extras debug
+ CONFIG -= app_bundle
+ 
+ INCLUDEPATH += -I $$PWD/
+diff --git a/daemon/daemon.pro b/daemon/daemon.pro
+index 8fdde39..c36733a 100644
+--- a/daemon/daemon.pro
++++ b/daemon/daemon.pro
+@@ -7,7 +7,7 @@ TEMPLATE = app
+ TARGET = ukui-settings-daemon
+ 
+ QT += core gui dbus
+-CONFIG += no_keywords link_prl link_pkgconfig c++11 debug
++CONFIG += no_keywords link_prl link_pkgconfig c++17 debug
+ CONFIG -= app_bundle
+ DEFINES += MODULE_NAME=\\\"Daemon\\\"
+ 
+diff --git a/plugins/a11y-keyboard/a11y-keyboard.pro b/plugins/a11y-keyboard/a11y-keyboard.pro
+index d73709c..eb5c95f 100644
+--- a/plugins/a11y-keyboard/a11y-keyboard.pro
++++ b/plugins/a11y-keyboard/a11y-keyboard.pro
+@@ -8,7 +8,7 @@ TARGET = a11y-keyboard
+ TEMPLATE = lib
+ DEFINES += A11YKEYBOARD_LIBRARY MODULE_NAME=\\\"a11y-keyboard\\\"
+ 
+-CONFIG += c++11 no_keywords link_pkgconfig plugin debug
++CONFIG += c++17 no_keywords link_pkgconfig plugin debug
+ CONFIG += app_bunale
+ 
+ DEFINES += QT_DEPRECATED_WARNINGS
+diff --git a/plugins/a11y-settings/a11y-settings.pro b/plugins/a11y-settings/a11y-settings.pro
+index 944c272..385bbe5 100644
+--- a/plugins/a11y-settings/a11y-settings.pro
++++ b/plugins/a11y-settings/a11y-settings.pro
+@@ -9,7 +9,7 @@ QT += core widgets x11extras
+ TEMPLATE = lib
+ TARGET = a11y-settings
+ 
+-CONFIG += c++11 plugin link_pkgconfig
++CONFIG += c++17 plugin link_pkgconfig
+ CONFIG -= app_bundle
+ 
+ DEFINES += QT_DEPRECATED_WARNINGS  MODULE_NAME=\\\"a11y-settings\\\"
+diff --git a/plugins/authority/authority.pro b/plugins/authority/authority.pro
+index f1d75ce..0158ebb 100644
+--- a/plugins/authority/authority.pro
++++ b/plugins/authority/authority.pro
+@@ -1,6 +1,6 @@
+ QT -= gui
+ QT += core dbus
+-CONFIG += c++11 console
++CONFIG += c++17 console
+ CONFIG -= app_bundle
+ 
+ # The following define makes your compiler emit warnings if you use
+diff --git a/plugins/auto-brightness/auto-brightness.pro b/plugins/auto-brightness/auto-brightness.pro
+index e0eb3f7..ef36bd5 100644
+--- a/plugins/auto-brightness/auto-brightness.pro
++++ b/plugins/auto-brightness/auto-brightness.pro
+@@ -2,7 +2,7 @@ QT += gui widgets x11extras dbus sensors KConfigCore KConfigGui
+ TARGET = auto-brightness
+ TEMPLATE = lib
+ 
+-CONFIG += c++11 plugin link_pkgconfig
++CONFIG += c++17 plugin link_pkgconfig
+ 
+ DEFINES += TABLETMODE_LIBRARY QT_DEPRECATED_WARNINGS MODULE_NAME=\\\"auto-brightness\\\"
+ 
+diff --git a/plugins/background/background.pro b/plugins/background/background.pro
+index b7e1fae..84a37b6 100644
+--- a/plugins/background/background.pro
++++ b/plugins/background/background.pro
+@@ -8,7 +8,7 @@ QT += core widgets dbus x11extras gui
+ TEMPLATE = lib
+ TARGET = background
+ 
+-CONFIG += no_keywords c++11 create_prl plugin link_pkgconfig app_bundle debug
++CONFIG += no_keywords c++17 create_prl plugin link_pkgconfig app_bundle debug
+ 
+ DEFINES += MODULE_NAME=\\\"backGround\\\"
+ 
+diff --git a/plugins/clipboard/clipboard.pro b/plugins/clipboard/clipboard.pro
+index c8f9d98..61ef5d8 100644
+--- a/plugins/clipboard/clipboard.pro
++++ b/plugins/clipboard/clipboard.pro
+@@ -7,7 +7,7 @@ TEMPLATE = lib
+ TARGET = clipboard
+ 
+ QT += gui
+-CONFIG += no_keywords c++11 plugin link_pkgconfig
++CONFIG += no_keywords c++17 plugin link_pkgconfig
+ CONFIG -= app_bundle
+ 
+ DEFINES += QT_DEPRECATED_WARNINGS  MODULE_NAME=\\\"clipboard\\\"
+diff --git a/plugins/color/color.pro b/plugins/color/color.pro
+index 25a2fcc..000b9c6 100644
+--- a/plugins/color/color.pro
++++ b/plugins/color/color.pro
+@@ -9,7 +9,7 @@ QT += core xml widgets x11extras
+ TEMPLATE = lib
+ DEFINES += COLOR_LIBRARY
+ 
+-CONFIG += c++11 link_pkgconfig no_keywords plugin app_bundle
++CONFIG += c++17 link_pkgconfig no_keywords plugin app_bundle
+ 
+ DEFINES += QT_DEPRECATED_WARNINGS MODULE_NAME=\\\"color\\\"
+ 
+diff --git a/plugins/housekeeping/housekeeping.pro b/plugins/housekeeping/housekeeping.pro
+index da5cc59..cc57e4b 100644
+--- a/plugins/housekeeping/housekeeping.pro
++++ b/plugins/housekeeping/housekeeping.pro
+@@ -4,7 +4,7 @@ TARGET = housekeeping
+ TEMPLATE = lib
+ DEFINES += HOUSEKEPPING_LIBRARY MODULE_NAME=\\\"housekeeping\\\"
+ 
+-CONFIG += c++11 no_keywords link_pkgconfig plugin
++CONFIG += c++17 no_keywords link_pkgconfig plugin
+ 
+ DEFINES += QT_DEPRECATED_WARNINGS
+ 
+diff --git a/plugins/kds/kds.pro b/plugins/kds/kds.pro
+index 416634b..e8666df 100644
+--- a/plugins/kds/kds.pro
++++ b/plugins/kds/kds.pro
+@@ -24,7 +24,7 @@ LIBS += -lX11 -lgsettings-qt
+ 
+ 
+ CONFIG += link_pkgconfig
+-CONFIG += C++11
++CONFIG += C++17
+ 
+ PKGCONFIG += mate-desktop-2.0 \
+ 
+diff --git a/plugins/keybindings/keybindings.pro b/plugins/keybindings/keybindings.pro
+index df2c4c8..b0b0e9c 100644
+--- a/plugins/keybindings/keybindings.pro
++++ b/plugins/keybindings/keybindings.pro
+@@ -9,7 +9,7 @@ TARGET = keybindings
+ TEMPLATE = lib
+ DEFINES += KEYBINDINGS_LIBRARY
+ 
+-CONFIG += c++11 no_keywords link_pkgconfig plugin
++CONFIG += c++17 no_keywords link_pkgconfig plugin
+ 
+ DEFINES += QT_DEPRECATED_WARNINGS MODULE_NAME=\\\"keybindings\\\"
+ 
+diff --git a/plugins/keyboard/keyboard.pro b/plugins/keyboard/keyboard.pro
+index 93d3e72..632cd62 100755
+--- a/plugins/keyboard/keyboard.pro
++++ b/plugins/keyboard/keyboard.pro
+@@ -9,7 +9,7 @@ TARGET = keyboard
+ TEMPLATE = lib
+ DEFINES += KEYBOARD_LIBRARY
+ 
+-CONFIG += c++11 no_keywords link_pkgconfig plugin
++CONFIG += c++17 no_keywords link_pkgconfig plugin
+ 
+ DEFINES += QT_DEPRECATED_WARNINGS MODULE_NAME=\\\"keyboard\\\"
+ 
+diff --git a/plugins/locate-pointer/usd-locate-pointer.pro b/plugins/locate-pointer/usd-locate-pointer.pro
+index ec65dee..18183c8 100644
+--- a/plugins/locate-pointer/usd-locate-pointer.pro
++++ b/plugins/locate-pointer/usd-locate-pointer.pro
+@@ -6,7 +6,7 @@
+ QT -= gui
+ QT += core widgets x11extras
+ 
+-CONFIG += c++11 console no_keywords link_pkgconfig plugin
++CONFIG += c++17 console no_keywords link_pkgconfig plugin
+ CONFIG -= app_bundle
+ 
+ DEFINES += QT_DEPRECATED_WARNINGS MODULE_NAME=\\\"ULP\\\"
+diff --git a/plugins/media-keys/media-keys.pro b/plugins/media-keys/media-keys.pro
+index f729155..f1d5631 100644
+--- a/plugins/media-keys/media-keys.pro
++++ b/plugins/media-keys/media-keys.pro
+@@ -5,7 +5,7 @@
+ #-------------------------------------------------
+ QT += gui widgets svg x11extras dbus KGlobalAccel KWindowSystem
+ TEMPLATE = lib
+-CONFIG += c++11 plugin link_pkgconfig
++CONFIG += c++17 plugin link_pkgconfig
+ CONFIG -= app_bundle
+ 
+ PKGCONFIG += \
+diff --git a/plugins/mouse/mouse.pro b/plugins/mouse/mouse.pro
+index d38f331..888dc47 100755
+--- a/plugins/mouse/mouse.pro
++++ b/plugins/mouse/mouse.pro
+@@ -9,7 +9,7 @@ TARGET = mouse
+ TEMPLATE = lib
+ DEFINES += MOUSE_LIBRARY
+ 
+-CONFIG += c++11 no_keywords link_pkgconfig plugin
++CONFIG += c++17 no_keywords link_pkgconfig plugin
+ CONFIG += app_bunale
+ 
+ DEFINES += QT_DEPRECATED_WARNINGS MODULE_NAME=\\\"mouse\\\"
+diff --git a/plugins/mpris/mpris.pro b/plugins/mpris/mpris.pro
+index 9006e5e..3131e2c 100644
+--- a/plugins/mpris/mpris.pro
++++ b/plugins/mpris/mpris.pro
+@@ -8,7 +8,7 @@ QT += dbus
+ TEMPLATE = lib
+ TARGET = mpris
+ 
+-CONFIG += c++11 plugin link_pkgconfig
++CONFIG += c++17 plugin link_pkgconfig
+ CONFIG -= app_bundle
+ DEFINES += QT_DEPRECATED_WARNINGS MODULE_NAME=\\\"mpris\\\"
+ 
+diff --git a/plugins/save-param/save-param.pro b/plugins/save-param/save-param.pro
+index 47a667f..a959b4f 100644
+--- a/plugins/save-param/save-param.pro
++++ b/plugins/save-param/save-param.pro
+@@ -23,7 +23,7 @@ LIBS += -lX11 -lgsettings-qt
+ 
+ 
+ CONFIG += link_pkgconfig
+-CONFIG += C++11
++CONFIG += C++17
+ 
+ PKGCONFIG += mate-desktop-2.0 \
+ 
+diff --git a/plugins/sharing/sharing.pro b/plugins/sharing/sharing.pro
+index 835f2cf..4293a6a 100644
+--- a/plugins/sharing/sharing.pro
++++ b/plugins/sharing/sharing.pro
+@@ -11,7 +11,7 @@ TEMPLATE = lib
+ 
+ DEFINES += SHARING_LIBRARY
+ 
+-CONFIG += c++11 plugin link_pkgconfig
++CONFIG += c++17 plugin link_pkgconfig
+ CONFIG -= app_bundle
+ 
+ # The following define makes your compiler emit warnings if you use
+diff --git a/plugins/sound/sound.pro b/plugins/sound/sound.pro
+index 13777aa..1b36bd0 100644
+--- a/plugins/sound/sound.pro
++++ b/plugins/sound/sound.pro
+@@ -7,7 +7,7 @@ QT -= gui
+ TEMPLATE = lib
+ TARGET = sound
+ 
+-CONFIG += c++11 plugin link_pkgconfig
++CONFIG += c++17 plugin link_pkgconfig
+ CONFIG -= app_bundle
+ DEFINES += QT_DEPRECATED_WARNINGS MODULE_NAME=\\\"sound\\\"
+ 
+diff --git a/plugins/tablet-mode/tablet-mode.pro b/plugins/tablet-mode/tablet-mode.pro
+index d58d347..69b732e 100644
+--- a/plugins/tablet-mode/tablet-mode.pro
++++ b/plugins/tablet-mode/tablet-mode.pro
+@@ -2,7 +2,7 @@ QT += gui widgets x11extras dbus sensors KConfigCore KConfigGui
+ 
+ TEMPLATE = lib
+ 
+-CONFIG += c++11 plugin link_pkgconfig
++CONFIG += c++17 plugin link_pkgconfig
+ 
+ DEFINES += TABLETMODE_LIBRARY
+ 
+diff --git a/plugins/xinput/xinput.pro b/plugins/xinput/xinput.pro
+index d076383..5a8c3c3 100644
+--- a/plugins/xinput/xinput.pro
++++ b/plugins/xinput/xinput.pro
+@@ -7,7 +7,7 @@ DEFINES += XINPUT_LIBRARY
+ 
+ include($$PWD/../../common/common.pri)
+ 
+-CONFIG += c++11 link_pkgconfig x11extras debug
++CONFIG += c++17 link_pkgconfig x11extras debug
+ CONFIG += plugin
+ 
+ PKGCONFIG += x11
+diff --git a/plugins/xrandr/xrandr-manager.cpp b/plugins/xrandr/xrandr-manager.cpp
+index 7cf7d73..057e180 100644
+--- a/plugins/xrandr/xrandr-manager.cpp
++++ b/plugins/xrandr/xrandr-manager.cpp
+@@ -1435,7 +1435,7 @@ void XrandrManager::monitorsInit()
+             mSaveConfigTimer->start(SAVE_CONFIG_TIME);
+         });
+ 
+-        connect(output.data(), &KScreen::Output::isPrimaryChanged, this, [this](){
++        connect(output.data(), &KScreen::Output::priorityChanged, this, [this](){
+             KScreen::Output *senderOutput = static_cast<KScreen::Output*> (sender());
+             USD_LOG(LOG_DEBUG,"PrimaryChanged:%s",senderOutput->name().toLatin1().data());
+ 
+diff --git a/plugins/xrandr/xrandr.pro b/plugins/xrandr/xrandr.pro
+index abe5ec8..4ea36a6 100644
+--- a/plugins/xrandr/xrandr.pro
++++ b/plugins/xrandr/xrandr.pro
+@@ -9,7 +9,7 @@ QT += core xml widgets x11extras dbus KGlobalAccel
+ TEMPLATE = lib
+ DEFINES += XRANDR_LIBRARY _FORTIFY_SOURCE=2
+ 
+-CONFIG += c++11 no_keywords link_pkgconfig plugin xrandr
++CONFIG += c++17 no_keywords link_pkgconfig plugin xrandr
+ CONFIG += app_bundle
+ 
+ DEFINES += QT_DEPRECATED_WARNINGS MODULE_NAME=\\\"xrandr\\\"
+diff --git a/plugins/xrdb/xrdb.pro b/plugins/xrdb/xrdb.pro
+index 872bf24..6d2c003 100644
+--- a/plugins/xrdb/xrdb.pro
++++ b/plugins/xrdb/xrdb.pro
+@@ -12,7 +12,7 @@ TEMPLATE = lib
+ 
+ DEFINES += XRDB_LIBRARY
+ 
+-CONFIG += c++11 plugin link_pkgconfig
++CONFIG += c++17 plugin link_pkgconfig
+ CONFIG -= app_bundle
+ 
+ # The following define makes your compiler emit warnings if you use
+diff --git a/plugins/xsettings/xsettings.pro b/plugins/xsettings/xsettings.pro
+index feaa7bd..633b3fe 100644
+--- a/plugins/xsettings/xsettings.pro
++++ b/plugins/xsettings/xsettings.pro
+@@ -6,7 +6,7 @@
+ QT += gui
+ QT += core widgets x11extras dbus
+ 
+-CONFIG += c++11 no_keywords link_pkgconfig plugin
++CONFIG += c++17 no_keywords link_pkgconfig plugin
+ CONFIG += app_bunale
+ 
+ DEFINES += QT_DEPRECATED_WARNINGS
+diff --git a/projectDir/common_9x0.pri b/projectDir/common_9x0.pri
+index af6ea1e..71a50c2 100644
+--- a/projectDir/common_9x0.pri
++++ b/projectDir/common_9x0.pri
+@@ -1,5 +1,5 @@
+ QT += core gui dbus x11extras
+-CONFIG += c++11 no_keywords link_pkgconfig x11extras
++CONFIG += c++17 no_keywords link_pkgconfig x11extras
+ CONFIG -= app_bundle
+ 
+ INCLUDEPATH += -I $$PWD/
+diff --git a/projectDir/common_master.pri b/projectDir/common_master.pri
+index 3e34aae..5dbb706 100644
+--- a/projectDir/common_master.pri
++++ b/projectDir/common_master.pri
+@@ -1,5 +1,5 @@
+ QT += core gui dbus x11extras
+-CONFIG += c++11 no_keywords link_pkgconfig x11extras debug
++CONFIG += c++17 no_keywords link_pkgconfig x11extras debug
+ CONFIG -= app_bundle
+ 
+ INCLUDEPATH += -I $$PWD/
+diff --git a/projectDir/common_tablet.pri b/projectDir/common_tablet.pri
+index 7a13b81..65d58b8 100644
+--- a/projectDir/common_tablet.pri
++++ b/projectDir/common_tablet.pri
+@@ -1,5 +1,5 @@
+ QT += core gui dbus x11extras
+-CONFIG += c++11 no_keywords link_pkgconfig x11extras
++CONFIG += c++17 no_keywords link_pkgconfig x11extras
+ CONFIG -= app_bundle
+ 
+ INCLUDEPATH += -I $$PWD/
+-- 
+2.33.0
+

@@ -1,0 +1,59 @@
+diff -Naur ukui-settings-daemon-3.1.2/daemon/main.cpp ukui-settings-daemon-3.1.2~/daemon/main.cpp
+--- ukui-settings-daemon-3.1.2/daemon/main.cpp	2022-04-15 11:36:50.000000000 +0800
++++ ukui-settings-daemon-3.1.2~/daemon/main.cpp	2023-07-06 17:50:20.704690501 +0800
+@@ -31,7 +31,8 @@
+ 
+ #include <sys/types.h>
+ #include <signal.h>
+-
++#include <syslog.h>
++#include <QTimer>
+ static void print_help ();
+ static void parse_args (int argc, char *argv[]);
+ static void stop_daemon ();
+@@ -46,6 +47,15 @@
+     QApplication::exit(15);
+ }
+ 
++void handlerA(int no)
++{
++    USD_LOG(LOG_DEBUG,"catch SIGABRT signal, with exitcode %d",no);
++
++    
++//    manager->managerStop();
++    QApplication::exit(15);
++}
++
+ int main (int argc, char* argv[])
+ {
+ #if (QT_VERSION >= QT_VERSION_CHECK(5, 6, 0))
+@@ -63,6 +73,7 @@
+ 
+ 
+     signal(SIGTERM, &handler);
++    signal(SIGABRT, &handlerA);
+     QApplication::setQuitOnLastWindowClosed(false);
+ 
+     QTranslator translator;
+@@ -88,6 +99,21 @@
+         return 0;
+     }
+ 
++    QObject::connect(&app,&QCoreApplication::aboutToQuit,[&]{
++	
++    //PluginManager::getInstance()->managerStop();
++    //managerStop()执行时间过长，导致注销时，所有插件未完全Daectivity就已经强行关闭系统，最终导致SIGSEGV、SIGABRT
++    
++    app.processEvents();
++    //QTimer timer;
++    // Wait until the event loop starts
++    QTimer::singleShot(500, [=](){
++        
++        exit(0);
++    });
++
++    });
++
+     USD_LOG(LOG_INFO, "ukui-settings-daemon started!");
+     return app.exec();
+ }

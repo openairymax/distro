@@ -1,0 +1,43 @@
+From a5af2ea9613c8c0defc175911468ee185f2e188f Mon Sep 17 00:00:00 2001
+From: peijiankang <peijiankang@kylinos.cn>
+Date: Fri, 21 Jul 2023 15:45:25 +0800
+Subject: [PATCH] fix ukui-settings-daemon SIGABRT
+
+---
+ daemon/main.cpp | 16 +++-------------
+ 1 file changed, 3 insertions(+), 13 deletions(-)
+
+diff --git a/daemon/main.cpp b/daemon/main.cpp
+index 1db2eb6..e56fc7c 100644
+--- a/daemon/main.cpp
++++ b/daemon/main.cpp
+@@ -107,23 +107,13 @@ int main (int argc, char* argv[])
+          USD_LOG(LOG_INFO, "manager start error!");
+         return 0;
+     }
+-/*
+     QObject::connect(&app,&QCoreApplication::aboutToQuit,[&]{
+ 	
+-    //PluginManager::getInstance()->managerStop();
+-    //managerStop()执行时间过长，导致注销时，所有插件未完全Daectivity就已经强行关闭系统，最终导致SIGSEGV、SIGABRT
++    manager->managerStop();//注销时释放资源
++    exit(0);
+     
+-    app.processEvents();
+-    //QTimer timer;
+-    // Wait until the event loop starts
+-    QTimer::singleShot(500, [=](){
+-        //make sure program exit
+-        exit(0);
+     });
+-       qApp->quit();
+-       exit(0);
+-    });
+-*/
++    
+     USD_LOG(LOG_INFO, "ukui-settings-daemon started!");
+     return app.exec();
+ }
+-- 
+2.33.0
+
