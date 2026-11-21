@@ -35,6 +35,13 @@ install -m 0644 /run/install/repo/fixture/airymax-alive.service \
     "${root}/usr/lib/systemd/system/airymax-alive.service"
 install -m 0644 /run/install/repo/fixture/airymax-alive.timer \
     "${root}/usr/lib/systemd/system/airymax-alive.timer"
+#    会话管理器取证：lightdm 反复崩溃时，寄存器转储只有库内偏移。这里在
+#    它之前起一个观察者，逐实例把可执行段落串口，转储里的 PID 才对得上
+#    地址空间。正常启动时它只打一行 armed，取满三个实例即收手。
+install -m 0755 /run/install/repo/fixture/airymax-dm-watch.sh \
+    "${root}/usr/lib/airymaxos/ci/airymax-dm-watch.sh"
+install -m 0644 /run/install/repo/fixture/airymax-dm-watch.service \
+    "${root}/usr/lib/systemd/system/airymax-dm-watch.service"
 %end
 
 %post --log=/root/airymax-acceptance.log
@@ -93,6 +100,11 @@ systemctl --root=/ enable airymax-smoke-report.service
 #     图形会话」的通道。报告单元挂在 graphical.target 之后，目标到不了就
 #     永远不会执行，正是最需要证据的那一类故障。
 systemctl --root=/ enable airymax-alive.timer
+
+# 6c) 会话管理器取证：登录管理器自己崩在 graphical.target 之前，报告单元
+#     与心跳都救不了这一段——它们的触发点都在目标之后。观察者挂在
+#     multi-user.target，压 Before=lightdm，与目标的成败无关。
+systemctl --root=/ enable airymax-dm-watch.service
 
 # 7) 冷启动取证面：产品默认在 loglevel 5 上逐行打印，验收镜像还要回答
 #    「卡在哪」。三处缺口各补一层，只动本夹具，不进产品配方：

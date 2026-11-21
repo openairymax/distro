@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
+# ===========================================================================
+# airymax-dm-watch — 验收 ISO 的登录管理器取证单元
+#
+# 仅存在于 B 轮验收 ISO；产品 ISO 不安装本单元。启动顺序压在 lightdm 之前，
+# 在它反复崩溃重启的窗口里逐实例取 /proc/<pid>/maps 落串口——转储只给库内
+# 偏移，同一实例的地址空间才能解释同一实例的 pc。
+# ===========================================================================
+[Unit]
+Description=AirymaxOS acceptance display manager address space watch
+ConditionPathExists=/usr/lib/airymaxos/ci/airymax-dm-watch.sh
+After=systemd-user-sessions.service
+Before=lightdm.service
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/airymaxos/ci/airymax-dm-watch.sh
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target
