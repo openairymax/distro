@@ -20,7 +20,9 @@ ExecStart=/usr/lib/airymaxos/ci/airymax-smoke-report.sh
 # con_put 单独写出（一行 ASCII），明细走串口与 journal 各自的通道。
 StandardOutput=journal
 StandardError=journal
-TimeoutStartSec=300
+# 预算链最外一环：脚本内部轮询上限 660s，本单元再留 60s 余量，保证
+# 结论标记（PASS/FAIL）总是先于 systemd 的强制终止出现。
+TimeoutStartSec=720
 
 [Install]
 WantedBy=graphical.target
