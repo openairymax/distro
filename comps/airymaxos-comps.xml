@@ -198,6 +198,12 @@
       <!-- X11 服务端：真实包名 xorg-x11-server，它 Provides
            xorg-x11-server-Xorg / Xorg（后者不是包名） -->
       <packagereq type="mandatory">xorg-x11-server</packagereq>
+      <!-- fbdev 后端：座位封装在「无真实 KMS 卡」时显式以 Driver "fbdev"
+           接管 /dev/fb0（simpledrm 机器唯一的可用后端）。封装里写了这条
+           路径，而 0.0.5 之前闭包没有该驱动，走到这条分支时 X 只会报
+           "no screens found"——代码分支与安装闭包必须同时成立，否则兜底
+           只是纸面上的。仓库内位于 OS，两架构同名可解 -->
+      <packagereq type="mandatory">xorg-x11-drv-fbdev</packagereq>
       <!-- X11 诊断客户端（xdpyinfo）：桌面冒烟 T1 的 X server 可达性探针
            依赖此包；仓库内位于 OS，包名与版本已核对 -->
       <packagereq type="default">xorg-x11-utils</packagereq>

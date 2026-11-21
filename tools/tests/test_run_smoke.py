@@ -623,7 +623,7 @@ class RunSmokeTest(unittest.TestCase):
 
     def write_drm(self, status="connected", modes="1920x1080\n",
                   edid=b"\x00" * 128):
-        """KMS 分支的连接器实况：状态、模式表与 EDID 缺一即不可用。"""
+        """KMS 分支的连接器实况：状态与模式表决定可用性，EDID 只作记录。"""
         out = self.sysroot / "sys" / "class" / "drm" / "card0-DP-1"
         out.mkdir(parents=True, exist_ok=True)
         (out / "status").write_text(f"{status}\n", encoding="utf-8")
@@ -823,7 +823,7 @@ class RunSmokeTest(unittest.TestCase):
         self.assertIn(f"xserver is not using {XCONF}", res.stdout)
 
     def test_xserver_kms_ready(self):
-        """真实驱动 + 已连接 + 模式 + EDID：kms 标记成立，未强加配置。"""
+        """真实驱动 + 已连接 + 模式：kms 标记成立，未强加配置。"""
         self.tools()
         self.write_marker("driver=i915 kms=1\n")
         self.write_drm()
@@ -831,15 +831,14 @@ class RunSmokeTest(unittest.TestCase):
         res = self.run_smoke(FAKE_X_PID=str(bare.pid))
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
 
-    def test_xserver_kms_without_edid(self):
-        """驱动在、口已连、有模式，但 EDID 为空：模式求交仍会失败。"""
+    def test_xserver_kms_without_edid_ok(self):
+        """驱动在、口已连、有模式，EDID 为空：虚拟输出的常态，不算缺口。"""
         self.tools()
         self.write_marker("driver=i915 kms=1\n")
         self.write_drm(edid=b"")
         bare = self.start_xorg()
         res = self.run_smoke(FAKE_X_PID=str(bare.pid))
-        self.assert_fail(res, 1)
-        self.assertIn("no ready output", res.stdout)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
 
     def test_xserver_kms_forced_config(self):
         """kms 成立时仍强加 fbdev 配置，说明封装与实况已经脱节。"""

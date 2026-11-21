@@ -4,14 +4,14 @@
 # ===========================================================================
 # test_xserver.py — 座位 X server 驱动选择封装契约回归测试
 #
-# 契约有三条：真实 KMS 驱动且存在「已连接 + 有模式 + 有 EDID」的输出时
-# 不干预 X 的自动选择；三条缺任一（或只有 simpledrm）时必须以 fbdev 接管
-# /dev/fb0，否则 vesa 与 modesetting 都拒绝运行，座位每次拉起即死；两者
-# 都不成立（无卡也无 framebuffer）时判不适用，交回 Xorg 自行决定。
+# 契约有三条：真实 KMS 驱动且存在「已连接 + 有可枚举模式」的输出时不干预
+# X 的自动选择，EDID 缺席不影响这一判定（虚拟输出按设计可以没有 EDID）；
+# 两条缺任一（或只有 simpledrm）时必须以 fbdev 接管 /dev/fb0，否则 vesa 与
+# modesetting 都拒绝运行，座位每次拉起即死；两者都不成立（无卡也无
+# framebuffer）时判不适用，交回 Xorg 自行决定。
 #
-# 判定只看 sysfs 的驱动名、连接器状态、modes 内容与 EDID 大小，因此用伪
-# DRM 目录与伪 Xorg 驱动，断言落在「转交给 Xorg 的 argv」、标记行与生成的
-# 设备段内容上。
+# 判定只看 sysfs 的驱动名、连接器状态与 modes 内容，因此用伪 DRM 目录与伪
+# Xorg 驱动，断言落在「转交给 Xorg 的 argv」、标记行与生成的设备段内容上。
 #
 # Author: Liren Wang <wangliren@spharx.cn>
 # Version: 0.0.5
@@ -113,9 +113,13 @@ class XServerTest(unittest.TestCase):
         self.assertEqual(self.argv(res.stdout), list(ARGS))
         self.assertFalse(self.conf.exists())
 
-    def test_connected_without_edid(self):
+    def test_connected_without_edid_keeps_auto(self):
         self.add_out(self.add_card("i915"), edid=b"")
-        self.assert_fbdev(self.run_seat(), "no-edid")
+        res = self.run_seat()
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("AIRYMAX-XSERVER driver=i915 kms=1", res.stdout)
+        self.assertEqual(self.argv(res.stdout), list(ARGS))
+        self.assertFalse(self.conf.exists())
 
     def test_connected_without_mode(self):
         self.add_out(self.add_card("i915"), modes="\n")
