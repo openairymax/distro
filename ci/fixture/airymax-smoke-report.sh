@@ -48,7 +48,10 @@ fi
 . "${BOOT_STATE}"
 
 readonly TAP="${AIRYMAX_SMOKE_TAP:-/var/log/airymax/smoke.tap}"
-readonly WAIT="${AIRYMAX_SMOKE_WAIT:-240}"
+# 轮询上限必须大于 runner 的硬上限（600s），否则会话内的 TAP 还没落盘，
+# 报告侧就已经按超时判负。660s 留两轮余量，且小于本单元的
+# TimeoutStartSec（720s），保证脚本自己先收尾而不是被 systemd 杀掉。
+readonly WAIT="${AIRYMAX_SMOKE_WAIT:-660}"
 readonly STEP=2
 readonly TAP_TOKEN='AIRYMAX-TAP|'
 readonly CHAIN_MAX="${AIRYMAX_CHAIN_LINES:-24}"

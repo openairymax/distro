@@ -126,8 +126,9 @@ ci/run-image-ci.sh --out /out --iso-base /path/netinst.iso \
 同一观测点不设第二个判定者，`osaccrt_bootchain` 据此对账 `boot.service`。
 
 判定要求 TAP 计划末项与 `ok` 条数一致（当前 `1..31`）、无
-`not ok`/`Bail out!`/`# SKIP`、`# summary` 的 `fail=0`。会话内 runner 上限 180s，
-report 轮询上限 240s；由于转发先于结论标记，宿主机命中
+`not ok`/`Bail out!`/`# SKIP`、`# summary` 的 `fail=0`。会话内 runner 上限 600s，
+report 轮询上限 660s，单元 `TimeoutStartSec=720`（三者必须保持
+`LIMIT < WAIT < unit` 的次序：任一环放宽都要同步其外环）；由于转发先于结论标记，宿主机命中
 `AIRYMAX-SMOKE-PASS` 时 TAP 全文已在串口，`image-ci.yml` 的
 "Extract smoke TAP" 步骤据此还原 `smoke-<fw>-<n>.tap`
 （验收发行方案 §9.3 的 L3 归档证据）。`AIRYMAX-SMOKE-FAIL` 已进入

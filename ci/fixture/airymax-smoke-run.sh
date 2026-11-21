@@ -16,7 +16,14 @@ set -uo pipefail
 readonly CI_DIR=/usr/lib/airymaxos/ci
 readonly LOG_DIR=/var/log/airymax
 readonly TAP="${LOG_DIR}/smoke.tap"
-readonly LIMIT=180
+# 会话内 runner 的硬上限。run-smoke.sh 的每个探针各自有界，但项数多，
+# 逐项等待会叠加：aarch64 TCG 上仅 T1（会话建立）一项就约 185s。180s 的
+# 全局上限会在合法等待中杀掉 runner，TAP 只剩 T1 与 Bail out! smoke
+# timeout，报告侧据此判负——这是观测器的缺陷，不是产品缺陷。
+# 600s 是逐项界之和的余量；它与 airymax-smoke-report.sh 的轮询上限
+# （660s）和单元的 TimeoutStartSec（720s）成对改动，顺序为
+# LIMIT < WAIT < unit，任一处放宽都要同步后面两处。
+readonly LIMIT="${AIRYMAX_SMOKE_LIMIT:-600}"
 
 write_tap()
 {
