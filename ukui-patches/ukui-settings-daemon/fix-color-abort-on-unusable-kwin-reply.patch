@@ -1,18 +1,30 @@
 --- a/plugins/color/color-manager.cpp
 +++ b/plugins/color/color-manager.cpp
-@@ -21,6 +21,7 @@
+@@ -21,6 +21,8 @@
  #include <QTime>
  #include <QDBusInterface>
  #include <QDBusArgument>
++#include <QDebug>
 +#include <QStringList>
  #include <color-info.h>
  
  #include "color-manager.h"
-@@ -404,39 +405,59 @@
+@@ -385,6 +387,7 @@
+ */
+ bool ColorManager::ReadKwinColorTempConfig()
+ {
++    qWarning("airy diag: night color read begin");
+     QVector<ColorInfo> nightColor;
+     if (settings->keys().contains(HAD_READ_KWIN)) {
+         if (settings->get(HAD_READ_KWIN).toBool() == true) {
+@@ -402,42 +405,76 @@
                              QDBusConnection::sessionBus());
  
      QDBusMessage result = colorIft.call("nightColorInfo");
 -    const QDBusArgument &dbusArgs = result.arguments().at(0).value<QDBusArgument>().asVariant().value<QDBusArgument>();
++    qWarning("airy diag: reply type=%d sig='%s' args=%d",
++             int(result.type()), qPrintable(result.signature()),
++             int(result.arguments().size()));
 +    if (QDBusMessage::ReplyMessage != result.type() || result.arguments().isEmpty()) {
 +        USD_LOG(LOG_DEBUG,"kwin color correct unavailable, keep local night config");
 +        return false;
@@ -25,7 +37,12 @@
          ColorInfo color;
          dbusArgs >> color;
 -        nightColor.push_back(color);
-+        if (color.out.variant().isValid()) {
++        const QVariant value = color.out.variant();
++        qWarning("airy diag: key='%s' vt=%d type='%s' valid=%d",
++                 qPrintable(color.arg), int(value.userType()),
++                 value.typeName() ? value.typeName() : "?",
++                 int(value.isValid()));
++        if (value.isValid()) {
 +            nightColor.push_back(color);
 +        }
      }
@@ -36,10 +53,8 @@
 +    QHash<QString, QVariant> kwinConf;
 +    for (const ColorInfo &it : nightColor) {
 +        kwinConf.insert(it.arg, it.out.variant());
-     }
- 
--    settings->set(COLOR_KEY_TEMPERATURE, mNightConfig[KWIN_NIGHT_TEMP].toInt());
--    settings->set(COLOR_KEY_ENABLED,mNightConfig[KWIN_COLOR_ACTIVE].toBool());
++    }
++
 +    const QStringList required = {KWIN_COLOR_ACTIVE, KWIN_COLOR_MODE,
 +                                  KWIN_NIGHT_TEMP, KWIN_CURRENT_TEMP,
 +                                  KWIN_COLOR_START, KWIN_COLOR_END};
@@ -48,14 +63,16 @@
 +            USD_LOG(LOG_DEBUG,"kwin night color reply lacks %s", qPrintable(key));
 +            return false;
 +        }
-+    }
-+
+     }
+ 
+-    settings->set(COLOR_KEY_TEMPERATURE, mNightConfig[KWIN_NIGHT_TEMP].toInt());
+-    settings->set(COLOR_KEY_ENABLED,mNightConfig[KWIN_COLOR_ACTIVE].toBool());
 +    mNightConfig = kwinConf;
-+
-+    settings->set(COLOR_KEY_TEMPERATURE, mNightConfig.value(KWIN_NIGHT_TEMP).toInt());
-+    settings->set(COLOR_KEY_ENABLED,mNightConfig.value(KWIN_COLOR_ACTIVE).toBool());
  
 -    if (3 == mNightConfig[KWIN_COLOR_MODE].toInt()) {
++    settings->set(COLOR_KEY_TEMPERATURE, mNightConfig.value(KWIN_NIGHT_TEMP).toInt());
++    settings->set(COLOR_KEY_ENABLED,mNightConfig.value(KWIN_COLOR_ACTIVE).toBool());
++
 +    if (3 == mNightConfig.value(KWIN_COLOR_MODE).toInt()) {
          settings->set(COLOR_KEY_ALLDAY, true);
 -    } else if (2 == mNightConfig[KWIN_COLOR_MODE].toInt() && mNightConfig[KWIN_COLOR_START].toString() == "17:55:01"){
@@ -82,3 +99,12 @@
  
      settings->set(HAD_READ_KWIN,true);
      mNightConfig[KWIN_COLOR_ACTIVE] = false;
++    qWarning("airy diag: conf size=%d", int(mNightConfig.size()));
++    for (auto di = mNightConfig.constBegin(); di != mNightConfig.constEnd(); ++di) {
++        qWarning("airy diag: conf '%s' vt=%d valid=%d",
++                 qPrintable(di.key()), int(di.value().userType()),
++                 int(di.value().isValid()));
++    }
+     colorIft.call("setNightColorConfig", mNightConfig);
+ 
+     mNightConfig[KWIN_NIGHT_TEMP] = mNightConfig[KWIN_CURRENT_TEMP];

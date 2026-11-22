@@ -11,7 +11,7 @@
 # 事实源：tarball 不入库，source-rpm 声明用官方 src.rpm 的摘要传递性钉住
 # 成员内容；补丁随本目录入库，逐字节可复算。
 #
-# Release 保留上游 9 并追加 .airy1：9.oe2403sp3.airy1 高于
+# Release 保留上游 9 并追加 .airy2：9.oe2403sp3.airy2 高于
 # 9.oe2403sp3，装回官方包不会因 EVR 相同而静默覆盖下游补丁。
 #
 # License 沿用上游 spec 的复合声明：源码树内 GPL-2.0-or-later、
@@ -22,7 +22,7 @@
 
 Name:           ukui-settings-daemon
 Version:        3.1.2
-Release:        9%{?dist}.airy1
+Release:        9%{?dist}.airy2
 Summary:        daemon handling the UKUI session settings
 License:        GPL-2.0-or-later and GPL-3.0-or-later and LGPL-2.0-or-later
 URL:            http://www.ukui.org
@@ -153,6 +153,9 @@ glib-compile-schemas /usr/share/glib-2.0/schemas/ &> /dev/null || :
 %{_datadir}/man/*
 
 %changelog
+* Sat Nov 22 2026 Liren Wang <wangliren@spharx.cn> - 3.1.2-9.airy2
+- Patch300: log KWin reply signature and per-key variant types
+
 * Sat Nov 21 2026 Liren Wang <wangliren@spharx.cn> - 3.1.2-9.airy1
 - Add Patch300: validate KWin night-color reply before marshalling a{sv}
 

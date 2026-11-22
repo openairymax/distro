@@ -55,7 +55,12 @@ The overall signature expected here was 'a{sv}' and we are on byte 3 of that sig
 | 上游 src.rpm | `https://repo.openeuler.org/openEuler-24.03-LTS-SP3/EPOL/main/source/Packages/ukui-settings-daemon-3.1.2-9.oe2403sp3.src.rpm` |
 | src.rpm SHA-256 | `537bae0b0ae8b78c5ef545831078db2ea222eefebb6104aa4ea1ec86f0068583` |
 | 上游 EVR | `3.1.2-9.oe2403sp3` |
-| 本目录 EVR | `3.1.2-9.oe2403sp3.airy1` |
+| 本目录 EVR | `3.1.2-9.oe2403sp3.airy2` |
+
+`airy2` 在 `ReadKwinColorTempConfig()` 里加了 `qWarning` 诊断行（前缀
+`airy diag:`）：进入函数、应答类型与签名、逐键的 variant 类型与有效性、
+回写前 `mNightConfig` 的键数。它们只用于判定镜像内的包是否携带本补丁，
+以及崩溃时毒值的真实类型，不改变任何判据；定位完成后随时间线一并移除。
 
 tarball 不入库：配方用 `source-rpm` 声明官方 src.rpm 的摘要，构建驱动
 下载、校验后从中取出 `ukui-settings-daemon-3.1.2.tar.gz`。
