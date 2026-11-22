@@ -176,7 +176,7 @@ rm -rf $RPM_BUILD_ROOT
 
 
 %changelog
-* Sun Nov 09 2026 Liren Wang <wangliren@spharx.cn> - 3.1.2-33.airy1
+* Sun Nov 09 2026 Liren Wang <wangliren@spharx.cn> - 3.1.2-33.oe2403sp3.airy1
 - Add Patch300: desktop row reads /etc/airymaxos/desktop-version
 
 * Thu Aug 15 2024 huayadong <huayadong@kylinos.cn> - 3.1.2-33

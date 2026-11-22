@@ -155,10 +155,10 @@ glib-compile-schemas /usr/share/glib-2.0/schemas/ &> /dev/null || :
 %{_datadir}/man/*
 
 %changelog
-* Sat Nov 22 2026 Liren Wang <wangliren@spharx.cn> - 3.1.2-9.airy2
+* Sat Nov 22 2026 Liren Wang <wangliren@spharx.cn> - 3.1.2-9.oe2403sp3.airy2
 - Patch300: log KWin reply signature and per-key variant types
 
-* Sat Nov 21 2026 Liren Wang <wangliren@spharx.cn> - 3.1.2-9.airy1
+* Sat Nov 21 2026 Liren Wang <wangliren@spharx.cn> - 3.1.2-9.oe2403sp3.airy1
 - Add Patch300: validate KWin night-color reply before marshalling a{sv}
 
 * Wed Aug 16 2023 peijiankang <peijiankang@kylinos.cn> - 3.1.2-9
