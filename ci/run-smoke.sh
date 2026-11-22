@@ -906,11 +906,21 @@ t11_facts() {
 # 只是文件名不同）。
 t11_loader() {
     local -a shims=()
-    local sfx
+    local sfx name
 
-    shopt -s nullglob
-    shims=("$1"/shim*.efi)
-    shopt -u nullglob
+    if [ -r "$1" ]; then
+        shopt -s nullglob
+        shims=("$1"/shim*.efi)
+        shopt -u nullglob
+    else
+        # ESP 目录按 umask=077 挂载为 root 独占，交付账户列不出内容，glob
+        # 恒为空；此时经 sudo -n 取同一集合，判定口径仍是「有且仅有一套
+        # shim」（run 44911662647 三条 UEFI 腿即因 glob 不可读而误判）。
+        while IFS= read -r name; do
+            [ -n "${name}" ] && shims+=("$1/${name}")
+        done < <(sudo -n ls -1 "$1" 2>/dev/null |
+            sed -n '/^shim[[:alnum:]]*\.efi$/p')
+    fi
     [ "${#shims[@]}" -eq 1 ] || return 1
     tl_shim=${shims[0]##*/}
     sfx=${tl_shim#shim}
