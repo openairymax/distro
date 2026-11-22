@@ -22,6 +22,9 @@
 #      组件按上游包名不带 ukui 前缀，只按命名空间过滤会漏判；
 #   4. 冻结输入覆盖默认安装集的同一闭包，且只含 present 项；
 #   5. 取证册逐字包含全部 present NVRA，并保留 4.24 取舍与复算命令。
+#   6. 重建配方（ukui-patches/*/*.spec）与台账同源：Version 相等，
+#      Release 必须是「台账 release + .airyN」且不含 % 宏——构建容器不定义
+#      dist，%{?dist} 会折叠成更低 EVR，求解器改用上游未打补丁的包。
 # ===========================================================================
 
 import argparse
@@ -45,6 +48,8 @@ GONE = ("ukui-shell",)
 STATES = ("present", "available", "absent")
 NVRA = re.compile(r"^(.+)-0:([^-]+)-([^-]+)\.(x86_64|noarch)$")
 RELEASE = re.compile(r"^openEuler-(\d+)\.(\d+)-LTS-SP(\d+)$")
+SPEC_TAG = re.compile(r"^(Name|Version|Release):\s*(\S+)\s*$")
+SPEC_TAGS = ("Name", "Version", "Release")
 
 
 def say(msg):
@@ -236,6 +241,42 @@ def check_desktop(root, led, out):
             % (hit.group(2), want))
 
 
+def read_spec(path):
+    """配方前置段的 Name/Version/Release；遇到第一个 % 段即停。"""
+    tags = {}
+    for line in Path(path).read_text(encoding="utf-8").splitlines():
+        if line.startswith("%"):
+            break
+        hit = SPEC_TAG.match(line)
+        if hit:
+            tags.setdefault(hit.group(1), hit.group(2))
+    return tuple(tags.get(key, "") for key in SPEC_TAGS)
+
+
+def nvra_parts(nvra):
+    """台账 NVRA 的 (version, release)；不合正则时返回空串二元组。"""
+    hit = NVRA.match(nvra)
+    return (hit.group(2), hit.group(3)) if hit else ("", "")
+
+
+def check_rebuild(root, pres, out):
+    """重建配方必须与台账同源，Release 不得依赖不存在的 dist 宏。"""
+    ledger = {c.get("name"): nvra_parts(c.get("nvra", "")) for c in pres}
+    dirs = Path(root) / "distro/ukui-patches"
+    for path in sorted(dirs.glob("*/*.spec")):
+        name, ver, rel = read_spec(path)
+        if name not in ledger:
+            bad(out, "ukui/phantom", "%s 不在台账 present 项" % name)
+            continue
+        lver, lrel = ledger[name]
+        if ver != lver:
+            bad(out, "ukui/version", "%s Version=%s != 台账 %s"
+                % (name, ver, lver))
+        if "%" in rel or not re.fullmatch(re.escape(lrel) + r"\.airy\d+", rel):
+            bad(out, "ukui/release", "%s Release=%s 应为 %s.airyN"
+                % (name, rel, lrel))
+
+
 def check_docs(docs, pres, out):
     delta = Path(docs) / "ukui-delta.md"
     feas = Path(docs) / "ukui-424-feasibility.md"
@@ -282,6 +323,7 @@ def survey(root, path, base, out):
     check_items(led, base, out)
     check_desktop(root, led, out)
     pres = present_of(led)
+    check_rebuild(root, pres, out)
     names = {c.get("name") for c in pres}
     try:
         groups, xroot = read_comps(

@@ -8,7 +8,7 @@
 | 包 | 原因 | 适用 EVR |
 |----|------|----------|
 | `ukui-control-center` | 关于页的「桌面」硬编码为 `UKUI`，无法显示桌面版本 | 3.1.2-33.oe2403sp3.airy1 |
-| `ukui-settings-daemon` | 启动时 KWin 夜览应答不可用会让色彩插件 SIGABRT，会话反复重启 | 3.1.2-9.oe2403sp3.airy1 |
+| `ukui-settings-daemon` | 启动时 KWin 夜览应答不可用会让色彩插件 SIGABRT，会话反复重启 | 3.1.2-9.oe2403sp3.airy2 |
 
 ## 何时允许出现补丁
 

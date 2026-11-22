@@ -10,8 +10,10 @@
 # 事实源：tarball 不入库，source-rpm 声明用官方 src.rpm 的摘要传递性钉住
 # 成员内容；补丁随本目录入库，逐字节可复算。
 #
-# Release 保留上游 33 并追加 .airy1：33.oe2403sp3.airy1 高于
-# 33.oe2403sp3，装回官方包不会因 EVR 相同而静默覆盖下游补丁。
+# Release 必须写全基底的发行标记（33.oe2403sp3.airy1），不能用
+# %{?dist}：构建容器不定义 dist 宏，该写法会折叠成 33.airy1，在 RPM 的
+# EVR 比较里低于基底 33.oe2403sp3（'a' < 'o'），求解器会选上游未打补丁
+# 的包，补丁静默丢失。写全后既高于基底，也不会与基底同 EVR。
 #
 # License 写 GPL-2.0-or-later：上游文件头声明 GPL-2+，SPDX 无此写法。
 # ===========================================================================
@@ -20,7 +22,7 @@
 
 Name:           ukui-control-center
 Version:        3.1.2
-Release:        33%{?dist}.airy1
+Release:        33.oe2403sp3.airy1
 Summary:        utilities to configure the UKUI desktop
 License:        GPL-2.0-or-later
 URL:            http://www.ukui.org
