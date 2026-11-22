@@ -15,6 +15,7 @@
 
 import gzip
 import hashlib
+import os
 import shutil
 import subprocess
 import sys
@@ -27,6 +28,7 @@ import fakes
 
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "build-desktop.sh"
 DISTRO = SCRIPT.parent.parent
+LIB = DISTRO / "scripts" / "lib" / "closure.sh"
 BASH = shutil.which("bash") or "/bin/bash"
 KS = DISTRO / "kickstart" / "airymaxos-workstation.ks"
 COMPS = DISTRO / "comps" / "airymaxos-comps.xml"
@@ -351,6 +353,29 @@ class BuildDesktopTest(unittest.TestCase):
                     "payload-manifest.txt").read_text(encoding="utf-8")
         self.assertIn(f"count={TOTAL}", manifest)
 
+    def test_closure_env_lock_replays(self):
+        """清单只经 CLOSURE_LOCK 环境变量传入时同样离线重放。
+
+        CI 由 ci/gates/assemble.sh 注入这一变量；驱动曾无条件用命令行值覆盖
+        它，清单因此被清空，每轮退回全量在线收割。
+        """
+        self.tools()
+        self.stock()
+        pool = self.root / "pool"
+        first = self.build("--arch", "x86_64", "--closure",
+                           CLOSURE_POOL=str(pool))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        lock = self.lock_of(self.payload_pkgs(), self.root / "closure.lock")
+        out = self.root / "envreplay"
+        out.mkdir()
+        res = self.build_into(out, "--arch", "x86_64", "--closure",
+                              CLOSURE_LOCK=str(lock),
+                              CLOSURE_POOL=str(pool))
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("离线重放命中", res.stdout, res.stderr)
+        log = (out / "logs" / "closure.log").read_text(encoding="utf-8")
+        self.assertNotIn("求解尝试", log)
+
     def test_closure_lock_gap_falls_back(self):
         """池缺一项就回落在线求解：带病的重放比慢一轮危险得多。"""
         self.tools()
@@ -661,6 +686,53 @@ class BuildDesktopTest(unittest.TestCase):
         res = self.build("--arch", "x86_64", "--add", str(extra))
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertIn(b"=== /extra.txt", fakes.iso_payload(self.iso()))
+
+
+class ClosureSlowTest(unittest.TestCase):
+    """cl_slow 的换根判据：尾段放行，爬行的根仍被淘汰。
+
+    判据从「窗口速率低于下限」改为「剩余量按观测吞吐无法在 CL_ETA 内写完」，
+    因为前者会把已完成大半、只剩尾段的大闭包判成慢根并换掉。
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.log = self.root / "dnf.log"
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def slow(self, mark, rate, log_text, **extra):
+        self.log.write_text(log_text, encoding="utf-8")
+        script = ('. "$1"; shift; '
+                  'cl_slow "$DNF_LOG" 300 "$1" 180 0 "$2" && echo slow '
+                  '|| echo keep')
+        env = dict(os.environ, DNF_LOG=str(self.log), **extra)
+        return subprocess.run(
+            [BASH, "-c", script, "bash", str(LIB), str(mark), str(rate)],
+            capture_output=True, text=True, env=env)
+
+    def test_tail_of_big_closure_is_kept(self):
+        """1.6 G 事务只剩 400 MiB，百 KiB/s 的尾段不该换根。"""
+        res = self.slow(1200 * 1024 * 1024, 103,
+                        "Total download size: 1.6 G\n")
+        self.assertEqual(res.stdout.strip(), "keep", res.stderr)
+
+    def test_creeping_root_is_dropped(self):
+        """2.5 G 事务只下了 53 MiB，29 KiB/s 无法收尾。"""
+        res = self.slow(53 * 1024 * 1024, 29,
+                        "Total download size: 2.5 G\n")
+        self.assertEqual(res.stdout.strip(), "slow", res.stderr)
+
+    def test_total_absent_falls_back_to_average(self):
+        """读不到总量时按累计速率判定：8 KiB/s 的根仍被淘汰。"""
+        res = self.slow(1024 * 1024, 8, "")
+        self.assertEqual(res.stdout.strip(), "slow", res.stderr)
+
+    def test_total_absent_fast_root_passes(self):
+        res = self.slow(100 * 1024 * 1024, 853, "")
+        self.assertEqual(res.stdout.strip(), "keep", res.stderr)
 
 
 if __name__ == "__main__":

@@ -49,8 +49,8 @@
 # 某个根上的求解失败，整段事务换下一个根重来，上一个根已下的包一并丢弃，
 # 避免两个快照的 NEVRA 混进同一份载荷。实际使用的根写入工作目录，使
 # 「这份载荷来自哪个快照」事后可查。换根不只在失败时发生：镜像站限速而
-# 传输仍在推进时，静默判据永远不会触发，因此另设窗口速率下限，低于下限
-# 同样换根（CLOSURE_FLOOR，见 cl_watch）。
+# 传输仍在推进时，静默判据永远不会触发，因此另设收尾时间上限，按剩余量与
+# 实测吞吐估计无法在时限内完成时同样换根（CLOSURE_ETA，见 cl_watch）。
 #
 # 先试哪个根不再取决于镜像表的书写顺序：求解前用 tools/mirror_probe.py 对
 # 每个根做一次定长抽样，按实测吞吐降序排列（cl_probe）。行序是人工维护的，
@@ -128,6 +128,10 @@ readonly CL_BEAT="${CLOSURE_BEAT:-30}"
 readonly CL_STALL="${CLOSURE_STALL:-600}"
 readonly CL_FAST="${CLOSURE_FAST:-60}"
 readonly CL_FLOOR="${CLOSURE_FLOOR:-524288}"
+# 收尾时间上限与尾段阈值：剩余量不超过 CL_TAIL 时不再按速率换根，否则
+# 按「剩余 ÷ 观测速率」估计，超过 CL_ETA 秒才判慢（见 cl_slow）。
+readonly CL_ETA="${CLOSURE_ETA:-2700}"
+readonly CL_TAIL="${CLOSURE_TAIL:-536870912}"
 readonly CL_WARM="${CLOSURE_WARMUP:-180}"
 readonly CL_SAMPLE="${CLOSURE_SAMPLE:-120}"
 readonly CL_POOL="${CLOSURE_POOL:-}"
@@ -493,16 +497,25 @@ cl_arch()
     return 1
 }
 
+# cl_run WORK ARCH PKG LOG [BG] —— 执行一次 dnf 事务。BG=1 表示调用者以 &
+# 后台启动：此时必须让本函数 exec 成 dnf，使 $! 就是 dnf 本身。留在子
+# shell 里跑 dnf 时 cl_kill 只终止子 shell，dnf 成为孤儿继续持 installroot
+# 锁，后续根全部排在同一把锁上（run 45032498149：换根后 7 个根依次 0 字节
+# 被下限判掉），且终止后仍向已删除的下载目录写入，把上一轮的字节约混进
+# 下一轮快照。前台调用（离线重放）不能用 exec：那会把整个构建进程换掉。
 cl_run()
 {
-    local work="$1" arch="$2" pkg="$3" log="$4"
+    local work="$1" arch="$2" pkg="$3" log="$4" bg="${5:-0}"
+    local -a cmd=(dnf -y install --downloadonly --downloaddir="${work}/dl"
+        --installroot="${work}/root" --releasever="$CL_VER"
+        --forcearch="$arch" --setopt="reposdir=${work}/repos"
+        "${CL_DNF_OPTS[@]}" ${CL_XOPTS[@]+"${CL_XOPTS[@]}"} --nogpgcheck
+        --repofrompath="airymax-local,${pkg}" "${CL_ARGS[@]}")
     mkdir -p "${work}/root" "${work}/dl" "${work}/repos"
-    dnf -y install --downloadonly --downloaddir="${work}/dl" \
-        --installroot="${work}/root" --releasever="$CL_VER" \
-        --forcearch="$arch" --setopt="reposdir=${work}/repos" \
-        "${CL_DNF_OPTS[@]}" ${CL_XOPTS[@]+"${CL_XOPTS[@]}"} --nogpgcheck \
-        --repofrompath="airymax-local,${pkg}" \
-        "${CL_ARGS[@]}" >>"$log" 2>&1
+    if [ "$bg" -eq 1 ]; then
+        exec "${cmd[@]}" >>"$log" 2>&1
+    fi
+    "${cmd[@]}" >>"$log" 2>&1
 }
 
 cl_dlstat()
@@ -538,6 +551,50 @@ cl_kill()
     return 0
 }
 
+# 期望下载总量（字节）：dnf 求解后打印的 "Total download size: 1.6 G"。
+# 取最后一行——每次求解尝试都会重印。取不到（措辞变化、求解未完成、事务
+# 全由池提供）时返回非 0，速率判据退回累计速率。单位按 1024 进；行内只有
+# 裸数字时按字节计。
+cl_total()
+{
+    awk '
+        /^Total download size:/ {
+            v = $(NF - 1); u = $NF
+            if (u ~ /^[0-9]+$/) { v = u; u = "B" }
+            m = (u == "T" || u == "t") ? 1099511627776 : \
+                (u == "G" || u == "g") ? 1073741824 : \
+                (u == "M" || u == "m") ? 1048576 : \
+                (u == "k" || u == "K") ? 1024 : \
+                (u == "B" || u == "b") ? 1 : 0
+            total = (m > 0 && v ~ /^[0-9.]+$/) ? v * m : 0
+        }
+        END { if (total > 0) printf "%.0f\n", total; else exit 1 }
+    ' "$1" 2>/dev/null
+}
+
+# 速率判据：只有按观测吞吐无法在 CL_ETA 秒内写完剩余量时才换根。
+# 窗口速率会被大文件的尾段误伤：前几分钟已下完绝大部分字节，最后几包在
+# 镜像限速下只有百 KiB/s，按窗口下限判死等于把已完成 79% 的快根换掉，
+# 而换根后要从另一个快照重新求解、重新下载（run 45032498149：x86 根已下
+# 1269 MiB / 1.6 G，尾段 177 KiB/s 被窗口下限判掉）。剩余量不超过
+# CL_TAIL 时直接放行，交给静默判据与 step 时限兜底。
+# 读不到总量时退回「自预热起的累计速率」：29 KiB/s 的根仍在预热后一个
+# 采样窗口内被淘汰，不会回到三十小时的爬行。
+cl_slow()
+{
+    local log="$1" el="$2" mark="$3" tbase="$4" sbase="$5" rate="$6"
+    local total left
+    if total="$(cl_total "$log")"; then
+        left=$(( total - mark ))
+        [ "$left" -gt 0 ] || return 1
+        [ "$left" -gt "$CL_TAIL" ] || return 1
+        [ "$rate" -gt 0 ] || return 1
+        [ $(( left / 1024 / rate )) -gt "$CL_ETA" ]
+    fi
+    [ $(( (mark - sbase) / 1024 / (el - tbase) )) -lt \
+        "$(( CL_FLOOR / 1024 ))" ]
+}
+
 # 子进程存活期间每 CL_BEAT 秒报一行落盘量，并在连续 CL_STALL 秒没有任何
 # 字节落盘时判定为挂死：节拍只让静默可见，处置仍需有人做，否则整段构建
 # 只能等 job 上限被强制取消（run 40839355885、40850633573 各沉默 80 分钟，
@@ -547,18 +604,17 @@ cl_kill()
 # 只写缓存，只盯 .rpm 个数会把正常的元数据阶段误判成挂死。轮询粒度固定
 # 1 秒，子进程退出后不会多等一个节拍。
 #
-# 除了「没有落盘」，这里还设速率下限：镜像限速时传输仍在推进，静默判据
-# 永远不会触发，整段却要跑几十小时（run 41023530128：2.5 GB 闭包以
+# 除了「没有落盘」，这里还设收尾时间上限：镜像限速时传输仍在推进，静默
+# 判据永远不会触发，整段却要跑几十小时（run 41023530128：2.5 GB 闭包以
 # 29 KiB/s 爬了 30 分钟只到 53 MiB，最后撞上 step 时限）。预热 CL_WARM 秒
-# 后，每 CL_SAMPLE 秒重算一次窗口速率，低于 CL_FLOOR 即换下一个镜像根——
-# 快照之间是等价关系，慢根没有坚持的理由。
+# 后，每 CL_SAMPLE 秒按 cl_slow 复核一次，判慢即换下一个镜像根——快照
+# 之间是等价关系，慢根没有坚持的理由。
 cl_watch()
 {
-    local work="$1" pid="$2" t0="$3"
+    local work="$1" pid="$2" t0="$3" log="$4"
     local dl="${work}/dl" cache="${work}/root/var/cache/dnf"
     local next=0 el n=0 s=0 mark prev="" quiet=0
-    local sbase=0 tbase=0 rate=0 floor bmark=0 bt=0
-    floor=$(( CL_FLOOR / 1024 ))
+    local sbase=0 tbase=0 rate=0 bmark=0 bt=0
     while kill -0 "$pid" 2>/dev/null; do
         sleep 1
         el=$(( $(date +%s) - t0 ))
@@ -581,9 +637,9 @@ cl_watch()
         if [ "$tbase" -gt 0 ] &&
             [ $(( el - tbase )) -ge "$CL_SAMPLE" ]; then
             rate=$(( (mark - sbase) / 1024 / (el - tbase) ))
-            if [ "$rate" -lt "$floor" ]; then
-                printf 'closure: 镜像根速率 %sKiB/s 低于下限 %sKiB/s（观测 %ss），换根\n' \
-                    "$rate" "$floor" "$(( el - tbase ))" >&2
+            if cl_slow "$log" "$el" "$mark" "$tbase" "$sbase" "$rate"; then
+                printf 'closure: 镜像根 %sKiB/s 无法在 %s 秒内收尾（观测 %ss），换根\n' \
+                    "$rate" "$CL_ETA" "$(( el - tbase ))" >&2
                 cl_kill "$pid"
                 CL_SLOW=1
                 return 0
@@ -696,8 +752,8 @@ cl_try()
     return 1
 }
 
-# 单根内的事务级重试：成功即返回 0；确定性故障（致命失败、速率低于下限、
-# 求解挂死）只试一次，交给调用方换根，不在同一快照上空耗。
+# 单根内的事务级重试：成功即返回 0；确定性故障（致命失败、无法在时限内
+# 收尾、求解挂死）只试一次，交给调用方换根，不在同一快照上空耗。
 cl_root()
 {
     local work="$1" arch="$2" pkg="$3" log="$4" label="$5"
@@ -706,9 +762,9 @@ cl_root()
         printf '\n## 求解尝试 %d 镜像根=%s\n' "$n" "$label" >>"$log"
         t0="$(date +%s)"
         mkdir -p "${work}/dl"
-        cl_run "$work" "$arch" "$pkg" "$log" &
+        cl_run "$work" "$arch" "$pkg" "$log" 1 &
         pid=$!
-        cl_watch "$work" "$pid" "$t0"
+        cl_watch "$work" "$pid" "$t0" "$log"
         wait "$pid" && rc=0 || rc=$?
         [ "$rc" -eq 0 ] && return 0
         # 未完成也把已校验的包收进缓存池：下一轮只在池外补缺，
@@ -735,7 +791,7 @@ cl_stop()
     fi
     if [ "$CL_SLOW" -eq 1 ]; then
         CL_SLOW=0
-        printf 'closure: 镜像根 %s 速率低于下限，跳过重试换下一个根\n' \
+        printf 'closure: 镜像根 %s 无法在时限内收尾，跳过重试换下一个根\n' \
             "$label" >&2
         return 0
     fi
