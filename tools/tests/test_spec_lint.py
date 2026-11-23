@@ -206,6 +206,25 @@ class SpecLintTest(unittest.TestCase):
             "x\n", encoding="utf-8")
         self.assertIn("E010", self.codes(text))
 
+    def test_partial_tree_skips_existence(self):
+        """组装链只取部分子模块：目录缺席不判，引用关系照判。"""
+        text = (VALID.replace("Source0:        demo.conf",
+                              "# spec-lint: source-bundle demo-pkg\n"
+                              "Source0:        demo-pkg-%{version}.tar.gz"))
+        self.write(text)
+        issues = spec_lint.lint_spec(self.spec, self.root, tree=False)
+        self.assertEqual([item.code for item in issues], [])
+        self.assertIn("E010", self.codes())
+
+    def test_partial_tree_keeps_unsourced(self):
+        """跳过存在性不等于放过引用关系：无 Source 引用仍判红。"""
+        text = self.bundler().replace(
+            "Source0:        demo-pkg-%{version}.tar.gz",
+            "Source0:        demo.conf")
+        self.write(text)
+        issues = spec_lint.lint_spec(self.spec, self.root, tree=False)
+        self.assertEqual([item.code for item in issues], ["E010"])
+
     def url_line(self, url="https://example.invalid/demo.conf",
                  digest="0" * 64):
         return f"# spec-lint: source-url demo.conf {url} {digest}\n"
