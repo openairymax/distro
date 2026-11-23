@@ -428,6 +428,18 @@ if ! /usr/bin/airy-locale check --conf /etc/locale.conf --require-generated \
     airy_fail INSTALL locale
 fi
 airy_out "AIRYMAX-LOCALE-CHECK-OK p0=2"
+#    编码策略判据：配置说明「允许什么」，check 用同一个判定器回答「配置与
+#    工具是否一致、工具能否读默认配置」。两者任一缺失都在装机阶段暴露。
+cs_log=/var/log/airymaxos/charset.log
+if ! /usr/bin/airy-charset show --conf /etc/agentrt/charset.conf \
+    >"${cs_log}" 2>&1 ||
+    ! /usr/bin/airy-charset check /etc/locale.conf >>"${cs_log}" 2>&1; then
+    while IFS= read -r cs_msg; do
+        airy_out "AIRYMAX-CHARSET-FAIL ${cs_msg}"
+    done <"${cs_log}"
+    airy_fail INSTALL charset
+fi
+airy_out "AIRYMAX-CHARSET-CHECK-OK enc=UTF-8"
 #    控制台字体：判据与写入在 airymaxos-release 提供的 console-font.sh 一处，
 #    包 %post 也调用它。但新装机时那次跑在包事务里，之后 anaconda 才按
 #    kickstart 的 keyboard 指令重写 /etc/vconsole.conf，FONT 被覆盖回默认
