@@ -106,6 +106,9 @@ airymaxos-release
 # 因此走同一条布局判读代码路径；单元启用边界由 preset 唯一决定，安装段
 # 不启用任何 agentrt 单元。
 airymaxos-system
+# 语言包：最小剖面只落 P0 两条（en_US/zh_CN），与 airy-locale 矩阵一致。
+glibc-langpack-en
+glibc-langpack-zh
 
 # 内核与发行版标识唯一（与工作站剖面同口径）：上游包组携带上游 kernel /
 # kernel-tools 与两个 openEuler-release 包，必须显式排除（K017 强制）。

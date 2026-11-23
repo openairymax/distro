@@ -241,6 +241,13 @@ plymouth
 # 缺它时 core 只剩地址，桌面崩溃在串口上只有寄存器快照，无法判断停在
 # 哪一个函数；带上它，「卡住时知道停在哪」才在实机上成立。
 elfutils
+# 语言包：locale 矩阵 P0 为 en_US/zh_CN，P1 为 ja_JP/ko_KR。语言包只提供
+# 数据，不含判据；生成结果在 %post 由 airy-locale check --require-generated
+# 判定，缺哪一条就在装机段点名，不留到用户切界面时才发现。
+glibc-langpack-en
+glibc-langpack-zh
+glibc-langpack-ja
+glibc-langpack-ko
 
 # 内核与发行版标识唯一：上游包组（@core 及其派生）携带 kernel、
 # kernel-tools、openEuler-release 与 openEuler-latest-release，这些包与
@@ -408,6 +415,19 @@ rpm -q airymaxos-release >/dev/null 2>&1 || airy_fail INSTALL release-pkg
 #    最终值——不依赖 inst.lang 与 ks lang 的优先级实现细节。
 printf 'LANG=zh_CN.UTF-8\n' >/etc/locale.conf
 airy_out "AIRYMAX-LOCALE-OK lang=zh_CN.UTF-8"
+#    locale 落地判据：locale.conf 只说明「要什么」，/usr/lib/locale 才说明
+#    「有什么」。语言包缺失或矩阵与镜像不一致时在此处判负并打印缺失清单，
+#    而不是等用户切到中文界面才发现字形全空。
+loc_log=/var/log/airymaxos/locale.log
+mkdir -p /var/log/airymaxos
+if ! /usr/bin/airy-locale check --conf /etc/locale.conf --require-generated \
+    >"${loc_log}" 2>&1; then
+    while IFS= read -r loc_msg; do
+        airy_out "AIRYMAX-LOCALE-FAIL ${loc_msg}"
+    done <"${loc_log}"
+    airy_fail INSTALL locale
+fi
+airy_out "AIRYMAX-LOCALE-CHECK-OK p0=2"
 #    控制台字体：判据与写入在 airymaxos-release 提供的 console-font.sh 一处，
 #    包 %post 也调用它。但新装机时那次跑在包事务里，之后 anaconda 才按
 #    kickstart 的 keyboard 指令重写 /etc/vconsole.conf，FONT 被覆盖回默认

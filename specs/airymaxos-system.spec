@@ -93,6 +93,7 @@
 # spec-lint: source-bundle ../../system/services/airybright
 # spec-lint: source-bundle ../../system/services/airydeb
 # spec-lint: source-bundle ../../system/services/airypkg
+# spec-lint: source-bundle ../../system/services/airylocale
 # spec-lint: source-bundle ../../system/tui
 
 %global airy_version 0.0.5
@@ -191,6 +192,8 @@ Source79:       airy-session-state
 Source80:       airy-session-switch@.service
 Source81:       airy-session-cleanup.sh
 Source82:       tui-%{version}.tar.gz
+Source83:       airy-locale
+Source84:       airylocale-%{version}.tar.gz
 
 BuildRequires:  cargo
 BuildRequires:  gcc
@@ -327,6 +330,7 @@ install -m 0755 %{SOURCE40} %{buildroot}%{_bindir}/airy-probe
 install -m 0755 %{SOURCE57} %{buildroot}%{_bindir}/airy-bright
 install -m 0755 %{SOURCE65} %{buildroot}%{_bindir}/airy-deb
 install -m 0755 %{SOURCE70} %{buildroot}%{_bindir}/airy-pkg
+install -m 0755 %{SOURCE83} %{buildroot}%{_bindir}/airy-locale
 install -m 0755 airy-rt-lat %{buildroot}%{_bindir}/airy-rt-lat
 # 三条路径由单元 ExecStart 直接给出，缺一条就是开机降级；安装时不改名、
 # 不建软链，保持与单元文本逐字一致。
@@ -350,6 +354,7 @@ tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE48}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE58}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE66}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE71}
+tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE84}
 
 %check
 # 单元的 SuccessExitStatus 一行可以列多个码，断言的是「码集包含 N」而不是
@@ -411,6 +416,7 @@ test -x %{buildroot}%{_bindir}/airy-probe
 test -x %{buildroot}%{_bindir}/airy-bright
 test -x %{buildroot}%{_bindir}/airy-deb
 test -x %{buildroot}%{_bindir}/airy-pkg
+test -x %{buildroot}%{_bindir}/airy-locale
 test -x %{buildroot}%{_bindir}/airy-rt-lat
 PYTHONPATH=%{buildroot}%{python3_sitelib} python3 -B -c '
 import airydisk.cli
@@ -422,7 +428,11 @@ import airymax_probe.cli
 import airymax_observe.cli
 import airybright.cli
 import airydeb.cli
-import airypkg.cli'
+import airypkg.cli
+import airylocale.cli'
+PYTHONPATH=%{buildroot}%{python3_sitelib} python3 -B \
+    %{buildroot}%{_bindir}/airy-locale check --matrix-only |
+    grep -q 'AIRYMAX-LOCALE-CHECK ok locales=8 p0=2'
 PYTHONPATH=%{buildroot}%{python3_sitelib} python3 -B -m airymax_observe --help >/dev/null
 test -f %{buildroot}%{_unitdir}/agentrt.target
 test -f %{buildroot}%{_unitdir}/agentrt-firstboot.service
@@ -770,6 +780,7 @@ fi
 %{_bindir}/airy-bright
 %{_bindir}/airy-deb
 %{_bindir}/airy-pkg
+%{_bindir}/airy-locale
 %{_bindir}/airy-rt-lat
 %{_bindir}/boot-tui
 %{_bindir}/airy-session-pick
@@ -793,6 +804,7 @@ fi
 %{python3_sitelib}/airybright
 %{python3_sitelib}/airydeb
 %{python3_sitelib}/airypkg
+%{python3_sitelib}/airylocale
 
 %changelog
 * Thu Nov 19 2026 SPHARX <dev@spharx.com> - 0.0.5-1
