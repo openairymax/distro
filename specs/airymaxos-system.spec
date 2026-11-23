@@ -83,6 +83,7 @@
 # spec-lint: source-root ../../system/scripts
 # spec-lint: source-root ../../system/bin
 # spec-lint: source-root ../../distro/desktop
+# spec-lint: source-root ../../system/udev
 # spec-lint: source-bundle ../../system/services/airydisk
 # spec-lint: source-bundle ../../system/services/airyllm
 # spec-lint: source-bundle ../../system/services/airyupdate
@@ -97,6 +98,8 @@
 # spec-lint: source-bundle ../../system/services/airycharset
 # spec-lint: source-bundle ../../system/services/airylib
 # spec-lint: source-bundle ../../system/tui
+# spec-lint: source-bundle ../../services
+# spec-lint: source-bundle ../../kernel/include
 
 %global airy_version 0.0.5
 %global airy_release 1
@@ -199,8 +202,12 @@ Source84:       airylocale-%{version}.tar.gz
 Source85:       airy-charset
 Source86:       airycharset-%{version}.tar.gz
 Source87:       airylib-%{version}.tar.gz
+Source88:       services-%{version}.tar.gz
+Source89:       include-%{version}.tar.gz
+Source90:       60-airymax.rules
 
 BuildRequires:  cargo
+BuildRequires:  cmake
 BuildRequires:  gcc
 BuildRequires:  python3-devel
 BuildRequires:  rust
@@ -262,10 +269,20 @@ server and desktop profiles can opt out without editing the payload.
 %setup -q -c -T
 install -m 0644 %{SOURCE44} airy-rt-lat.c
 tar -xzf %{SOURCE82}
+# services 的 CMake 以 ../kernel/include/uapi 引用契约头，因此把 UAPI 归档
+# 还原到内核树相对位置，而不是把整棵内核源码塞进源码包。
+mkdir -p kernel
+tar -xzf %{SOURCE89} -C kernel
+tar -xzf %{SOURCE88}
 
 %build
 gcc %{optflags} -std=c11 -Wall -Wextra -Werror -o airy-rt-lat \
     airy-rt-lat.c -lpthread
+# 三个守护与单元同包交付；BUILD_TESTING=OFF 只编产物，单测在 CI 门禁里跑。
+cmake -S services -B services-build -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_TESTING=OFF
+cmake --build services-build -j "$(nproc 2>/dev/null || printf '1')" \
+    --target config_d logger_d macro_d
 # 会话入口与桌面共用同一份 TUI 工作区：按键判定、状态写入与渲染都在库里，
 # 三个入口只做进程边界。归档内 vendor/ 是唯一依赖来源，离线编译，构建机
 # 不访问 crates.io；CARGO_HOME 落进构建目录，避免写用户家目录。
@@ -368,6 +385,19 @@ tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE87}
 install -d -m 0755 %{buildroot}%{_sysconfdir}/agentrt
 install -m 0644 %{buildroot}%{python3_sitelib}/airycharset/charset.conf \
     %{buildroot}%{_sysconfdir}/agentrt/charset.conf
+# 守护二进制与单元在同一次安装事务里：单元 ExecStart 已经指向
+# /usr/sbin/*_d，二进制晚一个包交付就是开机 203/EXEC。设备规则同理——
+# 字符设备默认 0600 root:root，非 root 守护没有属组规则就打不开。
+install -d -m 0755 %{buildroot}%{_sbindir}
+install -m 0755 services-build/daemons/config_d/config_d \
+    services-build/daemons/logger_d/logger_d \
+    services-build/daemons/macro_d/macro_d %{buildroot}%{_sbindir}/
+install -m 0640 services/daemons/config_d/etc/agentrt.conf \
+    services/daemons/logger_d/etc/logger.conf \
+    services/daemons/macro_d/etc/macro-superv.conf \
+    %{buildroot}%{_sysconfdir}/agentrt/
+install -d -m 0755 %{buildroot}/usr/lib/udev/rules.d
+install -m 0644 %{SOURCE90} %{buildroot}/usr/lib/udev/rules.d/60-airymax.rules
 
 %check
 # 单元的 SuccessExitStatus 一行可以列多个码，断言的是「码集包含 N」而不是
@@ -432,6 +462,23 @@ test -x %{buildroot}%{_bindir}/airy-pkg
 test -x %{buildroot}%{_bindir}/airy-locale
 test -x %{buildroot}%{_bindir}/airy-charset
 test -x %{buildroot}%{_bindir}/airy-rt-lat
+# 守护二进制、出厂配置与设备规则必须一起落盘：单元只引用路径，三件缺
+# 任何一件都要等到开机才暴露，且症状是 inactive 而不是安装失败。
+for airy_daemon in config_d logger_d macro_d; do
+    airy_dbin="%{buildroot}%{_sbindir}/${airy_daemon}"
+    test -x "${airy_dbin}"
+    test ! -L "${airy_dbin}"
+    test "$(od -An -tx1 -N4 "${airy_dbin}" | tr -d ' \n')" = 7f454c46
+done
+for airy_conf in agentrt.conf logger.conf macro-superv.conf; do
+    test -s "%{buildroot}%{_sysconfdir}/agentrt/${airy_conf}"
+done
+grep -qx 'device = /dev/airy_superv' \
+    %{buildroot}%{_sysconfdir}/agentrt/macro-superv.conf
+grep -q 'KERNEL=="airy_log", GROUP="airy-log", MODE="0660"' \
+    %{buildroot}/usr/lib/udev/rules.d/60-airymax.rules
+grep -q 'KERNEL=="airy_superv", GROUP="airy", MODE="0660"' \
+    %{buildroot}/usr/lib/udev/rules.d/60-airymax.rules
 PYTHONPATH=%{buildroot}%{python3_sitelib} python3 -B -c '
 import airydisk.cli
 import airyupdate.cli
@@ -803,6 +850,13 @@ fi
 %{_bindir}/airy-locale
 %{_bindir}/airy-charset
 %{_bindir}/airy-rt-lat
+%{_sbindir}/config_d
+%{_sbindir}/logger_d
+%{_sbindir}/macro_d
+%attr(0640, root, airy) %config(noreplace) %{_sysconfdir}/agentrt/agentrt.conf
+%attr(0640, root, airy) %config(noreplace) %{_sysconfdir}/agentrt/logger.conf
+%attr(0640, root, airy) %config(noreplace) %{_sysconfdir}/agentrt/macro-superv.conf
+/usr/lib/udev/rules.d/60-airymax.rules
 %{_bindir}/boot-tui
 %{_bindir}/airy-session-pick
 %{_bindir}/airy-session-mode
