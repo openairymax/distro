@@ -425,11 +425,9 @@ run_closure()
         return 0
     fi
     local work="${OUT_ABS}/closure" log="${OUT_ABS}/logs/closure.log"
-    # 命令行给出的清单优先；未给时保留 CLOSURE_LOCK 环境变量。此前无条件
-    # 赋值把 CI 注入的清单清成了空串，于是每一轮都从公网全量收割。
-    if [ -n "$LOCK" ]; then
-        CL_LOCK="$LOCK"
-    fi
+    # 命令行给出的清单优先；未给时沿用 CLOSURE_LOCK 导入的那一份，
+    # 不能把 CI 注入的清单清成空串（否则每轮都从公网全量收割）。
+    CL_LOCK="${LOCK:-$CL_LOCK}"
     closure_fetch "$KS" "$ARCH" "$PKGDIR" "$work" "$log" ||
         die "${E_IO}" "安装闭包收割失败（日志 ${log}）"
     printf '闭包收割: 新增 %d 个 RPM（总计 %d）\n' "$CL_NEW" "${#NAMES[@]}"

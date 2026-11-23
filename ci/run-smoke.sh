@@ -917,7 +917,7 @@ t11_loader() {
         # 恒为空；此时经 sudo -n 取同一集合，判定口径仍是「有且仅有一套
         # shim」（run 44911662647 三条 UEFI 腿即因 glob 不可读而误判）。
         while IFS= read -r name; do
-            [ -n "${name}" ] && shims+=("$1/${name}")
+            shims+=("$1/${name}")
         done < <(sudo -n ls -1 "$1" 2>/dev/null |
             sed -n '/^shim[[:alnum:]]*\.efi$/p')
     fi

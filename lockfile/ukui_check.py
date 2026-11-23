@@ -243,14 +243,13 @@ def check_desktop(root, led, out):
 
 def read_spec(path):
     """配方前置段的 Name/Version/Release；遇到第一个 % 段即停。"""
+    text = re.split(r"(?m)^%", Path(path).read_text(encoding="utf-8"), 1)[0]
     tags = {}
-    for line in Path(path).read_text(encoding="utf-8").splitlines():
-        if line.startswith("%"):
-            break
+    for line in text.splitlines():
         hit = SPEC_TAG.match(line)
         if hit:
             tags.setdefault(hit.group(1), hit.group(2))
-    return tuple(tags.get(key, "") for key in SPEC_TAGS)
+    return tuple(map(lambda key: tags.get(key, ""), SPEC_TAGS))
 
 
 def nvra_parts(nvra):
@@ -286,7 +285,7 @@ def check_docs(docs, pres, out):
     text = delta.read_text(encoding="utf-8")
     for rec in pres:
         nvra = rec.get("nvra", "")
-        if nvra and nvra not in text:
+        if nvra not in text:
             bad(out, "docs/nvra", "%s 未逐字记录" % nvra)
     if "dnf -q repoquery" not in text:
         bad(out, "docs/recalc", "取证册缺少可复算命令")
