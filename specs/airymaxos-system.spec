@@ -100,6 +100,9 @@
 # spec-lint: source-bundle ../../system/tui
 # spec-lint: source-bundle ../../services
 # spec-lint: source-bundle ../../kernel/include
+# spec-lint: source-bundle ../../system/ops/backup
+# spec-lint: source-bundle ../../system/ops/incident
+# spec-lint: source-bundle ../../system/services/daemons/alert_d
 
 %global airy_version 0.0.5
 %global airy_release 1
@@ -205,6 +208,16 @@ Source87:       airylib-%{version}.tar.gz
 Source88:       services-%{version}.tar.gz
 Source89:       include-%{version}.tar.gz
 Source90:       60-airymax.rules
+Source91:       airy-alert
+Source92:       airy-alertd
+Source93:       airy-backup
+Source94:       airy-incident
+Source95:       airy-alert.service
+Source96:       airymax-backup.service
+Source97:       airymax-backup.timer
+Source98:       backup-%{version}.tar.gz
+Source99:       incident-%{version}.tar.gz
+Source100:      alert_d-%{version}.tar.gz
 
 BuildRequires:  cargo
 BuildRequires:  cmake
@@ -299,7 +312,7 @@ install -m 0644 %{SOURCE1} %{SOURCE2} %{SOURCE3} %{SOURCE4} %{SOURCE5} \
     %{SOURCE30} %{SOURCE31} %{SOURCE32} %{SOURCE35} %{SOURCE51} %{SOURCE52} \
     %{SOURCE37} %{SOURCE38} %{SOURCE42} %{SOURCE43} %{SOURCE45} \
     %{SOURCE55} %{SOURCE60} %{SOURCE61} %{SOURCE63} %{SOURCE74} %{SOURCE75} \
-    %{SOURCE80} \
+    %{SOURCE80} %{SOURCE95} %{SOURCE96} %{SOURCE97} \
     %{buildroot}%{_unitdir}/
 install -m 0644 %{SOURCE0} %{SOURCE15} %{buildroot}%{_unitdir}/
 install -d -m 0755 %{buildroot}%{_unitdir}/user.slice.d
@@ -354,6 +367,10 @@ install -m 0755 %{SOURCE65} %{buildroot}%{_bindir}/airy-deb
 install -m 0755 %{SOURCE70} %{buildroot}%{_bindir}/airy-pkg
 install -m 0755 %{SOURCE83} %{buildroot}%{_bindir}/airy-locale
 install -m 0755 %{SOURCE85} %{buildroot}%{_bindir}/airy-charset
+install -m 0755 %{SOURCE91} %{buildroot}%{_bindir}/airy-alert
+install -m 0755 %{SOURCE92} %{buildroot}%{_bindir}/airy-alertd
+install -m 0755 %{SOURCE93} %{buildroot}%{_bindir}/airy-backup
+install -m 0755 %{SOURCE94} %{buildroot}%{_bindir}/airy-incident
 install -m 0755 airy-rt-lat %{buildroot}%{_bindir}/airy-rt-lat
 # 三条路径由单元 ExecStart 直接给出，缺一条就是开机降级；安装时不改名、
 # 不建软链，保持与单元文本逐字一致。
@@ -380,6 +397,9 @@ tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE71}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE84}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE86}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE87}
+tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE98}
+tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE99}
+tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE100}
 # 编码策略模板随工具包交付，装机时落成一次配置：%%config(noreplace) 保留现场
 # 改动，模板本身是默认值的唯一事实源，工具不内建第二份。
 install -d -m 0755 %{buildroot}%{_sysconfdir}/agentrt
@@ -461,6 +481,10 @@ test -x %{buildroot}%{_bindir}/airy-deb
 test -x %{buildroot}%{_bindir}/airy-pkg
 test -x %{buildroot}%{_bindir}/airy-locale
 test -x %{buildroot}%{_bindir}/airy-charset
+test -x %{buildroot}%{_bindir}/airy-alert
+test -x %{buildroot}%{_bindir}/airy-alertd
+test -x %{buildroot}%{_bindir}/airy-backup
+test -x %{buildroot}%{_bindir}/airy-incident
 test -x %{buildroot}%{_bindir}/airy-rt-lat
 # 守护二进制、出厂配置与设备规则必须一起落盘：单元只引用路径，三件缺
 # 任何一件都要等到开机才暴露，且症状是 inactive 而不是安装失败。
@@ -492,7 +516,10 @@ import airydeb.cli
 import airypkg.cli
 import airylocale.cli
 import airycharset.cli
-import airylib.cli'
+import airylib.cli
+import backup.cli
+import incident.cli
+import alert_d.cli'
 PYTHONPATH=%{buildroot}%{python3_sitelib} python3 -B \
     %{buildroot}%{_bindir}/airy-locale check --matrix-only |
     grep -q 'AIRYMAX-LOCALE-CHECK ok locales=8 p0=2'
@@ -506,6 +533,13 @@ test -f %{buildroot}%{_unitdir}/agentrt-firstboot.service
 test -f %{buildroot}%{_unitdir}/airy-incident@.service
 grep -qxF 'ConditionPathExists=/usr/sbin/airyctl' \
     %{buildroot}%{_unitdir}/airy-incident@.service
+test -f %{buildroot}%{_unitdir}/airy-alert.service
+test -f %{buildroot}%{_unitdir}/airymax-backup.service
+test -f %{buildroot}%{_unitdir}/airymax-backup.timer
+grep -qxF 'ExecStart=/usr/bin/airy-alertd' \
+    %{buildroot}%{_unitdir}/airy-alert.service
+grep -qxF 'ExecStart=/usr/bin/airy-backup run' \
+    %{buildroot}%{_unitdir}/airymax-backup.service
 test -f %{buildroot}%{_unitdir}/airymax-update-check.timer
 grep -qxF 'OnCalendar=daily' \
     %{buildroot}%{_unitdir}/airymax-update-check.timer
@@ -849,6 +883,10 @@ fi
 %{_bindir}/airy-pkg
 %{_bindir}/airy-locale
 %{_bindir}/airy-charset
+%{_bindir}/airy-alert
+%{_bindir}/airy-alertd
+%{_bindir}/airy-backup
+%{_bindir}/airy-incident
 %{_bindir}/airy-rt-lat
 %{_sbindir}/config_d
 %{_sbindir}/logger_d
@@ -884,6 +922,9 @@ fi
 %{python3_sitelib}/airylocale
 %{python3_sitelib}/airycharset
 %{python3_sitelib}/airylib
+%{python3_sitelib}/backup
+%{python3_sitelib}/incident
+%{python3_sitelib}/alert_d
 
 %changelog
 * Thu Nov 19 2026 SPHARX <dev@spharx.com> - 0.0.5-1
