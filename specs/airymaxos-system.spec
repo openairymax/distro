@@ -538,7 +538,7 @@ test -f %{buildroot}%{_unitdir}/airymax-backup.service
 test -f %{buildroot}%{_unitdir}/airymax-backup.timer
 grep -qxF 'ExecStart=/usr/bin/airy-alertd' \
     %{buildroot}%{_unitdir}/airy-alert.service
-grep -qxF 'ExecStart=/usr/bin/airy-backup run' \
+grep -qxF 'ExecStart=/usr/bin/airy-backup --actor systemd auto' \
     %{buildroot}%{_unitdir}/airymax-backup.service
 test -f %{buildroot}%{_unitdir}/airymax-update-check.timer
 grep -qxF 'OnCalendar=daily' \

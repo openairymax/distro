@@ -107,7 +107,7 @@ distro/
 │   └── README.md                  # Zero-patch policy (reserved)
 ├── tools/
 │   ├── lint_common.py             # Shared issue type and report format
-│   ├── spec_lint.py               # RPM spec static checker (E001-E014)
+│   ├── spec_lint.py               # RPM spec static checker (E001-E020)
 │   ├── comps_lint.py              # comps semantic checker (C001-C010)
 │   ├── ks_lint.py                 # kickstart checker (K001-K015)
 │   └── tests/                     # Lint + build-driver regression tests

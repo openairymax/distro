@@ -97,7 +97,7 @@ distro/
 │   └── README.md                  # 零补丁策略（预留）
 ├── tools/
 │   ├── lint_common.py             # 校验器共用的 Issue 类型与输出格式
-│   ├── spec_lint.py               # RPM 配方静态校验器（E001-E014）
+│   ├── spec_lint.py               # RPM 配方静态校验器（E001-E020）
 │   ├── comps_lint.py              # comps 语义校验器（C001-C010）
 │   ├── ks_lint.py                 # kickstart 语义校验器（K001-K015）
 │   └── tests/                     # 校验规则与构建驱动回归测试

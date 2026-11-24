@@ -293,6 +293,38 @@ class SpecLintTest(unittest.TestCase):
                            "%check\ncommand -v sh >/dev/null 2>&1\n")
         self.assertEqual(self.codes(ok), [])
 
+    def uniter(self, unit_line, needle):
+        (self.root / "demo.service").write_text(unit_line + "\n",
+                                                encoding="utf-8")
+        return VALID.replace(
+            "%check\n",
+            "%check\n"
+            f"grep -qxF '{needle}' \\\n"
+            "    %{buildroot}%{_unitdir}/demo.service\n")
+
+    def test_unit_assert_ok(self):
+        self.assertEqual(self.codes(self.uniter(
+            "ExecStart=/usr/bin/demo --actor systemd auto",
+            "ExecStart=/usr/bin/demo --actor systemd auto")), [])
+
+    def test_unit_assert_stale(self):
+        text = self.uniter("ExecStart=/usr/bin/demo --actor systemd auto",
+                           "ExecStart=/usr/bin/demo run")
+        self.assertIn("E020", self.codes(text))
+
+    def test_unit_assert_escaped(self):
+        text = self.uniter("ExecStart=/usr/bin/demo --switch %i",
+                           "ExecStart=/usr/bin/demo --switch %%i")
+        self.assertEqual(self.codes(text), [])
+
+    def test_unit_assert_elsewhere(self):
+        text = VALID.replace(
+            "%check\n",
+            "%check\n"
+            "grep -qxF 'x' \\\n"
+            "    %{buildroot}%{_sysconfdir}/demo.conf\n")
+        self.assertEqual(self.codes(text), [])
+
     def test_shared_source_conflict(self):
         (self.spec.parent / "demo.conf").write_text("x\n", encoding="utf-8")
         other = self.root / "ukui" / "other"

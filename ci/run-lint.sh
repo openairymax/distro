@@ -15,7 +15,7 @@
 #      source，后者在 chroot 与 initramfs 内以 /bin/sh 执行）；
 #   2. head — 校验源文件横幅的版本号与 release/os-release 的 VERSION_ID 一致
 #      （tools/head_lint.py，H001~H003）；
-#   3. spec — 校验 specs/ 下所有 RPM 配方（tools/spec_lint.py，E001~E016）；
+#   3. spec — 校验 specs/ 下所有 RPM 配方（tools/spec_lint.py，E001~E020）；
 #   4. comps — 校验 comps/ 下包组定义（tools/comps_lint.py，C001~C011），
 #      并在具备 xmllint 时按 comps/comps.dtd 做 DTD 校验；
 #   5. ks — 校验 kickstart/ 下安装配方（tools/ks_lint.py，K001~K021），共享

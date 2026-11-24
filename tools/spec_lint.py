@@ -6,7 +6,7 @@
 #
 # 只依赖标准库，供 distro/ci 在无 rpmbuild 的构建机上做前置门禁。规则来源：
 # docs-linux/190-distribution/01-rpm-packaging.md 与
-# docs-linux/50-engineering-standards。规则编号 E001~E018 与测试一一对应。
+# docs-linux/50-engineering-standards。规则编号 E001~E020 与测试一一对应。
 #
 # E015 检查注释中的裸 % 宏：rpm 在剥离注释前展开宏，若宏体带续行反斜杠
 # （如 openEuler 的 %install），续行会吞掉后续 preamble，报 Name 等字段缺失。
@@ -99,6 +99,12 @@ CMT_MACRO = re.compile(r"(?<!%)%(?:\{|\w)")
 # 不在本规则内。
 SUB_BUILTIN = re.compile(r"\$\(\s*command\s+-v\s+"
                          r"(?:true|false|test|echo|printf|cd|umask)\b")
+# %check 里对单元的逐字断言是「单元与判据同源」的唯一执行面：断言串在本仓
+# spec、单元在 system/units，两处各自演化时断言恒假却不报错，直到镜像组装
+# 走完 %check 才亮红（0.0.5 的 aarch64 组装即停在这里，已越过约四十分钟的
+# 装配）。本规则在提交侧复算这条等值关系。
+UNIT_GREP = re.compile(r"grep\s+-qxF\s+(?:'([^']*)'|\"([^\"]*)\")\s*\\?\s*$")
+UNIT_REF = re.compile(r"%\{buildroot\}%\{_unitdir\}/(\S+)")
 
 
 def strip_cmt(line: str) -> str:
@@ -503,6 +509,55 @@ def check_scan(lines: list[str], issues: list[Issue]) -> None:
                                              "not a file path"))
 
 
+def next_unit(lines: list[str], start: int, end: int) -> str | None:
+    """取逐字断言的落点：下一条非空行里 %{_unitdir} 之后的相对路径。"""
+    for num in range(start + 1, end):
+        raw = lines[num - 1].strip()
+        if not raw:
+            continue
+        hit = UNIT_REF.search(raw)
+        return hit.group(1) if hit else None
+    return None
+
+
+def unit_src(rel: str, roots: list[Path]) -> Path | None:
+    for root in roots:
+        cand = root / rel
+        if cand.is_file():
+            return cand
+    return None
+
+
+def check_units(lines: list[str], secs: list[tuple[str, str, int]],
+                roots: list[Path], macros: dict[str, str],
+                issues: list[Issue]) -> None:
+    """%check 对单元的逐字断言必须在源文件里逐字存在。"""
+    start = next((num for name, _, num in secs if name == "check"), None)
+    if start is None:
+        return
+    end = next((num for name, _, num in secs if num > start), len(lines) + 1)
+    for num in range(start + 1, end):
+        hit = UNIT_GREP.search(lines[num - 1])
+        if not hit:
+            continue
+        needle = (hit.group(1) if hit.group(1) is not None
+                  else hit.group(2)).replace("%%", "%")
+        rel = next_unit(lines, num, end)
+        if rel is None:
+            continue
+        rel = expand(rel, macros)
+        if "%" in rel:
+            continue
+        src = unit_src(rel, roots)
+        if src is None:
+            continue
+        body = {line.rstrip() for line in
+                src.read_text(encoding="utf-8").splitlines()}
+        if needle not in body:
+            issues.append(Issue("E020", num,
+                                f"assertion absent from {rel}: {needle}"))
+
+
 def check_ver(ver: str, root: Path, issues: list[Issue]) -> None:
     path = root / "release" / "os-release"
     try:
@@ -553,6 +608,7 @@ def lint_text(text: str, path: Path, root: Path) -> list[Issue]:
     check_log(lines, secs, issues)
     check_cmt(lines, issues)
     check_scan(lines, issues)
+    check_units(lines, secs, roots, macros, issues)
     check_ver(ver, root, issues)
     return sorted(issues, key=lambda item: (item.line, item.code))
 
