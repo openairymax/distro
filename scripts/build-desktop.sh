@@ -415,7 +415,7 @@ check_comps()
     # 按安装事务解析没有意义。
     if [ "$CLOSURE" -eq 1 ]; then
         python3 "$CL_SPEC" resolve "$KS" "$PKGDIR" --comps "$CL_COMPS" >>"$log" 2>&1 ||
-            die "${E_IO}" "载荷缺 comps 成员（日志 ${log}）"
+            die "${E_IO}" "载荷缺安装成员（日志 ${log}）"
     fi
 }
 

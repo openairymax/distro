@@ -47,13 +47,23 @@ def stage_repo(root, raw, gz=True):
         encoding="utf-8")
 
 
-def stage_primary(root, names, gz=True):
-    """写只带 primary 元数据的最小仓库索引（repomd 带命名空间）。"""
+def _prov_xml(caps):
+    entries = "".join(f'<entry name="{cap}"/>' for cap in caps)
+    return f"<format><provides>{entries}</provides></format>"
+
+
+def stage_primary(root, names, gz=True, provs=None):
+    """写只带 primary 元数据的最小仓库索引（repomd 带命名空间）。
+
+    provs 给指定包补上 Provides，用来模拟聚合包提供虚拟名的上游布局。
+    """
+    provs = provs or {}
     repodata = Path(root) / "repodata"
     repodata.mkdir(parents=True, exist_ok=True)
     name = "primary.xml.gz" if gz else "primary.xml"
     body = ("<metadata>" + "".join(
-        f'<package type="rpm"><name>{pkg}</name></package>'
+        f'<package type="rpm"><name>{pkg}</name>'
+        f'{_prov_xml(provs[pkg]) if pkg in provs else ""}</package>'
         for pkg in sorted(names)) + "</metadata>").encode("utf-8")
     (repodata / name).write_bytes(gzip.compress(body) if gz else body)
     (repodata / "repomd.xml").write_text(
@@ -274,7 +284,7 @@ class KsSpecTest(unittest.TestCase):
                                   "--comps", str(COMPS)],
                                  text=True, capture_output=True)
             self.assertEqual(res.returncode, 5)
-            self.assertIn("载荷缺少 comps 成员", res.stderr)
+            self.assertIn("载荷缺少安装成员", res.stderr)
             self.assertIn("chrony", res.stderr)
 
     def test_resolve_virtual(self):
@@ -290,8 +300,31 @@ class KsSpecTest(unittest.TestCase):
                                   "--comps", str(comps)],
                                  text=True, capture_output=True)
             self.assertEqual(res.returncode, 5)
-            self.assertIn("载荷缺少 comps 成员: grub2\n", res.stderr)
+            self.assertIn("载荷缺少安装成员: grub2\n", res.stderr)
             self.assertNotIn("grub2-pc", res.stderr)
+
+    def test_resolve_provided(self):
+        """显式请求可由 Provides 满足，组内成员则不行。
+
+        openEuler 的 glibc-all-langpacks 逐条 Provides glibc-langpack-*，
+        安装期按 Provides 解析显式请求；核对沿用同一判据，可安装的载荷
+        不该被判成缺件。
+        """
+        names = need_pkgs() - {"glibc-langpack-zh"} | {"glibc-all-langpacks"}
+        with tempfile.TemporaryDirectory() as tmp:
+            stage_primary(tmp, names)
+            res = subprocess.run([PYTHON, str(SCRIPT), "resolve", str(KS), tmp,
+                                  "--comps", str(COMPS)],
+                                 text=True, capture_output=True)
+            self.assertEqual(res.returncode, 5)
+            self.assertIn("glibc-langpack-zh", res.stderr)
+        with tempfile.TemporaryDirectory() as tmp:
+            stage_primary(tmp, names,
+                          provs={"glibc-all-langpacks": ["glibc-langpack-zh"]})
+            res = subprocess.run([PYTHON, str(SCRIPT), "resolve", str(KS), tmp,
+                                  "--comps", str(COMPS)],
+                                 text=True, capture_output=True)
+            self.assertEqual(res.returncode, 0, res.stderr)
 
     def test_cli_rejects_bad_file(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -31,7 +31,9 @@
 # 段，交互安装的软件选择与按环境解析都会失败，必须在出镜像前拒绝。
 # resolve 补上另一半：组内成员按包名匹配，不参与 provides 解析，写一个
 # 上游只有虚拟 provide 的名字（如 grub2）不会报错，而是整条静默丢弃，
-# 装机时才暴露成缺包（0.0.3 首次 L2 装机即由此失败）。校验集合取安装
+# 装机时才暴露成缺包（0.0.3 首次 L2 装机即由此失败）。显式请求则相反：
+# 安装期按包名或 Provides 解析，glibc-langpack-* 一类名字由聚合包提供，
+# 只比包名会把可安装的载荷判成缺件，因此两条判据分开做。校验集合取安装
 # 事务真正请求的部分——环境 grouplist 展开出的组只装 mandatory 与
 # default 成员，optional 成员要用户显式勾选才进事务（dnf 的
 # group_package_types 与 anaconda 的选中语义一致）；按 comps 全量成员
@@ -308,10 +310,16 @@ def expand_envs(rows: list[tuple[str, str]],
     return out
 
 
-def need_pkgs(rows: list[tuple[str, str]], comps: Path) -> set[str]:
-    """安装事务请求的包名：所选组的 mandatory/default 成员与显式包名。"""
+def need_split(rows: list[tuple[str, str]],
+               comps: Path) -> tuple[set[str], set[str]]:
+    """把安装事务拆成「组内成员」与「显式请求」两组名字。
+
+    组内成员来自 comps，是落盘时必须存在的真实包名；显式请求是 ks 原样
+    写的名字，安装期按包名或 Provides 解析。两组判据不同，核对分开做。
+    """
     members = grp_members(comps_tree(Path(comps)))
-    out: set[str] = set()
+    picked: set[str] = set()
+    named: set[str] = set()
     for kind, spec in expand_envs(rows, comps):
         if kind != "install":
             continue
@@ -319,11 +327,17 @@ def need_pkgs(rows: list[tuple[str, str]], comps: Path) -> set[str]:
             gid = spec[len(GROUP_HEAD):]
             if gid not in members:
                 raise ValueError(f"comps 未定义包组: {gid}")
-            out.update(name for typ, name in members[gid]
-                       if typ in REQ_KINDS and name)
+            picked.update(name for typ, name in members[gid]
+                          if typ in REQ_KINDS and name)
         elif not spec.startswith(ENV_HEAD):
-            out.add(spec)
-    return out
+            named.add(spec)
+    return picked, named
+
+
+def need_pkgs(rows: list[tuple[str, str]], comps: Path) -> set[str]:
+    """安装事务请求的包名：所选组的 mandatory/default 成员与显式包名。"""
+    picked, named = need_split(rows, comps)
+    return picked | named
 
 
 def meta_of(pkgdir: Path, kind: str) -> bytes:
@@ -353,22 +367,44 @@ def group_meta(pkgdir: Path) -> bytes:
     return meta_of(Path(pkgdir), "group")
 
 
-def pkg_names(pkgdir: Path) -> set[str]:
+def pkg_caps(pkgdir: Path) -> tuple[set[str], set[str]]:
+    """载荷仓库的包名与 Provides 名。
+
+    安装期 anaconda 对显式请求按「包名或 Provides」解析：glibc-langpack-ja
+    由 glibc-all-langpacks 提供（该包的 Provides 逐条来自语言清单），只比
+    包名会把可安装的载荷判成缺件。
+    """
     try:
         root = ET.fromstring(meta_of(Path(pkgdir), "primary"))
     except ET.ParseError as err:
         raise ValueError(f"仓库 primary 元数据解析失败: {err}") from err
-    return {_text(node, "name") for node in _desc(root, "package")} - {""}
+    names: set[str] = set()
+    provs: set[str] = set()
+    for node in _desc(root, "package"):
+        names.add(_text(node, "name"))
+        for fmt in _kids(node, "format"):
+            for cap in _kids(fmt, "provides"):
+                for entry in _kids(cap, "entry"):
+                    name = entry.get("name")
+                    if name:
+                        provs.add(name)
+    return names - {""}, provs
 
 
 def res_repo(ks: Path, pkgdir: Path, comps: Path) -> None:
-    """组内成员只按包名匹配（provides 不参与），缺一个就整组不落盘。"""
-    rows = pkgs(Path(ks).read_text(encoding="utf-8"))
-    want = need_pkgs(rows, comps)
-    miss = sorted(want - pkg_names(Path(pkgdir)))
+    """载荷核对：组内成员按真实包名判定，显式请求按包名或 Provides 判定。
+
+    组内成员是 comps 里写死的包名，缺一个整组不落盘；显式请求是 ks 原样
+    写的名字，安装期按包名或 Provides 解析。两条判据与收割段 cl_miss 保持
+    一致，同一条请求不该在收割与核对之间得到不同结论。
+    """
+    members, specs = need_split(pkgs(Path(ks).read_text(encoding="utf-8")),
+                                comps)
+    names, provs = pkg_caps(Path(pkgdir))
+    miss = sorted((members - names) | (specs - names - provs))
     if miss:
-        raise ValueError("载荷缺少 comps 成员: " + " ".join(miss))
-    print(f"comps\t{len(want)}")
+        raise ValueError("载荷缺少安装成员: " + " ".join(miss))
+    print(f"comps\t{len(members | specs)}")
 
 
 def verify_repo(pkgdir: Path, env: str) -> None:
