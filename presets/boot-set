@@ -94,6 +94,10 @@ airy-disk-health.timer
 # 升级通道：不启用则装完即静默失效，从任何服务状态都看不出来。
 airymax-update-check.timer
 
+# 备份恢复：定时器不启用则一份快照也不会产生，且从任何服务状态都看不
+# 出来——正是「静默缺席」的判据。仓库、核验与恢复入口同包交付。
+airymax-backup.timer
+
 # 首启音频初始化：HDA 功放上电停在索引 0（Master 0/87，-65 dB，开关 off），
 # 上游初始化数据库只白名单两台笔记本，alsa-state 在状态文件缺失时又不初始化，
 # 于是首启的静音被固化成 asound.state 与 PulseAudio 的 0%/muted。不启用时症状

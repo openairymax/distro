@@ -71,3 +71,6 @@ disable airy-rt-coexist.service
 disable airy-rt-coexist.timer
 disable airy-power.service
 disable airy-power.timer
+# airymax-backup.timer 同理：备份仓库按小时采样，是否常驻属于装机口径，
+# 由安装器 boot-set 显式启用；未启用时数据仍在，只是没有周期快照。
+disable airymax-backup.timer
