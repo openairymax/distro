@@ -4,7 +4,7 @@
 # ===========================================================================
 # run-lint.sh — distro 仓库静态门禁
 #
-# 用法: ci/run-lint.sh [--no-tests] [--partial-tree]
+# 用法: ci/run-lint.sh [--no-tests]
 #
 # 职责（七段，每段单独计时）：
 #   1. syntax — bash -n 解析 ci/、lockfile/、scripts/、desktop/、tools/、boot/
@@ -38,10 +38,9 @@
 # 而这一分半直接加在「assemble 稳态 ≤360 秒」的预算上（CI-16）。跳过时
 # 仍打印 ``[timing] tests=skipped``，七行表的形状不变，读数不会被误当成 0。
 #
-# --partial-tree 透传给 spec 段：镜象组装链只取 distro 与 system 两棵子树，
-# 配方引用的 services 与 kernel/include 不在树上。该开关让 spec 段跳过跨子
-# 树的源存在性判定，其余六段判据不受影响；取全子模块的门禁（push 门禁与
-# 发版构建）仍按全树判定，存在性不会因此失去守卫。
+# 配方里的源目录与源根分布在 distro、system、services、kernel/include 四处，
+# 组装链读到哪几棵子树，取子模块的门禁就把哪几棵放到树上（同一份清单），
+# 因此 spec 段始终按完整树判定存在性，不设降级开关。
 #
 # 退出码: 0 全部通过；2 参数错误；其他为对应检查器的失败码。
 # ===========================================================================
@@ -53,13 +52,11 @@ ROOT="$(dirname "${HERE}")"
 cd "${ROOT}"
 
 run_tests=1
-spec_args=()
 for arg in "$@"; do
     case "${arg}" in
         --no-tests) run_tests=0 ;;
-        --partial-tree) spec_args=("${arg}") ;;
         *)
-            echo "未知参数: ${arg}（可用: --no-tests --partial-tree）" >&2
+            echo "未知参数: ${arg}（可用: --no-tests）" >&2
             exit 2
             ;;
     esac
@@ -108,7 +105,7 @@ check_head()
 check_spec()
 {
     echo "== spec lint =="
-    python3 tools/spec_lint.py "${spec_args[@]}"
+    python3 tools/spec_lint.py
 }
 
 check_comps()
@@ -140,7 +137,7 @@ check_pre()
 # 开发机与 runner 上跑成两套收集规则与两套失败格式，门禁结论不可比；用例
 # 本身全部是 unittest.TestCase，没有一条依赖 pytest。
 #
-# 逐模块并行：852 条用例串行要四分多钟，而单个模块最长不过二十三秒，时间
+# 逐模块并行：全量用例串行要四分多钟，而单个模块最长不过二十三秒，时间
 # 全花在等被测脚本的子进程与轮询上；并行后这一段实测 111 秒，仍是六段里
 # 唯一的量级项。
 check_tests()

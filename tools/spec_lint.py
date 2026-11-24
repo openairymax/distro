@@ -28,11 +28,9 @@
 # 归档名由目录名与配方 Version 拼成（<目录名>-<Version>.tar.gz），必须被某个
 # Source 引用；目录由构建驱动在 staging 时代为归档，因此不得以同名文件入库。
 #
-# 组装链只取 distro 与 system 两棵子树，配方引用的 services 与
-# kernel/include 不在那棵树里。此时以 --partial-tree 调用本工具：仍校验
-# 归档名形态、引用关系与「不得入库」，跳过源文件与源目录的存在性判定——
-# 存在性由取全子模块的门禁（push 门禁与发版构建）判定，两处各判各自
-# 能看见的事实，避免在缺输入的树上制造必然失败的假红。
+# 源目录与源根的判定只在完整树上成立：组装链读到哪些子树，就由取子模块
+# 的门禁把哪些子树放到树上，二者是同一份清单。缺输入时本工具不提供降级
+# 模式——跳过存在性只会把缺件推迟到构建阶段，代价是整轮组装白跑。
 #
 # 上游 tarball 用 URL 取源：
 #   # spec-lint: source-url <文件名> <https URL> <sha256>
@@ -58,7 +56,6 @@ from lint_common import Issue, dump, report
 
 REQUIRED = ("Name", "Version", "Release", "Summary", "License",
             "URL", "Source0")
-PARTIAL = "--partial-tree"
 MUST = ("description", "prep", "install", "check", "files",
         "changelog")
 SPDX = frozenset({
@@ -277,18 +274,13 @@ def check_fetch(kind: str, items: list[tuple[int, str, str, str]],
 
 def bundle_problems(num: int, src: Path, name: str, refs: set[str],
                     index: dict[str, set[Path]], seen: set[str],
-                    issues: list[Issue], tree: bool = True) -> bool:
-    """记下这一条 SourceN 目录的问题；目录缺失时后续判据无意义，返回 False。
-
-    tree 为假表示本树只取了部分子模块：目录可能压根不在本树内，存在性与
-    空目录不判，其余三条（重名、未引用、不得入库）与全树模式一致。
-    """
-    if tree:
-        if not src.is_dir():
-            issues.append(Issue("E010", num, f"missing source bundle: {src}"))
-            return False
-        if not any(item.is_file() for item in src.rglob("*")):
-            issues.append(Issue("E010", num, f"empty source bundle: {src}"))
+                    issues: list[Issue]) -> bool:
+    """记下这一条 SourceN 目录的问题；目录缺失时后续判据无意义，返回 False。"""
+    if not src.is_dir():
+        issues.append(Issue("E010", num, f"missing source bundle: {src}"))
+        return False
+    if not any(item.is_file() for item in src.rglob("*")):
+        issues.append(Issue("E010", num, f"empty source bundle: {src}"))
     if name in seen:
         issues.append(Issue("E010", num, f"duplicate source bundle: {name}"))
     if name not in refs:
@@ -301,11 +293,11 @@ def bundle_problems(num: int, src: Path, name: str, refs: set[str],
 
 def check_bundles(bundles: list[tuple[int, Path, str]], tags: dict,
                   index: dict[str, set[Path]], macros: dict[str, str],
-                  issues: list[Issue], tree: bool = True) -> set[str]:
+                  issues: list[Issue]) -> set[str]:
     refs = source_refs(tags, macros)
     names: set[str] = set()
     for num, src, name in bundles:
-        if bundle_problems(num, src, name, refs, index, names, issues, tree):
+        if bundle_problems(num, src, name, refs, index, names, issues):
             names.add(name)
     return names
 
@@ -532,8 +524,7 @@ def check_ver(ver: str, root: Path, issues: list[Issue]) -> None:
                                          "assets"))
 
 
-def lint_text(text: str, path: Path, root: Path,
-              tree: bool = True) -> list[Issue]:
+def lint_text(text: str, path: Path, root: Path) -> list[Issue]:
     lines = text.splitlines()
     macros = collect_macros(lines)
     tags = parse_tags(lines)
@@ -550,7 +541,7 @@ def lint_text(text: str, path: Path, root: Path,
             issues.append(Issue("E010", num, f"missing source root: {extra}"))
     index = build_index(roots)
     gen |= check_bundles(parse_bundles(lines, path, ver), tags, index,
-                         macros, issues, tree)
+                         macros, issues)
     for kind, pattern in (("source-url", URL), ("source-rpm", RPM)):
         gen |= check_fetch(kind, parse_fetch(lines, pattern), tags, index,
                            macros, issues)
@@ -566,30 +557,28 @@ def lint_text(text: str, path: Path, root: Path,
     return sorted(issues, key=lambda item: (item.line, item.code))
 
 
-def lint_spec(path: Path, root: Path, tree: bool = True) -> list[Issue]:
-    return lint_text(path.read_text(encoding="utf-8"), path, root, tree)
+def lint_spec(path: Path, root: Path) -> list[Issue]:
+    return lint_text(path.read_text(encoding="utf-8"), path, root)
 
 
-def arguments(args: list[str]) -> tuple[list[Path], bool] | None:
-    """解析目标配方与选项；未知选项返回 None，由调用点退用法错误。
+def arguments(args: list[str]) -> list[Path] | None:
+    """解析目标配方；任何选项都返回 None，由调用点退用法错误。
 
-    选项先与路径分开，`--partial-tree` 之外一律不认：拼错的开关按目标
-    路径处理会得到「找不到配方」这种更难懂的失败。
+    本工具没有开关：拼错的开关若按目标路径处理，会得到「找不到配方」这种
+    更难懂的失败。
     """
     flags = [arg for arg in args if arg.startswith("--")]
-    unknown = [arg for arg in flags if arg != PARTIAL]
-    if unknown:
-        print(f"spec_lint: unknown option {unknown[0]}", file=sys.stderr)
+    if flags:
+        print(f"spec_lint: unknown option {flags[0]}", file=sys.stderr)
         return None
-    return [Path(arg) for arg in args if arg not in flags], PARTIAL not in flags
+    return [Path(arg) for arg in args]
 
 
 def main(argv: list[str]) -> int:
     root = Path(__file__).resolve().parent.parent
-    parsed = arguments(argv[1:])
-    if parsed is None:
+    targets = arguments(argv[1:])
+    if targets is None:
         return 2
-    targets, tree = parsed
     explicit = bool(targets)
     if not targets:
         targets = sorted((root / "specs").rglob("*.spec"))
@@ -599,7 +588,7 @@ def main(argv: list[str]) -> int:
     total = 0
     for path in targets:
         try:
-            issues = lint_spec(path, root, tree)
+            issues = lint_spec(path, root)
         except OSError as err:
             print(f"spec_lint: {err}", file=sys.stderr)
             return 2
