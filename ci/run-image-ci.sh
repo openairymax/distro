@@ -99,8 +99,8 @@ usage()
   --firmware FW      bios、uefi 或 both，缺省 bios
   --runs N           每种固件的安装轮次，缺省 3
   --spec-dir DIR     传给 build-rpms 的配方目录，可重复
-  --src-dir DIR      传给 build-rpms 的源码搜索目录，可重复；缺省补
-                     system/units 与 system/scripts（airymaxos-system）
+  --src-dir DIR      传给 build-rpms 的额外源码搜索目录，可重复；
+                     配方自身的 source-root 声明已覆盖常规布局
   --rpms DIR         传给 build-desktop 的 RPM 目录，可重复；
                      跳过构建段时必须显式给出（两剖面共用）
   --add PATH         传给 build-iso 的附加文件或目录，可重复
@@ -305,7 +305,6 @@ chk_ks()
         fi
     fi
     default_specs
-    default_srcs
 }
 
 # 上游重建配方位于 ukui-patches/，不在 build-rpms 的缺省 specs 下；未显式
@@ -326,25 +325,8 @@ default_specs()
     done
 }
 
-# airymaxos-system 的 Source 位于 distro 之外的 system/ 子树，distro 根内
-# 索引不到；未显式给出 --src-dir 时按仓库布局补齐，避免装机时缺包。
-# 两个 Python 包不在此列：配方以 spec-lint source-bundle 声明整目录，
-# 由 build-rpms 现场归档，目录本身不是 Source 文件。
-default_srcs()
-{
-    local dir
-    if [ "${#SRC_DIRS[@]}" -ne 0 ]; then
-        return 0
-    fi
-    for dir in "${DISTRO_ROOT}/../system/units" \
-        "${DISTRO_ROOT}/../system/scripts" \
-        "${DISTRO_ROOT}/../system/bin" \
-        "${DISTRO_ROOT}/../system/tui/polkit"; do
-        if [ -d "${dir}" ]; then
-            SRC_DIRS+=("${dir}")
-        fi
-    done
-}
+# airymaxos-system 的 Source 分布在 distro 之外的子树里，搜索根由配方的
+# spec-lint source-root 声明，build-rpms 直接读它，本脚本不再另列一份。
 
 # 验收夹具不得进入产品配方：生成组合 kickstart 到构建目录，并随 ISO
 # 注入会话内冒烟脚本。产品 ISO 与验收 ISO 的差异仅限本函数。

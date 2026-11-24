@@ -11,6 +11,10 @@
 # 驱动在 staging 阶段把该目录打成确定性归档（<目录名>-<Version>.tar.gz），
 # 配方以该文件名作为 Source 引用；归档不入库，由本次构建现场生成。
 #
+# 单个 Source 文件的搜索根由 `# spec-lint: source-root <相对配方目录的路径>`
+# 声明：驱动先看配方自身目录，再按声明顺序在这些根下找同名文件，仍未命中
+# 才退到 distro 根与 --src-dir。同一文件名命中两处一律失败，不猜。
+#
 # 上游 tarball 用 `# spec-lint: source-url <文件名> <URL> <sha256>` 声明：
 # 驱动下载到 --out 下的源缓存（跨轮复用，命中摘要即不再联网），逐字校验
 # 摘要后才送进 rpmbuild。tarball 不入库，配方里的摘要就是唯一事实源；
@@ -321,6 +325,20 @@ url_cfg()
     src_cfg source-url "$1"
 }
 
+# 配方以 `# spec-lint: source-root <相对配方目录的路径>` 声明 Source 的搜索根。
+# 声明只有一份：spec 段拿它判存在性，构建段拿同一组路径找文件。两边各维护
+# 一份目录清单时，新增一个 Source 要改两处，漏一处要到整轮组装才暴露。
+root_cfg()
+{
+    local spec="$1" base dir
+    base="$(dirname "$spec")"
+    while IFS= read -r dir; do
+        printf '%s\n' "${base}/${dir}"
+    done < <(sed -n -E \
+        's/^#[[:space:]]*spec-lint:[[:space:]]*source-root[[:space:]]+([^[:space:]]+)[[:space:]]*$/\1/p' \
+        "$spec")
+}
+
 rpm_cfg()
 {
     src_cfg source-rpm "$1"
@@ -515,7 +533,8 @@ stage_one()
         fetch_rpm "$name" "$url" "$sum"
         return
     fi
-    if ! file="$(find_src "$name" "$base" "${SRC_DIRS[@]}" "$DISTRO_ROOT")"; then
+    if ! file="$(find_src "$name" "$base" "${roots[@]}" "${SRC_DIRS[@]}" \
+        "$DISTRO_ROOT")"; then
         die "${E_IO}" "找不到 Source: $name（$spec），用 --src-dir 指定"
     fi
     stage_src "$file"
@@ -523,10 +542,11 @@ stage_one()
 
 stage_spec()
 {
-    local spec="$1" base stem log cfg name
+    local spec="$1" base stem log cfg name dir
     local -A bundles=()
     local -A urls=()
     local -A rpms=()
+    local -a roots=()
     base="$(dirname "$spec")"
     stem="$(basename "${spec%.spec}")"
     log="$WORK/logs/${stem}.rpmspec.log"
@@ -540,6 +560,9 @@ stage_spec()
     fill_bundle bundles "$cfg"
     fill_map urls "$(url_cfg "$spec")"
     fill_map rpms "$(rpm_cfg "$spec")"
+    while IFS= read -r dir; do
+        roots+=("$dir")
+    done < <(root_cfg "$spec")
     while IFS= read -r name; do
         stage_one "$name"
     done < <(source_names "$WORK/expanded/${stem}.spec")

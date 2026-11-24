@@ -276,6 +276,32 @@ class BuildRpmsTest(unittest.TestCase):
         res = self.run_script("--out", str(self.out), "--spec", str(self.spec))
         self.assertEqual(res.returncode, 6)
 
+    def test_source_root_declaration(self):
+        """配方的 source-root 声明决定 Source 的搜索根。
+
+        一部分配方把 Source 放在配方目录之外的子树里。搜索根只声明一次，
+        检查段判存在性与构建段取文件读同一份；两处各维护一份清单时，
+        新增一个 Source 要改两处，漏一处直到整轮组装才暴露。
+        """
+        self.full()
+        shared = self.root / "shared"
+        shared.mkdir()
+        (shared / "demo.conf").write_text("x\n", encoding="utf-8")
+        (self.specs / "demo.conf").unlink()
+        res = self.run_script("--out", str(self.out), "--spec", str(self.spec))
+        self.assertEqual(res.returncode, 6)
+        self.spec.write_text(
+            SPEC.replace("BuildArch:      noarch\n",
+                         "BuildArch:      noarch\n"
+                         "# spec-lint: source-root ../shared\n"),
+            encoding="utf-8")
+        out2 = self.root / "out2"
+        res = self.run_script("--out", str(out2), "--spec", str(self.spec),
+                              "--arch", "x86_64")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        staged = out2 / "work" / "rpmbuild" / "SOURCES" / "demo.conf"
+        self.assertEqual(staged.read_text(encoding="utf-8"), "x\n")
+
     def test_repo_key_required(self):
         self.full()
         res = self.run_script("--out", str(self.out),

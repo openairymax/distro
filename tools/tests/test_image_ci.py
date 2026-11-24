@@ -174,7 +174,7 @@ class ImageCiTest(unittest.TestCase):
         self.assertEqual(res.returncode, 0)
         self.assertIn("用法", res.stdout)
         self.assertIn("--src-dir", res.stdout)
-        self.assertIn("system/units", res.stdout)
+        self.assertIn("source-root", res.stdout)
 
     def test_src_dir_missing_arg(self):
         self.assertEqual(self.ci("--src-dir").returncode, 5)
