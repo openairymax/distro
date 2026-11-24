@@ -56,6 +56,7 @@ from lint_common import Issue, dump, report
 
 REQUIRED = ("Name", "Version", "Release", "Summary", "License",
             "URL", "Source0")
+ARCH = frozenset(("BuildArch", "ExclusiveArch"))
 MUST = ("description", "prep", "install", "check", "files",
         "changelog")
 SPDX = frozenset({
@@ -81,6 +82,8 @@ DOW = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 MACRO = re.compile(r"^%(?:global|define)\s+(\w+)\s+(.+)$")
 BAD = re.compile(r"\b(TODO|FIXME|XXX)\b")
 SRC = re.compile(r"^Source\d+$")
+# 摘要比对看的是「配方声明的全部取源项」，Patch 与 Source 同权。
+SRC_PATCH = re.compile(r"^(?:Source\d+|Patch\d+)$")
 # 校验器自己的元数据行，由本工具读取，rpm 只当作普通注释。
 DIRECTIVE = "spec-lint:"
 GEN = re.compile(rf"^#\s*{DIRECTIVE}\s*generated-source\s+(\S+)$")
@@ -103,7 +106,8 @@ SUB_BUILTIN = re.compile(r"\$\(\s*command\s+-v\s+"
 # spec、单元在 system/units，两处各自演化时断言恒假却不报错，直到镜像组装
 # 走完 %check 才亮红（0.0.5 的 aarch64 组装即停在这里，已越过约四十分钟的
 # 装配）。本规则在提交侧复算这条等值关系。
-UNIT_GREP = re.compile(r"grep\s+-qxF\s+(?:'([^']*)'|\"([^\"]*)\")\s*\\?\s*$")
+UNIT_GREP = re.compile(r"grep\s+-qxF\s+(?P<q>['\"])(?P<needle>.*?)"
+                       r"(?P=q)\s*\\?\s*$")
 UNIT_REF = re.compile(r"%\{buildroot\}%\{_unitdir\}/(\S+)")
 
 
@@ -133,15 +137,13 @@ def expand(text: str, macros: dict[str, str], depth: int = 0) -> str:
 
 def parse_tags(lines: list[str]) -> dict[str, tuple[int, str]]:
     tags: dict[str, tuple[int, str]] = {}
-    live = True
     for num, raw in enumerate(lines, 1):
         line = strip_cmt(raw)
         if not line:
             continue
         if SEC.match(raw):
-            live = False
-            continue
-        hit = TAG.match(line) if live else None
+            break
+        hit = TAG.match(line)
         if hit:
             tags.setdefault(hit.group(1), (num, hit.group(2).strip()))
     return tags
@@ -173,12 +175,17 @@ def build_index(roots: list[Path]) -> dict[str, set[Path]]:
     return index
 
 
-def check_tags(tags: dict, ver: str, issues: list[Issue]) -> None:
+def check_req(tags: dict, issues: list[Issue]) -> None:
+    """必需字段与架构声明：缺一项，rpmbuild 就不会给出可用的包。"""
     for name in REQUIRED:
         if name not in tags:
             issues.append(Issue("E001", 1, f"missing required tag: {name}"))
-    if "BuildArch" not in tags and "ExclusiveArch" not in tags:
+    if not ARCH & set(tags):
         issues.append(Issue("E001", 1, "missing BuildArch or ExclusiveArch"))
+
+
+def check_meta(tags: dict, issues: list[Issue]) -> None:
+    """取值受限的字段：许可证须在允许清单内，发行号须带 %{?dist}。"""
     if "License" in tags:
         num, val = tags["License"]
         if val not in SPDX:
@@ -317,7 +324,7 @@ def check_srcs(tags: dict, index: dict[str, set[Path]],
             continue
         num, raw = tags[tag]
         val = expand(raw, macros)
-        if "/" in val or "://" in val:
+        if "/" in val:
             issues.append(Issue("E010", num, "Source must be a file name"))
             continue
         if val in seen:
@@ -351,7 +358,7 @@ def src_hashes(path: Path, root: Path) -> dict[str, str]:
     wide: dict[str, set[Path]] = {}
     out: dict[str, str] = {}
     for tag, (_, raw) in parse_tags(lines).items():
-        if not (SRC.match(tag) or tag.startswith("Patch")):
+        if not SRC_PATCH.match(tag):
             continue
         name = expand(raw, macros)
         hits = local.get(name)
@@ -509,53 +516,57 @@ def check_scan(lines: list[str], issues: list[Issue]) -> None:
                                              "not a file path"))
 
 
-def next_unit(lines: list[str], start: int, end: int) -> str | None:
-    """取逐字断言的落点：下一条非空行里 %{_unitdir} 之后的相对路径。"""
+def unit_path(lines: list[str], start: int, end: int, roots: list[Path],
+              macros: dict[str, str]) -> tuple[str, Path] | None:
+    """逐字断言落点的 (相对路径, 源文件)。
+
+    落点是紧随其后的第一条非空行里的 %{_unitdir} 引用。该行不含引用，或
+    搜索根下没有这个文件时，本工具无从判定——宏没展开的路径同样找不到文件，
+    因此不必单独判 %。
+    """
     for num in range(start + 1, end):
         raw = lines[num - 1].strip()
         if not raw:
             continue
         hit = UNIT_REF.search(raw)
-        return hit.group(1) if hit else None
+        if hit is None:
+            return None
+        rel = expand(hit.group(1), macros)
+        return next(((rel, root / rel) for root in roots
+                     if (root / rel).is_file()), None)
     return None
 
 
-def unit_src(rel: str, roots: list[Path]) -> Path | None:
-    for root in roots:
-        cand = root / rel
-        if cand.is_file():
-            return cand
-    return None
+def unit_assert(lines: list[str], num: int, end: int, roots: list[Path],
+                macros: dict[str, str]) -> Issue | None:
+    """一行逐字断言与单元源文件的比对；不是断言或无从判定时返回 None。"""
+    hit = UNIT_GREP.search(lines[num - 1])
+    if hit is None:
+        return None
+    got = unit_path(lines, num, end, roots, macros)
+    if got is None:
+        return None
+    rel, src = got
+    needle = hit.group("needle").replace("%%", "%")
+    body = {raw.rstrip() for raw in
+            src.read_text(encoding="utf-8").splitlines()}
+    if needle in body:
+        return None
+    return Issue("E020", num, f"assertion absent from {rel}: {needle}")
 
 
 def check_units(lines: list[str], secs: list[tuple[str, str, int]],
                 roots: list[Path], macros: dict[str, str],
                 issues: list[Issue]) -> None:
     """%check 对单元的逐字断言必须在源文件里逐字存在。"""
-    start = next((num for name, _, num in secs if name == "check"), None)
-    if start is None:
-        return
-    end = next((num for name, _, num in secs if num > start), len(lines) + 1)
-    for num in range(start + 1, end):
-        hit = UNIT_GREP.search(lines[num - 1])
-        if not hit:
+    for pos, (name, _, start) in enumerate(secs):
+        if name != "check":
             continue
-        needle = (hit.group(1) if hit.group(1) is not None
-                  else hit.group(2)).replace("%%", "%")
-        rel = next_unit(lines, num, end)
-        if rel is None:
-            continue
-        rel = expand(rel, macros)
-        if "%" in rel:
-            continue
-        src = unit_src(rel, roots)
-        if src is None:
-            continue
-        body = {line.rstrip() for line in
-                src.read_text(encoding="utf-8").splitlines()}
-        if needle not in body:
-            issues.append(Issue("E020", num,
-                                f"assertion absent from {rel}: {needle}"))
+        end = secs[pos + 1][2] if pos + 1 < len(secs) else len(lines) + 1
+        for num in range(start + 1, end):
+            bad = unit_assert(lines, num, end, roots, macros)
+            if bad:
+                issues.append(bad)
 
 
 def check_ver(ver: str, root: Path, issues: list[Issue]) -> None:
@@ -600,7 +611,8 @@ def lint_text(text: str, path: Path, root: Path) -> list[Issue]:
     for kind, pattern in (("source-url", URL), ("source-rpm", RPM)):
         gen |= check_fetch(kind, parse_fetch(lines, pattern), tags, index,
                            macros, issues)
-    check_tags(tags, ver, issues)
+    check_req(tags, issues)
+    check_meta(tags, issues)
     check_name(tags, path, issues)
     check_srcs(tags, index, macros, gen, issues)
     check_secs(secs, issues)
