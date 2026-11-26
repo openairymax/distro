@@ -106,7 +106,7 @@
 # spec-lint: source-bundle ../../system/ops/memory
 # spec-lint: source-bundle ../../system/ops/devstation
 # spec-lint: source-bundle ../../system/services/daemons/alert_d
-# spec-lint: source-bundle ../../security/landlock
+# spec-lint: source-bundle ../../security
 
 %global airy_version 0.0.5
 %global airy_release 1
@@ -228,7 +228,7 @@ Source103:      airy-memory
 Source104:      memory-%{version}.tar.gz
 Source105:      airy-station
 Source106:      devstation-%{version}.tar.gz
-Source107:      landlock-%{version}.tar.gz
+Source107:      security-%{version}.tar.gz
 
 BuildRequires:  cargo
 BuildRequires:  cmake
@@ -299,8 +299,9 @@ tar -xzf %{SOURCE82}
 mkdir -p kernel
 tar -xzf %{SOURCE89} -C kernel
 tar -xzf %{SOURCE88}
-# Landlock 用户态库、CLI 与出厂策略整目录交付；解包得到 landlock/，
-# 后续出树构建与安装都以它为源。
+# security 用户态有两套产物（Landlock 沙箱、IPC 对账），共用同一棵源码树与
+# 同一个 CMake 根：整目录交付后，出树构建一次编出两个 CLI，避免为每个子目录
+# 各维护一份构建入口。
 tar -xzf %{SOURCE107}
 
 %build
@@ -311,11 +312,12 @@ cmake -S services -B services-build -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_TESTING=OFF
 cmake --build services-build -j "$(nproc 2>/dev/null || printf '1')" \
     --target config_d logger_d macro_d
-# Landlock 用户态沙箱与出厂策略随包交付。BUILD_TESTING=OFF 只编 CLI，
+# Landlock 沙箱与 IPC 对账同在 security 根下构建；BUILD_TESTING=OFF 只编产物，
 # 单测由 CI 门禁在源码树上跑；构建目录留在源码树外，避免污染归档内容。
-cmake -S landlock -B landlock-build -DCMAKE_BUILD_TYPE=Release \
+cmake -S security -B security-build -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_TESTING=OFF
-cmake --build landlock-build -j "$(nproc 2>/dev/null || printf '1')"
+cmake --build security-build -j "$(nproc 2>/dev/null || printf '1')" \
+    --target airy-landlock airy-reconcile
 # 会话入口与桌面共用同一份 TUI 工作区：按键判定、状态写入与渲染都在库里，
 # 三个入口只做进程边界。归档内 vendor/ 是唯一依赖来源，离线编译，构建机
 # 不访问 crates.io；CARGO_HOME 落进构建目录，避免写用户家目录。
@@ -394,12 +396,12 @@ install -m 0755 %{SOURCE94} %{buildroot}%{_bindir}/airy-incident
 install -m 0755 %{SOURCE101} %{buildroot}%{_bindir}/airy-agent
 install -m 0755 %{SOURCE103} %{buildroot}%{_bindir}/airy-memory
 install -m 0755 %{SOURCE105} %{buildroot}%{_bindir}/airy-station
-install -m 0755 landlock-build/landlock/airy-landlock \
+install -m 0755 security-build/landlock/airy-landlock \
     %{buildroot}%{_bindir}/airy-landlock
 # 出厂策略给出默认可写根与只读系统路径；管理员在本机副本上增删规则，
 # 路径处于数据目录而不是配置目录，便于只读挂载时仍可读取。
 install -d -m 0755 %{buildroot}%{_datadir}/airymax/landlock
-install -m 0644 landlock/policies/agent.conf \
+install -m 0644 security/landlock/policies/agent.conf \
     %{buildroot}%{_datadir}/airymax/landlock/agent.conf
 install -m 0755 airy-rt-lat %{buildroot}%{_bindir}/airy-rt-lat
 # 三条路径由单元 ExecStart 直接给出，缺一条就是开机降级；安装时不改名、
@@ -449,6 +451,8 @@ install -d -m 0755 %{buildroot}%{_sbindir}
 install -m 0755 services-build/daemons/config_d/config_d \
     services-build/daemons/logger_d/logger_d \
     services-build/daemons/macro_d/macro_d %{buildroot}%{_sbindir}/
+install -m 0755 security-build/ipc/airy-reconcile \
+    %{buildroot}%{_sbindir}/airy-reconcile
 install -m 0640 services/daemons/config_d/etc/agentrt.conf \
     services/daemons/logger_d/etc/logger.conf \
     services/daemons/macro_d/etc/macro-superv.conf \
@@ -465,6 +469,7 @@ uc_ok()
     sed -n 's/^SuccessExitStatus=//p' "$1" | tr ' ' '\n' | grep -qx "$2"
 }
 test -x %{buildroot}/usr/lib/airymaxos/scripts/firstboot.sh
+test -x %{buildroot}%{_sbindir}/airy-reconcile
 test -x %{buildroot}/usr/lib/airymaxos/scripts/health_check.sh
 test -x %{buildroot}/usr/lib/airymaxos/scripts/boot_set.sh
 test -x %{buildroot}/usr/lib/airymaxos/scripts/ui.sh
@@ -941,6 +946,7 @@ fi
 %{_sbindir}/config_d
 %{_sbindir}/logger_d
 %{_sbindir}/macro_d
+%{_sbindir}/airy-reconcile
 %attr(0640, root, airy) %config(noreplace) %{_sysconfdir}/agentrt/agentrt.conf
 %attr(0640, root, airy) %config(noreplace) %{_sysconfdir}/agentrt/logger.conf
 %attr(0640, root, airy) %config(noreplace) %{_sysconfdir}/agentrt/devstation.conf
