@@ -103,6 +103,7 @@
 # spec-lint: source-bundle ../../system/ops/backup
 # spec-lint: source-bundle ../../system/ops/incident
 # spec-lint: source-bundle ../../system/ops/agent
+# spec-lint: source-bundle ../../system/ops/memory
 # spec-lint: source-bundle ../../system/services/daemons/alert_d
 
 %global airy_version 0.0.5
@@ -221,6 +222,8 @@ Source99:       incident-%{version}.tar.gz
 Source100:      alert_d-%{version}.tar.gz
 Source101:      airy-agent
 Source102:      agent-%{version}.tar.gz
+Source103:      airy-memory
+Source104:      memory-%{version}.tar.gz
 
 BuildRequires:  cargo
 BuildRequires:  cmake
@@ -375,6 +378,7 @@ install -m 0755 %{SOURCE92} %{buildroot}%{_bindir}/airy-alertd
 install -m 0755 %{SOURCE93} %{buildroot}%{_bindir}/airy-backup
 install -m 0755 %{SOURCE94} %{buildroot}%{_bindir}/airy-incident
 install -m 0755 %{SOURCE101} %{buildroot}%{_bindir}/airy-agent
+install -m 0755 %{SOURCE103} %{buildroot}%{_bindir}/airy-memory
 install -m 0755 airy-rt-lat %{buildroot}%{_bindir}/airy-rt-lat
 # 三条路径由单元 ExecStart 直接给出，缺一条就是开机降级；安装时不改名、
 # 不建软链，保持与单元文本逐字一致。
@@ -405,6 +409,7 @@ tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE98}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE99}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE100}
 tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE102}
+tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE104}
 # 编码策略模板随工具包交付，装机时落成一次配置：%%config(noreplace) 保留现场
 # 改动，模板本身是默认值的唯一事实源，工具不内建第二份。
 install -d -m 0755 %{buildroot}%{_sysconfdir}/agentrt
@@ -491,6 +496,7 @@ test -x %{buildroot}%{_bindir}/airy-alertd
 test -x %{buildroot}%{_bindir}/airy-backup
 test -x %{buildroot}%{_bindir}/airy-incident
 test -x %{buildroot}%{_bindir}/airy-agent
+test -x %{buildroot}%{_bindir}/airy-memory
 test -x %{buildroot}%{_bindir}/airy-rt-lat
 # 守护二进制、出厂配置与设备规则必须一起落盘：单元只引用路径，三件缺
 # 任何一件都要等到开机才暴露，且症状是 inactive 而不是安装失败。
@@ -526,6 +532,7 @@ import airylib.cli
 import backup.cli
 import incident.cli
 import agent.cli
+import memory.cli
 import alert_d.cli'
 PYTHONPATH=%{buildroot}%{python3_sitelib} python3 -B \
     %{buildroot}%{_bindir}/airy-locale check --matrix-only |
@@ -896,6 +903,7 @@ fi
 %{_bindir}/airy-backup
 %{_bindir}/airy-incident
 %{_bindir}/airy-agent
+%{_bindir}/airy-memory
 %{_bindir}/airy-rt-lat
 %{_sbindir}/config_d
 %{_sbindir}/logger_d
@@ -934,6 +942,7 @@ fi
 %{python3_sitelib}/backup
 %{python3_sitelib}/incident
 %{python3_sitelib}/agent
+%{python3_sitelib}/memory
 %{python3_sitelib}/alert_d
 
 %changelog
