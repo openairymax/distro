@@ -236,6 +236,7 @@ BuildRequires:  rust
 Requires:       bash
 Requires:       binutils
 Requires:       dnf
+Requires:       ncurses-libs
 Requires:       procps-ng
 Requires:       python3
 Requires:       rpm
@@ -420,6 +421,10 @@ tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE106}
 install -d -m 0755 %{buildroot}%{_sysconfdir}/agentrt
 install -m 0644 %{buildroot}%{python3_sitelib}/airycharset/charset.conf \
     %{buildroot}%{_sysconfdir}/agentrt/charset.conf
+# 工作站的出厂配置同样由包内的唯一事实源落成，%check 会把它与内建默认值
+# 逐项比对；控制台因此在没有本地改动的机器上也有一份可读的配置基线。
+install -m 0640 %{buildroot}%{python3_sitelib}/devstation/default.conf \
+    %{buildroot}%{_sysconfdir}/agentrt/devstation.conf
 # 守护二进制与单元在同一次安装事务里：单元 ExecStart 已经指向
 # /usr/sbin/*_d，二进制晚一个包交付就是开机 203/EXEC。设备规则同理——
 # 字符设备默认 0600 root:root，非 root 守护没有属组规则就打不开。
@@ -541,6 +546,8 @@ import agent.cli
 import memory.cli
 import devstation.cli
 import alert_d.cli'
+PYTHONPATH=%{buildroot}%{python3_sitelib} python3 -B -c \
+    'from devstation import config; got = config.load("%{buildroot}%{_sysconfdir}/agentrt/devstation.conf"); assert got == dict(config.DEFAULTS)'
 PYTHONPATH=%{buildroot}%{python3_sitelib} python3 -B \
     %{buildroot}%{_bindir}/airy-locale check --matrix-only |
     grep -q 'AIRYMAX-LOCALE-CHECK ok locales=8 p0=2'
@@ -918,6 +925,7 @@ fi
 %{_sbindir}/macro_d
 %attr(0640, root, airy) %config(noreplace) %{_sysconfdir}/agentrt/agentrt.conf
 %attr(0640, root, airy) %config(noreplace) %{_sysconfdir}/agentrt/logger.conf
+%attr(0640, root, airy) %config(noreplace) %{_sysconfdir}/agentrt/devstation.conf
 %attr(0640, root, airy) %config(noreplace) %{_sysconfdir}/agentrt/macro-superv.conf
 /usr/lib/udev/rules.d/60-airymax.rules
 %{_bindir}/boot-tui
