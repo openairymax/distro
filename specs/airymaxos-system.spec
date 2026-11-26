@@ -583,11 +583,12 @@ grep -qxF 'ListenStream=/run/dbus/system_bus_socket' \
     %{buildroot}%{_unitdir}/dbus.socket.d/20-airymax-listen-run.conf
 # 引导期会话选择：窗口必须留足、选择器必须能独占 tty1；两者任一写错的表现
 # 都是「倒计时没走完就回到登录提示」或「按键被 getty 抢走」，从服务状态上
-# 看不出来。boot-tui 不得带 [Install]：它由选择器显式 start，被固定拉起就
-# 等于没有选择。drop-in 的判据逐行断言，改错一个字会让 GUI 在选了 TUI 的
-# 机器上照样启动。
+# 看不出来。首次开机等 120 秒；此后按记住的选择只留 5 秒，少了按键来不及，
+# 多了每次开机都白等。boot-tui 不得带 [Install]：它由选择器显式 start，被
+# 固定拉起就等于没有选择。drop-in 的判据逐行断言，改错一个字会让 GUI 在选了
+# TUI 的机器上照样启动。
 test -f %{buildroot}%{_unitdir}/airy-session-choice.service
-grep -qxF 'ExecStart=/usr/bin/airy-session-pick --timeout 120 --default gui' \
+grep -qxF 'ExecStart=/usr/bin/airy-session-pick --timeout 120 --default gui --repeat-timeout 5' \
     %{buildroot}%{_unitdir}/airy-session-choice.service
 grep -qxF 'TimeoutStartSec=150' \
     %{buildroot}%{_unitdir}/airy-session-choice.service
