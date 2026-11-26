@@ -79,6 +79,8 @@ ASSETS = (
      "%{_sysconfdir}/X11/xinit/xinitrc.d/70-airymax-im.sh"),
     ("desktop/xinitrc.d/60-airymax-display.sh",
      "%{_sysconfdir}/X11/xinit/xinitrc.d/60-airymax-display.sh"),
+    ("desktop/xinitrc.d/62-airymax-compose.sh",
+     "%{_sysconfdir}/X11/xinit/xinitrc.d/62-airymax-compose.sh"),
     ("desktop/01_airymax_display",
      "%{_sysconfdir}/grub.d/01_airymax_display"),
     ("desktop/autostart/airymax-input-method.desktop",

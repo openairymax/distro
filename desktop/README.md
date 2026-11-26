@@ -372,6 +372,9 @@ multi-user.target，不会触发该单元；workstation kickstart 显式 enable�
 - `xinitrc.d/70-airymax-im.sh` → `/etc/X11/xinit/xinitrc.d/`
 - `xinitrc.d/60-airymax-display.sh` → `/etc/X11/xinit/xinitrc.d/`
   （会话启动时应用分辨率策略）
+- `xinitrc.d/62-airymax-compose.sh` → `/etc/X11/xinit/xinitrc.d/`
+  （无 render 节点的机器把合成后端钉到 XRender：该环境下 GL 合成在绘制
+  路径崩溃，见文件头）
 - `xinitrc.d/65-airymax-audio.sh` → `/etc/X11/xinit/xinitrc.d/`
   （面板启动前拉起 PulseAudio 并等套接字可连）
 - `xinitrc.d/75-airymax-power-tray.sh` → `/etc/X11/xinit/xinitrc.d/`

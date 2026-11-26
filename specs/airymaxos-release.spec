@@ -156,6 +156,7 @@ Source54:       net_ready.sh
 Source55:       airy-session.conf
 Source56:       50-airy-session-switch.rules
 Source57:       75-airymax-power-tray.sh
+Source58:       62-airymax-compose.sh
 
 Provides:       system-release
 Provides:       system-release(releasever)
@@ -345,6 +346,13 @@ install -m 0755 %{SOURCE18} \
     %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/60-airymax-display.sh
 install -m 0755 %{SOURCE49} \
     %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/65-airymax-audio.sh
+
+# 合成后端按设备收口。只有 simpledrm 的机器没有 /dev/dri/renderD*，合成器
+# 仍会进 GL 路径：Mesa 落到 llvmpipe，着色器物化失败后合成器在绘制路径
+# SIGSEGV，桌面一起来就反复崩溃。判据读 render 节点，不读机型；有节点的
+# 机器一概不改写，保持硬件合成。根因与现场取证见文件头。
+install -m 0755 %{SOURCE58} \
+    %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/62-airymax-compose.sh
 
 # 电量托盘按硬件收口。托盘只在有电池时有显示对象；没有 power_supply 设备时
 # 它起手即退，退出路径上的工作线程与已析构对象竞争，偶发空指针崩溃（验收
@@ -758,6 +766,20 @@ sh -n %{buildroot}/usr/lib/airymaxos/desktop/display_mode.sh
 sh -n %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/60-airymax-display.sh
 sh -n %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/65-airymax-audio.sh
 sh -n %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/75-airymax-power-tray.sh
+sh -n %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/62-airymax-compose.sh
+# 合成后端的两个出口都要复跑：没有 render 节点的机器必须导出 XRender，有节点
+# 的机器必须一字不改。构建机本身无 DRM，故用 AIRY_DRI_DIR 指到临时目录分别造
+# 出两种事实；只做 sh -n 会让判据退化成「语法没写错」，而这条脚本的全部风险
+# 恰在两个出口是否分得开。
+airy_dri=$(mktemp -d)
+AIRY_DRI_DIR="${airy_dri}" sh -c \
+    '. %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/62-airymax-compose.sh
+     test "${KWIN_COMPOSE:-}" = X'
+: >"${airy_dri}/renderD128"
+AIRY_DRI_DIR="${airy_dri}" sh -c \
+    '. %{buildroot}%{_sysconfdir}/X11/xinit/xinitrc.d/62-airymax-compose.sh
+     test -z "${KWIN_COMPOSE:-}"'
+rm -rf "${airy_dri}"
 # 触控板改派只有「先匹配 synaptics、再改派 libinput」同时成立才生效：少了
 # MatchDriver 会连带把 evdev 触控板一起夺走，少了 Driver 则文件毫无作用，
 # 两种错法都不会让构建失败，只在装机后表现为「触控板不能用」。逐行断言。
@@ -1013,6 +1035,7 @@ fi
 %config(noreplace) %{_sysconfdir}/X11/xinit/xinitrc.d/70-airymax-im.sh
 %config(noreplace) %{_sysconfdir}/X11/xinit/xinitrc.d/60-airymax-display.sh
 %config(noreplace) %{_sysconfdir}/X11/xinit/xinitrc.d/65-airymax-audio.sh
+%config(noreplace) %{_sysconfdir}/X11/xinit/xinitrc.d/62-airymax-compose.sh
 %config(noreplace) %{_sysconfdir}/X11/xinit/xinitrc.d/75-airymax-power-tray.sh
 %config(noreplace) %{_sysconfdir}/X11/xorg.conf.d/90-airymax-touchpad.conf
 %config(noreplace) %{_sysconfdir}/grub.d/01_airymax_display
