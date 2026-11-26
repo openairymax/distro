@@ -106,6 +106,7 @@
 # spec-lint: source-bundle ../../system/ops/memory
 # spec-lint: source-bundle ../../system/ops/devstation
 # spec-lint: source-bundle ../../system/services/daemons/alert_d
+# spec-lint: source-bundle ../../security/landlock
 
 %global airy_version 0.0.5
 %global airy_release 1
@@ -227,6 +228,7 @@ Source103:      airy-memory
 Source104:      memory-%{version}.tar.gz
 Source105:      airy-station
 Source106:      devstation-%{version}.tar.gz
+Source107:      landlock-%{version}.tar.gz
 
 BuildRequires:  cargo
 BuildRequires:  cmake
@@ -297,6 +299,9 @@ tar -xzf %{SOURCE82}
 mkdir -p kernel
 tar -xzf %{SOURCE89} -C kernel
 tar -xzf %{SOURCE88}
+# Landlock 用户态库、CLI 与出厂策略整目录交付；解包得到 landlock/，
+# 后续出树构建与安装都以它为源。
+tar -xzf %{SOURCE107}
 
 %build
 gcc %{optflags} -std=c11 -Wall -Wextra -Werror -o airy-rt-lat \
@@ -306,6 +311,11 @@ cmake -S services -B services-build -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_TESTING=OFF
 cmake --build services-build -j "$(nproc 2>/dev/null || printf '1')" \
     --target config_d logger_d macro_d
+# Landlock 用户态沙箱与出厂策略随包交付。BUILD_TESTING=OFF 只编 CLI，
+# 单测由 CI 门禁在源码树上跑；构建目录留在源码树外，避免污染归档内容。
+cmake -S landlock -B landlock-build -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_TESTING=OFF
+cmake --build landlock-build -j "$(nproc 2>/dev/null || printf '1')"
 # 会话入口与桌面共用同一份 TUI 工作区：按键判定、状态写入与渲染都在库里，
 # 三个入口只做进程边界。归档内 vendor/ 是唯一依赖来源，离线编译，构建机
 # 不访问 crates.io；CARGO_HOME 落进构建目录，避免写用户家目录。
@@ -384,6 +394,13 @@ install -m 0755 %{SOURCE94} %{buildroot}%{_bindir}/airy-incident
 install -m 0755 %{SOURCE101} %{buildroot}%{_bindir}/airy-agent
 install -m 0755 %{SOURCE103} %{buildroot}%{_bindir}/airy-memory
 install -m 0755 %{SOURCE105} %{buildroot}%{_bindir}/airy-station
+install -m 0755 landlock-build/landlock/airy-landlock \
+    %{buildroot}%{_bindir}/airy-landlock
+# 出厂策略给出默认可写根与只读系统路径；管理员在本机副本上增删规则，
+# 路径处于数据目录而不是配置目录，便于只读挂载时仍可读取。
+install -d -m 0755 %{buildroot}%{_datadir}/airymax/landlock
+install -m 0644 landlock/policies/agent.conf \
+    %{buildroot}%{_datadir}/airymax/landlock/agent.conf
 install -m 0755 airy-rt-lat %{buildroot}%{_bindir}/airy-rt-lat
 # 三条路径由单元 ExecStart 直接给出，缺一条就是开机降级；安装时不改名、
 # 不建软链，保持与单元文本逐字一致。
@@ -421,7 +438,7 @@ tar -C %{buildroot}%{python3_sitelib} -xzf %{SOURCE106}
 install -d -m 0755 %{buildroot}%{_sysconfdir}/agentrt
 install -m 0644 %{buildroot}%{python3_sitelib}/airycharset/charset.conf \
     %{buildroot}%{_sysconfdir}/agentrt/charset.conf
-# 工作站的出厂配置同样由包内的唯一事实源落成，%check 会把它与内建默认值
+# 工作站的出厂配置同样由包内的唯一事实源落成，%%check 会把它与内建默认值
 # 逐项比对；控制台因此在没有本地改动的机器上也有一份可读的配置基线。
 install -m 0640 %{buildroot}%{python3_sitelib}/devstation/default.conf \
     %{buildroot}%{_sysconfdir}/agentrt/devstation.conf
@@ -919,6 +936,7 @@ fi
 %{_bindir}/airy-agent
 %{_bindir}/airy-memory
 %{_bindir}/airy-station
+%{_bindir}/airy-landlock
 %{_bindir}/airy-rt-lat
 %{_sbindir}/config_d
 %{_sbindir}/logger_d
@@ -936,6 +954,9 @@ fi
 %dir %{_datadir}/airymaxos/system/tui
 %dir %{_datadir}/airymaxos/system/tui/themes
 %{_datadir}/airymaxos/system/tui/themes/*.toml
+%dir %{_datadir}/airymax
+%dir %{_datadir}/airymax/landlock
+%{_datadir}/airymax/landlock/agent.conf
 %dir %{_sysconfdir}/airymaxos
 %dir %{_sysconfdir}/agentrt
 %config(noreplace) %{_sysconfdir}/agentrt/charset.conf
