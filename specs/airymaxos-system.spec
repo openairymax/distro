@@ -329,7 +329,7 @@ cmake --build security-build -j "$(nproc 2>/dev/null || printf '1')" \
 cmake -S cloudnative -B cloudnative-build -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_TESTING=OFF
 cmake --build cloudnative-build -j "$(nproc 2>/dev/null || printf '1')" \
-    --target airy-crdctl airy-shim airy-cni
+    --target airy-crdctl airy-shim airy-cni airy-supernode
 # 会话入口与桌面共用同一份 TUI 工作区：按键判定、状态写入与渲染都在库里，
 # 三个入口只做进程边界。归档内 vendor/ 是唯一依赖来源，离线编译，构建机
 # 不访问 crates.io；CARGO_HOME 落进构建目录，避免写用户家目录。
@@ -471,6 +471,8 @@ install -m 0755 cloudnative-build/shim/airy-shim \
     %{buildroot}%{_sbindir}/airy-shim
 install -m 0755 cloudnative-build/cni/airy-cni \
     %{buildroot}%{_sbindir}/airy-cni
+install -m 0755 cloudnative-build/supernode/airy-supernode \
+    %{buildroot}%{_sbindir}/airy-supernode
 # 清单与示例随包落成：集群侧 apply 与人工核对都以安装后的这份为准，
 # 不在仓库外另存副本，避免两处声明各自漂移。
 install -d -m 0755 %{buildroot}%{_datadir}/airymax/crd/manifests \
@@ -499,6 +501,7 @@ test -x %{buildroot}%{_sbindir}/airy-reconcile
 test -x %{buildroot}%{_sbindir}/airy-crdctl
 test -x %{buildroot}%{_sbindir}/airy-shim
 test -x %{buildroot}%{_sbindir}/airy-cni
+test -x %{buildroot}%{_sbindir}/airy-supernode
 test -x %{buildroot}/usr/lib/airymaxos/scripts/health_check.sh
 test -x %{buildroot}/usr/lib/airymaxos/scripts/boot_set.sh
 test -x %{buildroot}/usr/lib/airymaxos/scripts/ui.sh
@@ -979,6 +982,7 @@ fi
 %{_sbindir}/airy-crdctl
 %{_sbindir}/airy-shim
 %{_sbindir}/airy-cni
+%{_sbindir}/airy-supernode
 %dir %{_datadir}/airymax/crd
 %dir %{_datadir}/airymax/crd/manifests
 %dir %{_datadir}/airymax/crd/examples
