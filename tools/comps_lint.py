@@ -199,21 +199,28 @@ def check_cycles(edges: dict[str, list[str]], lines: list[str],
             walk_cycle(gid, edges, state, [], lines, issues)
 
 
+def _core_kinds(grp: ET.Element) -> dict[str, str]:
+    return {(req.text or "").strip(): req.get("type", "default")
+            for req in grp.findall("packagelist/packagereq")}
+
+
 def check_core(grp: ET.Element, gid: str,
                lines: list[str], issues: list[Issue]) -> None:
-    kinds = {(req.text or "").strip(): req.get("type", "default")
-             for req in grp.findall("packagelist/packagereq")}
+    kinds = _core_kinds(grp)
     for name in CORE_NEEDS:
         if kinds.get(name, "optional") == "optional":
             issues.append(Issue("C014", tag_line(lines, "id", gid),
                                 f"group {gid}: {name} must be installed"))
 
 
-def check_groups(root: ET.Element, lines: list[str],
-                 issues: list[Issue]) -> set[str]:
-    gids: set[str] = set()
+def _group_ids(root: ET.Element, gids: set[str], lines: list[str],
+               issues: list[Issue]) -> None:
     for grp in root.findall("group"):
         grp_id(grp, gids, lines, issues)
+
+
+def _group_edges(root: ET.Element, gids: set[str], lines: list[str],
+                 issues: list[Issue]) -> dict[str, list[str]]:
     edges: dict[str, list[str]] = {}
     for grp in root.findall("group"):
         gid = text_of(grp, "id")
@@ -224,6 +231,14 @@ def check_groups(root: ET.Element, lines: list[str],
         if gid == CORE:
             check_core(grp, gid, lines, issues)
         edges[gid] = grp_refs(grp, gid, gids, lines, issues)
+    return edges
+
+
+def check_groups(root: ET.Element, lines: list[str],
+                 issues: list[Issue]) -> set[str]:
+    gids: set[str] = set()
+    _group_ids(root, gids, lines, issues)
+    edges = _group_edges(root, gids, lines, issues)
     check_cycles(edges, lines, issues)
     return gids
 
@@ -344,18 +359,23 @@ def check_base(name: str, sect: Sect, gids: set[str],
                             f"{name}: implicit @core undefined in comps"))
 
 
+def _walk_file(path: Path, gids: set[str], eids: set[str],
+               issues: list[Issue]) -> None:
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as err:
+        issues.append(Issue("C009", 1, f"cannot read {path.name}: {err}"))
+        return
+    for sect in ks_sects(lines):
+        check_base(path.name, sect, gids, issues)
+        for num, line in sect[2]:
+            check_ref(line, num, gids, eids, issues)
+
+
 def walk_ks(base: Path, gids: set[str], eids: set[str],
             issues: list[Issue]) -> None:
     for path in sorted((base / "kickstart").glob("*.ks")):
-        try:
-            lines = path.read_text(encoding="utf-8").splitlines()
-        except OSError as err:
-            issues.append(Issue("C009", 1, f"cannot read {path.name}: {err}"))
-            continue
-        for sect in ks_sects(lines):
-            check_base(path.name, sect, gids, issues)
-            for num, line in sect[2]:
-                check_ref(line, num, gids, eids, issues)
+        _walk_file(path, gids, eids, issues)
 
 
 def lint_text(text: str, base: Path) -> list[Issue]:
@@ -382,6 +402,30 @@ def lint_comps(path: Path, base: Path) -> list[Issue]:
     return lint_text(path.read_text(encoding="utf-8"), base)
 
 
+def _lint_all(targets: list[Path], base: Path) -> int | None:
+    total = 0
+    for path in targets:
+        try:
+            issues = lint_comps(path, base)
+        except OSError as err:
+            print(f"comps_lint: {err}", file=sys.stderr)
+            return None
+        total += dump(path, issues)
+    return total
+
+
+def _dtd_total(base: Path) -> int | None:
+    dtd = base / "comps" / SYSTEM
+    if not dtd.is_file():
+        return 0
+    try:
+        dtd_issues = comment_issues(dtd.read_text(encoding="utf-8"))
+    except OSError as err:
+        print(f"comps_lint: {err}", file=sys.stderr)
+        return None
+    return dump(dtd, dtd_issues)
+
+
 def main(argv: list[str]) -> int:
     base = Path(__file__).resolve().parent.parent
     targets = [Path(arg) for arg in argv[1:]]
@@ -390,22 +434,13 @@ def main(argv: list[str]) -> int:
     if not targets:
         print("comps_lint: no comps file found", file=sys.stderr)
         return 2
-    total = 0
-    for path in targets:
-        try:
-            issues = lint_comps(path, base)
-        except OSError as err:
-            print(f"comps_lint: {err}", file=sys.stderr)
-            return 2
-        total += dump(path, issues)
-    dtd = base / "comps" / SYSTEM
-    if dtd.is_file():
-        try:
-            dtd_issues = comment_issues(dtd.read_text(encoding="utf-8"))
-        except OSError as err:
-            print(f"comps_lint: {err}", file=sys.stderr)
-            return 2
-        total += dump(dtd, dtd_issues)
+    total = _lint_all(targets, base)
+    if total is None:
+        return 2
+    extra = _dtd_total(base)
+    if extra is None:
+        return 2
+    total += extra
     return report("comps_lint", total)
 
 

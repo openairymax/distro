@@ -83,21 +83,29 @@ def top_lines(text: str):
         yield word
 
 
+def _url_row(words: list[str]) -> tuple[str, str, str]:
+    base = opt(words, "--url")
+    if not base:
+        raise ValueError("url 指令缺少 --url")
+    return ("baseos", base, "1000")
+
+
+def _repo_row(words: list[str]) -> tuple[str, str, str]:
+    name = opt(words, "--name")
+    base = opt(words, "--baseurl")
+    if not name or not base:
+        raise ValueError("repo 指令缺少 --name 或 --baseurl")
+    return (name, base, opt(words, "--cost") or "1000")
+
+
 def repos(text: str) -> list[tuple[str, str, str]]:
     rows: list[tuple[str, str, str]] = []
     for word in top_lines(text):
         words = shlex.split(word)
         if words[0] == "url":
-            base = opt(words, "--url")
-            if not base:
-                raise ValueError("url 指令缺少 --url")
-            rows.append(("baseos", base, "1000"))
+            rows.append(_url_row(words))
         elif words[0] == "repo":
-            name = opt(words, "--name")
-            base = opt(words, "--baseurl")
-            if not name or not base:
-                raise ValueError("repo 指令缺少 --name 或 --baseurl")
-            rows.append((name, base, opt(words, "--cost") or "1000"))
+            rows.append(_repo_row(words))
     return rows
 
 
@@ -163,13 +171,22 @@ def check_pose(text: str, src: str, base: str) -> None:
         raise ValueError("投影后仓库未指向载荷")
 
 
+def _proj_head(lines: list[str]) -> int:
+    return next((pos for pos, line in enumerate(lines)
+                 if line.strip().startswith("%")), len(lines))
+
+
+def _proj_body(lines: list[str], head: int, base: str,
+               arch: str) -> list[str]:
+    rows = (proj_line(line, base, arch) for line in lines[:head])
+    return [row for row in rows if row is not None]
+
+
 def project(text: str, arch: str = "x86_64") -> str:
     base = payload_url(repos(text))
     lines = text.splitlines(keepends=True)
-    head = next((pos for pos, line in enumerate(lines)
-                 if line.strip().startswith("%")), len(lines))
-    rows = (proj_line(line, base, arch) for line in lines[:head])
-    body = [row for row in rows if row is not None]
+    head = _proj_head(lines)
+    body = _proj_body(lines, head, base, arch)
     flowed = "".join(body + lines[head:])
     check_pose(flowed, text, base)
     return flowed
@@ -294,20 +311,28 @@ def expand_env(eid: str, envs: dict[str, list[str]],
     return [GROUP_HEAD + gid for gid in out]
 
 
+def _spawn(kind: str, spec: str, envs: dict[str, list[str]],
+           groups: dict[str, list[str]]) -> list[tuple[str, str]]:
+    if kind == "install" and spec.startswith(ENV_HEAD):
+        return [("install", row)
+                for row in expand_env(spec[2:], envs, groups)]
+    return [(kind, spec)]
+
+
+def _uniq_rows(rows: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    out: list[tuple[str, str]] = []
+    for row in rows:
+        if row not in out:
+            out.append(row)
+    return out
+
+
 def expand_envs(rows: list[tuple[str, str]],
                 comps: Path) -> list[tuple[str, str]]:
     envs, groups = comps_ids(comps_tree(Path(comps)))
-    out: list[tuple[str, str]] = []
-    for kind, spec in rows:
-        if kind == "install" and spec.startswith(ENV_HEAD):
-            spawned = [("install", row)
-                       for row in expand_env(spec[2:], envs, groups)]
-        else:
-            spawned = [(kind, spec)]
-        for row in spawned:
-            if row not in out:
-                out.append(row)
-    return out
+    spawned = [row for kind, spec in rows
+               for row in _spawn(kind, spec, envs, groups)]
+    return _uniq_rows(spawned)
 
 
 def need_split(rows: list[tuple[str, str]],
@@ -367,6 +392,11 @@ def group_meta(pkgdir: Path) -> bytes:
     return meta_of(Path(pkgdir), "group")
 
 
+def _prov_names(fmt: ET.Element) -> list[str]:
+    return [entry.get("name") for cap in _kids(fmt, "provides")
+            for entry in _kids(cap, "entry") if entry.get("name")]
+
+
 def pkg_caps(pkgdir: Path) -> tuple[set[str], set[str]]:
     """载荷仓库的包名与 Provides 名。
 
@@ -383,11 +413,7 @@ def pkg_caps(pkgdir: Path) -> tuple[set[str], set[str]]:
     for node in _desc(root, "package"):
         names.add(_text(node, "name"))
         for fmt in _kids(node, "format"):
-            for cap in _kids(fmt, "provides"):
-                for entry in _kids(cap, "entry"):
-                    name = entry.get("name")
-                    if name:
-                        provs.add(name)
+            provs.update(_prov_names(fmt))
     return names - {""}, provs
 
 
@@ -407,17 +433,22 @@ def res_repo(ks: Path, pkgdir: Path, comps: Path) -> None:
     print(f"comps\t{len(members | specs)}")
 
 
+def _env_groups(env: str, envs: dict[str, list[str]],
+                groups: dict[str, list[str]]) -> None:
+    if env not in envs:
+        raise ValueError(f"仓库 comps 缺少环境: {env}")
+    for gid in envs[env]:
+        if gid not in groups:
+            raise ValueError(f"环境 {env} 引用的组缺失: {gid}")
+
+
 def verify_repo(pkgdir: Path, env: str) -> None:
     try:
         root = ET.fromstring(group_meta(Path(pkgdir)))
     except ET.ParseError as err:
         raise ValueError(f"仓库 comps 解析失败: {err}") from err
     envs, groups = comps_ids(root)
-    if env not in envs:
-        raise ValueError(f"仓库 comps 缺少环境: {env}")
-    for gid in envs[env]:
-        if gid not in groups:
-            raise ValueError(f"环境 {env} 引用的组缺失: {gid}")
+    _env_groups(env, envs, groups)
     print(f"env\t{env}")
     for gid in sorted(groups):
         print(f"group\t{gid}")
@@ -472,6 +503,17 @@ def parse(argv: list[str]) -> argparse.Namespace:
     return ap.parse_args(argv)
 
 
+def _emit(args: argparse.Namespace, text: str) -> None:
+    if args.cmd == "repos":
+        emit_repos(text, args.skip_file)
+    elif args.cmd == "envs":
+        emit_envs(text)
+    elif args.cmd == "install":
+        sys.stdout.write(project(text, args.arch))
+    else:
+        emit_pkgs(text, args.comps)
+
+
 def main(argv: list[str]) -> int:
     args = parse(argv)
     try:
@@ -482,14 +524,7 @@ def main(argv: list[str]) -> int:
             res_repo(args.file, args.dir, args.comps)
             return 0
         text = args.file.read_text(encoding="utf-8")
-        if args.cmd == "repos":
-            emit_repos(text, args.skip_file)
-        elif args.cmd == "envs":
-            emit_envs(text)
-        elif args.cmd == "install":
-            sys.stdout.write(project(text, args.arch))
-        else:
-            emit_pkgs(text, args.comps)
+        _emit(args, text)
     except (OSError, ValueError) as err:
         print(f"ks_spec: {err}", file=sys.stderr)
         return EINVAL

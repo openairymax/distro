@@ -637,10 +637,8 @@ def opt_of(arg):
     return None
 
 
-def parse(argv):
-    """解析 CLI；返回 (product, variant, arch, path)，--help 返回四个 None。"""
-    if any(arg in ("-h", "--help") for arg in argv):
-        return None, None, None, None
+def _collect_argv(argv):
+    """收集长选项与位置参数；已识别的选项取值一并归一。"""
     got = {"--product": None, "--variant": "", "--arch": "x86_64"}
     files = []
     pos = 0
@@ -653,11 +651,24 @@ def parse(argv):
             continue
         got[name] = flag(arg, name, argv, pos)
         pos += 2 if arg == name else 1
+    return got, files
+
+
+def _validate(got, files):
+    """校验必选项与架构，返回 (product, variant, arch, path)。"""
     if not got["--product"] or len(files) != 1:
         raise ValueError("需要 --product 与唯一 FILE")
     if got["--arch"] not in SERIAL:
         raise ValueError(f"不支持的架构: {got['--arch']}")
     return got["--product"], got["--variant"], got["--arch"], files[0]
+
+
+def parse(argv):
+    """解析 CLI；返回 (product, variant, arch, path)，--help 返回四个 None。"""
+    if any(arg in ("-h", "--help") for arg in argv):
+        return None, None, None, None
+    got, files = _collect_argv(argv)
+    return _validate(got, files)
 
 
 def main(argv):

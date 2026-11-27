@@ -55,6 +55,14 @@ def day(text):
         return None
 
 
+def _schema_policy(pol, dl, out):
+    if pol.get("kind") != "large-sp-only":
+        bad(out, "schema/policy", "kind=%s" % pol.get("kind", ""))
+    if day(pol.get("eol-covers", "")) != dl:
+        bad(out, "schema/policy",
+            "eol-covers=%s != deadline" % pol.get("eol-covers", ""))
+
+
 def check_schema(dat, out):
     """校验台账骨架，返回选定的基底名。"""
     dl = day(dat.get("deadline", ""))
@@ -67,34 +75,44 @@ def check_schema(dat, out):
         bad(out, "schema/arch", dat.get("arch", ""))
     if dat.get("kernel_line") != KERNEL:
         bad(out, "schema/kernel", dat.get("kernel_line", ""))
-    pol = dat.get("policy", {})
-    if pol.get("kind") != "large-sp-only":
-        bad(out, "schema/policy", "kind=%s" % pol.get("kind", ""))
-    if day(pol.get("eol-covers", "")) != dl:
-        bad(out, "schema/policy",
-            "eol-covers=%s != deadline" % pol.get("eol-covers", ""))
+    _schema_policy(dat.get("policy", {}), dl, out)
     return sel
+
+
+def _cand_ok(rec, seen):
+    name = rec.get("name", "")
+    if not SP.match(name) or name in seen:
+        return None
+    seen.add(name)
+    return name
+
+
+def _cand_dates(name, rec, out):
+    for key in ("ga", "eol"):
+        if day(rec.get(key, "")) is None:
+            bad(out, "cands/date", "%s %s=%s"
+                % (name, key, rec.get(key, "")))
+
+
+def _cand_row(rec, name, line, out):
+    if rec.get("kind") not in KINDS:
+        bad(out, "cands/kind", "%s kind=%s"
+            % (name, rec.get("kind", "")))
+    _cand_dates(name, rec, out)
+    if rec.get("kernel") != line:
+        bad(out, "cands/kernel", "%s kernel=%s"
+            % (name, rec.get("kernel", "")))
 
 
 def check_cands(dat, out):
     """校验候选表，返回 {名称: 记录}。"""
     cands, seen, line = {}, set(), dat.get("kernel_line", "")
     for rec in dat.get("candidates", []):
-        name = rec.get("name", "")
-        if not SP.match(name) or name in seen:
-            bad(out, "cands/name", name)
+        name = _cand_ok(rec, seen)
+        if name is None:
+            bad(out, "cands/name", rec.get("name", ""))
             continue
-        seen.add(name)
-        if rec.get("kind") not in KINDS:
-            bad(out, "cands/kind", "%s kind=%s"
-                % (name, rec.get("kind", "")))
-        for key in ("ga", "eol"):
-            if day(rec.get(key, "")) is None:
-                bad(out, "cands/date", "%s %s=%s"
-                    % (name, key, rec.get(key, "")))
-        if rec.get("kernel") != line:
-            bad(out, "cands/kernel", "%s kernel=%s"
-                % (name, rec.get("kernel", "")))
+        _cand_row(rec, name, line, out)
         cands[name] = rec
     return cands
 
@@ -165,16 +183,24 @@ def repo_urls(txt):
     return [ln.split("=", 1)[1] for ln in txt if ln.startswith("baseurl=")]
 
 
-def repo_row(base, row, out):
-    """核对一行 baseurl：每段地址指向同一基底，且三家镜像都得在。"""
-    for url in row.split():
-        if "/%s/" % base not in url:
-            bad(out, "repo/baseurl", url)
-        if not any(host in url for host in HOSTS):
-            bad(out, "repo/host", url)
+def _url_checks(base, url, out):
+    if "/%s/" % base not in url:
+        bad(out, "repo/baseurl", url)
+    if not any(host in url for host in HOSTS):
+        bad(out, "repo/host", url)
+
+
+def _host_checks(row, out):
     for host in HOSTS:
         if host not in row:
             bad(out, "repo/host", "%s 缺 %s" % (row.split()[0], host))
+
+
+def repo_row(base, row, out):
+    """核对一行 baseurl：每段地址指向同一基底，且三家镜像都得在。"""
+    for url in row.split():
+        _url_checks(base, url, out)
+    _host_checks(row, out)
 
 
 def check_repo(path, base, out):
@@ -194,14 +220,18 @@ def check_repo(path, base, out):
         bad(out, "repo/releasever", "baseurl 不得使用 $releasever")
 
 
+def _mirror_rows(roots, base, out):
+    for root in roots:
+        if not root.endswith("/" + base):
+            bad(out, "mirrors/root", root)
+
+
 def check_mirrors(path, base, out):
     lines = read_lines(path, out)
     if lines is None:
         return
     roots = [ln.strip() for ln in live(lines)]
-    for root in roots:
-        if not root.endswith("/" + base):
-            bad(out, "mirrors/root", root)
+    _mirror_rows(roots, base, out)
     if roots and roots[0] != FIRST + base:
         bad(out, "mirrors/first", roots[0])
 
@@ -250,15 +280,26 @@ def check_ukui(path, base, out):
         bad(out, "ukui/base", ",".join(got) or "missing")
 
 
+def _ks_row(ln, base, out):
+    if "repo.openeuler.org/openEuler-" in ln and \
+            "/%s/" % base not in ln:
+        bad(out, "ks/base", ln.strip())
+
+
 def check_ks(paths, base, out):
     for path in paths:
         lines = read_lines(path, out)
         if lines is None:
             continue
         for ln in live(lines):
-            if "repo.openeuler.org/openEuler-" in ln and \
-                    "/%s/" % base not in ln:
-                bad(out, "ks/base", ln.strip())
+            _ks_row(ln, base, out)
+
+
+def _token_row(name, ln, base, out):
+    for hit in TOKEN.finditer(ln):
+        if "openEuler-%s-LTS-SP%s" % (hit.group(1),
+                                      hit.group(2)) != base:
+            bad(out, "token/drift", "%s: %s" % (name, hit.group(0)))
 
 
 def check_tokens(paths, base, out):
@@ -267,11 +308,7 @@ def check_tokens(paths, base, out):
         if lines is None:
             continue
         for ln in live(lines):
-            for hit in TOKEN.finditer(ln):
-                if "openEuler-%s-LTS-SP%s" % (hit.group(1),
-                                              hit.group(2)) != base:
-                    bad(out, "token/drift", "%s: %s"
-                        % (Path(path).name, hit.group(0)))
+            _token_row(Path(path).name, ln, base, out)
 
 
 def notes(root):

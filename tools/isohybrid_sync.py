@@ -226,6 +226,14 @@ def too_small(fh):
     return fh.tell() < (TORITO_LBA + 2) * BLK
 
 
+def _gpt_span_of(gpt):
+    return gpt_span(gpt[1], gpt[2], gpt[3]) if gpt else None
+
+
+def _bip_of(fh, ent):
+    return bip_read(fh, ent["bios"][0]) if "bios" in ent else None
+
+
 def survey(fh):
     if too_small(fh):
         return None
@@ -234,21 +242,25 @@ def survey(fh):
         return None
     mbr = mbr_slot(fh)
     gpt = gpt_table(fh)
-    span = gpt_span(gpt[1], gpt[2], gpt[3]) if gpt else None
-    bip = bip_read(fh, ent["bios"][0]) if "bios" in ent else None
+    span = _gpt_span_of(gpt)
+    bip = _bip_of(fh, ent)
     return {"lba": ent["efi"][0], "size": ent["efi"][1], "mbr": mbr,
             "gpt": span, "bios": ent.get("bios"), "bip": bip}
 
 
-def report(sig):
-    print(f"torito: lba2048={sig['lba']} sectors512={sig['size']} "
-          f"lba512={sig['lba'] * (BLK // SECT)}")
+def _rep_mbr(sig):
     if sig["mbr"]:
         idx, start, size = sig["mbr"]
         print(f"mbr: slot={idx + 1} start={start} size={size}")
+
+
+def _rep_gpt(sig):
     if sig["gpt"]:
         idx, first, last = sig["gpt"]
         print(f"gpt: slot={idx + 1} first={first} last={last}")
+
+
+def _rep_bios(sig):
     if not sig["bios"]:
         print("bios: absent")
         return
@@ -262,21 +274,52 @@ def report(sig):
           f"bootinfo={'ok' if bip_ok(sig['bip'], lba) else 'stale'}")
 
 
+def report(sig):
+    print(f"torito: lba2048={sig['lba']} sectors512={sig['size']} "
+          f"lba512={sig['lba'] * (BLK // SECT)}")
+    _rep_mbr(sig)
+    _rep_gpt(sig)
+    _rep_bios(sig)
+
+
+def _mbr_ok(sig, want, want_size):
+    return sig["mbr"][1] == want and sig["mbr"][2] == want_size
+
+
+def _gpt_ok(sig, want, want_size):
+    return (sig["gpt"][1] == want and
+            sig["gpt"][2] - sig["gpt"][1] + 1 == want_size)
+
+
+def _bip_stale(sig):
+    return (sig["bios"] and sig["bip"]
+            and not bip_ok(sig["bip"], sig["bios"][0]))
+
+
 def aligned(sig):
     want = sig["lba"] * (BLK // SECT)
     want_size = sig["size"]
     if not sig["mbr"] or not sig["gpt"]:
         return False
-    if sig["bios"] and sig["bip"] and not bip_ok(sig["bip"], sig["bios"][0]):
+    if _bip_stale(sig):
         return False
-    return (sig["mbr"][1] == want and sig["mbr"][2] == want_size and
-            sig["gpt"][1] == want and sig["gpt"][2] - sig["gpt"][1] + 1
-            == want_size)
+    return all((_mbr_ok(sig, want, want_size),
+                _gpt_ok(sig, want, want_size)))
 
 
 def uefi_only(sig):
     """纯 UEFI 介质：无 BIOS 腿且从未登记 MBR/GPT，没有可对齐的对象。"""
     return not sig["bios"] and not sig["mbr"] and not sig["gpt"]
+
+
+def _ok_state(sig):
+    if uefi_only(sig):
+        print("status: uefi-only")
+        return OK
+    if aligned(sig):
+        print("status: ok")
+        return OK
+    return None
 
 
 def _screen(fh):
@@ -285,31 +328,41 @@ def _screen(fh):
     if sig is None:
         return None, SKIP
     report(sig)
-    if uefi_only(sig):
-        print("status: uefi-only")
-        return None, OK
-    if aligned(sig):
-        print("status: ok")
-        return None, OK
+    early = _ok_state(sig)
+    if early is not None:
+        return None, early
     if not sig["mbr"] or not sig["gpt"]:
         print("status: mismatch")
         return None, BAD
     return sig, None
 
 
-def _patch(fh, sig, want):
-    """MBR、GPT、boot info 三处各判各的，只动对不上的那几处。"""
-    notes = []
+def _fix_mbr(fh, sig, want):
     if sig["mbr"][1] != want or sig["mbr"][2] != sig["size"]:
         patch_mbr(fh, want, sig["size"])
-        notes.append("mbr")
+        return "mbr"
+    return None
+
+
+def _fix_gpt(fh, sig, want):
     if sig["gpt"][1] != want or sig["gpt"][2] != want + sig["size"] - 1:
         patch_gpt(fh, want, sig["size"])
-        notes.append("gpt")
+        return "gpt"
+    return None
+
+
+def _fix_bip(fh, sig):
     if sig["bios"] and sig["bip"] and not bip_ok(sig["bip"], sig["bios"][0]):
         patch_bip(fh, sig["bios"][0], sig["bip"])
-        notes.append("bootinfo")
-    return notes
+        return "bootinfo"
+    return None
+
+
+def _patch(fh, sig, want):
+    """MBR、GPT、boot info 三处各判各的，只动对不上的那几处。"""
+    return [note for note in (_fix_mbr(fh, sig, want),
+                              _fix_gpt(fh, sig, want),
+                              _fix_bip(fh, sig)) if note]
 
 
 def sync(path):

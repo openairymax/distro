@@ -109,9 +109,13 @@ def hit_units(rule: Rule, units: Mapping[str, bool]) -> list[str]:
     return [name for name in units if fnmatch.fnmatchcase(name, rule.pattern)]
 
 
+def _off_rules(rules: list[Rule]) -> list[Rule]:
+    return [rule for rule in rules if rule.action == "disable"]
+
+
 def check_cover(rules: list[Rule], units: Mapping[str, bool],
                 issues: list[Issue]) -> None:
-    off = [rule for rule in rules if rule.action == "disable"]
+    off = _off_rules(rules)
     for name in sorted(units):
         if not units[name]:
             continue
@@ -165,19 +169,30 @@ def check_policy(items: list[tuple[Path, list[Rule]]]) -> list[Issue]:
     return issues
 
 
-def check_text(raw: bytes, mode: int, issues: list[Issue]) -> None:
+def _eol_issues(raw: bytes, issues: list[Issue]) -> None:
     if b"\r\n" in raw:
         issues.append(Issue("P006", 1, "CRLF line ending"))
     if b"\t" in raw:
         issues.append(Issue("P006", 1, "tab character"))
+
+
+def _end_issues(raw: bytes, issues: list[Issue]) -> None:
     if raw and not raw.endswith(b"\n"):
         issues.append(Issue("P006", 1, "missing final newline"))
     if raw.endswith(b"\n\n"):
         issues.append(Issue("P006", 1, "trailing blank line"))
-    text = raw.decode("utf-8")
+
+
+def _ws_issues(text: str, issues: list[Issue]) -> None:
     for num, line in enumerate(text.splitlines(), 1):
         if line != line.rstrip():
             issues.append(Issue("P006", num, "trailing whitespace"))
+
+
+def check_text(raw: bytes, mode: int, issues: list[Issue]) -> None:
+    _eol_issues(raw, issues)
+    _end_issues(raw, issues)
+    _ws_issues(raw.decode("utf-8"), issues)
     if mode & 0o777 != 0o644:
         issues.append(Issue("P006", 1, f"mode {mode & 0o777:04o} != 0644"))
 
@@ -201,8 +216,9 @@ def lint_file(preset: Path, units_dir: Path) -> list[Issue]:
     return scan(preset, read_units(units_dir))[1]
 
 
-def lint_dir(pdir: Path, units_dir: Path) -> list[tuple[Path, list[Issue]]]:
-    units = read_units(units_dir)
+def _scan_all(pdir: Path, units: Mapping[str, bool]
+              ) -> tuple[list[tuple[Path, list[Rule]]],
+                         list[tuple[Path, list[Issue]]]]:
     items: list[tuple[Path, list[Rule]]] = []
     out: list[tuple[Path, list[Issue]]] = []
     for preset in sorted(pdir.glob(f"*{SUFFIX}")):
@@ -210,10 +226,16 @@ def lint_dir(pdir: Path, units_dir: Path) -> list[tuple[Path, list[Issue]]]:
         if rules is not None:
             items.append((preset, rules))
         out.append((preset, issues))
-    extra = check_policy(items)
-    if not extra:
-        return out
-    anchor = next((path for path, rules in items if has_blanket(rules)), pdir)
+    return items, out
+
+
+def _anchor(items: list[tuple[Path, list[Rule]]], pdir: Path) -> Path:
+    return next((path for path, rules in items if has_blanket(rules)), pdir)
+
+
+def _attach_extra(out: list[tuple[Path, list[Issue]]],
+                  extra: list[Issue], anchor: Path
+                  ) -> list[tuple[Path, list[Issue]]]:
     for path, issues in out:
         if path == anchor:
             issues.extend(extra)
@@ -221,6 +243,15 @@ def lint_dir(pdir: Path, units_dir: Path) -> list[tuple[Path, list[Issue]]]:
             return out
     out.append((anchor, sorted(extra, key=sort_key)))
     return out
+
+
+def lint_dir(pdir: Path, units_dir: Path) -> list[tuple[Path, list[Issue]]]:
+    units = read_units(units_dir)
+    items, out = _scan_all(pdir, units)
+    extra = check_policy(items)
+    if not extra:
+        return out
+    return _attach_extra(out, extra, _anchor(items, pdir))
 
 
 def main(argv: list[str]) -> int:

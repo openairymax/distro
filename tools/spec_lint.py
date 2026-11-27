@@ -642,29 +642,47 @@ def arguments(args: list[str]) -> list[Path] | None:
     return [Path(arg) for arg in args]
 
 
-def main(argv: list[str]) -> int:
-    root = Path(__file__).resolve().parent.parent
-    targets = arguments(argv[1:])
+def _targets(args: list[str], root: Path
+             ) -> tuple[list[Path] | None, bool]:
+    targets = arguments(args)
     if targets is None:
-        return 2
-    explicit = bool(targets)
-    if not targets:
-        targets = sorted((root / "specs").rglob("*.spec"))
-    if not targets:
-        print("spec_lint: no spec file found", file=sys.stderr)
-        return 2
+        return None, False
+    if targets:
+        return targets, True
+    return sorted((root / "specs").rglob("*.spec")), False
+
+
+def _lint_all(targets: list[Path], root: Path) -> int | None:
     total = 0
     for path in targets:
         try:
             issues = lint_spec(path, root)
         except OSError as err:
             print(f"spec_lint: {err}", file=sys.stderr)
-            return 2
+            return None
         total += dump(path, issues)
+    return total
+
+
+def _shared_total(root: Path) -> int:
+    specs = [p for p in sorted(root.rglob("*.spec"))
+             if ".git" not in p.parts]
+    return dump(root / "<shared>", check_shared(specs, root))
+
+
+def main(argv: list[str]) -> int:
+    root = Path(__file__).resolve().parent.parent
+    targets, explicit = _targets(argv[1:], root)
+    if targets is None:
+        return 2
+    if not targets:
+        print("spec_lint: no spec file found", file=sys.stderr)
+        return 2
+    total = _lint_all(targets, root)
+    if total is None:
+        return 2
     if not explicit:
-        specs = [p for p in sorted(root.rglob("*.spec"))
-                 if ".git" not in p.parts]
-        total += dump(root / "<shared>", check_shared(specs, root))
+        total += _shared_total(root)
     return report("spec_lint", total)
 
 

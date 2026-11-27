@@ -93,24 +93,38 @@ def check_schema(led, base, out):
                 % (key, pol.get(key), want))
 
 
+def _pkg_absent(name, rec, out):
+    if rec.get("segment") != "五段均无":
+        bad(out, "ledger/segment", "%s absent 应标五段均无" % name)
+
+
+def _pkg_nvra(name, rec, out):
+    hit = NVRA.match(rec.get("nvra", ""))
+    if not hit or hit.group(1) != name:
+        bad(out, "ledger/nvra", "%s nvra=%s" % (name, rec.get("nvra")))
+        return None
+    return hit
+
+
+def _pkg_tag(name, rec, base, out):
+    tag = release_tag(base)
+    if tag and ".%s." % tag not in rec.get("nvra", ""):
+        bad(out, "ledger/tag", "%s nvra 不属 %s" % (name, base))
+
+
 def check_pkg(name, rec, base, out):
     state = rec.get("state", "")
     if state not in STATES:
         bad(out, "ledger/state", "%s state=%s" % (name, state))
         return
     if state == "absent":
-        if rec.get("segment") != "五段均无":
-            bad(out, "ledger/segment", "%s absent 应标五段均无" % name)
+        _pkg_absent(name, rec, out)
         return
     if rec.get("segment") not in SEGS:
         bad(out, "ledger/segment", "%s segment=%s"
             % (name, rec.get("segment")))
-    tag = release_tag(base)
-    hit = NVRA.match(rec.get("nvra", ""))
-    if not hit or hit.group(1) != name:
-        bad(out, "ledger/nvra", "%s nvra=%s" % (name, rec.get("nvra")))
-    elif tag and ".%s." % tag not in rec.get("nvra", ""):
-        bad(out, "ledger/tag", "%s nvra 不属 %s" % (name, base))
+    if _pkg_nvra(name, rec, out):
+        _pkg_tag(name, rec, base, out)
 
 
 def check_state(seen, out):
@@ -178,18 +192,30 @@ def ukui_in(groups, pres):
     return out
 
 
-def check_comps(groups, root, pres, out):
-    have = ukui_in(groups, pres)
+def _comp_have(have, pres, out):
     for name, num in have.items():
         if name not in pres:
             bad(out, "comps/phantom", "%s 不在台账 present 项" % name)
         if num > 1:
             bad(out, "comps/dup", "%s 在 %d 个组重复声明" % (name, num))
+
+
+def _comp_missing(have, pres, out):
     for name in pres:
         if name not in have:
             bad(out, "comps/missing", "%s 未进入任何组" % name)
+
+
+def _comp_closure(groups, root, pres):
     return {n for n in closure(groups, env_ids(root))
             if n.startswith("ukui") or n in pres}
+
+
+def check_comps(groups, root, pres, out):
+    have = ukui_in(groups, pres)
+    _comp_have(have, pres, out)
+    _comp_missing(have, pres, out)
+    return _comp_closure(groups, root, pres)
 
 
 def read_seeds(path):
@@ -258,22 +284,52 @@ def nvra_parts(nvra):
     return (hit.group(2), hit.group(3)) if hit else ("", "")
 
 
+def _ledger_map(pres):
+    return {c.get("name"): nvra_parts(c.get("nvra", "")) for c in pres}
+
+
+def _rebuild_ver(name, ver, lver, out):
+    if ver != lver:
+        bad(out, "ukui/version", "%s Version=%s != 台账 %s"
+            % (name, ver, lver))
+
+
+def _rebuild_rel(name, rel, lrel, out):
+    if "%" in rel or not re.fullmatch(re.escape(lrel) + r"\.airy\d+",
+                                      rel):
+        bad(out, "ukui/release", "%s Release=%s 应为 %s.airyN"
+            % (name, rel, lrel))
+
+
+def _rebuild_one(path, ledger, out):
+    name, ver, rel = read_spec(path)
+    if name not in ledger:
+        bad(out, "ukui/phantom", "%s 不在台账 present 项" % name)
+        return
+    lver, lrel = ledger[name]
+    _rebuild_ver(name, ver, lver, out)
+    _rebuild_rel(name, rel, lrel, out)
+
+
 def check_rebuild(root, pres, out):
     """重建配方必须与台账同源，Release 不得依赖不存在的 dist 宏。"""
-    ledger = {c.get("name"): nvra_parts(c.get("nvra", "")) for c in pres}
-    dirs = Path(root) / "distro/ukui-patches"
-    for path in sorted(dirs.glob("*/*.spec")):
-        name, ver, rel = read_spec(path)
-        if name not in ledger:
-            bad(out, "ukui/phantom", "%s 不在台账 present 项" % name)
-            continue
-        lver, lrel = ledger[name]
-        if ver != lver:
-            bad(out, "ukui/version", "%s Version=%s != 台账 %s"
-                % (name, ver, lver))
-        if "%" in rel or not re.fullmatch(re.escape(lrel) + r"\.airy\d+", rel):
-            bad(out, "ukui/release", "%s Release=%s 应为 %s.airyN"
-                % (name, rel, lrel))
+    ledger = _ledger_map(pres)
+    patch_dir = Path(root) / "distro/ukui-patches"
+    for path in sorted(patch_dir.glob("*/*.spec")):
+        _rebuild_one(path, ledger, out)
+
+
+def _docs_nvra(pres, text, out):
+    for rec in pres:
+        nvra = rec.get("nvra", "")
+        if nvra not in text:
+            bad(out, "docs/nvra", "%s 未逐字记录" % nvra)
+
+
+def _docs_feas(text, out):
+    for mark in ("4.24", "ukui-shell", "路线 A", "路线 B", "顺延"):
+        if mark not in text:
+            bad(out, "docs/feas", "可行性册缺少 %s" % mark)
 
 
 def check_docs(docs, pres, out):
@@ -283,16 +339,10 @@ def check_docs(docs, pres, out):
         bad(out, "docs/missing", "%s 缺少取证册" % docs)
         return
     text = delta.read_text(encoding="utf-8")
-    for rec in pres:
-        nvra = rec.get("nvra", "")
-        if nvra not in text:
-            bad(out, "docs/nvra", "%s 未逐字记录" % nvra)
+    _docs_nvra(pres, text, out)
     if "dnf -q repoquery" not in text:
         bad(out, "docs/recalc", "取证册缺少可复算命令")
-    text = feas.read_text(encoding="utf-8")
-    for mark in ("4.24", "ukui-shell", "路线 A", "路线 B", "顺延"):
-        if mark not in text:
-            bad(out, "docs/feas", "可行性册缺少 %s" % mark)
+    _docs_feas(feas.read_text(encoding="utf-8"), out)
 
 
 def locate(root):

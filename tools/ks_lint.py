@@ -353,19 +353,26 @@ def check_roots(cmds: list[Cmd], issues: list[Issue]) -> None:
             check_user(cmd, issues)
 
 
+def _url_opt(cmd: Cmd, issues: list[Issue]) -> None:
+    if cmd.name == "repo" and not has_opt(cmd.args, "--name"):
+        issues.append(Issue("K007", cmd.num, "repo without --name"))
+
+
+def _url_val(cmd: Cmd, issues: list[Issue]) -> None:
+    opt = {"url": "--url", "repo": "--baseurl"}.get(cmd.name)
+    if opt is None:
+        return
+    val = opt_val(cmd.args, opt)
+    if not val:
+        issues.append(Issue("K007", cmd.num, f"{cmd.name} without {opt}"))
+    elif not val.startswith(SCHEME):
+        issues.append(Issue("K007", cmd.num, f"insecure {cmd.name}: {val}"))
+
+
 def check_urls(cmds: list[Cmd], issues: list[Issue]) -> None:
     for cmd in cmds:
-        if cmd.name == "repo" and not has_opt(cmd.args, "--name"):
-            issues.append(Issue("K007", cmd.num, "repo without --name"))
-        opt = {"url": "--url", "repo": "--baseurl"}.get(cmd.name)
-        if opt is None:
-            continue
-        val = opt_val(cmd.args, opt)
-        if not val:
-            issues.append(Issue("K007", cmd.num, f"{cmd.name} without {opt}"))
-        elif not val.startswith(SCHEME):
-            issues.append(Issue("K007", cmd.num,
-                                f"insecure {cmd.name}: {val}"))
+        _url_opt(cmd, issues)
+        _url_val(cmd, issues)
 
 
 def pkg_names(body: list[tuple[int, str]]) -> set[str]:
@@ -373,39 +380,51 @@ def pkg_names(body: list[tuple[int, str]]) -> set[str]:
             if not line.startswith(("-", "@"))}
 
 
+def _pkg_sects(sects: list[Sect]) -> list[Sect]:
+    return [sect for sect in sects if sect.name == "packages"]
+
+
 def stock_kernel(name: str) -> bool:
     return name == KERNEL_STOCK or name.startswith(KERNEL_STOCK + "-")
 
 
-def check_kernel(sects: list[Sect], issues: list[Issue]) -> None:
-    for sect in sects:
-        if sect.name != "packages":
+def _kernel_rows(body: list[tuple[int, str]], issues: list[Issue]) -> None:
+    for num, line in body:
+        if line.startswith("-"):
             continue
-        for num, line in sect.body:
-            if line.startswith("-"):
-                continue
-            if stock_kernel(line.split(".", 1)[0]):
-                issues.append(Issue("K014", num,
-                                    f"upstream kernel package: {line}"))
-        if KERNEL_PKG not in pkg_names(sect.body):
-            issues.append(Issue("K014", sect.num,
-                                f"%packages must include {KERNEL_PKG}"))
+        if stock_kernel(line.split(".", 1)[0]):
+            issues.append(Issue("K014", num,
+                                f"upstream kernel package: {line}"))
+
+
+def _kernel_need(sect: Sect, issues: list[Issue]) -> None:
+    if KERNEL_PKG not in pkg_names(sect.body):
+        issues.append(Issue("K014", sect.num,
+                            f"%packages must include {KERNEL_PKG}"))
+
+
+def check_kernel(sects: list[Sect], issues: list[Issue]) -> None:
+    for sect in _pkg_sects(sects):
+        _kernel_rows(sect.body, issues)
+        _kernel_need(sect, issues)
+
+
+def _excl_rows(body: list[tuple[int, str]], num: int,
+               issues: list[Issue]) -> None:
+    lines = {line for _, line in body}
+    for want in UPSTREAM_EXCLUDES:
+        if want not in lines:
+            issues.append(Issue("K017", num,
+                                f"%packages must list {want}"))
 
 
 def check_excludes(sects: list[Sect], issues: list[Issue]) -> None:
-    for sect in sects:
-        if sect.name != "packages":
-            continue
-        body = {line for _, line in sect.body}
-        for want in UPSTREAM_EXCLUDES:
-            if want not in body:
-                issues.append(Issue("K017", sect.num,
-                                    f"%packages must list {want}"))
+    for sect in _pkg_sects(sects):
+        _excl_rows(sect.body, sect.num, issues)
 
 
 def pkg_set(sects: list[Sect]) -> set[str]:
-    return {line for sect in sects if sect.name == "packages"
-            for _, line in sect.body}
+    return {line for sect in _pkg_sects(sects) for _, line in sect.body}
 
 
 def repo_map(cmds: list[Cmd]) -> dict[str, Cmd]:
@@ -486,16 +505,21 @@ def check_scripts(sects: list[Sect], issues: list[Issue]) -> None:
             issues.append(Issue("K009", sect.num, "%post without --log"))
 
 
-def check_stop(cmds: list[Cmd], issues: list[Issue]) -> None:
-    stops = [cmd for cmd in cmds if cmd.name in STOP]
-    if not cmds or not stops:
-        issues.append(Issue("K010", 1, "missing reboot/poweroff"))
-        return
+def _stop_head(cmds: list[Cmd], stops: list[Cmd],
+               issues: list[Issue]) -> None:
     for cmd in stops[1:]:
         issues.append(Issue("K010", cmd.num, f"extra stop: {cmd.name}"))
     if cmds[-1].name not in STOP:
         issues.append(Issue("K010", cmds[-1].num,
                             f"{cmds[-1].name} after {stops[0].name}"))
+
+
+def check_stop(cmds: list[Cmd], issues: list[Issue]) -> None:
+    stops = [cmd for cmd in cmds if cmd.name in STOP]
+    if not cmds or not stops:
+        issues.append(Issue("K010", 1, "missing reboot/poweroff"))
+        return
+    _stop_head(cmds, stops, issues)
 
 
 def check_dup(cmds: list[Cmd], issues: list[Issue]) -> None:
