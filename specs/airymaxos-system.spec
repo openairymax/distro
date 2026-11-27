@@ -323,12 +323,12 @@ cmake -S security -B security-build -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_TESTING=OFF
 cmake --build security-build -j "$(nproc 2>/dev/null || printf '1')" \
     --target airy-landlock airy-reconcile
-# CRD 校验与规划件不依赖内核导出头，未传 AIRY_HDR_ROOT 时构建入口只跳过
-# agentctl；这里按 target 构建，产物与单测共用同一套源码。
+# CRD 校验、规划与 shim 运行时不依赖内核导出头，未传 AIRY_HDR_ROOT 时
+# 构建入口只跳过 agentctl；这里按 target 构建，产物与单测共用同一套源码。
 cmake -S cloudnative -B cloudnative-build -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_TESTING=OFF
 cmake --build cloudnative-build -j "$(nproc 2>/dev/null || printf '1')" \
-    --target airy-crdctl
+    --target airy-crdctl airy-shim
 # 会话入口与桌面共用同一份 TUI 工作区：按键判定、状态写入与渲染都在库里，
 # 三个入口只做进程边界。归档内 vendor/ 是唯一依赖来源，离线编译，构建机
 # 不访问 crates.io；CARGO_HOME 落进构建目录，避免写用户家目录。
@@ -466,6 +466,8 @@ install -m 0755 security-build/ipc/airy-reconcile \
     %{buildroot}%{_sbindir}/airy-reconcile
 install -m 0755 cloudnative-build/crd/airy-crdctl \
     %{buildroot}%{_sbindir}/airy-crdctl
+install -m 0755 cloudnative-build/shim/airy-shim \
+    %{buildroot}%{_sbindir}/airy-shim
 # 清单与示例随包落成：集群侧 apply 与人工核对都以安装后的这份为准，
 # 不在仓库外另存副本，避免两处声明各自漂移。
 install -d -m 0755 %{buildroot}%{_datadir}/airymax/crd/manifests \
@@ -492,6 +494,7 @@ uc_ok()
 test -x %{buildroot}/usr/lib/airymaxos/scripts/firstboot.sh
 test -x %{buildroot}%{_sbindir}/airy-reconcile
 test -x %{buildroot}%{_sbindir}/airy-crdctl
+test -x %{buildroot}%{_sbindir}/airy-shim
 test -x %{buildroot}/usr/lib/airymaxos/scripts/health_check.sh
 test -x %{buildroot}/usr/lib/airymaxos/scripts/boot_set.sh
 test -x %{buildroot}/usr/lib/airymaxos/scripts/ui.sh
@@ -970,6 +973,7 @@ fi
 %{_sbindir}/macro_d
 %{_sbindir}/airy-reconcile
 %{_sbindir}/airy-crdctl
+%{_sbindir}/airy-shim
 %dir %{_datadir}/airymax/crd
 %dir %{_datadir}/airymax/crd/manifests
 %dir %{_datadir}/airymax/crd/examples
