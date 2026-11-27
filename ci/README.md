@@ -66,7 +66,7 @@ lockfile 冻结点（滚动触发） × 内核 RPM（6.6-airymax.n）
 - `run-lint.sh` 是提交前静态门禁：shell 语法、源文件横幅版本一致性、配方/
   comps/kickstart 三类语义校验、systemd 启用边界与工具回归测试（Python
   标准库，无 `rpmbuild`/`mock` 依赖）；
-- `gates/rt-accept.sh` 是实时性验收门禁，必须在目标内核上执行：先跑
+- `rt-accept.sh` 是实时性验收门禁，必须在目标内核上执行：先跑
   `airy-rt-cap matrix --json` 取等级，`none` 直接拒收且不做测量，
   `ready`/`soft` 分别以 100µs/1000µs 为上限（`--hard-us`/`--soft-us`
   可覆盖，`--duration` 改测量时长）。测量优先用产品自带的 `airy-rt-lat`
