@@ -95,6 +95,11 @@ lockfile 冻结点（滚动触发） × 内核 RPM（6.6-airymax.n）
 - `../scripts/build-iso.sh --iso SRC --ks FILE --out DIR` 在发布工作区
   组装被测镜像（`mkksiso` 注入 kickstart，需 root）；产物落在源码区之外，
   构建后自校验 `/ks.cfg` 与引导配置，校验失败即拒绝交付；
+- `par_tests.py` 按模块并行执行 `tests/tools` 的规则回归，由 `run-lint.sh`
+  调用；覆盖集合与退出码语义与串行一致，只把墙钟压到最慢模块的量级；
+- `fw-preflight.sh` 在装机之前按架构预演固件扁平入口：输入是各架构内核
+  模块树请求的固件名与固件树提供的名字，回答「该架构要的固件到底在不在」，
+  由管理仓 `ci/gates/fw-preflight.sh` 在四架构内核产齐之后调用；
 - 本目录只保存矩阵定义与脚本；测试用例实现归属 tests-linux 叶子仓（TODO：
   tests-linux 侧立项后建立引用关系，避免两仓重复维护）。
 
