@@ -43,7 +43,7 @@ SCHEMA = 1
 EINVAL = 2
 ENOCMP = 3
 EBLOCK = 4
-GATE = Path(__file__).resolve().parents[2] / "ci" / "gates" / "rt-accept.sh"
+GATE = Path(__file__).resolve().parents[2] / "ci" / "rt-accept.sh"
 
 
 class Probe(Exception):

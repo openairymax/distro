@@ -23,7 +23,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-GATE = ROOT / "ci" / "gates" / "rt-accept.sh"
+GATE = ROOT / "ci" / "rt-accept.sh"
 
 
 class Base(unittest.TestCase):
