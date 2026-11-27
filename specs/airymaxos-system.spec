@@ -108,6 +108,7 @@
 # spec-lint: source-bundle ../../system/services/daemons/alert_d
 # spec-lint: source-bundle ../../security
 # spec-lint: source-bundle ../../cloudnative
+# spec-lint: source-bundle ../../cognition
 
 %global airy_version 0.0.5
 %global airy_release 1
@@ -231,6 +232,7 @@ Source105:      airy-station
 Source106:      devstation-%{version}.tar.gz
 Source107:      security-%{version}.tar.gz
 Source108:      cloudnative-%{version}.tar.gz
+Source109:      cognition-%{version}.tar.gz
 
 BuildRequires:  cargo
 BuildRequires:  cmake
@@ -288,7 +290,10 @@ declare against this boot's kernel log and keeps three states apart, so a
 driver that loaded without finding its blob is missing rather than ok and a
 file with no log line is unknown rather than loaded. The airy-rt-lat command
 measures wake-up latency from a FIFO periodic thread, so the real-time
-acceptance gate runs on a machine that only installed this package. Units
+acceptance gate runs on a machine that only installed this package. The
+airy-thinkdual command with its decision core scores task complexity and
+switches between the fast and the slow thinking modes, hot-reloading its
+policy without disturbing running tasks. Units
 are installed disabled; the installer enables them explicitly so that
 server and desktop profiles can opt out without editing the payload.
 
@@ -308,6 +313,9 @@ tar -xzf %{SOURCE107}
 # 云原生用户态只有一棵源码树：CRD 校验/规划与 JSON 读取件共用同一 CMake
 # 根，清单随包安装到固定目录，供集群侧 apply 与人工核对。
 tar -xzf %{SOURCE108}
+# 认知用户态只编 Thinkdual 一个 CLI；它经默认相对路径读取上面还原的
+# kernel/include/uapi，不复制任何 [SC] 枚举取值。
+tar -xzf %{SOURCE109}
 
 %build
 gcc %{optflags} -std=c11 -Wall -Wextra -Werror -o airy-rt-lat \
@@ -330,6 +338,12 @@ cmake -S cloudnative -B cloudnative-build -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_TESTING=OFF
 cmake --build cloudnative-build -j "$(nproc 2>/dev/null || printf '1')" \
     --target airy-crdctl airy-shim airy-cni airy-supernode
+# Thinkdual 的复杂度评分与模式判定只读 UAPI 契约头；构建入口按默认相对
+# 路径找到 %%prep 还原的 kernel/include/uapi，不传额外变量。
+cmake -S cognition/thinkdual -B cognition-build -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_TESTING=OFF
+cmake --build cognition-build -j "$(nproc 2>/dev/null || printf '1')" \
+    --target airy-thinkdual
 # 会话入口与桌面共用同一份 TUI 工作区：按键判定、状态写入与渲染都在库里，
 # 三个入口只做进程边界。归档内 vendor/ 是唯一依赖来源，离线编译，构建机
 # 不访问 crates.io；CARGO_HOME 落进构建目录，避免写用户家目录。
@@ -473,6 +487,8 @@ install -m 0755 cloudnative-build/cni/airy-cni \
     %{buildroot}%{_sbindir}/airy-cni
 install -m 0755 cloudnative-build/supernode/airy-supernode \
     %{buildroot}%{_sbindir}/airy-supernode
+install -m 0755 cognition-build/airy-thinkdual \
+    %{buildroot}%{_sbindir}/airy-thinkdual
 # 清单与示例随包落成：集群侧 apply 与人工核对都以安装后的这份为准，
 # 不在仓库外另存副本，避免两处声明各自漂移。
 install -d -m 0755 %{buildroot}%{_datadir}/airymax/crd/manifests \
@@ -502,6 +518,7 @@ test -x %{buildroot}%{_sbindir}/airy-crdctl
 test -x %{buildroot}%{_sbindir}/airy-shim
 test -x %{buildroot}%{_sbindir}/airy-cni
 test -x %{buildroot}%{_sbindir}/airy-supernode
+test -x %{buildroot}%{_sbindir}/airy-thinkdual
 test -x %{buildroot}/usr/lib/airymaxos/scripts/health_check.sh
 test -x %{buildroot}/usr/lib/airymaxos/scripts/boot_set.sh
 test -x %{buildroot}/usr/lib/airymaxos/scripts/ui.sh
@@ -983,6 +1000,7 @@ fi
 %{_sbindir}/airy-shim
 %{_sbindir}/airy-cni
 %{_sbindir}/airy-supernode
+%{_sbindir}/airy-thinkdual
 %dir %{_datadir}/airymax/crd
 %dir %{_datadir}/airymax/crd/manifests
 %dir %{_datadir}/airymax/crd/examples
