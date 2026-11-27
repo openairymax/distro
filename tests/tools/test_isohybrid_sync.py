@@ -25,7 +25,7 @@ import unittest
 import zlib
 from pathlib import Path
 
-TOOL = Path(__file__).resolve().parents[1] / "isohybrid_sync.py"
+TOOL = Path(__file__).resolve().parents[2] / "tools" / "isohybrid_sync.py"
 BLK = 2048
 SECT = 512
 UEFI_LBA = 24

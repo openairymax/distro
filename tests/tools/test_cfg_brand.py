@@ -25,7 +25,7 @@ from pathlib import Path
 
 import fakes
 
-TOOL = Path(__file__).resolve().parents[1] / "cfg_brand.py"
+TOOL = Path(__file__).resolve().parents[2] / "tools" / "cfg_brand.py"
 
 # 产品串就是 build-iso 传入的 PRETTY_NAME，短名与版本由同一规则拆出；
 # 写死某次发版的字符串会让每次升版本都要改一批与改写器无关的断言。

@@ -390,6 +390,6 @@ multi-user.target，不会触发该单元；workstation kickstart 显式 enable�
 - `glib-2.0/schemas/99-airymaxos-default.gschema.override` →
   `/usr/share/glib-2.0/schemas/`
 
-回归测试：`tools/tests/test_desktop.py` 校验源文件与配方、运行时路径三者
+回归测试：`tests/tools/test_desktop.py` 校验源文件与配方、运行时路径三者
 一致，并防止已证伪的旧机制（profile.d、gnome-background-properties、
 `org.ukui.background`、`--now`）回流。

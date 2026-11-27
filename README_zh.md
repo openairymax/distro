@@ -142,7 +142,7 @@ distro/
   `airymaxos-offline` 必须挂载且 `--baseurl` 精确为
   `file:///run/install/repo/airymax/Packages`；内核包身份要求显式安装
   `airymaxos-kernel` 且不得请求上游 `kernel`/`kernel-*`；
-- `tools/tests/` 保存上述规则与构建驱动契约的回归测试。
+- `tests/tools/` 保存上述规则与构建驱动契约的回归测试。
 
 配方在提交时校验；真实 RPM 构建只在发布工作区执行，本仓内不构建。
 

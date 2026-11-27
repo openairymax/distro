@@ -877,7 +877,7 @@ grep -qxF 'disable *' \
     %{buildroot}%{_presetdir}/99-airymax-default-disable.preset
 # 启用清单只断言格式与本包自有治理项：清单里的兄弟包单元（发行包的
 # airymax-desktop-ready、上游的 lightdm 等）在本 buildroot 内不存在，
-# 逐项存在性由源码级用例 tools/tests/test_boot_set.py 跨包核对。
+# 逐项存在性由源码级用例 tests/tools/test_boot_set.py 跨包核对。
 test -s %{buildroot}/usr/lib/airymaxos/boot-set
 ! grep -q "$(printf '\r')" %{buildroot}/usr/lib/airymaxos/boot-set
 ! grep -q "$(printf '\t')" %{buildroot}/usr/lib/airymaxos/boot-set

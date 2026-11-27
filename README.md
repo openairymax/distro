@@ -152,7 +152,7 @@ the Python 3 standard library only (no `rpmbuild`/`mock` required):
   pinned to `file:///run/install/repo/airymax/Packages`), and kernel
   package identity: `airymaxos-kernel` must be installed explicitly while
   upstream `kernel`/`kernel-*` must not be requested);
-- `tools/tests/` holds the regression tests for those rules and for the
+- `tests/tools/` holds the regression tests for those rules and for the
   build driver contract.
 
 `scripts/install-test.sh --iso PATH [--runs 3]` boots the ISO three times

@@ -7,7 +7,7 @@
 # 只依赖标准库。XML 结构由标准库解析，项目语义（组/环境标识、包名、
 # 布尔字段、组引用与嵌套环、环境到组的引用、kickstart 选择）逐项复核；
 # comps/comps.dtd 供 xmllint 的 valid 模式做 DTD 结构校验。规则编号
-# C001~C015 与 tools/tests/test_comps.py 一一对应。C015 在无 xmllint
+# C001~C015 与 tests/tools/test_comps.py 一一对应。C015 在无 xmllint
 # 的机器上也能拦住注释里的双连字符：XML 注释体不允许出现「--」，
 # 而 comps.dtd 只在具备 xmllint 时才会被真正解析（0.0.3 在 B50 上
 # 首次跑到 DTD 校验时才暴露 comps.dtd 注释里的这一处）。

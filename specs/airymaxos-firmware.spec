@@ -16,7 +16,7 @@
 #
 # 三件事各有唯一事实源，互不手抄：
 #   ① ABI：内核配方 %%(kernel_version)，本文件 %%(kernel_abi) 与之逐字一致，
-#      由 distro/tools/tests/test_fw_contract.py 断言，漂移即红；
+#      由 distro/tests/tools/test_fw_contract.py 断言，漂移即红；
 #   ② 提供包：distro/firmware/fw-manifest.txt 第一列。本文件 Requires 逐条
 #      对应，同一测试按集合对账，清单加一行而不加 Requires 同样判红；
 #   ③ 清单本体：随包落盘 /usr/share/airymaxos/firmware/fw-manifest.txt，装机
@@ -33,7 +33,7 @@
 %global airy_version 0.0.5
 %global airy_release 1
 # 内核 ABI。抬基线时只改这里与内核配方的 %%(kernel_version) 两处，同源断言
-# 保证两者不会各自漂移（tools/tests/test_fw_contract.py 的 abi 用例）。
+# 保证两者不会各自漂移（tests/tools/test_fw_contract.py 的 abi 用例）。
 %global kernel_abi 6.6.161
 
 Name:           airymaxos-firmware
@@ -138,13 +138,13 @@ test "$(cat %{buildroot}%{_datadir}/airymaxos/firmware/kernel-abi)" = \
     '%{kernel_abi}'
 # 生成器必须随包落盘且语法可解析：%%posttrans 里再发现写错，代价是一台装完
 # 没有无线的机器。这里只验形（sh -n），行为用例在
-# tools/tests/test_fw_flat.py 里用夹具树跑。
+# tests/tools/test_fw_flat.py 里用夹具树跑。
 flat='%{buildroot}%{_libexecdir}/airymaxos/fw-flat.sh'
 test -x "${flat}"
 sh -n "${flat}"
 # 豁免表是判据的分类依据，空格或半张表会让本版不支持的器件重新计成缺件。
 # 只验形：非空、每行数据行两段式、通配非空。行为用例在
-# tools/tests/test_fw_flat.py 的 exempt 组里跑。
+# tests/tools/test_fw_flat.py 的 exempt 组里跑。
 exempt='%{buildroot}%{_datadir}/airymaxos/firmware/fw-exempt.txt'
 test -s "${exempt}"
 exempt_rows=0

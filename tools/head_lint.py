@@ -25,7 +25,7 @@
 # `# Version:` 在这批文件里始终成对出现，单独存在任一都是缺陷。
 #
 # 扫描范围是本仓库自有源码目录（不含 tests/fixture 里被夹具构造的假源文件）。
-# 规则编号 H001~H002 与 tools/tests/test_head_lint.py 一一对应。
+# 规则编号 H001~H002 与 tests/tools/test_head_lint.py 一一对应。
 # 退出码：0 通过；1 存在问题；2 读取错误。
 #
 # Author: Liren Wang <wangliren@spharx.cn>

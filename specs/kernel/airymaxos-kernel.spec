@@ -73,7 +73,7 @@
 %global kernel_local -alk.%{airy_release}
 %global kernel_release %{kernel_version}%{kernel_local}
 # 固件闭包的 ABI 名。派生自 %%(kernel_version)，与 airymaxos-firmware 的
-# %%(kernel_abi) 逐字一致，由 tools/tests/test_fw_contract.py 断言。
+# %%(kernel_abi) 逐字一致，由 tests/tools/test_fw_contract.py 断言。
 %global kernel_abi %{kernel_version}
 %global ksrc %{_builddir}/airymaxos-kernel-%{kernel_version}
 %global debug_package %{nil}

@@ -20,7 +20,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
 
 import preset_lint
 
@@ -49,8 +49,7 @@ NO_INSTALL = """\
 Description=demo template
 """
 
-SPEC = (Path(__file__).resolve().parent.parent.parent
-        / "specs" / "airymaxos-system.spec")
+SPEC = (Path(__file__).resolve().parents[2] / "specs" / "airymaxos-system.spec")
 
 
 class PresetLintTest(unittest.TestCase):

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # SPDX-FileCopyrightText: 2025-2026 SPHARX Ltd.
 # ===========================================================================
-# par_tests.py — 并行执行 tools/tests 下的规则回归用例
+# par_tests.py — 并行执行 tests/tools 下的规则回归用例
 #
 # 串行跑完 626 条用例要四分多钟，而其中没有任何一个模块超过二十三秒：
 # 时间花在等子进程与轮询上，不在 CPU。逐个模块起一个解释器、按核数并行，
@@ -34,7 +34,7 @@ from pathlib import Path
 EINVAL = 5
 CAP = 4
 ROOT = Path(__file__).resolve().parent.parent
-TESTS = ROOT / "tools" / "tests"
+TESTS = ROOT / "tests" / "tools"
 RAN = re.compile(r"^Ran (\d+) tests?", re.M)
 
 
@@ -43,11 +43,11 @@ def mods() -> list[str]:
 
 
 def run_one(mod: str) -> tuple[str, int, str]:
-    # 逐个模块仍走 discover：tools/tests 没有 __init__.py，模块是以顶层名
-    # 导入的（与串行时的收集口径一致），写成 tools.tests.<mod> 会 ImportError。
+    # 逐个模块仍走 discover：tests/tools 没有 __init__.py，模块是以顶层名
+    # 导入的（与串行时的收集口径一致），写成 tests.tools.<mod> 会 ImportError。
     proc = subprocess.run(
         [sys.executable, "-m", "unittest", "discover",
-         "-s", "tools/tests", "-p", f"{mod}.py"],
+         "-s", "tests/tools", "-p", f"{mod}.py"],
         cwd=str(ROOT), capture_output=True, text=True)
     return mod, proc.returncode, proc.stdout + proc.stderr
 

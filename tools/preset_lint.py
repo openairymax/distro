@@ -17,7 +17,7 @@
 # P003~P005 只约束非兜底文件：兜底的语义就是「不表达任何单点意图」，
 # 其唯一性、内容与排序由 P007/P008 单独把关，两者不重叠。
 #
-# 规则编号 P001~P008 与 tools/tests/test_preset_lint.py 一一对应。
+# 规则编号 P001~P008 与 tests/tools/test_preset_lint.py 一一对应。
 # 退出码：0 通过；1 存在问题；2 用法或读取错误。
 #
 # Author: Decheng Li <lidecheng@spharx.cn>

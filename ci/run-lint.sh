@@ -22,7 +22,7 @@
 #      脚本先展开再判定；
 #   6. preset — 校验 presets/ 下 systemd 启用边界（tools/preset_lint.py，
 #      P001~P008，含目录级「唯一 blanket 且字典序最后」约束）；
-#   7. tests — 运行 tools/tests 下的规则回归测试。
+#   7. tests — 运行 tests/tools 下的规则回归测试。
 #
 # 分段计时不是装饰：这条门禁排在每一轮镜像组装之前，它的墙钟直接加在
 # 流水线上。没有分段时只知道「静态门禁四分钟」，无法判断该优化八百余条
