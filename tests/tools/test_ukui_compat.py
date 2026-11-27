@@ -26,8 +26,7 @@ import unittest
 from pathlib import Path
 
 DISTRO = Path(__file__).resolve().parents[2]
-ROOT = DISTRO.parent
-TOOL = ROOT / "system" / "scripts" / "ukui_compat.sh"
+TOOL = DISTRO / "scripts" / "ukui_compat.sh"
 SPEC = DISTRO / "specs" / "airymaxos-system.spec"
 
 
