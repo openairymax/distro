@@ -293,7 +293,10 @@ measures wake-up latency from a FIFO periodic thread, so the real-time
 acceptance gate runs on a machine that only installed this package. The
 airy-thinkdual command with its decision core scores task complexity and
 switches between the fast and the slow thinking modes, hot-reloading its
-policy without disturbing running tasks. Units
+policy without disturbing running tasks. The airy-cogflow command runs the
+three-phase cognitive loop on top of that decision, guarding plan depth and
+permissions, compensating completed nodes on failure and retrying at most
+once before recording the outcome. Units
 are installed disabled; the installer enables them explicitly so that
 server and desktop profiles can opt out without editing the payload.
 
@@ -344,6 +347,12 @@ cmake -S cognition/thinkdual -B cognition-build -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_TESTING=OFF
 cmake --build cognition-build -j "$(nproc 2>/dev/null || printf '1')" \
     --target airy-thinkdual
+# 认知数据流在同一棵契约树上复用 td 静态库，构建入口自行以相对路径找到
+# %%prep 还原的 kernel/include/uapi；先装上游再装下游，避免并行目标竞争。
+cmake -S cognition/flow -B cognition-flow-build -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_TESTING=OFF
+cmake --build cognition-flow-build -j "$(nproc 2>/dev/null || printf '1')" \
+    --target airy-cogflow
 # 会话入口与桌面共用同一份 TUI 工作区：按键判定、状态写入与渲染都在库里，
 # 三个入口只做进程边界。归档内 vendor/ 是唯一依赖来源，离线编译，构建机
 # 不访问 crates.io；CARGO_HOME 落进构建目录，避免写用户家目录。
@@ -489,6 +498,8 @@ install -m 0755 cloudnative-build/supernode/airy-supernode \
     %{buildroot}%{_sbindir}/airy-supernode
 install -m 0755 cognition-build/airy-thinkdual \
     %{buildroot}%{_sbindir}/airy-thinkdual
+install -m 0755 cognition-flow-build/airy-cogflow \
+    %{buildroot}%{_sbindir}/airy-cogflow
 # 清单与示例随包落成：集群侧 apply 与人工核对都以安装后的这份为准，
 # 不在仓库外另存副本，避免两处声明各自漂移。
 install -d -m 0755 %{buildroot}%{_datadir}/airymax/crd/manifests \
@@ -519,6 +530,7 @@ test -x %{buildroot}%{_sbindir}/airy-shim
 test -x %{buildroot}%{_sbindir}/airy-cni
 test -x %{buildroot}%{_sbindir}/airy-supernode
 test -x %{buildroot}%{_sbindir}/airy-thinkdual
+test -x %{buildroot}%{_sbindir}/airy-cogflow
 test -x %{buildroot}/usr/lib/airymaxos/scripts/health_check.sh
 test -x %{buildroot}/usr/lib/airymaxos/scripts/boot_set.sh
 test -x %{buildroot}/usr/lib/airymaxos/scripts/ui.sh
@@ -1001,6 +1013,7 @@ fi
 %{_sbindir}/airy-cni
 %{_sbindir}/airy-supernode
 %{_sbindir}/airy-thinkdual
+%{_sbindir}/airy-cogflow
 %dir %{_datadir}/airymax/crd
 %dir %{_datadir}/airymax/crd/manifests
 %dir %{_datadir}/airymax/crd/examples
