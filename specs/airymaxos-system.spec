@@ -107,6 +107,7 @@
 # spec-lint: source-bundle ../../system/ops/devstation
 # spec-lint: source-bundle ../../system/services/daemons/alert_d
 # spec-lint: source-bundle ../../security
+# spec-lint: source-bundle ../../cloudnative
 
 %global airy_version 0.0.5
 %global airy_release 1
@@ -229,6 +230,7 @@ Source104:      memory-%{version}.tar.gz
 Source105:      airy-station
 Source106:      devstation-%{version}.tar.gz
 Source107:      security-%{version}.tar.gz
+Source108:      cloudnative-%{version}.tar.gz
 
 BuildRequires:  cargo
 BuildRequires:  cmake
@@ -303,6 +305,9 @@ tar -xzf %{SOURCE88}
 # 同一个 CMake 根：整目录交付后，出树构建一次编出两个 CLI，避免为每个子目录
 # 各维护一份构建入口。
 tar -xzf %{SOURCE107}
+# 云原生用户态只有一棵源码树：CRD 校验/规划与 JSON 读取件共用同一 CMake
+# 根，清单随包安装到固定目录，供集群侧 apply 与人工核对。
+tar -xzf %{SOURCE108}
 
 %build
 gcc %{optflags} -std=c11 -Wall -Wextra -Werror -o airy-rt-lat \
@@ -318,6 +323,12 @@ cmake -S security -B security-build -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_TESTING=OFF
 cmake --build security-build -j "$(nproc 2>/dev/null || printf '1')" \
     --target airy-landlock airy-reconcile
+# CRD 校验与规划件不依赖内核导出头，未传 AIRY_HDR_ROOT 时构建入口只跳过
+# agentctl；这里按 target 构建，产物与单测共用同一套源码。
+cmake -S cloudnative -B cloudnative-build -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_TESTING=OFF
+cmake --build cloudnative-build -j "$(nproc 2>/dev/null || printf '1')" \
+    --target airy-crdctl
 # 会话入口与桌面共用同一份 TUI 工作区：按键判定、状态写入与渲染都在库里，
 # 三个入口只做进程边界。归档内 vendor/ 是唯一依赖来源，离线编译，构建机
 # 不访问 crates.io；CARGO_HOME 落进构建目录，避免写用户家目录。
@@ -453,6 +464,16 @@ install -m 0755 services-build/daemons/config_d/config_d \
     services-build/daemons/macro_d/macro_d %{buildroot}%{_sbindir}/
 install -m 0755 security-build/ipc/airy-reconcile \
     %{buildroot}%{_sbindir}/airy-reconcile
+install -m 0755 cloudnative-build/crd/airy-crdctl \
+    %{buildroot}%{_sbindir}/airy-crdctl
+# 清单与示例随包落成：集群侧 apply 与人工核对都以安装后的这份为准，
+# 不在仓库外另存副本，避免两处声明各自漂移。
+install -d -m 0755 %{buildroot}%{_datadir}/airymax/crd/manifests \
+    %{buildroot}%{_datadir}/airymax/crd/examples
+install -m 0644 cloudnative/crd/manifests/*.yaml \
+    %{buildroot}%{_datadir}/airymax/crd/manifests/
+install -m 0644 cloudnative/crd/examples/*.yaml \
+    %{buildroot}%{_datadir}/airymax/crd/examples/
 install -m 0640 services/daemons/config_d/etc/agentrt.conf \
     services/daemons/logger_d/etc/logger.conf \
     services/daemons/macro_d/etc/macro-superv.conf \
@@ -470,6 +491,7 @@ uc_ok()
 }
 test -x %{buildroot}/usr/lib/airymaxos/scripts/firstboot.sh
 test -x %{buildroot}%{_sbindir}/airy-reconcile
+test -x %{buildroot}%{_sbindir}/airy-crdctl
 test -x %{buildroot}/usr/lib/airymaxos/scripts/health_check.sh
 test -x %{buildroot}/usr/lib/airymaxos/scripts/boot_set.sh
 test -x %{buildroot}/usr/lib/airymaxos/scripts/ui.sh
@@ -947,6 +969,12 @@ fi
 %{_sbindir}/logger_d
 %{_sbindir}/macro_d
 %{_sbindir}/airy-reconcile
+%{_sbindir}/airy-crdctl
+%dir %{_datadir}/airymax/crd
+%dir %{_datadir}/airymax/crd/manifests
+%dir %{_datadir}/airymax/crd/examples
+%{_datadir}/airymax/crd/manifests/*.yaml
+%{_datadir}/airymax/crd/examples/*.yaml
 %attr(0640, root, airy) %config(noreplace) %{_sysconfdir}/agentrt/agentrt.conf
 %attr(0640, root, airy) %config(noreplace) %{_sysconfdir}/agentrt/logger.conf
 %attr(0640, root, airy) %config(noreplace) %{_sysconfdir}/agentrt/devstation.conf
