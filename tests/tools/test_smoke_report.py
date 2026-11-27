@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # SPDX-FileCopyrightText: 2025-2026 SPHARX Ltd.
 # ===========================================================================
-# test_smoke_report.py — ci/fixture/airymax-smoke-report.sh 契约回归测试
+# test_smoke_report.py — ci/fixtures/airymax-smoke-report.sh 契约回归测试
 #
 # 该脚本是验收 ISO 唯一的串口判定者：产品就绪单元在验收安装中被 mask，
 # 因此 TAP 结论、关键链转发与失败单元记账都只在这里发生。脚本运行于已
@@ -23,7 +23,7 @@ from pathlib import Path
 
 import fakes
 
-SCRIPT = (Path(__file__).resolve().parents[2] / "ci" / "fixture" /
+SCRIPT = (Path(__file__).resolve().parents[2] / "ci" / "fixtures" /
           "airymax-smoke-report.sh")
 BOOT_STATE = Path(__file__).resolve().parents[2] / "desktop" / "boot_state.sh"
 CON = Path(__file__).resolve().parents[2].parent / "system" / "scripts" / "con.sh"

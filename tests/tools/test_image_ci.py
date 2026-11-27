@@ -416,7 +416,7 @@ class ImageCiTest(unittest.TestCase):
         iso = self.out / "desktop" / "iso" / ISO_NAME
         body = fakes.iso_payload(iso)
         self.assertIn(b"=== /run-smoke.sh", body)
-        self.assertIn(b"=== /fixture/airymax-smoke-run.sh", body)
+        self.assertIn(b"=== /fixtures/airymax-smoke-run.sh", body)
 
     def test_acceptance_smoke_fail(self):
         self.tools(desk=True)
@@ -571,7 +571,7 @@ class AcceptFixtureTest(unittest.TestCase):
     NEED = re.compile(r"\$\{SELF_DIR\}/([A-Za-z0-9._-]+)")
 
     def test_payload_installed(self):
-        part = DISTRO / "ci" / "ks" / "acceptance.part"
+        part = DISTRO / "ci" / "kickstart" / "acceptance.part"
         adds = self.ADD.findall(SCRIPT.read_text(encoding="utf-8"))
         self.assertTrue(adds, "accept_ks 未声明任何载荷")
         copied = set(self.COPY.findall(part.read_text(encoding="utf-8")))
@@ -595,7 +595,7 @@ class AcceptFixtureTest(unittest.TestCase):
         夹具既没入 ISO 也没装进系统，三条腿在 T1 同时判「无法取证」。
         故以脚本自身的读取点为第三方事实源，缺一即失败。
         """
-        part = DISTRO / "ci" / "ks" / "acceptance.part"
+        part = DISTRO / "ci" / "kickstart" / "acceptance.part"
         needs = set(self.NEED.findall(
             (DISTRO / "ci" / "run-smoke.sh").read_text(encoding="utf-8")))
         self.assertIn("err-budget", needs)

@@ -110,10 +110,10 @@ ci/run-image-ci.sh --out /out --iso-base /path/netinst.iso \
 
 `--acceptance` 仅支持 desktop，与 `--ks` 互斥，且必须提供 `--iso-base`：
 
-1. `tools/gen_accept_ks.py` 把 `ci/ks/acceptance.part` 插入产品配方最后
+1. `tools/gen_accept_ks.py` 把 `ci/kickstart/acceptance.part` 插入产品配方最后
    一个顶层 stop 命令之前，结果写 `OUT/acceptance/airymaxos-acceptance.ks`；
    源码区配方不被修改，重复叠加会被拒绝；
-2. `--add` 注入 `run-smoke.sh` 与 `fixture/`，`%post --nochroot` 从安装
+2. `--add` 注入 `run-smoke.sh` 与 `fixtures/`，`%post --nochroot` 从安装
    介质复制到 `/usr/lib/airymaxos/ci/`；
 3. autologin 进入 UKUI 后由 XDG autostart 运行
    `airymax-smoke-run.sh`，TAP 原子写入 `/var/log/airymax/smoke.tap`；

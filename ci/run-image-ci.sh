@@ -336,7 +336,7 @@ accept_ks()
     mkdir -p "${OUT}/acceptance" || die "无法创建验收产物目录"
     python3 "${DISTRO_ROOT}/tools/gen_accept_ks.py" \
         --base "${KS}" \
-        --overlay "${DISTRO_ROOT}/ci/ks/acceptance.part" \
+        --overlay "${DISTRO_ROOT}/ci/kickstart/acceptance.part" \
         --out "${out}" || die "无法生成验收 kickstart"
     KS="${out}"
     ADDS+=("${DISTRO_ROOT}/ci/run-smoke.sh")
@@ -346,7 +346,7 @@ accept_ks()
     # T1 的会话组件基线同理：判据来自这份名单，缺文件时脚本只能判「无法
     # 取证」。两处声明（此处与 ks 片段的安装清单）由 AcceptFixtureTest 对账。
     ADDS+=("${DISTRO_ROOT}/ci/session-baseline.txt")
-    ADDS+=("${DISTRO_ROOT}/ci/fixture")
+    ADDS+=("${DISTRO_ROOT}/ci/fixtures")
 }
 
 tap_ok()

@@ -709,7 +709,7 @@ stage_own()
 # 三张表各取各自的事实源，本函数不持有第四份编号表。
 stage_want()
 {
-    local ks="${DISTRO_ROOT}/ci/ks/acceptance.part"
+    local ks="${DISTRO_ROOT}/ci/kickstart/acceptance.part"
 
     [ "$(airy_profile)" -eq 1 ] || {
         stage_table

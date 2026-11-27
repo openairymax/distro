@@ -23,24 +23,24 @@ install -m 0644 /run/install/repo/err-budget \
 #    判据的事实源，不是可选的说明文件。
 install -m 0644 /run/install/repo/session-baseline.txt \
     "${root}/usr/lib/airymaxos/ci/session-baseline.txt"
-install -m 0755 /run/install/repo/fixture/airymax-smoke-run.sh \
+install -m 0755 /run/install/repo/fixtures/airymax-smoke-run.sh \
     "${root}/usr/lib/airymaxos/ci/airymax-smoke-run.sh"
-install -m 0755 /run/install/repo/fixture/airymax-smoke-report.sh \
+install -m 0755 /run/install/repo/fixtures/airymax-smoke-report.sh \
     "${root}/usr/lib/airymaxos/ci/airymax-smoke-report.sh"
-install -m 0644 /run/install/repo/fixture/airymax-smoke-report.service \
+install -m 0644 /run/install/repo/fixtures/airymax-smoke-report.service \
     "${root}/usr/lib/systemd/system/airymax-smoke-report.service"
-install -m 0755 /run/install/repo/fixture/airymax-alive.sh \
+install -m 0755 /run/install/repo/fixtures/airymax-alive.sh \
     "${root}/usr/lib/airymaxos/ci/airymax-alive.sh"
-install -m 0644 /run/install/repo/fixture/airymax-alive.service \
+install -m 0644 /run/install/repo/fixtures/airymax-alive.service \
     "${root}/usr/lib/systemd/system/airymax-alive.service"
-install -m 0644 /run/install/repo/fixture/airymax-alive.timer \
+install -m 0644 /run/install/repo/fixtures/airymax-alive.timer \
     "${root}/usr/lib/systemd/system/airymax-alive.timer"
 #    会话管理器取证：lightdm 反复崩溃时，寄存器转储只有库内偏移。这里在
 #    它之前起一个观察者，逐实例把可执行段落串口，转储里的 PID 才对得上
 #    地址空间。正常启动时它只打一行 armed，取满三个实例即收手。
-install -m 0755 /run/install/repo/fixture/airymax-dm-watch.sh \
+install -m 0755 /run/install/repo/fixtures/airymax-dm-watch.sh \
     "${root}/usr/lib/airymaxos/ci/airymax-dm-watch.sh"
-install -m 0644 /run/install/repo/fixture/airymax-dm-watch.service \
+install -m 0644 /run/install/repo/fixtures/airymax-dm-watch.service \
     "${root}/usr/lib/systemd/system/airymax-dm-watch.service"
 %end
 

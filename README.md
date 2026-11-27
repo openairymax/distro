@@ -122,7 +122,14 @@ distro/
 │   ├── build-rpms.sh              # Batch RPM build driver (output outside source tree)
 │   └── install-test.sh            # Unattended install x3 (TAP, QEMU)
 └── ci/
-    ├── README.md                  # Smoke matrix (T1-T4 + X1)
+    ├── README.md                  # Smoke matrix (T1-T31 + X1) and gate usage
+    ├── err-budget                 # Boot-err ratchet baseline (T23)
+    ├── session-baseline.txt       # UKUI session component baseline (T1)
+    ├── fixtures/                  # Acceptance payload: units + in-session scripts
+    ├── fw-preflight.sh            # Per-arch firmware coverage dry run
+    ├── kickstart/                 # Acceptance kickstart overlay fragment
+    ├── par_tests.py               # Parallel runner for the tools rule tests
+    ├── rt-accept.sh               # Realtime acceptance gate (target kernel)
     ├── run-image-ci.sh            # Image gate: five-stage orchestration (minimal/desktop)
     ├── run-lint.sh                # Static gate: syntax + header + spec/comps/ks + tests
     └── run-smoke.sh               # Smoke runner (TAP)

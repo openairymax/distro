@@ -27,7 +27,7 @@ import ks_lint  # noqa: E402
 SCRIPT = TOOLS / "gen_accept_ks.py"
 DISTRO = TOOLS.parent
 BASE = DISTRO / "kickstart" / "airymaxos-workstation.ks"
-PART = DISTRO / "ci" / "ks" / "acceptance.part"
+PART = DISTRO / "ci" / "kickstart" / "acceptance.part"
 PYTHON = sys.executable
 
 
